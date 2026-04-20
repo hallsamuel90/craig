@@ -1,0 +1,4 @@
+interface:
+  display_name: "Craig RFC Writing"
+  short_description: "Draft and revise Craig repo RFCs"
+  default_prompt: "Use $craig-rfc-writing to draft or revise an implementation-facing RFC for this repo."

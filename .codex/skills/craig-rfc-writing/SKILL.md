@@ -1,9 +1,9 @@
 ---
-name: life-ops-rfc-writing
-description: Draft or revise implementation-facing RFCs for the Life Ops repo. Use when Codex needs to create an RFC in docs/rfcs, turn product intent into a concrete implementation plan, or update an existing RFC to match this repo's naming, rollout, and handoff conventions.
+name: craig-rfc-writing
+description: Draft or revise implementation-facing RFCs for the Craig repo. Use when Codex needs to create an RFC in docs/rfcs, turn product intent into a concrete implementation plan, or update an existing RFC to match this repo's naming, rollout, and handoff conventions.
 ---
 
-# Life Ops RFC Writing
+# Craig RFC Writing
 
 Read `docs/rfcs/README.md` before writing.
 
