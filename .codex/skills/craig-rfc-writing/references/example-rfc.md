@@ -1,6 +1,6 @@
 # Example RFC
 
-Use this example as a style and specificity reference for Muscat RFCs. It is not a required template, but it shows the expected level of implementation detail, rollout planning, and concrete decision-making.
+Use this example as a style and specificity reference for Craig RFCs. It is not a required template, but it shows the expected level of implementation detail, rollout planning, and concrete decision-making.
 
 Source: user-provided example adapted from Loopr.
 
@@ -35,6 +35,6 @@ Source: user-provided example adapted from Loopr.
 
 ## What not to cargo-cult
 
-- Do not copy Loopr-specific domains, AWS choices, or billing assumptions into Muscat RFCs unless the Muscat feature actually needs them.
-- Do not preserve the exact section depth from the example when the Muscat feature is smaller.
+- Do not copy Loopr-specific domains, AWS choices, or billing assumptions into Craig RFCs unless the Craig feature actually needs them.
+- Do not preserve the exact section depth from the example when the Craig feature is smaller.
 - Do not leave generic placeholders where the RFC should make a concrete call.
