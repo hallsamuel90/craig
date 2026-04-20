@@ -1,4 +1,0 @@
-interface:
-  display_name: "Life Ops RFC Writing"
-  short_description: "Draft and revise Life Ops repo RFCs"
-  default_prompt: "Use $life-ops-rfc-writing to draft or revise an implementation-facing RFC for this repo."
