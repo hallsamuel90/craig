@@ -1,11 +1,12 @@
----
-Title: RFC: Craig Local Control Plane
-Status: In Flight
-Author: Codex
-Date: 2026-04-20
+# RFC: Craig Local Control Plane
+
+- **Date:** 2026-04-20
+- **Status:** In Flight
+- **Author:** Codex
+
 ---
 
-# Context and goals
+## Context and goals
 
 Craig is a terminal-first local control plane for agent runners. It is not a model, chatbot, hosted system, or replacement for runner CLIs. In this RFC, Craig is the local system that coordinates repo-backed development work on top of Cursor CLI first and Codex CLI later.
 
@@ -29,7 +30,7 @@ Goals for this RFC:
 - define a runner abstraction that supports Cursor first and Codex second without over-generalizing for unsupported runners
 - keep the interactive REPL as the primary UX and command mode as a thin wrapper over the same application services
 
-# Non-goals
+## Non-goals
 
 - supporting Claude Code in this RFC
 - building hosted sync, remote coordination, or multi-user state
@@ -38,9 +39,11 @@ Goals for this RFC:
 - shipping a rich TUI dashboard before the core repo-task loop works end to end
 - abstracting every possible runner capability up front
 
-# Proposal
+---
 
-## System model
+## Proposal
+
+### System model
 
 Craig is a local CLI application with three layers:
 
@@ -61,7 +64,7 @@ The primary operating model is:
 
 Craig is interactive-first. Command mode exists for scripts and direct invocations, but it must call the same service layer and produce the same task-state side effects as the REPL.
 
-## Control plane responsibilities
+### Control plane responsibilities
 
 The control plane exposes application services such as:
 
@@ -80,7 +83,7 @@ The control plane exposes application services such as:
 
 The control plane owns lifecycle transitions and state updates. It does not infer task readiness solely from git cleanliness or passing checks. Commands must update both the underlying system state and the durable Craig task record.
 
-## Runner model
+### Runner model
 
 Runner adapters implement a deliberately narrow contract:
 
@@ -94,7 +97,7 @@ Runner adapters implement a deliberately narrow contract:
 
 Phase 1 includes only the Cursor adapter. Phase 2 adds Codex on the same task model. The interface is shaped by what Cursor and planned Codex integration both need, not by hypothetical future runners. Craig owns task lifecycle and state transitions; runners report launch success, exit status, and capability metadata.
 
-## State model and filesystem layout
+### State model and filesystem layout
 
 Craig stores durable local state under:
 
@@ -127,7 +130,7 @@ State model decisions:
 - worktrees should live under `.craig/worktrees/` when git supports that layout cleanly; if git requires or benefits from an external path, the resolved path must be stored explicitly in the task record
 - JSON writes should be atomic to prevent corruption on interruption
 
-## Task lifecycle
+### Task lifecycle
 
 Craig owns this repo-task lifecycle:
 
@@ -152,7 +155,7 @@ Lifecycle transition decisions:
 - `merge <id>` is allowed only from `merge_ready` and transitions to `merged` only after the underlying GitHub merge succeeds
 - Craig must block invalid transitions by default, such as merge before checks, PR creation before commit, or commit with no diff, unless a later implementation explicitly adds override flags
 
-## CLI surfaces
+### CLI surfaces
 
 The primary interface is the `craig` REPL with these commands:
 
@@ -194,7 +197,7 @@ Boot experience decisions:
 - the banner styling should work in common ANSI-capable terminals without requiring a custom font or truecolor-only features
 - supporting text under the banner should stay visually subordinate to the green ASCII mark so the boot experience reads as one branded unit
 
-## tmux execution model
+### tmux execution model
 
 Craig uses tmux as the execution/session layer and runs inside tmux session `craig`. Each task maps to exactly one tmux target.
 
@@ -210,7 +213,7 @@ tmux decisions:
 - losing a pane title, renaming a window, or manually moving windows must not erase Craig task metadata
 - `focus <id>` switches the user to the mapped tmux target
 
-## Phase 1 developer workflow
+### Phase 1 developer workflow
 
 Phase 1 must support this repo-task flow end to end:
 
@@ -230,7 +233,7 @@ Phase 1 must support this repo-task flow end to end:
 
 Craig should treat these steps as one connected system. Users should not need ad hoc shell scripting for the normal repo-task workflow.
 
-## Deferred capabilities and explicit exclusions
+### Deferred capabilities and explicit exclusions
 
 Phase 1 is limited to repo tasks plus Cursor. The following remain deferred or excluded:
 
@@ -240,15 +243,15 @@ Phase 1 is limited to repo tasks plus Cursor. The following remain deferred or e
 - Claude Code is explicitly out of scope
 - hosted services, daemons, remote sync, and database-backed state are out of scope
 
-## Open questions
+### Open questions
 
 - What is the minimal stable Cursor invocation contract Craig can depend on across local environments?
 - Should `commit <id>` synthesize commit messages from task artifacts, runner output, or user prompts by default?
 - Which PR merge strategy should Craig default to when multiple GitHub merge methods are allowed for the repo?
 
-# Implementation tracker
+## Implementation tracker
 
-## Status summary
+### Status summary
 
 - `1.1` Bootstrap CLI shell, state store, and REPL scaffolding: `pending`
 - `1.2` Repo task creation with worktree, branch, tmux, and Cursor launch: `pending`
@@ -258,21 +261,21 @@ Phase 1 is limited to repo tasks plus Cursor. The following remain deferred or e
 - `3.1` General tasks and scheduled jobs: `pending`
 - `4.1` Rich TUI and orchestration visibility: `pending`
 
-## Verification summary
+### Verification summary
 
 - No sub-phases verified yet.
 
-## Next resume point
+### Next resume point
 
 Resume at the first sub-phase that is not both implemented and verified. The current resume point is `1.1`. If a later session partially completes `1.1`, update this tracker and keep `1.1` as the resume point until both implementation and verification are complete.
 
-## Deferred phases
+### Deferred phases
 
 - `2.1` Deferred until the Cursor vertical slice validates the shared runner boundary.
 - `3.1` Deferred until repo tasks are end-to-end complete.
 - `4.1` Deferred until the control plane is stable enough to justify richer UI investment.
 
-## Phase execution and verification policy
+### Phase execution and verification policy
 
 Each sub-phase is complete only when:
 
@@ -283,11 +286,11 @@ Each sub-phase is complete only when:
 
 Every implementation session must resume from the first sub-phase that is not both implemented and verified. Skipped or intentionally deferred work must be recorded explicitly rather than implied.
 
-# API and data model changes
+## API and data model changes
 
 The external API surface in Phase 1 is the CLI command contract. There is no network API in this RFC.
 
-## CLI command contract
+### CLI command contract
 
 Interactive commands:
 
@@ -311,7 +314,7 @@ Command mode examples:
 - `craig task pr <id> --watch`
 - `craig task merge <id>`
 
-## Task record contract
+### Task record contract
 
 Initial task record schema contract:
 
@@ -384,7 +387,7 @@ Required task record fields:
 - artifact references
 - creation and update timestamps
 
-## Runner adapter contract
+### Runner adapter contract
 
 Runner adapters must implement:
 
@@ -394,7 +397,7 @@ Runner adapters must implement:
 - `stop(task, context)`
 - `collectArtifacts(task, context)`
 
-## State directory contract
+### State directory contract
 
 Craig introduces:
 
@@ -405,7 +408,7 @@ Craig introduces:
 - `.craig/artifacts/<task-id>/...`
 - `.craig/worktrees/<task-id>/...` or a resolved external path recorded in the task record
 
-## Check execution contract
+### Check execution contract
 
 Phase 1 check commands come from Craig repo configuration.
 
@@ -414,7 +417,7 @@ Phase 1 check commands come from Craig repo configuration.
 - if no check commands are configured, `check <id>` fails with a clear configuration error and the task remains in `review`
 - a task may enter `checked` only when every configured check command exits successfully
 
-## Pull request contract
+### Pull request contract
 
 Craig owns pull request bookkeeping for Phase 1 using GitHub CLI.
 
@@ -424,7 +427,7 @@ Craig owns pull request bookkeeping for Phase 1 using GitHub CLI.
 - `show <id>` and `list` surface the latest known PR and CI status so the user can see when a task is ready to merge
 - `merge <id>` refreshes PR state immediately before merging and fails closed if the PR is not mergeable or any required check is not green
 
-## Lifecycle status contract
+### Lifecycle status contract
 
 Task lifecycle statuses in scope for Phase 1:
 
@@ -436,7 +439,7 @@ Task lifecycle statuses in scope for Phase 1:
 - `merge_ready`
 - `merged`
 
-# Edge cases and failure modes
+## Edge cases and failure modes
 
 - git worktree creation fails because of dirty or incompatible repo state: Craig stops task creation, records the failure, and leaves no partial task marked as running
 - branch creation collides with an existing `craig/<task-id>` reference: Craig allocates a new task id and retries before surfacing failure
@@ -450,7 +453,7 @@ Task lifecycle statuses in scope for Phase 1:
 - GitHub marks the PR unmergeable because the branch is behind or has conflicts: Craig surfaces the reason, keeps the task out of `merge_ready`, and requires the user to update the branch before retrying merge
 - merge succeeds but cleanup fails: Craig records the task as `merged` with a cleanup warning instead of downgrading merge state
 
-# Security and privacy
+## Security and privacy
 
 Craig is local-only, but it still manages potentially sensitive code, prompts, and command output.
 
@@ -461,7 +464,7 @@ Craig is local-only, but it still manages potentially sensitive code, prompts, a
 - GitHub CLI authentication and PR metadata access should use the user’s existing local auth context and avoid storing tokens inside `.craig/`
 - runner adapters should pass through only the environment variables they need rather than inheriting an unconstrained environment by default
 
-# Observability
+## Observability
 
 Craig needs local observability rather than fleet telemetry.
 
@@ -479,51 +482,51 @@ Manual success indicators for early implementation:
 - successful idea-to-merge runs without manual shell intervention
 - cleanup success rate for completed tasks
 
-# Rollout plan
+## Rollout plan
 
-## Phase 1: Cursor dev workflow vertical slice
+### Phase 1: Cursor dev workflow vertical slice
 
-### 1.1 Bootstrap CLI shell, state store, and REPL scaffolding
+#### 1.1 Bootstrap CLI shell, state store, and REPL scaffolding
 
 Deliver a `craig` executable that initializes `.craig/`, renders the boot experience, loads config, and dispatches shared control-plane services from both REPL and command mode.
 
-### 1.2 Repo task creation with worktree, branch, tmux, and Cursor launch
+#### 1.2 Repo task creation with worktree, branch, tmux, and Cursor launch
 
 Deliver end-to-end task creation for repo tasks on Cursor, including task ids, branch creation, worktree provisioning, tmux target creation, runner launch, and durable task records.
 
-### 1.3 Task inspection, logs, diff, and focus/open flows
+#### 1.3 Task inspection, logs, diff, and focus/open flows
 
 Deliver the command surface needed to observe and navigate active tasks without leaving Craig.
 
-### 1.4 Checks, commit, PR creation, CI tracking, merge, and cleanup
+#### 1.4 Checks, commit, PR creation, CI tracking, merge, and cleanup
 
 Deliver the rest of the developer loop so a user can go from generated code to opened PR, green CI, and merged change from inside Craig.
 
-## Phase 2: Codex vertical slice
+### Phase 2: Codex vertical slice
 
-### 2.1 Codex runner adapter on the same task model
+#### 2.1 Codex runner adapter on the same task model
 
 Add a Codex runner adapter with the same task lifecycle, artifact model, and command behavior, validating that the runner boundary is real.
 
-## Phase 3: General tasks and jobs
+### Phase 3: General tasks and jobs
 
-### 3.1 General tasks and scheduled jobs
+#### 3.1 General tasks and scheduled jobs
 
 Expand beyond repo tasks into general tasks and recurring jobs while reusing the existing control-plane and artifact model where possible.
 
-## Phase 4: Rich UX
+### Phase 4: Rich UX
 
-### 4.1 Rich TUI and orchestration visibility
+#### 4.1 Rich TUI and orchestration visibility
 
 Add richer dashboards, status panes, and orchestration views after the workflow model is proven.
 
 Later phases may add prompt templating, richer artifact browsers, policy hooks for checks and merge strategy, and other UX improvements, but they do not change the Phase 1 requirement to prove the full Cursor-based repo-task workflow first.
 
-# Plan Mode handoff checklist and acceptance criteria
+## Plan Mode handoff checklist and acceptance criteria
 
-## 1.1 Handoff
+### 1.1 Handoff
 
-### Implementation
+#### Implementation
 
 - Add a `craig` CLI entrypoint and boot sequence.
 - Initialize `.craig/` and `index.json` on first run.
@@ -531,20 +534,20 @@ Later phases may add prompt templating, richer artifact browsers, policy hooks f
 - Render the boot banner in slime-green or matrix-green terminal styling and include the current workspace summary.
 - Define the base task record schema and atomic JSON write helpers.
 
-### Verification
+#### Verification
 
 - Run unit coverage for state initialization and command dispatch.
 - Manually verify `craig` launches into the REPL in a repo without `.craig/`.
 - Manually verify `craig task list` and `list` both hit the same logic path.
 
-### Tracking update
+#### Tracking update
 
 - Mark `1.1` implemented and verified only after the CLI entrypoint, state initialization, and shared dispatch are all working.
 - If banner rendering lands without shared dispatch, leave `1.1` in progress and note the gap.
 
-## 1.2 Handoff
+### 1.2 Handoff
 
-### Implementation
+#### Implementation
 
 - Implement task-id allocation and repo-task creation flow.
 - Create git worktrees and `craig/<task-id>` branches.
@@ -552,40 +555,40 @@ Later phases may add prompt templating, richer artifact browsers, policy hooks f
 - Implement the Cursor runner adapter and launch flow.
 - Persist worktree path, branch, tmux target, and runner metadata into the task record.
 
-### Verification
+#### Verification
 
 - Run automated tests around task-id allocation and task record persistence.
 - Manually run `new <task>` in both window and pane modes.
 - Verify the worktree exists, the branch is checked out, the tmux target is live, and Cursor starts in the correct directory.
 
-### Tracking update
+#### Tracking update
 
 - Mark `1.2` verified only when task creation works end to end from Craig command to live Cursor session.
 - Record any known limitations around tmux layouts or Cursor startup assumptions explicitly.
 
-## 1.3 Handoff
+### 1.3 Handoff
 
-### Implementation
+#### Implementation
 
 - Implement `list`, `show`, `logs`, `diff`, `focus`, and `open`.
 - Add log streaming or tailing support from Craig-managed log files.
 - Add git diff inspection for task worktrees.
 - Surface lifecycle status, runner metadata, and recent check state in `show`.
 
-### Verification
+#### Verification
 
 - Run automated coverage for task lookup and diff/log command behavior.
 - Manually verify a running task can be inspected from a separate Craig session.
 - Confirm `focus <id>` targets the correct tmux window or pane and `open <id>` resolves the worktree path.
 
-### Tracking update
+#### Tracking update
 
 - Keep `1.3` open if any core inspection command exists only in REPL or only in command mode.
 - Note any log-streaming limitations or diff edge cases found during verification.
 
-## 1.4 Handoff
+### 1.4 Handoff
 
-### Implementation
+#### Implementation
 
 - Implement `check`, `commit`, `pr`, and `merge`.
 - Read `check <id>` commands from `.craig/config.json` and fail clearly when no checks are configured.
@@ -594,68 +597,68 @@ Later phases may add prompt templating, richer artifact browsers, policy hooks f
 - Add merge-state tracking and post-merge cleanup.
 - Prevent invalid transitions such as merge before green required checks, PR creation before commit, or commit with no diff, unless explicitly overridden.
 
-### Verification
+#### Verification
 
 - Run automated coverage for lifecycle transitions, check execution, PR status persistence, and merge gating.
 - Manually execute the full flow from `new <task>` to `pr <id> --watch` to `merge <id>` on a small repo change.
 - Confirm merged tasks are marked `merged` and cleanup status is recorded accurately.
 
-### Tracking update
+#### Tracking update
 
 - Mark Phase 1 complete only when the full idea-to-merge workflow works without ad hoc shell steps.
 - Record any intentionally deferred merge-strategy or cleanup behaviors before advancing to Phase 2.
 
-## 2.1 Handoff
+### 2.1 Handoff
 
-### Implementation
+#### Implementation
 
 - Add a Codex runner adapter using the existing task model and lifecycle hooks.
 - Reuse the same worktree, tmux, and artifact infrastructure.
 - Add runner selection config and CLI affordances where needed.
 
-### Verification
+#### Verification
 
 - Run adapter-level tests for launch and status handling.
 - Manually verify one repo task completes on Codex with the same inspect/check/commit flow.
 
-### Tracking update
+#### Tracking update
 
 - Keep `2.1` blocked if Codex requires lifecycle exceptions that would weaken the shared runner contract.
 
-## 3.1 Handoff
+### 3.1 Handoff
 
-### Implementation
+#### Implementation
 
 - Add general-task and job schemas.
 - Implement job definitions and scheduled execution triggers.
 - Extend artifact handling for non-repo outputs.
 
-### Verification
+#### Verification
 
 - Run automated coverage for schedule parsing and job persistence.
 - Manually verify at least one scheduled workflow produces a durable artifact.
 
-### Tracking update
+#### Tracking update
 
 - Record which existing repo-task assumptions had to be relaxed before marking this sub-phase complete.
 
-## 4.1 Handoff
+### 4.1 Handoff
 
-### Implementation
+#### Implementation
 
 - Add richer TUI surfaces for task lists, detail views, and orchestration visibility.
 - Keep the existing command surfaces functional for automation and fallback.
 
-### Verification
+#### Verification
 
 - Run UI-level tests where practical.
 - Manually verify the TUI still supports the full Phase 1 flow without hiding critical state.
 
-### Tracking update
+#### Tracking update
 
 - Leave `4.1` pending if the richer UX reduces observability or scriptability relative to the REPL baseline.
 
-## Acceptance criteria
+### Acceptance criteria
 
 - `[1.1]` Running `craig` in a repo initializes local Craig state and enters a working REPL.
 - `[1.1]` REPL commands and command-mode invocations share the same underlying control-plane services.
