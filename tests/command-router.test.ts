@@ -34,6 +34,53 @@ describe("command routing", () => {
     expect(parseReplCommand("list")).toEqual({ kind: "listTasks" });
   });
 
+  test("argv and REPL inspection commands normalize to the same command", () => {
+    expect(parseArgv(["task", "show", "task_1"]).command).toEqual({
+      kind: "showTask",
+      taskId: "task_1",
+    });
+    expect(parseReplCommand("show task_1")).toEqual({
+      kind: "showTask",
+      taskId: "task_1",
+    });
+
+    expect(parseArgv(["task", "logs", "task_1"]).command).toEqual({
+      kind: "streamTaskLogs",
+      taskId: "task_1",
+    });
+    expect(parseReplCommand("logs task_1")).toEqual({
+      kind: "streamTaskLogs",
+      taskId: "task_1",
+    });
+
+    expect(parseArgv(["task", "diff", "task_1"]).command).toEqual({
+      kind: "showTaskDiff",
+      taskId: "task_1",
+    });
+    expect(parseReplCommand("diff task_1")).toEqual({
+      kind: "showTaskDiff",
+      taskId: "task_1",
+    });
+
+    expect(parseArgv(["task", "focus", "task_1"]).command).toEqual({
+      kind: "focusTask",
+      taskId: "task_1",
+    });
+    expect(parseReplCommand("focus task_1")).toEqual({
+      kind: "focusTask",
+      taskId: "task_1",
+    });
+
+    expect(parseArgv(["task", "open", "task_1"]).command).toEqual({
+      kind: "openTask",
+      taskId: "task_1",
+    });
+    expect(parseReplCommand("open task_1")).toEqual({
+      kind: "openTask",
+      taskId: "task_1",
+    });
+  });
+
   test("argv and REPL new commands normalize to the same command", () => {
     expect(parseArgv(["task", "new", "refactor", "auth"]).command).toEqual({
       kind: "createTask",
@@ -101,5 +148,14 @@ describe("command routing", () => {
   test("empty new commands are rejected", () => {
     expect(() => parseArgv(["task", "new"])).toThrow(/Task title cannot be empty/);
     expect(() => parseReplCommand("new")).toThrow(/Task title cannot be empty/);
+  });
+
+  test("empty task ids are rejected for inspection commands", () => {
+    expect(() => parseArgv(["task", "show", ""])).toThrow(/Task id cannot be empty/);
+    expect(() => parseReplCommand("show")).toThrow(/Task id cannot be empty/);
+    expect(() => parseArgv(["task", "logs", ""])).toThrow(/Task id cannot be empty/);
+    expect(() => parseReplCommand("diff")).toThrow(/Task id cannot be empty/);
+    expect(() => parseArgv(["task", "focus", ""])).toThrow(/Task id cannot be empty/);
+    expect(() => parseReplCommand("open")).toThrow(/Task id cannot be empty/);
   });
 });

@@ -290,7 +290,7 @@ Craig should be able to assign work, track ownership, inspect artifacts, and rea
 
 - `1.1` Bootstrap CLI shell, state store, and REPL scaffolding: `implemented`
 - `1.2` Repo task creation with worktree, branch, tmux, and Cursor launch: `implemented and verified`
-- `1.3` Task inspection, logs, diff, and focus/open flows: `pending`
+- `1.3` Task inspection, logs, diff, and focus/open flows: `implemented and verified`
 - `1.4` Checks, commit, PR creation, CI tracking, merge, and cleanup: `pending`
 - `2.1` Codex runner adapter on the same task model: `pending`
 - `3.1` General tasks and scheduled jobs: `pending`
@@ -300,10 +300,11 @@ Craig should be able to assign work, track ownership, inspect artifacts, and rea
 
 - `1.1` Verified via shared command-dispatch tests plus passing `pnpm test`, `pnpm typecheck`, and `pnpm lint`.
 - `1.2` Verified via automated coverage, passing `pnpm test`, `pnpm typecheck`, and `pnpm lint`, plus a live manual run of `craig task new "manual verification task"` that created the worktree, created the tmux pane, persisted runner-session metadata, and launched Cursor in the correct worktree.
+- `1.3` Verified via parser, service, and REPL coverage for `show`, `logs`, `diff`, `focus`, and `open`, plus passing `pnpm test`, `pnpm typecheck`, and `pnpm lint`, plus a manual built-CLI run in a temporary git repo that confirmed `show`, `diff`, `open`, and `focus` against durable task state and the recorded tmux target. Current limitations: `logs` depends on local `tail`, `focus` is tmux-target based, and `open` prints the path when no opener is configured.
 
 ### Next resume point
 
-Resume at the first sub-phase that is not both implemented and verified. The current resume point is `1.3`.
+Resume at the first sub-phase that is not both implemented and verified. The current resume point is `1.4`.
 
 ### Deferred phases
 
