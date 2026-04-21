@@ -1,9 +1,8 @@
-import { readFile } from "node:fs/promises";
-
 import type { CommandListResult } from "../types/command.js";
 import type { TaskRecord } from "../types/task.js";
 import type { CraigPaths } from "../state/craig-paths.js";
 import { readCraigIndex } from "../state/state-store.js";
+import { readTask } from "../state/task-store.js";
 
 export async function listTasks(paths: CraigPaths): Promise<CommandListResult> {
   const index = await readCraigIndex(paths);
@@ -13,8 +12,7 @@ export async function listTasks(paths: CraigPaths): Promise<CommandListResult> {
   await Promise.all(
     index.taskIds.map(async (taskId) => {
       try {
-        const file = await readFile(`${paths.tasksDir}/${taskId}.json`, "utf8");
-        tasks.push(JSON.parse(file) as TaskRecord);
+        tasks.push(await readTask(paths, taskId));
       } catch (error) {
         if (isFileMissingError(error)) {
           missingTaskIds.push(taskId);

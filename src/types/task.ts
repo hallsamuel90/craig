@@ -48,6 +48,18 @@ export interface TaskArtifacts {
   prStatusPath: string | null;
 }
 
+export type RunnerSessionState = "starting" | "running" | "exited" | "failed";
+
+export interface RunnerSession {
+  command: string[];
+  tmuxTarget: string;
+  pid: number | null;
+  startedAt: string | null;
+  lastKnownState: RunnerSessionState;
+  exitCode: number | null;
+  exitedAt: string | null;
+}
+
 export interface TaskRecord {
   id: string;
   title: string;
@@ -59,10 +71,12 @@ export interface TaskRecord {
   worktreePath: string;
   branch: string;
   tmuxTarget: string;
+  runnerSession: RunnerSession;
   prompt: TaskPromptSource;
   checks: TaskChecks;
   pullRequest: TaskPullRequest;
   artifacts: TaskArtifacts;
+  lastFailureReason?: string | null;
   createdAt: string;
   updatedAt: string;
 }

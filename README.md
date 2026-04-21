@@ -2,7 +2,7 @@
 
 Craig is a local control plane for repo-backed agent work.
 
-This repo currently implements RFC phase `1.1`: a bootstrap CLI that initializes local Craig state, renders the boot experience, starts a REPL, and supports shared command dispatch between interactive and command mode.
+This repo currently implements verified RFC phase `1.2`: the `1.1` bootstrap CLI plus pane-based repo task creation on Cursor.
 
 ## Current status
 
@@ -16,13 +16,21 @@ Implemented in `1.1`:
 - command mode: `craig task list`
 - shared command routing for REPL and command mode
 
+Implemented in `1.2`:
+
+- `new <task>` in the REPL
+- `craig task new "<task>"` in command mode
+- durable task records under `.craig/tasks/`
+- git worktree creation on `craig/<task-id>` from `main`
+- tmux pane provisioning in session `craig`
+- thin `cursor agent` runner launch wrapper
+- runner-session metadata persisted in each task record
+
 Not implemented yet:
 
-- task creation
-- worktrees and branches
-- tmux integration
-- Cursor launch
 - checks, commit, PR, merge, cleanup
+- task inspection commands beyond `list`
+- Codex and multi-runner support
 
 ## Requirements
 
@@ -56,6 +64,7 @@ Run command mode:
 
 ```bash
 pnpm start -- task list
+pnpm start -- task new "refactor auth"
 ```
 
 You can also run the built CLI directly:
@@ -63,18 +72,21 @@ You can also run the built CLI directly:
 ```bash
 node dist/cli.js
 node dist/cli.js task list
+node dist/cli.js task new "refactor auth"
 ```
 
 ## Commands
 
 Interactive commands:
 
+- `new <task>`
 - `list`
 - `help`
 - `exit`
 
 Command mode:
 
+- `task new "<task>"`
 - `task list`
 
 ## Local state
@@ -91,13 +103,21 @@ On first run, Craig creates:
   worktrees/
 ```
 
-`index.json` is the first durable Craig state file and currently tracks:
+`index.json` tracks:
 
 - repo root
 - Craig schema version
 - task ids
 - job ids
 - create/update timestamps
+
+Per-task records under `.craig/tasks/` now track:
+
+- branch and worktree paths
+- tmux pane targets
+- prompt source
+- runner-session metadata
+- artifact paths
 
 ## Development
 
@@ -117,4 +137,4 @@ pnpm build
 
 ## RFC
 
-The current implementation follows [docs/rfcs/2026-04-20-rfc-craig-control-plane.md](/Users/samhall/conductor/workspaces/craig/minsk/docs/rfcs/2026-04-20-rfc-craig-control-plane.md), specifically sub-phase `1.1`.
+The current implementation follows [docs/rfcs/2026-04-20-rfc-craig-control-plane.md](/Users/samhall/conductor/workspaces/craig/la-paz/docs/rfcs/2026-04-20-rfc-craig-control-plane.md), with `1.1` complete and `1.2` implemented in code.
