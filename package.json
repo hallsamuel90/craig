@@ -4,6 +4,7 @@
   "private": true,
   "description": "Craig local control plane CLI",
   "type": "module",
+  "packageManager": "pnpm@10.7.1",
   "bin": {
     "craig": "dist/cli.js"
   },
