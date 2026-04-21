@@ -4,7 +4,6 @@ on:
   push:
     branches:
       - main
-      - hallsamuel90/**
   pull_request:
 
 jobs:
