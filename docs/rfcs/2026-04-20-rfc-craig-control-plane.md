@@ -97,6 +97,13 @@ Runner adapters implement a deliberately narrow contract:
 
 Phase 1 includes only the Cursor adapter. Phase 2 adds Codex on the same task model. The interface is shaped by what Cursor and planned Codex integration both need, not by hypothetical future runners. Craig owns task lifecycle and state transitions; runners report launch success, exit status, and capability metadata.
 
+Runner abstraction decisions:
+
+- the runner layer must stay as light as possible and should not add heavy orchestration logic on top of model CLIs
+- Craig should launch model CLIs in the right directory, with the right environment and session context, then let them behave as intended
+- adapters should translate Craig task context into CLI invocation details, not re-implement agent behavior, prompt semantics, planning models, or review logic that already belongs to the underlying CLI
+- if a capability requires deep CLI-specific behavior that cannot fit the narrow adapter contract cleanly, Craig should prefer exposing that limitation over growing a heavy abstraction layer
+
 ### State model and filesystem layout
 
 Craig stores durable local state under:
@@ -196,6 +203,7 @@ Boot experience decisions:
 - the `CRAIG` ASCII art should render in slime-green or matrix-green terminal styling rather than default monochrome output
 - the banner styling should work in common ANSI-capable terminals without requiring a custom font or truecolor-only features
 - supporting text under the banner should stay visually subordinate to the green ASCII mark so the boot experience reads as one branded unit
+- the banner support copy should include the easter egg line `crAIg is that you?`
 
 ### tmux execution model
 
@@ -481,6 +489,7 @@ Manual success indicators for early implementation:
 - time from runner-complete to review-ready
 - successful idea-to-merge runs without manual shell intervention
 - cleanup success rate for completed tasks
+- runner integrations remain thin and do not override the normal behavior model of the underlying CLI tools
 
 ## Rollout plan
 
@@ -531,7 +540,7 @@ Later phases may add prompt templating, richer artifact browsers, policy hooks f
 - Add a `craig` CLI entrypoint and boot sequence.
 - Initialize `.craig/` and `index.json` on first run.
 - Implement a shared command-dispatch layer used by REPL and command mode.
-- Render the boot banner in slime-green or matrix-green terminal styling and include the current workspace summary.
+- Render the boot banner in slime-green or matrix-green terminal styling, include the `crAIg is that you?` easter egg line, and include the current workspace summary.
 - Define the base task record schema and atomic JSON write helpers.
 
 #### Verification
