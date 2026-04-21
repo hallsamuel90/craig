@@ -10,6 +10,7 @@ type MockReadline = {
 const createInterfaceMock = vi.fn();
 const executeCommandMock = vi.fn();
 const focusPaneMock = vi.fn();
+const streamTaskLogsMock = vi.fn();
 const stdoutWriteMock = vi.fn();
 
 vi.mock("node:readline/promises", () => ({
@@ -29,6 +30,10 @@ vi.mock("../src/commands/command-router.js", () => ({
 
 vi.mock("../src/services/tmux-session.js", () => ({
   focusPane: focusPaneMock,
+}));
+
+vi.mock("../src/services/stream-task-logs.js", () => ({
+  streamTaskLogs: streamTaskLogsMock,
 }));
 
 function buildReadline(answers: string[]): MockReadline {
@@ -54,6 +59,7 @@ describe("startRepl", () => {
     createInterfaceMock.mockReset();
     executeCommandMock.mockReset();
     focusPaneMock.mockReset();
+    streamTaskLogsMock.mockReset();
     stdoutWriteMock.mockReset();
   });
 
@@ -90,5 +96,33 @@ describe("startRepl", () => {
     expect(createInterfaceMock).toHaveBeenCalledTimes(2);
     expect(secondRl.question).toHaveBeenCalledWith("craig> ");
     expect(stdoutWriteMock).toHaveBeenCalledWith(expect.stringContaining("tmux select failed"));
+  });
+
+  test("recreates the REPL after streaming logs", async () => {
+    const firstRl = buildReadline(["logs task_1"]);
+    const secondRl = buildReadline(["exit"]);
+
+    createInterfaceMock.mockReturnValueOnce(firstRl).mockReturnValueOnce(secondRl);
+    executeCommandMock
+      .mockResolvedValueOnce({
+        kind: "streamTaskLogs",
+        taskId: "task_1",
+        logPath: "/tmp/task_1.log",
+      })
+      .mockResolvedValueOnce({ kind: "exit" });
+
+    const { startRepl } = await import("../src/repl.js");
+    const exitCode = await startRepl({
+      paths: {
+        repoRoot: "/repo",
+      },
+    } as never);
+
+    expect(exitCode).toBe(0);
+    expect(createInterfaceMock).toHaveBeenCalledTimes(2);
+    expect(streamTaskLogsMock).toHaveBeenCalledWith("/tmp/task_1.log");
+    expect(stdoutWriteMock).toHaveBeenCalledWith(
+      expect.stringContaining("Streaming logs for task_1 from /tmp/task_1.log"),
+    );
   });
 });

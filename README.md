@@ -2,7 +2,7 @@
 
 Craig is a local control plane for repo-backed agent work.
 
-This repo currently implements verified RFC phase `1.2`: the `1.1` bootstrap CLI plus pane-based repo task creation on Cursor.
+This repo currently implements verified RFC phase `1.3`: the `1.1` bootstrap CLI, `1.2` pane-based repo task creation on Cursor, and `1.3` inspection/navigation commands.
 
 ## Current status
 
@@ -26,10 +26,19 @@ Implemented in `1.2`:
 - thin `cursor agent` runner launch wrapper
 - runner-session metadata persisted in each task record
 
+Implemented in `1.3`:
+
+- `show <id>`, `logs <id>`, `diff <id>`, `focus <id>`, and `open <id>` in the REPL
+- `craig task show|logs|diff|focus|open <id>` in command mode
+- task inspection output with lifecycle, runner, branch, worktree, tmux, check, and PR metadata
+- Craig-managed log streaming via local `tail`
+- worktree diff inspection for active tasks
+- tmux focus handoff for existing tasks
+- optional `open.command` config with path-print fallback when unset
+
 Not implemented yet:
 
 - checks, commit, PR, merge, cleanup
-- task inspection commands beyond `list`
 - Codex and multi-runner support
 
 ## Requirements
@@ -65,6 +74,8 @@ Run command mode:
 ```bash
 pnpm start -- task list
 pnpm start -- task new "refactor auth"
+pnpm start -- task show task_20260421_01
+pnpm start -- task logs task_20260421_01
 ```
 
 You can also run the built CLI directly:
@@ -73,6 +84,7 @@ You can also run the built CLI directly:
 node dist/cli.js
 node dist/cli.js task list
 node dist/cli.js task new "refactor auth"
+node dist/cli.js task diff task_20260421_01
 ```
 
 ## Commands
@@ -81,6 +93,11 @@ Interactive commands:
 
 - `new <task>`
 - `list`
+- `show <id>`
+- `logs <id>`
+- `diff <id>`
+- `focus <id>`
+- `open <id>`
 - `help`
 - `exit`
 
@@ -88,6 +105,29 @@ Command mode:
 
 - `task new "<task>"`
 - `task list`
+- `task show <id>`
+- `task logs <id>`
+- `task diff <id>`
+- `task focus <id>`
+- `task open <id>`
+
+## Config
+
+Craig reads optional repo-local config from `.craig/config.json`.
+
+`open.command` is an argv array. Craig appends the resolved task worktree path as the final argument.
+
+Example:
+
+```json
+{
+  "open": {
+    "command": ["code", "-n"]
+  }
+}
+```
+
+If `open.command` is unset, `open <id>` prints the resolved worktree path instead of launching a tool.
 
 ## Local state
 
@@ -119,6 +159,13 @@ Per-task records under `.craig/tasks/` now track:
 - runner-session metadata
 - artifact paths
 
+## Current limitations
+
+- `logs <id>` depends on local `tail` for live follow behavior.
+- `focus <id>` depends on tmux target state that Craig recorded during task creation.
+- `open <id>` prints the worktree path when no opener is configured.
+- The `1.4` workflow is still pending, so checks, commit, PR, merge, and cleanup are not available yet.
+
 ## Development
 
 Run the quality gates from the repo root:
@@ -137,4 +184,4 @@ pnpm build
 
 ## RFC
 
-The current implementation follows [docs/rfcs/2026-04-20-rfc-craig-control-plane.md](/Users/samhall/conductor/workspaces/craig/la-paz/docs/rfcs/2026-04-20-rfc-craig-control-plane.md), with `1.1` complete and `1.2` implemented in code.
+The current implementation follows [docs/rfcs/2026-04-20-rfc-craig-control-plane.md](/Users/samhall/conductor/workspaces/craig/buffalo-v1/docs/rfcs/2026-04-20-rfc-craig-control-plane.md), with `1.1`, `1.2`, and `1.3` implemented and verified.

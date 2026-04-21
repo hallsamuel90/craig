@@ -3,6 +3,8 @@ import os from "node:os";
 import path from "node:path";
 
 import { getCraigPaths } from "../src/state/craig-paths.js";
+import type { TaskRecord } from "../src/types/task.js";
+import { runCommand } from "../src/utils/exec.js";
 
 export async function createRepoRoot(prefix: string): Promise<string> {
   return mkdtemp(path.join(os.tmpdir(), prefix));
@@ -37,6 +39,83 @@ export async function createCraigState(repoRoot: string, taskIds: string[] = [])
   );
 
   return paths;
+}
+
+export async function createGitRepo(repoRoot: string): Promise<void> {
+  await runCommand("git", ["init", "-b", "main"], { cwd: repoRoot });
+  await runCommand("git", ["config", "user.name", "Craig Tests"], { cwd: repoRoot });
+  await runCommand("git", ["config", "user.email", "craig@example.com"], { cwd: repoRoot });
+}
+
+export async function writeTaskRecord(repoRoot: string, task: Partial<TaskRecord> & { id: string }) {
+  const paths = getCraigPaths(repoRoot);
+  const record = buildTaskRecord(repoRoot, task);
+
+  await writeFile(`${paths.tasksDir}/${record.id}.json`, JSON.stringify(record, null, 2), "utf8");
+
+  return record;
+}
+
+export function buildTaskRecord(
+  repoRoot: string,
+  task: Partial<TaskRecord> & { id: string },
+): TaskRecord {
+  const paths = getCraigPaths(repoRoot);
+  const now = "2026-04-21T00:00:00.000Z";
+
+  return {
+    id: task.id,
+    title: task.title ?? "test task",
+    slug: task.slug ?? "test-task",
+    type: "repo",
+    status: task.status ?? "running",
+    runner: task.runner ?? "cursor",
+    repoRoot,
+    worktreePath: task.worktreePath ?? path.join(paths.worktreesDir, task.id),
+    branch: task.branch ?? `craig/${task.id}`,
+    tmuxTarget: task.tmuxTarget ?? "%42",
+    runnerSession: task.runnerSession ?? {
+      command: ["cursor", "agent", task.title ?? "test task"],
+      tmuxTarget: task.tmuxTarget ?? "%42",
+      pid: null,
+      startedAt: now,
+      lastKnownState: "running",
+      exitCode: null,
+      exitedAt: null,
+    },
+    prompt: task.prompt ?? {
+      source: "inline",
+      value: task.title ?? "test task",
+    },
+    checks: task.checks ?? {
+      source: {
+        type: "repo_config",
+        path: ".craig/config.json",
+      },
+      lastRunAt: null,
+      status: "not_run",
+      commands: [],
+    },
+    pullRequest: task.pullRequest ?? {
+      provider: "github",
+      number: null,
+      url: null,
+      baseBranch: null,
+      headBranch: null,
+      status: null,
+      mergeable: false,
+      requiredChecks: [],
+      lastSyncedAt: null,
+    },
+    artifacts: task.artifacts ?? {
+      logPath: `.craig/logs/${task.id}.log`,
+      prDraftPath: null,
+      prStatusPath: `.craig/artifacts/${task.id}/pr-status.json`,
+    },
+    lastFailureReason: task.lastFailureReason ?? null,
+    createdAt: task.createdAt ?? now,
+    updatedAt: task.updatedAt ?? now,
+  };
 }
 
 export async function createStubCommands(root: string): Promise<string> {

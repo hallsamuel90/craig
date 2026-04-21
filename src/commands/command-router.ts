@@ -3,6 +3,11 @@ import type { CraigPaths } from "../state/craig-paths.js";
 import { getHelpText } from "./parse-argv.js";
 import { createTask } from "../services/create-task.js";
 import { listTasks } from "../services/list-tasks.js";
+import { showTask } from "../services/show-task.js";
+import { prepareTaskLogs } from "../services/stream-task-logs.js";
+import { showTaskDiff } from "../services/show-task-diff.js";
+import { focusTask } from "../services/focus-task.js";
+import { openTask } from "../services/open-task.js";
 
 export interface CommandContext {
   paths: CraigPaths;
@@ -17,6 +22,16 @@ export async function executeCommand(
       return createTask(context.paths, command.title);
     case "listTasks":
       return listTasks(context.paths);
+    case "showTask":
+      return showTask(context.paths, command.taskId);
+    case "streamTaskLogs":
+      return prepareTaskLogs(context.paths, command.taskId);
+    case "showTaskDiff":
+      return showTaskDiff(context.paths, command.taskId);
+    case "focusTask":
+      return focusTask(context.paths, command.taskId);
+    case "openTask":
+      return openTask(context.paths, command.taskId);
     case "help":
       return { kind: "help", text: getHelpText() };
     case "exit":
