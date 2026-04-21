@@ -95,14 +95,38 @@ Runner adapters implement a deliberately narrow contract:
 
 `context` includes repo root, worktree path, tmux target, environment variables, and optional prompt file paths.
 
-Phase 1 includes only the Cursor adapter. Phase 2 adds Codex on the same task model. The interface is shaped by what Cursor and planned Codex integration both need, not by hypothetical future runners. Craig owns task lifecycle and state transitions; runners report launch success, exit status, and capability metadata.
+Craig wraps runner execution, not runner cognition. Vendor CLIs remain the source of truth for agent behavior, planning, prompt semantics, tool use, and internal chat state. Craig owns the local control-plane boundary around those CLIs so it can launch them in the correct workspace/session context, track them as durable execution resources, and collect the metadata and artifacts needed for orchestration.
+
+Phase 1 includes only the Cursor adapter using `cursor agent` as the concrete launch contract. Phase 2 adds Codex on the same task model and runner-session boundary. The interface is shaped by what Cursor and planned Codex integration both need, not by hypothetical future runners. Craig owns task lifecycle and state transitions; runners report launch success, execution status, exit status, and capability metadata.
+
+Runner design principles:
+
+- `Thin wrapper`: adapt process and session behavior only
+- `Vendor-native behavior`: do not override how the underlying runner plans or works
+- `Stable control-plane contract`: Craig needs one lifecycle boundary across runners
+- `Capability-driven differences`: expose runner-specific limits rather than hiding them behind fake uniformity
 
 Runner abstraction decisions:
 
 - the runner layer must stay as light as possible and should not add heavy orchestration logic on top of model CLIs
 - Craig should launch model CLIs in the right directory, with the right environment and session context, then let them behave as intended
-- adapters should translate Craig task context into CLI invocation details, not re-implement agent behavior, prompt semantics, planning models, or review logic that already belongs to the underlying CLI
+- adapters should translate Craig task context into CLI invocation details, not re-implement agent behavior, prompt semantics, planning models, tool behavior, or review logic that already belongs to the underlying CLI
+- launching a vendor CLI "directly" with no stable runner boundary is not enough for Craig's long-term role, because Craig must coordinate multiple concurrent agents and therefore needs durable launch bookkeeping for launch success and failure, session targeting, process identity, log capture, artifact collection, stop and resume semantics, and capability reporting
+- the wrapper exists for orchestration and observability, not to replace or standardize the internal behavior of the runner
 - if a capability requires deep CLI-specific behavior that cannot fit the narrow adapter contract cleanly, Craig should prefer exposing that limitation over growing a heavy abstraction layer
+
+Conceptually, `launch` and `status` must surface enough runner-session information for Craig to supervise the execution resource even when the underlying CLI remains vendor-native. At minimum, the runner boundary must be able to provide:
+
+- launch timestamp
+- runner command
+- pid when available from the local platform or session manager
+- tmux target
+- worktree path
+- log path
+- last known runner state
+- optional exit code and exit timestamp
+
+Craig persists that runner-session metadata for local orchestration and inspection. It is not intended to mirror vendor-internal state.
 
 ### State model and filesystem layout
 
@@ -209,16 +233,13 @@ Boot experience decisions:
 
 Craig uses tmux as the execution/session layer and runs inside tmux session `craig`. Each task maps to exactly one tmux target.
 
-Phase 1 must support:
-
-- window mode: one task per tmux window
-- pane mode: one task per pane in a managed layout
+Phase 1.2 is pane-first and pane-only. Each task maps to exactly one tmux pane in a managed Craig layout inside session `craig`. Window-mode support is deferred unless a later RFC or amendment adds it explicitly.
 
 tmux decisions:
 
 - Craig creates and focuses tmux targets as execution resources
 - Craig does not treat tmux layout metadata as the source of truth for task state
-- losing a pane title, renaming a window, or manually moving windows must not erase Craig task metadata
+- losing a pane title, renaming a window, or manually moving panes and windows must not erase Craig task metadata
 - `focus <id>` switches the user to the mapped tmux target
 
 ### Phase 1 developer workflow
@@ -228,7 +249,7 @@ Phase 1 must support this repo-task flow end to end:
 1. create task id
 2. create worktree
 3. create branch
-4. open tmux pane or window
+4. open tmux pane
 5. run Cursor CLI in that context
 6. monitor logs and agent progress
 7. inspect diff
@@ -248,8 +269,14 @@ Phase 1 is limited to repo tasks plus Cursor. The following remain deferred or e
 - Codex support is deferred to Phase 2 on the same runner boundary
 - general tasks and scheduled jobs are deferred to Phase 3
 - richer TUI and orchestration dashboards are deferred to Phase 4
-- Claude Code is explicitly out of scope
+- Claude Code is explicitly out of scope for Phase 1 and this RFC's implementation plan, although the runner boundary should be designed so future vendor additions do not require a new task model or a separate lifecycle system
 - hosted services, daemons, remote sync, and database-backed state are out of scope
+
+### Future multi-agent coordination
+
+Craig may later coordinate several concurrent agents across heterogeneous runners. That coordination depends on a normalized runner boundary, not a uniform agent implementation.
+
+Craig should be able to assign work, track ownership, inspect artifacts, and reason about runner capability differences without forcing identical behavior across tools. The control plane should therefore normalize lifecycle, session, and artifact concerns while letting each underlying runner remain vendor-native.
 
 ### Open questions
 
@@ -261,8 +288,8 @@ Phase 1 is limited to repo tasks plus Cursor. The following remain deferred or e
 
 ### Status summary
 
-- `1.1` Bootstrap CLI shell, state store, and REPL scaffolding: `pending`
-- `1.2` Repo task creation with worktree, branch, tmux, and Cursor launch: `pending`
+- `1.1` Bootstrap CLI shell, state store, and REPL scaffolding: `implemented`
+- `1.2` Repo task creation with worktree, branch, tmux, and Cursor launch: `implemented and verified`
 - `1.3` Task inspection, logs, diff, and focus/open flows: `pending`
 - `1.4` Checks, commit, PR creation, CI tracking, merge, and cleanup: `pending`
 - `2.1` Codex runner adapter on the same task model: `pending`
@@ -271,11 +298,12 @@ Phase 1 is limited to repo tasks plus Cursor. The following remain deferred or e
 
 ### Verification summary
 
-- No sub-phases verified yet.
+- `1.1` Verified via shared command-dispatch tests plus passing `pnpm test`, `pnpm typecheck`, and `pnpm lint`.
+- `1.2` Verified via automated coverage, passing `pnpm test`, `pnpm typecheck`, and `pnpm lint`, plus a live manual run of `craig task new "manual verification task"` that created the worktree, created the tmux pane, persisted runner-session metadata, and launched Cursor in the correct worktree.
 
 ### Next resume point
 
-Resume at the first sub-phase that is not both implemented and verified. The current resume point is `1.1`. If a later session partially completes `1.1`, update this tracker and keep `1.1` as the resume point until both implementation and verification are complete.
+Resume at the first sub-phase that is not both implemented and verified. The current resume point is `1.3`.
 
 ### Deferred phases
 
@@ -337,7 +365,16 @@ Initial task record schema contract:
   "repoRoot": "/path/to/repo",
   "worktreePath": "/path/to/repo/.craig/worktrees/task_20260420_01",
   "branch": "craig/task_20260420_01",
-  "tmuxTarget": "craig:task_20260420_01",
+  "tmuxTarget": "%1",
+  "runnerSession": {
+    "command": ["cursor", "agent", "refactor auth"],
+    "tmuxTarget": "%1",
+    "pid": 12345,
+    "startedAt": "2026-04-20T20:01:00Z",
+    "lastKnownState": "running",
+    "exitCode": null,
+    "exitedAt": null
+  },
   "prompt": {
     "source": "inline",
     "value": "refactor auth"
@@ -389,6 +426,7 @@ Required task record fields:
 - resolved worktree path
 - branch name
 - tmux target metadata
+- runner-session metadata sufficient for Craig to supervise and inspect the launched runner
 - prompt source metadata
 - latest check summary metadata
 - tracked pull request metadata
@@ -404,6 +442,8 @@ Runner adapters must implement:
 - `status(task, context)`
 - `stop(task, context)`
 - `collectArtifacts(task, context)`
+
+`launch` and `status` must be able to surface the runner-session metadata Craig needs to supervise a live runner without depending on vendor-internal state. That includes the resolved command, tmux target, start time, last known runner state, and optional pid and exit metadata when the platform exposes them cleanly.
 
 ### State directory contract
 
@@ -478,6 +518,7 @@ Craig needs local observability rather than fleet telemetry.
 
 - structured task records make current and historical state introspectable
 - append-only task logs support `logs <id>` and post-failure diagnosis
+- persisted runner-session metadata makes live execution resources inspectable without requiring Craig to understand vendor-internal chat state
 - command results should emit concise terminal feedback and persist machine-readable summaries for checks and merge outcomes
 - persisted PR status snapshots make CI and mergeability visible without forcing the user to query GitHub manually
 - the boot banner color treatment provides an immediate visual confirmation that the user is inside Craig rather than a generic shell flow
@@ -501,7 +542,7 @@ Deliver a `craig` executable that initializes `.craig/`, renders the boot experi
 
 #### 1.2 Repo task creation with worktree, branch, tmux, and Cursor launch
 
-Deliver end-to-end task creation for repo tasks on Cursor, including task ids, branch creation, worktree provisioning, tmux target creation, runner launch, and durable task records.
+Deliver end-to-end task creation for repo tasks on Cursor, including task ids, branch creation, worktree provisioning, pane-based tmux target creation, runner launch through the thin runner wrapper boundary, runner-session persistence, and durable task records.
 
 #### 1.3 Task inspection, logs, diff, and focus/open flows
 
@@ -515,7 +556,7 @@ Deliver the rest of the developer loop so a user can go from generated code to o
 
 #### 2.1 Codex runner adapter on the same task model
 
-Add a Codex runner adapter with the same task lifecycle, artifact model, and command behavior, validating that the runner boundary is real.
+Add a Codex runner adapter with the same task lifecycle, runner-session boundary, artifact model, and command behavior, validating that the thin runner wrapper is real.
 
 ### Phase 3: General tasks and jobs
 
@@ -560,20 +601,20 @@ Later phases may add prompt templating, richer artifact browsers, policy hooks f
 
 - Implement task-id allocation and repo-task creation flow.
 - Create git worktrees and `craig/<task-id>` branches.
-- Create or attach tmux session `craig` and provision window or pane targets.
-- Implement the Cursor runner adapter and launch flow.
-- Persist worktree path, branch, tmux target, and runner metadata into the task record.
+- Create or attach tmux session `craig` and provision pane targets.
+- Implement the Cursor runner adapter and `cursor agent` launch flow through the thin runner wrapper boundary.
+- Persist worktree path, branch, tmux target, runner metadata, and runner-session metadata into the task record.
 
 #### Verification
 
 - Run automated tests around task-id allocation and task record persistence.
-- Manually run `new <task>` in both window and pane modes.
-- Verify the worktree exists, the branch is checked out, the tmux target is live, and Cursor starts in the correct directory.
+- Manually run `new <task>` in pane mode.
+- Verify the worktree exists, the branch is checked out, the tmux pane target is live, Cursor starts in the correct directory, and Craig persists enough runner-session metadata to identify the launched Cursor process.
 
 #### Tracking update
 
 - Mark `1.2` verified only when task creation works end to end from Craig command to live Cursor session.
-- Record any known limitations around tmux layouts or Cursor startup assumptions explicitly.
+- Record that `1.2` is pane-only and note any known limitations around pane layout assumptions or Cursor startup assumptions explicitly.
 
 ### 1.3 Handoff
 
@@ -621,7 +662,7 @@ Later phases may add prompt templating, richer artifact browsers, policy hooks f
 
 #### Implementation
 
-- Add a Codex runner adapter using the existing task model and lifecycle hooks.
+- Add a Codex runner adapter using the existing task model, lifecycle hooks, and runner-session boundary.
 - Reuse the same worktree, tmux, and artifact infrastructure.
 - Add runner selection config and CLI affordances where needed.
 
@@ -672,9 +713,11 @@ Later phases may add prompt templating, richer artifact browsers, policy hooks f
 - `[1.1]` Running `craig` in a repo initializes local Craig state and enters a working REPL.
 - `[1.1]` REPL commands and command-mode invocations share the same underlying control-plane services.
 - `[1.2]` `new <task>` creates a durable task record, a git worktree, a `craig/<task-id>` branch, a tmux target, and launches Cursor in that context.
+- `[1.2]` Craig persists enough runner-session metadata to identify and inspect the launched Cursor agent.
 - `[1.3]` Users can inspect task status, logs, diffs, and terminal focus for active tasks from Craig commands alone.
 - `[1.4]` Users can run configured checks, commit changes, open a PR, inspect or watch required CI status, merge, and clean up without falling back to ad hoc shell scripts for the normal flow.
 - `[1.4]` `merge <id>` performs the actual GitHub merge only after Craig verifies the tracked PR is mergeable and all required remote checks are green.
-- `[2.1]` Adding Codex does not require a second task model or a separate lifecycle implementation.
+- `[2.1]` Adding Codex does not require a second task model, a separate lifecycle implementation, or a different runner-session boundary.
+- `[2.x+]` Future vendor additions do not require a second control-plane lifecycle or a separate task model.
 - `[3.1]` Craig can run at least one non-repo scheduled workflow that produces a durable artifact.
 - `[4.1]` A richer UX preserves the same task lifecycle, command semantics, and underlying control-plane model while exposing task and PR state more directly.

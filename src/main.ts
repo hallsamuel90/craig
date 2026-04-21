@@ -2,6 +2,15 @@ import type { CommandResult } from "./types/command.js";
 
 export function formatCommandResult(result: CommandResult): string {
   switch (result.kind) {
+    case "createTask":
+      return [
+        `Created task ${result.taskId}`,
+        `Status: ${result.status}`,
+        `Branch: ${result.branch}`,
+        `Worktree: ${result.worktreePath}`,
+        `tmux: ${result.tmuxTarget}`,
+        `Runner: ${result.runner}`,
+      ].join("\n");
     case "help":
       return result.text;
     case "exit":
@@ -13,7 +22,7 @@ export function formatCommandResult(result: CommandResult): string {
             ? ` (${result.missingTaskIds.length} referenced task file(s) missing from .craig/tasks)` 
             : "";
 
-        return `No Craig tasks yet. Use 'new <task>' once phase 1.2 lands.${suffix}`;
+        return `No Craig tasks yet. Use 'new <task>' to create one.${suffix}`;
       }
 
       return [

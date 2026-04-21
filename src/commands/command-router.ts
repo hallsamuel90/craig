@@ -1,6 +1,7 @@
 import type { CommandResult, AppCommand } from "../types/command.js";
 import type { CraigPaths } from "../state/craig-paths.js";
 import { getHelpText } from "./parse-argv.js";
+import { createTask } from "../services/create-task.js";
 import { listTasks } from "../services/list-tasks.js";
 
 export interface CommandContext {
@@ -12,6 +13,8 @@ export async function executeCommand(
   context: CommandContext,
 ): Promise<CommandResult> {
   switch (command.kind) {
+    case "createTask":
+      return createTask(context.paths, command.title);
     case "listTasks":
       return listTasks(context.paths);
     case "help":

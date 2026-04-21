@@ -4,25 +4,17 @@ import { stdin as input, stdout as output } from "node:process";
 import { executeCommand, type CommandContext } from "./commands/command-router.js";
 import { parseReplCommand } from "./commands/parse-repl.js";
 import { formatCommandResult } from "./main.js";
+import { focusPane } from "./services/tmux-session.js";
+
+type ReplInterface = ReturnType<typeof createInterface>;
 
 export async function startRepl(context: CommandContext): Promise<number> {
-  const rl = createInterface({ input, output, terminal: true });
-
   let sigintCount = 0;
-  rl.on("SIGINT", () => {
-    sigintCount += 1;
-
-    if (sigintCount >= 2) {
-      rl.close();
-      return;
-    }
-
-    output.write("\nPress Ctrl-C again to exit.\n");
-    rl.prompt();
-  });
+  let shouldExit = false;
+  let rl = createReadline();
 
   try {
-    while (true) {
+    while (!shouldExit) {
       const line = await rl.question("craig> ");
       sigintCount = 0;
 
@@ -35,6 +27,15 @@ export async function startRepl(context: CommandContext): Promise<number> {
         }
 
         output.write(`${formatCommandResult(result)}\n`);
+
+        if (result.kind === "createTask") {
+          rl.close();
+          try {
+            await focusPane(context.paths.repoRoot, result.tmuxTarget);
+          } finally {
+            rl = createReadline();
+          }
+        }
       } catch (error) {
         output.write(`${formatError(error)}\n`);
       }
@@ -43,6 +44,27 @@ export async function startRepl(context: CommandContext): Promise<number> {
     return 0;
   } finally {
     rl.close();
+  }
+
+  return 0;
+
+  function handleSigint(currentRl: ReplInterface) {
+    sigintCount += 1;
+
+    if (sigintCount >= 2) {
+      shouldExit = true;
+      currentRl.close();
+      return;
+    }
+
+    output.write("\nPress Ctrl-C again to exit.\n");
+    currentRl.prompt();
+  }
+
+  function createReadline(): ReplInterface {
+    const nextRl = createInterface({ input, output, terminal: true });
+    nextRl.on("SIGINT", () => handleSigint(nextRl));
+    return nextRl;
   }
 }
 

@@ -15,3 +15,8 @@
 
 - `docs/rfcs/README.md`
 - `.codex/skills/craig-rfc-writing/SKILL.md`
+
+## Phase tracking
+
+- When a session completes or verifies an RFC phase, update that RFC's tracker in the same change.
+- Update all three tracker sections together: status summary, verification summary, and next resume point.
