@@ -208,7 +208,7 @@ Per-task records under `.craig/tasks/` now track:
 - `logs <id>` depends on local `tail` for live follow behavior.
 - `focus <id>` depends on tmux target state that Craig recorded during task creation.
 - `open <id>` prints the worktree path when no opener is configured.
-- Full live manual verification of the GitHub-backed `pr --watch` to `merge` flow still depends on a locally authenticated `gh` session and a real repo remote.
+- Full live manual verification of the GitHub-backed `pr --watch` to `merge` flow requires a locally authenticated `gh` session and a real repo remote.
 - Full live manual verification of the new tmux-backed three-zone control surface is still pending.
 
 ## Development
