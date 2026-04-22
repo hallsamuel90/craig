@@ -232,18 +232,20 @@ function normalizeRequiredCheck(entry: unknown): TaskPullRequestCheck | null {
     name?: string;
     context?: string;
     state?: string;
+    status?: string;
     conclusion?: string | null;
   };
 
   const name = candidate.name ?? candidate.context;
+  const rawState = candidate.state ?? candidate.status;
 
-  if (!name || !candidate.state) {
+  if (!name || !rawState) {
     return null;
   }
 
   return {
     name,
-    status: normalizeCheckState(candidate.state, candidate.conclusion ?? null),
+    status: normalizeCheckState(rawState, candidate.conclusion ?? null),
     conclusion: candidate.conclusion ?? null,
   };
 }

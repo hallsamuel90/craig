@@ -33,9 +33,37 @@ export async function createWorktree(
     throw new Error("Base branch 'main' does not exist locally.");
   }
 
-  await runCommand("git", ["worktree", "add", "-b", branch, worktreePath, "main"], {
+  const baseRef = await resolveWorktreeBaseRef(repoRoot);
+
+  await runCommand("git", ["worktree", "add", "-b", branch, worktreePath, baseRef], {
     cwd: repoRoot,
   });
+}
+
+async function resolveWorktreeBaseRef(repoRoot: string): Promise<string> {
+  const hasOrigin = await runCommandAllowingFailure("git", ["remote", "get-url", "origin"], {
+    cwd: repoRoot,
+  });
+
+  if (hasOrigin.exitCode !== 0) {
+    return "main";
+  }
+
+  const fetchOriginMain = await runCommandAllowingFailure("git", ["fetch", "origin", "main"], {
+    cwd: repoRoot,
+  });
+
+  if (fetchOriginMain.exitCode !== 0) {
+    return "main";
+  }
+
+  const hasRemoteMain = await runCommandAllowingFailure(
+    "git",
+    ["show-ref", "--verify", "--quiet", "refs/remotes/origin/main"],
+    { cwd: repoRoot },
+  );
+
+  return hasRemoteMain.exitCode === 0 ? "refs/remotes/origin/main" : "main";
 }
 
 export async function hasUncommittedDiff(worktreePath: string): Promise<boolean> {

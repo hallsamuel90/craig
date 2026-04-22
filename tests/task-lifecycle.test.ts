@@ -195,6 +195,50 @@ describe("task lifecycle services", () => {
     expect(task.pullRequest.requiredChecks[0]?.status).toBe("success");
   });
 
+  test("openPullRequest treats GitHub check runs with in-progress status as pending", async () => {
+    const repoRoot = await createRepoRoot("craig-pr-checkrun-pending-");
+    tempRoots.push(repoRoot);
+    const { paths, worktreePath, stubDir } = await createTrackedTaskRepo(repoRoot);
+    process.env.PATH = `${stubDir}:${originalPath}`;
+
+    const viewFile = path.join(repoRoot, "gh-view.json");
+    await writeFile(
+      viewFile,
+      JSON.stringify({
+        number: 17,
+        url: "https://github.com/example/repo/pull/17",
+        baseRefName: "main",
+        headRefName: "craig/task_1",
+        state: "OPEN",
+        mergeable: "MERGEABLE",
+        mergeStateStatus: "UNSTABLE",
+        statusCheckRollup: [{ name: "ci", status: "IN_PROGRESS", conclusion: "" }],
+      }),
+      "utf8",
+    );
+    process.env.CRAIG_TEST_GH_VIEW_FILE = viewFile;
+
+    await writeTaskRecord(paths.repoRoot, {
+      id: "task_1",
+      status: "checked",
+      branch: "craig/task_1",
+      worktreePath,
+      lastCommit: {
+        sha: "abc1234",
+        message: "ship task",
+        committedAt: "2026-04-21T00:00:00.000Z",
+      },
+    });
+
+    const result = await openPullRequest(paths, "task_1", { watch: false });
+    const task = await readTask(paths, "task_1");
+
+    expect(result.status).toBe("pr_open");
+    expect(task.status).toBe("pr_open");
+    expect(task.pullRequest.requiredChecks[0]?.name).toBe("ci");
+    expect(task.pullRequest.requiredChecks[0]?.status).toBe("pending");
+  });
+
   test("openPullRequest pushes new commits when refreshing an existing PR", async () => {
     const repoRoot = await createRepoRoot("craig-pr-refresh-");
     tempRoots.push(repoRoot);
@@ -317,6 +361,60 @@ describe("task lifecycle services", () => {
     expect(task.status).toBe("merged");
     expect(task.cleanup.preservedWorktree).toBe(true);
     await expect(readFile(path.join(worktreePath, "index.ts"), "utf8")).resolves.toContain("value");
+  });
+
+  test("mergeTask blocks when GitHub reports an in-progress check run", async () => {
+    const repoRoot = await createRepoRoot("craig-merge-pending-checkrun-");
+    tempRoots.push(repoRoot);
+    const { paths, worktreePath, stubDir } = await createTrackedTaskRepo(repoRoot);
+    process.env.PATH = `${stubDir}:${originalPath}`;
+
+    const viewFile = path.join(repoRoot, "gh-view.json");
+    await writeFile(
+      viewFile,
+      JSON.stringify({
+        number: 17,
+        url: "https://github.com/example/repo/pull/17",
+        baseRefName: "main",
+        headRefName: "craig/task_1",
+        state: "OPEN",
+        mergeable: "MERGEABLE",
+        mergeStateStatus: "UNSTABLE",
+        statusCheckRollup: [{ name: "ci", status: "IN_PROGRESS", conclusion: "" }],
+      }),
+      "utf8",
+    );
+    process.env.CRAIG_TEST_GH_VIEW_FILE = viewFile;
+
+    await writeTaskRecord(paths.repoRoot, {
+      id: "task_1",
+      status: "merge_ready",
+      branch: "craig/task_1",
+      worktreePath,
+      pullRequest: {
+        provider: "github",
+        number: 17,
+        url: "https://github.com/example/repo/pull/17",
+        baseBranch: "main",
+        headBranch: "craig/task_1",
+        status: "open",
+        mergeable: true,
+        mergeStateStatus: "CLEAN",
+        requiredChecks: [{ name: "ci", status: "success", conclusion: "SUCCESS" }],
+        lastSyncedAt: "2026-04-21T00:00:00.000Z",
+      },
+      lastCommit: {
+        sha: "abc1234",
+        message: "ship task",
+        committedAt: "2026-04-21T00:00:00.000Z",
+      },
+    });
+
+    await expect(mergeTask(paths, "task_1", { preserveWorktree: false })).rejects.toThrow(/not merge-ready/);
+
+    const task = await readTask(paths, "task_1");
+    expect(task.status).toBe("pr_open");
+    expect(task.pullRequest.requiredChecks[0]?.status).toBe("pending");
   });
 
   test("showTask refreshes persisted PR state for tracked tasks", async () => {
