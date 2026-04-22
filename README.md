@@ -2,7 +2,7 @@
 
 Craig is a local control plane for repo-backed agent work.
 
-This repo currently implements verified RFC phase `1.3`: the `1.1` bootstrap CLI, `1.2` pane-based repo task creation on Cursor, and `1.3` inspection/navigation commands.
+This repo now implements RFC phase `1.4`, including the full local checks-to-merge workflow. Automated verification is complete for `1.4`; live manual GitHub verification is still pending.
 
 ## Current status
 
@@ -36,9 +36,17 @@ Implemented in `1.3`:
 - tmux focus handoff for existing tasks
 - optional `open.command` config with path-print fallback when unset
 
-Not implemented yet:
+Implemented in `1.4`:
 
-- checks, commit, PR, merge, cleanup
+- `check <id>`, `commit <id>`, `pr <id>`, and `merge <id>` in the REPL
+- `craig task check|commit|pr|merge <id>` in command mode
+- persistent check results, commit metadata, PR metadata, and cleanup state in task records
+- GitHub CLI-backed PR creation, PR refresh, CI watch, and merge support
+- post-merge cleanup with optional `--preserve-worktree`
+- `show <id>` live PR refresh for tracked tasks
+
+Still deferred:
+
 - Codex and multi-runner support
 
 ## Requirements
@@ -46,6 +54,7 @@ Not implemented yet:
 - Node `22+`
 - `pnpm`
 - a git repository
+- `gh` authenticated against GitHub for PR and merge flows
 
 Craig currently requires a git repo because it uses the repo root as the control-plane boundary and stores local state under `.craig/` in that repo.
 
@@ -76,6 +85,8 @@ pnpm start -- task list
 pnpm start -- task new "refactor auth"
 pnpm start -- task show task_20260421_01
 pnpm start -- task logs task_20260421_01
+pnpm start -- task check task_20260421_01
+pnpm start -- task pr task_20260421_01 --watch
 ```
 
 You can also run the built CLI directly:
@@ -85,6 +96,7 @@ node dist/cli.js
 node dist/cli.js task list
 node dist/cli.js task new "refactor auth"
 node dist/cli.js task diff task_20260421_01
+node dist/cli.js task merge task_20260421_01 --preserve-worktree
 ```
 
 ## Commands
@@ -98,6 +110,10 @@ Interactive commands:
 - `diff <id>`
 - `focus <id>`
 - `open <id>`
+- `check <id>`
+- `commit <id>`
+- `pr <id> [--watch]`
+- `merge <id> [--preserve-worktree]`
 - `help`
 - `exit`
 
@@ -110,17 +126,30 @@ Command mode:
 - `task diff <id>`
 - `task focus <id>`
 - `task open <id>`
+- `task check <id>`
+- `task commit <id>`
+- `task pr <id> [--watch]`
+- `task merge <id> [--preserve-worktree]`
 
 ## Config
 
 Craig reads optional repo-local config from `.craig/config.json`.
 
+`checks.commands` is an ordered list of shell commands. `check <id>` runs them in the task worktree.
 `open.command` is an argv array. Craig appends the resolved task worktree path as the final argument.
+`github.mergeMethod` defaults to `squash`, and `github.watchIntervalSeconds` defaults to `10`.
 
 Example:
 
 ```json
 {
+  "checks": {
+    "commands": ["pnpm test", "pnpm typecheck", "pnpm lint"]
+  },
+  "github": {
+    "mergeMethod": "squash",
+    "watchIntervalSeconds": 10
+  },
   "open": {
     "command": ["code", "-n"]
   }
@@ -157,6 +186,9 @@ Per-task records under `.craig/tasks/` now track:
 - tmux pane targets
 - prompt source
 - runner-session metadata
+- check results
+- last commit metadata
+- PR status and cleanup metadata
 - artifact paths
 
 ## Current limitations
@@ -164,7 +196,7 @@ Per-task records under `.craig/tasks/` now track:
 - `logs <id>` depends on local `tail` for live follow behavior.
 - `focus <id>` depends on tmux target state that Craig recorded during task creation.
 - `open <id>` prints the worktree path when no opener is configured.
-- The `1.4` workflow is still pending, so checks, commit, PR, merge, and cleanup are not available yet.
+- Full live manual verification of the GitHub-backed `pr --watch` to `merge` flow still depends on a locally authenticated `gh` session and a real repo remote.
 
 ## Development
 
@@ -184,4 +216,4 @@ pnpm build
 
 ## RFC
 
-The current implementation follows [docs/rfcs/2026-04-20-rfc-craig-control-plane.md](/Users/samhall/conductor/workspaces/craig/buffalo-v1/docs/rfcs/2026-04-20-rfc-craig-control-plane.md), with `1.1`, `1.2`, and `1.3` implemented and verified.
+The current implementation follows [docs/rfcs/2026-04-20-rfc-craig-control-plane.md](/Users/samhall/conductor/workspaces/craig/hanoi/docs/rfcs/2026-04-20-rfc-craig-control-plane.md), with `1.1` through `1.3` implemented and verified and `1.4` implemented with automated verification complete.

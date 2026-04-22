@@ -30,6 +30,7 @@ describe("showTask", () => {
         lastRunAt: null,
         status: "not_run",
         commands: ["pnpm test"],
+        results: [],
       },
       pullRequest: {
         provider: "github",
@@ -39,6 +40,7 @@ describe("showTask", () => {
         headBranch: "craig/task_1",
         status: "open",
         mergeable: false,
+        mergeStateStatus: "BLOCKED",
         requiredChecks: [{ name: "ci", status: "pending", conclusion: null }],
         lastSyncedAt: "2026-04-21T00:00:00.000Z",
       },
@@ -72,6 +74,7 @@ describe("showTask", () => {
       worktreePath: `${repoRoot}/missing-worktree`,
       artifacts: {
         logPath: ".craig/logs/task_1.log",
+        checkSummaryPath: ".craig/artifacts/task_1/check-summary.json",
         prDraftPath: null,
         prStatusPath: ".craig/artifacts/task_1/pr-status.json",
       },

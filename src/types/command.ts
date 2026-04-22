@@ -8,6 +8,10 @@ export type AppCommand =
   | { kind: "showTaskDiff"; taskId: string }
   | { kind: "focusTask"; taskId: string }
   | { kind: "openTask"; taskId: string }
+  | { kind: "runChecks"; taskId: string }
+  | { kind: "commitTask"; taskId: string }
+  | { kind: "openPullRequest"; taskId: string; watch: boolean }
+  | { kind: "mergeTask"; taskId: string; preserveWorktree: boolean }
   | { kind: "help" }
   | { kind: "exit" };
 
@@ -42,7 +46,9 @@ export interface TaskInspection {
   recentFailureReason: string | null;
   runnerCommandText: string;
   checksSummary: string;
+  lastCommitSummary: string;
   prSummary: string;
+  cleanupSummary: string;
 }
 
 export interface CommandShowTaskResult {
@@ -78,6 +84,41 @@ export interface CommandOpenResult {
   command: string[] | null;
 }
 
+export interface CommandChecksResult {
+  kind: "runChecks";
+  taskId: string;
+  status: "passed" | "failed";
+  commands: string[];
+}
+
+export interface CommandCommitResult {
+  kind: "commitTask";
+  taskId: string;
+  status: string;
+  commitSha: string;
+  message: string;
+}
+
+export interface CommandPullRequestResult {
+  kind: "openPullRequest";
+  taskId: string;
+  watch: boolean;
+  prNumber: number;
+  url: string;
+  status: string;
+  mergeable: boolean;
+  requiredChecksSummary: string;
+}
+
+export interface CommandMergeResult {
+  kind: "mergeTask";
+  taskId: string;
+  status: string;
+  prNumber: number;
+  preservedWorktree: boolean;
+  cleanupWarning: string | null;
+}
+
 export type CommandResult =
   | CommandCreateTaskResult
   | CommandHelpResult
@@ -87,4 +128,8 @@ export type CommandResult =
   | CommandLogsResult
   | CommandDiffResult
   | CommandFocusResult
-  | CommandOpenResult;
+  | CommandOpenResult
+  | CommandChecksResult
+  | CommandCommitResult
+  | CommandPullRequestResult
+  | CommandMergeResult;

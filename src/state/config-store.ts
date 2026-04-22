@@ -57,6 +57,33 @@ function validateCraigConfig(value: unknown, filePath: string): CraigConfig {
     }
   }
 
+  if (candidate.github !== undefined) {
+    if (typeof candidate.github !== "object" || candidate.github === null) {
+      throw new Error(`Craig config at ${filePath} is invalid. "github" must be an object.`);
+    }
+
+    if (
+      candidate.github.mergeMethod !== undefined &&
+      candidate.github.mergeMethod !== "merge" &&
+      candidate.github.mergeMethod !== "rebase" &&
+      candidate.github.mergeMethod !== "squash"
+    ) {
+      throw new Error(
+        `Craig config at ${filePath} is invalid. "github.mergeMethod" must be "merge", "rebase", or "squash".`,
+      );
+    }
+
+    if (
+      candidate.github.watchIntervalSeconds !== undefined &&
+      (!Number.isInteger(candidate.github.watchIntervalSeconds) ||
+        candidate.github.watchIntervalSeconds <= 0)
+    ) {
+      throw new Error(
+        `Craig config at ${filePath} is invalid. "github.watchIntervalSeconds" must be a positive integer.`,
+      );
+    }
+  }
+
   return candidate;
 }
 

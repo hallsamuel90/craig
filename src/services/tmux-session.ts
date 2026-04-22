@@ -84,6 +84,10 @@ export async function focusPane(repoRoot: string, paneId: string): Promise<void>
   await runInteractiveTmuxCommand(repoRoot, ["attach-session", "-t", SESSION_NAME]);
 }
 
+export async function killPane(repoRoot: string, paneId: string): Promise<void> {
+  await runCommand("tmux", ["kill-pane", "-t", paneId], { cwd: repoRoot });
+}
+
 async function runInteractiveTmuxCommand(repoRoot: string, args: string[]): Promise<void> {
   await new Promise<void>((resolve, reject) => {
     const child = spawn("tmux", args, {

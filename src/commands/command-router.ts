@@ -8,6 +8,10 @@ import { prepareTaskLogs } from "../services/stream-task-logs.js";
 import { showTaskDiff } from "../services/show-task-diff.js";
 import { focusTask } from "../services/focus-task.js";
 import { openTask } from "../services/open-task.js";
+import { runChecks } from "../services/run-checks.js";
+import { commitTask } from "../services/commit-task.js";
+import { openPullRequest } from "../services/open-pull-request.js";
+import { mergeTask } from "../services/merge-task.js";
 
 export interface CommandContext {
   paths: CraigPaths;
@@ -32,6 +36,16 @@ export async function executeCommand(
       return focusTask(context.paths, command.taskId);
     case "openTask":
       return openTask(context.paths, command.taskId);
+    case "runChecks":
+      return runChecks(context.paths, command.taskId);
+    case "commitTask":
+      return commitTask(context.paths, command.taskId);
+    case "openPullRequest":
+      return openPullRequest(context.paths, command.taskId, { watch: command.watch });
+    case "mergeTask":
+      return mergeTask(context.paths, command.taskId, {
+        preserveWorktree: command.preserveWorktree,
+      });
     case "help":
       return { kind: "help", text: getHelpText() };
     case "exit":

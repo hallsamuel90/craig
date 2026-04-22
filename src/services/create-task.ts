@@ -22,6 +22,7 @@ export async function createTask(paths: CraigPaths, title: string): Promise<Comm
   const worktreePath = path.join(paths.worktreesDir, taskId);
   const logPath = path.join(paths.logsDir, `${taskId}.log`);
   const prArtifactsDir = path.join(paths.artifactsDir, taskId);
+  const checkSummaryPath = path.join(prArtifactsDir, "check-summary.json");
   const relativeLogPath = path.relative(paths.repoRoot, logPath);
   const task = buildDraftTask(paths, {
     taskId,
@@ -29,6 +30,7 @@ export async function createTask(paths: CraigPaths, title: string): Promise<Comm
     branch,
     worktreePath,
     logPath: relativeLogPath,
+    checkSummaryPath: path.relative(paths.repoRoot, checkSummaryPath),
   });
 
   await mkdir(prArtifactsDir, { recursive: true });
@@ -79,6 +81,7 @@ interface DraftTaskInput {
   branch: string;
   worktreePath: string;
   logPath: string;
+  checkSummaryPath: string;
 }
 
 function buildDraftTask(paths: CraigPaths, input: DraftTaskInput): TaskRecord {
@@ -116,7 +119,9 @@ function buildDraftTask(paths: CraigPaths, input: DraftTaskInput): TaskRecord {
       lastRunAt: null,
       status: "not_run",
       commands: [],
+      results: [],
     },
+    lastCommit: null,
     pullRequest: {
       provider: "github",
       number: null,
@@ -125,16 +130,24 @@ function buildDraftTask(paths: CraigPaths, input: DraftTaskInput): TaskRecord {
       headBranch: null,
       status: null,
       mergeable: false,
+      mergeStateStatus: null,
       requiredChecks: [],
       lastSyncedAt: null,
     },
     artifacts: {
       logPath: input.logPath,
+      checkSummaryPath: input.checkSummaryPath,
       prDraftPath: null,
       prStatusPath: path.relative(
         paths.repoRoot,
         path.join(paths.artifactsDir, input.taskId, "pr-status.json"),
       ),
+    },
+    cleanup: {
+      paneClosedAt: null,
+      worktreeRemovedAt: null,
+      preservedWorktree: false,
+      warning: null,
     },
     lastFailureReason: null,
     createdAt: timestamp,

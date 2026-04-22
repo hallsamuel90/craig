@@ -65,6 +65,56 @@ export function parseArgv(argv: string[]): ParsedArgvCommand {
     };
   }
 
+  if (trimmedArgv.length === 3 && trimmedArgv[0] === "task" && trimmedArgv[1] === "check") {
+    return {
+      mode: "command",
+      command: { kind: "runChecks", taskId: requireTaskId(trimmedArgv[2]!) },
+    };
+  }
+
+  if (trimmedArgv.length === 3 && trimmedArgv[0] === "task" && trimmedArgv[1] === "commit") {
+    return {
+      mode: "command",
+      command: { kind: "commitTask", taskId: requireTaskId(trimmedArgv[2]!) },
+    };
+  }
+
+  if (
+    trimmedArgv.length >= 3 &&
+    trimmedArgv.length <= 4 &&
+    trimmedArgv[0] === "task" &&
+    trimmedArgv[1] === "pr"
+  ) {
+    const watch = trimmedArgv[3] === "--watch";
+
+    if (trimmedArgv.length === 4 && !watch) {
+      throw new Error(`Unsupported command: ${trimmedArgv.join(" ")}\n\n${getHelpText()}`);
+    }
+
+    return {
+      mode: "command",
+      command: { kind: "openPullRequest", taskId: requireTaskId(trimmedArgv[2]!), watch },
+    };
+  }
+
+  if (
+    trimmedArgv.length >= 3 &&
+    trimmedArgv.length <= 4 &&
+    trimmedArgv[0] === "task" &&
+    trimmedArgv[1] === "merge"
+  ) {
+    const preserveWorktree = trimmedArgv[3] === "--preserve-worktree";
+
+    if (trimmedArgv.length === 4 && !preserveWorktree) {
+      throw new Error(`Unsupported command: ${trimmedArgv.join(" ")}\n\n${getHelpText()}`);
+    }
+
+    return {
+      mode: "command",
+      command: { kind: "mergeTask", taskId: requireTaskId(trimmedArgv[2]!), preserveWorktree },
+    };
+  }
+
   throw new Error(`Unsupported command: ${trimmedArgv.join(" ")}\n\n${getHelpText()}`);
 }
 
@@ -79,6 +129,10 @@ export function getHelpText(): string {
     "  craig task diff    Show the current worktree diff for a task",
     "  craig task focus   Focus the tmux pane for a task",
     "  craig task open    Open the task worktree or print its path",
+    "  craig task check   Run configured checks for a task",
+    "  craig task commit  Commit all task worktree changes",
+    "  craig task pr      Create or refresh a task pull request",
+    "  craig task merge   Merge a task pull request and clean up",
     "",
     "REPL commands:",
     "  new <task>",
@@ -88,6 +142,10 @@ export function getHelpText(): string {
     "  diff <id>",
     "  focus <id>",
     "  open <id>",
+    "  check <id>",
+    "  commit <id>",
+    "  pr <id> [--watch]",
+    "  merge <id> [--preserve-worktree]",
     "  help",
     "  exit",
   ].join("\n");
