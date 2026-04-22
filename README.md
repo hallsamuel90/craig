@@ -159,6 +159,8 @@ Per-task records under `.craig/tasks/` now track:
 - runner-session metadata
 - artifact paths
 
+Session runtime metadata is stored under `.craig/runtime/session.json`.
+
 ## Current limitations
 
 - `logs <id>` depends on local `tail` for live follow behavior.
