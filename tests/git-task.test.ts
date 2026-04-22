@@ -27,12 +27,13 @@ describe("git-task", () => {
 
     await runCommand("git", ["clone", remoteRepo, localRepo]);
     await createGitRepo(localRepo);
+    await runCommand("git", ["checkout", "-B", "main"], { cwd: localRepo });
     await writeFile(path.join(localRepo, "README.md"), "base\n", "utf8");
     await runCommand("git", ["add", "README.md"], { cwd: localRepo });
     await runCommand("git", ["commit", "-m", "base"], { cwd: localRepo });
     await runCommand("git", ["push", "-u", "origin", "main"], { cwd: localRepo });
 
-    await runCommand("git", ["clone", remoteRepo, updaterRepo]);
+    await runCommand("git", ["clone", "--branch", "main", remoteRepo, updaterRepo]);
     await runCommand("git", ["config", "user.name", "Craig Tests"], { cwd: updaterRepo });
     await runCommand("git", ["config", "user.email", "craig@example.com"], { cwd: updaterRepo });
     await writeFile(path.join(updaterRepo, "README.md"), "base\nremote update\n", "utf8");
