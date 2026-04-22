@@ -99,12 +99,13 @@ End-state product direction:
 
 - TUI control surface
 - panels for tasks and worktrees
+- active work surface
 - selected task details
 - logs
 - diff summary
 - changed files
 - review state
-- available actions
+- task actions
 
 Interaction model decisions:
 
@@ -113,6 +114,9 @@ Interaction model decisions:
 - file-level drill-down launches `nvim`
 - command mode remains available outside the TUI
 - tmux may continue to host persistent execution contexts, but the UX should be described in Craig terms rather than tmux terms
+- movement should require as little mode switching, typing, and context reloading as possible
+- the default screen should privilege orientation and actionability over raw information density
+- visual noise should stay low: status should be legible at a glance without turning the interface into a dashboard of constant motion
 
 Craig should feel more like:
 
@@ -128,20 +132,54 @@ Craig should feel less like:
 
 Minimum interaction contract for the richer Craig TUI:
 
-- the left panel is the task and worktree list and owns the primary selection cursor
-- the upper-right panel shows the selected task summary, lifecycle state, runner state, checks, PR state, and next actions
-- the lower-right panel switches between logs, diff summary, changed files, and review details for the selected task
-- Craig keeps exactly one selected task and one active panel at a time
+- the left column is the task and worktree list and owns the primary selection cursor
+- the middle column is the active work surface and is where the user actually types, triggers actions, and interacts with Craig for the selected task
+- the right column is the context surface and shows selected-task summary, lifecycle state, runner state, checks, PR state, next actions, and switchable detail tabs for logs, diff summary, changed files, and review details
+- Craig keeps exactly one selected task, one active work surface, and one active context tab at a time
+- if the previously selected task still exists, Craig should restore that task, the last work-surface mode, and the last active context tab before applying any default-selection logic
+- if there is no restorable task selection, the default landing view should preselect the highest-priority non-terminal task in this order: `merge_ready`, `pr_open`, `checked`, `review`, `running`, `draft`; ties are broken by most recently updated, and if only terminal tasks remain Craig selects the most recently updated task
+- the default action path should be obvious from the selected task summary without requiring the user to open a secondary menu first
 - `j` and `k` or the arrow keys move the current list selection
-- `tab` and `shift-tab` cycle focus between the task list, task detail panel, and lower-right detail modes
+- `tab` and `shift-tab` cycle focus between the task list, work surface, and context surface
 - `enter` executes the default action for the current focus target
 - `l` opens the logs view for the selected task
 - `d` opens the diff-summary view for the selected task
 - `f` opens the changed-files view for the selected task
-- `a` opens the available-actions view for the selected task
+- `a` opens inline action mode for the selected task in the middle work surface
+- `:` opens the Craig command bar inside the middle work surface
 - `o` opens the selected task or file in the configured opener, with explicit `nvim` handoff supported once file-level drill-down lands
 - `/` filters the task list
+- `esc` clears transient UI state in order of least-destructive unwinding: close inline overlays first, clear filter second, return focus to the task list last
+- there should be no deep modal stacks; at most one transient overlay such as command help, attach confirmation, or a confirm dialog may be open at a time
+- expensive or noisy views must not steal focus automatically; logs and status refresh in place without yanking the cursor away from the current task
+- status updates should feel calm rather than chatty: no spinner storm, no excessive color churn, and no reflow that makes the selection jump
+- the right-column context tabs should keep stable ordering so muscle memory can form around logs, diff, files, and review; task actions live in the middle work surface instead of becoming a fifth context tab
 - if the richer TUI renderer is unavailable or fails, Craig falls back to the minimal interactive shell without changing task lifecycle behavior or command semantics
+
+Work-surface decisions:
+
+- the middle work surface is not just status; it is the primary input area for Craig
+- when the user is focused in the middle surface, typed input goes to Craig rather than directly to the runner session unless the user explicitly enters a passthrough or attach action
+- the middle surface supports at least three modes:
+  - command bar mode for terse Craig commands and action dispatch
+  - inline action mode for task-specific actions such as check, commit, PR, merge, open, and focus
+  - attach mode for intentionally dropping into the live task execution context when the user wants direct terminal interaction
+- command bar mode is the default work-surface mode because it keeps Craig visible and in control
+- attach mode is entered only through an explicit attach action in inline action mode or an explicit Craig command such as `attach <task-id>`; selection changes, refreshes, and log updates must never enter attach mode implicitly
+- attach mode must be explicit and reversible so the user does not accidentally lose the mission-control shell
+- while attached, Craig reserves a detach chord such as `ctrl-]` to return to the same selected task, the prior middle-surface mode, and the prior context tab without relying on tmux-specific user knowledge
+- when the selected task changes, the middle work surface updates to that task’s current command and action context without requiring a full screen reset
+- the middle work surface should make it obvious whether the user is talking to Craig, choosing an action, or attached to the task terminal
+- the middle work surface should support immediate, low-friction action on the selected task without forcing the user to bounce back to a raw shell prompt
+
+Visual and motion constraints for the TUI:
+
+- use a restrained visual hierarchy: one primary accent, one warning accent, one success accent, and otherwise quiet terminal-native styling
+- use color to reinforce lifecycle and action readiness, not to decorate every row
+- avoid live-updating regions that cause the whole screen to re-render or flicker
+- keep persistent chrome minimal so the majority of the screen belongs to task state, logs, diff, and files
+- reserve animation or cursor movement effects for meaningful transitions only, and prefer no animation over distracting animation
+- keep key actions visible in-context so the user rarely needs to remember hidden commands or open a help screen
 
 ## Runner model
 
@@ -332,11 +370,11 @@ Craig should treat these steps as one connected system. Users should not need ad
 
 ### Status summary
 
-- `1.1` Bootstrap CLI shell, shared control-plane services, and interactive terminal foundation: `implemented`
+- `1.1` Bootstrap CLI shell, shared control-plane services, and interactive terminal foundation: `implemented and verified`
 - `1.2` Repo task creation with worktree, branch, execution substrate, and Cursor launch: `implemented and verified`
 - `1.3` Task inspection, logs, diff, focus, and open flows: `implemented and verified`
 - `1.4` Checks, commit, PR creation, CI tracking, merge, and cleanup: `implemented; automated verification complete; manual GitHub flow verification pending`
-- `2.1` Terminal control-surface foundation on top of tmux-backed execution contexts: `implemented; automated verification complete; live interactive verification pending`
+- `2.1` Terminal control-surface foundation on top of tmux-backed execution contexts: `in progress; earlier control-surface foundation is implemented and automated verification is complete, but the revised three-zone layout and Craig-controlled middle-surface scope still need implementation and live verification`
 - `2.2` Richer Craig TUI navigation and task inspection: `pending`
 - `2.3` Review, file, and diff navigation improvements with mission-control polish: `pending`
 - `3.1` Codex runner adapter on the same task model: `pending`
@@ -348,11 +386,11 @@ Craig should treat these steps as one connected system. Users should not need ad
 - `1.2` Verified via automated coverage, passing `pnpm test`, `pnpm typecheck`, and `pnpm lint`, plus a live manual run of `craig task new "manual verification task"` that created the worktree, provisioned the execution context, persisted runner-session metadata, and launched Cursor in the correct worktree.
 - `1.3` Verified via parser, service, and minimal-shell coverage for `show`, `logs`, `diff`, `focus`, and `open`, plus passing `pnpm test`, `pnpm typecheck`, and `pnpm lint`, plus a manual built-CLI run in a temporary git repo that confirmed `show`, `diff`, `open`, and `focus` against durable task state and recorded substrate metadata. Current limitations: `logs` depends on local `tail`, focus still depends on persisted tmux metadata, and `open` prints the path when no opener is configured.
 - `1.4` Automated verification completed via parser and lifecycle-service coverage for `check`, `commit`, `pr`, `merge`, cleanup preservation, and tracked-PR refresh behavior, plus passing `pnpm test`, `pnpm typecheck`, and `pnpm lint`. Manual authenticated GitHub verification of the full `new` to `pr --watch` to `merge` flow is still pending in a real repo and remote environment.
-- `2.1` Automated verification completed via tmux-service, create-task, focus, command-router, and interactive-shell coverage for control-surface foundation behavior, page-aware session layout, overflow-window fallback, persisted window and page metadata, and the removal of post-create auto-focus, plus passing `pnpm test`, `pnpm typecheck`, and `pnpm lint`. Live interactive verification of the terminal control-surface behavior is still pending.
+- `2.1` Earlier automated verification completed via tmux-service, create-task, focus, command-router, and interactive-shell coverage for control-surface foundation behavior, page-aware session layout, overflow-window fallback, persisted window and page metadata, and the removal of post-create auto-focus, plus passing `pnpm test`, `pnpm typecheck`, and `pnpm lint`. The newly added three-zone layout foundation and Craig-controlled middle work surface are not yet implemented or verified, and live interactive verification of the revised `2.1` scope is still pending.
 
 ### Next resume point
 
-Resume at the first sub-phase that is not both implemented and verified. The current resume point is `1.4` to complete live manual GitHub verification, then `2.1` for live tmux-backed control-surface verification and hardening, then `2.2`.
+Resume at the first sub-phase that is not both implemented and verified. The current resume point is `1.4` to complete live manual GitHub verification, then `2.1` to implement the revised three-zone layout foundation, Craig-controlled middle work surface defaults, and live tmux-backed control-surface verification, then `2.2`.
 
 ### Deferred phases
 
@@ -627,7 +665,7 @@ Stabilize Craig as the visible terminal control surface while using tmux-backed 
 
 #### 2.2 Richer TUI navigation, status panels, and orchestration visibility
 
-Add richer Craig TUI navigation and inspection panels so task selection, task details, logs, and available actions no longer depend on typed commands for every move.
+Add richer Craig TUI navigation and inspection panels so task selection, task details, logs, and task actions no longer depend on typed commands for every move.
 
 #### 2.3 File, diff, and review workflows with stronger mission-control feel
 
@@ -741,28 +779,41 @@ Expand beyond repo tasks into general tasks and recurring jobs while reusing the
 - Keep Craig visible while runners execute in substrate-backed sessions.
 - Persist runtime and session metadata.
 - Keep command mode and scripting surfaces intact.
+- Establish the three-zone layout foundation: task navigator on the left, active work surface in the middle, context surface on the right.
+- Ensure the middle work surface remains Craig-controlled by default rather than collapsing back into a raw task terminal.
 
 #### Verification
 
 - Run the current automated coverage around control-surface foundation behavior.
-- Manually verify the interactive terminal control surface and live execution behavior together.
+- Manually verify the interactive terminal control surface, three-zone layout foundation, and Craig-controlled default work-surface behavior together with live execution.
 
 #### Tracking update
 
-- Keep `2.1` open until live interactive verification passes.
+- Keep `2.1` open until the revised three-zone layout foundation lands, the middle work surface stays Craig-controlled by default, and live interactive verification passes.
 
 ### 2.2 Handoff
 
 #### Implementation
 
-- Add richer TUI panels for tasks, selected task details, logs, diff summary, changed files, and available actions.
-- Implement the keyboard interaction contract from the UI section, including list selection, panel switching, filtering, and per-view shortcuts.
+- Add richer TUI panels for tasks, an active middle work surface, and a right-hand context surface with selected-task summary plus stable tabs for logs, diff summary, changed files, and review details.
+- Implement the keyboard interaction contract from the UI section, including list selection, panel switching, filtering, per-view shortcuts, middle-surface command bar behavior, and inline action mode.
 - Add task navigation that does not depend on typed commands for every move.
+- Preserve user orientation across refreshes by keeping the selected task, work-surface mode, and active context tab stable whenever that state is still valid.
+- Make the default state low-friction: restore the last selected task, last work-surface mode, and last active context tab when they are still valid; otherwise preselect the highest-priority non-terminal task using the documented lifecycle ordering, with the next action visible and no required setup clicks or transient prompts.
+- Keep visual distraction low by avoiding unnecessary redraws, moving focus only on explicit user action, and limiting simultaneous status motion.
+- Add a compact always-visible action hint area so common actions are discoverable without opening a modal help sheet.
+- Ensure the TUI remains fast enough that keyboard navigation feels immediate on repos with many tasks; sluggishness is a UX failure for this phase.
+- Make the middle work surface feel like the place work happens: command entry, task actions, and intentional attach behavior should all originate there.
+- Enter attach mode only through an explicit action or command, and provide a Craig-owned detach chord that returns the user to the prior work-surface mode and context for the same task.
 
 #### Verification
 
 - Run UI-level or renderer-level coverage where practical.
 - Manually validate the richer interactive terminal experience against the documented keyboard model.
+- Manually validate that navigation, refresh behavior, and selection persistence feel calm and predictable during active task updates.
+- Manually validate that the middle work surface feels like the primary working area rather than a decorative prompt.
+- Manually validate restore precedence on startup: previous selection, work-surface mode, and context tab win when still valid, otherwise the documented lifecycle ranking wins without selection jumps.
+- Manually validate inline action mode and explicit attach-entry/detach behavior.
 
 #### Tracking update
 
@@ -777,11 +828,17 @@ Expand beyond repo tasks into general tasks and recurring jobs while reusing the
 - Add explicit `nvim` handoff from selected task or file context.
 - Add stronger review and mission-control workflows.
 - Call out later MCP-facing follow-ons explicitly instead of implying they are already in scope.
+- Make file and diff drill-down one or two keystrokes from the selected task rather than a multi-step workflow.
+- Keep review flow linear: task selection -> diff or files or review state -> open in `nvim` or take next action, without bouncing the user through unrelated panels.
+- Ensure returning from `nvim` drops the user back into the same selected task and same review context when practical.
+- Ensure attach-mode detach and `nvim` handoff both return the user to the middle work surface and preserved context instead of dropping them into a disconnected shell state.
 
 #### Verification
 
 - Manually validate the review workflow.
 - Manually validate file-navigation and `nvim` handoff flows.
+- Manually validate that moving from task list to diff or files to `nvim` and back feels continuous rather than like switching between separate tools.
+- Manually validate that moving between middle work surface, attach mode, and `nvim` handoff preserves orientation and does not feel like leaving Craig accidentally.
 
 #### Tracking update
 
@@ -831,8 +888,17 @@ Expand beyond repo tasks into general tasks and recurring jobs while reusing the
 - `[1.4]` Users can run configured checks, commit changes, open a PR, inspect or watch required CI status, merge, and clean up without falling back to ad hoc shell scripts for the normal flow.
 - `[1.4]` `merge <id>` performs the actual GitHub merge only after Craig verifies the tracked PR is mergeable and all required remote checks are green.
 - `[2.1]` Craig remains the visible terminal control surface while execution contexts stay persistent underneath.
+- `[2.1]` Craig establishes a three-zone layout with task navigation on the left, active work surface in the middle, and context on the right.
+- `[2.1]` The middle work surface remains Craig-controlled by default instead of dropping the user into a raw task terminal implicitly.
 - `[2.2]` Craig exposes richer task and orchestration visibility through a TUI-style control surface that matches the documented panel and keyboard model.
+- `[2.2]` Craig navigation and refresh behavior feel immediate, stable, and low-distraction during active task updates.
+- `[2.2]` Craig restores the prior task selection, work-surface mode, and active context tab when that state is still valid and otherwise falls back to the documented non-terminal task ranking.
+- `[2.2]` Task actions live in the middle work surface, while the right-hand context surface keeps stable tabs for logs, diff, files, and review.
+- `[2.2]` The middle work surface is the primary place the user types to Craig, triggers actions, and stays oriented while working on the selected task.
+- `[2.2]` Attach mode is entered only through an explicit action or command and detaches back to Craig through a documented chord.
 - `[2.3]` Craig supports file, diff, and review navigation with explicit `nvim` handoff and a stronger mission-control flow.
+- `[2.3]` Moving from selected task to diff or files to `nvim` and back preserves user orientation instead of forcing repeated context rebuilding.
+- `[2.3]` Explicit attach mode and `nvim` handoff both return the user to the same selected task and middle work surface context when practical.
 - `[3.1]` Adding Codex does not require a second task model, a separate lifecycle implementation, or a different runner-session boundary.
 - `[3.x+]` Future vendor additions do not require a second control-plane lifecycle or a separate task model.
 - `[4.1]` Craig can run at least one non-repo scheduled workflow that produces a durable artifact.
