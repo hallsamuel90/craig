@@ -373,8 +373,8 @@ Craig should treat these steps as one connected system. Users should not need ad
 - `1.1` Bootstrap CLI shell, shared control-plane services, and interactive terminal foundation: `implemented and verified`
 - `1.2` Repo task creation with worktree, branch, execution substrate, and Cursor launch: `implemented and verified`
 - `1.3` Task inspection, logs, diff, focus, and open flows: `implemented and verified`
-- `1.4` Checks, commit, PR creation, CI tracking, merge, and cleanup: `implemented; automated verification complete; manual GitHub flow verification pending`
-- `2.1` Terminal control-surface foundation on top of tmux-backed execution contexts: `implemented; automated verification complete; live tmux-backed control-surface verification pending`
+- `1.4` Checks, commit, PR creation, CI tracking, merge, and cleanup: `implemented and verified`
+- `2.1` Terminal control-surface foundation on top of tmux-backed execution contexts: `implemented and verified`
 - `2.2` Richer Craig TUI navigation and task inspection: `pending`
 - `2.3` Review, file, and diff navigation improvements with mission-control polish: `pending`
 - `3.1` Codex runner adapter on the same task model: `pending`
@@ -385,12 +385,12 @@ Craig should treat these steps as one connected system. Users should not need ad
 - `1.1` Verified via shared command-dispatch tests plus passing `pnpm test`, `pnpm typecheck`, and `pnpm lint`.
 - `1.2` Verified via automated coverage, passing `pnpm test`, `pnpm typecheck`, and `pnpm lint`, plus a live manual run of `craig task new "manual verification task"` that created the worktree, provisioned the execution context, persisted runner-session metadata, and launched Cursor in the correct worktree.
 - `1.3` Verified via parser, service, and minimal-shell coverage for `show`, `logs`, `diff`, `focus`, and `open`, plus passing `pnpm test`, `pnpm typecheck`, and `pnpm lint`, plus a manual built-CLI run in a temporary git repo that confirmed `show`, `diff`, `open`, and `focus` against durable task state and recorded substrate metadata. Current limitations: `logs` depends on local `tail`, focus still depends on persisted tmux metadata, and `open` prints the path when no opener is configured.
-- `1.4` Automated verification completed via parser and lifecycle-service coverage for `check`, `commit`, `pr`, `merge`, cleanup preservation, and tracked-PR refresh behavior, plus passing `pnpm test`, `pnpm typecheck`, and `pnpm lint`. Manual authenticated GitHub verification of the full `new` to `pr --watch` to `merge` flow is still pending in a real repo and remote environment.
-- `2.1` Automated verification completed via new runtime-store, layout-renderer, and interactive-app coverage for persisted UI state, three-zone or stacked rendering, command-buffer execution, task reselection, and log-stream suspend or resume behavior, plus the existing tmux-service, create-task, focus, and command-router coverage, and passing `pnpm test`, `pnpm typecheck`, and `pnpm lint`. Live interactive verification of the revised three-zone control surface with tmux-backed tasks is still pending.
+- `1.4` Verified via live authenticated GitHub execution in this repo: `new` created task branches from fetched `origin/main`, `check` ran configured repo-local commands, `commit` persisted commit metadata, `pr --watch` opened PR `#13`, tracked a live GitHub Actions `ci` check from pending to success, advanced the task to `merge_ready`, and `merge` completed the GitHub merge plus cleanup. During verification, Craig defects were found and fixed so task branches no longer start from stale local `main` and GitHub `CheckRun.status` values now gate `merge` correctly. Final verification also included passing `pnpm test`, `pnpm typecheck`, and `pnpm lint`.
+- `2.1` Verified via a live ANSI TTY session with `TERM=xterm-256color` and a wide terminal: Craig rendered the three-zone control surface, kept the middle work surface Craig-controlled by default, restored the selected task, executed the empty-buffer default action in place, refreshed state without losing selection, redrew cleanly on `Ctrl-L`, required double `Ctrl-C` to exit, and persisted `ui.selectedTaskId`, `ui.workSurfaceMode`, `ui.lastContextView`, `ui.lastCommandBuffer`, and `ui.lastOutputLines` in `.craig/runtime/session.json`. Final verification also included passing `pnpm test`, `pnpm typecheck`, and `pnpm lint`.
 
 ### Next resume point
 
-Resume at the first sub-phase that is not both implemented and verified. The current resume point is `1.4` to complete live manual GitHub verification, then `2.1` to complete live tmux-backed control-surface verification for the new three-zone interactive surface, then `2.2`.
+Resume at the first sub-phase that is not both implemented and verified. The current resume point is `2.2`.
 
 ### Deferred phases
 
