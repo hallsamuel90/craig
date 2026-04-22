@@ -152,6 +152,49 @@ describe("task lifecycle services", () => {
     expect(task.pullRequest.requiredChecks[0]?.status).toBe("success");
   });
 
+  test("openPullRequest treats skipped required checks as successful", async () => {
+    const repoRoot = await createRepoRoot("craig-pr-skipped-checks-");
+    tempRoots.push(repoRoot);
+    const { paths, worktreePath, stubDir } = await createTrackedTaskRepo(repoRoot);
+    process.env.PATH = `${stubDir}:${originalPath}`;
+
+    const viewFile = path.join(repoRoot, "gh-view.json");
+    await writeFile(
+      viewFile,
+      JSON.stringify({
+        number: 17,
+        url: "https://github.com/example/repo/pull/17",
+        baseRefName: "main",
+        headRefName: "craig/task_1",
+        state: "OPEN",
+        mergeable: "MERGEABLE",
+        mergeStateStatus: "CLEAN",
+        statusCheckRollup: [{ context: "ci", state: "COMPLETED", conclusion: "SKIPPED" }],
+      }),
+      "utf8",
+    );
+    process.env.CRAIG_TEST_GH_VIEW_FILE = viewFile;
+
+    await writeTaskRecord(paths.repoRoot, {
+      id: "task_1",
+      status: "checked",
+      branch: "craig/task_1",
+      worktreePath,
+      lastCommit: {
+        sha: "abc1234",
+        message: "ship task",
+        committedAt: "2026-04-21T00:00:00.000Z",
+      },
+    });
+
+    const result = await openPullRequest(paths, "task_1", { watch: false });
+    const task = await readTask(paths, "task_1");
+
+    expect(result.status).toBe("merge_ready");
+    expect(task.status).toBe("merge_ready");
+    expect(task.pullRequest.requiredChecks[0]?.status).toBe("success");
+  });
+
   test("openPullRequest pushes new commits when refreshing an existing PR", async () => {
     const repoRoot = await createRepoRoot("craig-pr-refresh-");
     tempRoots.push(repoRoot);

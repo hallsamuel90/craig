@@ -2,7 +2,7 @@ import { readFile, rm } from "node:fs/promises";
 
 import { afterEach, describe, expect, test } from "vitest";
 
-import { focusPane, getSessionNameForRepo } from "../src/services/tmux-session.js";
+import { focusPane, getSessionNameForRepo, relayoutManagedWindow } from "../src/services/tmux-session.js";
 import { createRepoRoot, createStubCommands } from "./test-helpers.js";
 
 const tempRoots: string[] = [];
@@ -59,5 +59,30 @@ describe("focusPane", () => {
     expect(tmuxCommands).toContain("select-pane -t %42");
     expect(tmuxCommands).toContain(`switch-client -t ${sessionName}`);
     expect(tmuxCommands).not.toContain(`attach-session -t ${sessionName}`);
+  });
+});
+
+describe("relayoutManagedWindow", () => {
+  test("resizes the control pane after applying the tiled layout", async () => {
+    const repoRoot = await createRepoRoot("craig-relayout-");
+    tempRoots.push(repoRoot);
+    const stubDir = await createStubCommands(repoRoot);
+    const tmuxCommandLog = `${repoRoot}/tmux-commands.log`;
+
+    process.env.PATH = `${stubDir}:${originalPath}`;
+    process.env.CRAIG_TEST_TMUX_COMMAND_LOG = tmuxCommandLog;
+
+    await relayoutManagedWindow(repoRoot, "@0", true, "%1");
+
+    const tmuxCommands = (await readFile(tmuxCommandLog, "utf8"))
+      .trim()
+      .split("\n")
+      .filter(Boolean);
+
+    expect(tmuxCommands).toContain("select-layout -t @0 tiled");
+    expect(tmuxCommands).toContain("resize-pane -t %1 -y 8");
+    expect(tmuxCommands.indexOf("select-layout -t @0 tiled")).toBeLessThan(
+      tmuxCommands.indexOf("resize-pane -t %1 -y 8"),
+    );
   });
 });

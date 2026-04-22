@@ -249,11 +249,26 @@ function normalizeRequiredCheck(entry: unknown): TaskPullRequestCheck | null {
 }
 
 function normalizeCheckState(state: string, conclusion: string | null): TaskPullRequestCheck["status"] {
-  if (state === "SUCCESS" || conclusion === "SUCCESS") {
+  const normalizedState = state.toUpperCase();
+  const normalizedConclusion = conclusion?.toUpperCase() ?? null;
+
+  if (
+    normalizedState === "SUCCESS" ||
+    normalizedConclusion === "SUCCESS" ||
+    normalizedConclusion === "NEUTRAL" ||
+    normalizedConclusion === "SKIPPED"
+  ) {
     return "success";
   }
 
-  if (state === "PENDING" || state === "EXPECTED" || state === "IN_PROGRESS" || state === "QUEUED") {
+  if (
+    normalizedState === "PENDING" ||
+    normalizedState === "EXPECTED" ||
+    normalizedState === "IN_PROGRESS" ||
+    normalizedState === "QUEUED" ||
+    normalizedState === "REQUESTED" ||
+    normalizedState === "WAITING"
+  ) {
     return "pending";
   }
 

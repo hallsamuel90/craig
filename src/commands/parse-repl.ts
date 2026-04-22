@@ -4,7 +4,7 @@ export function parseReplCommand(input: string): AppCommand {
   const normalized = input.trim();
 
   if (normalized === "show") {
-    throw new Error("Task id cannot be empty.");
+    return { kind: "showSelectedTask" };
   }
 
   if (normalized.startsWith("show ")) {
@@ -12,7 +12,7 @@ export function parseReplCommand(input: string): AppCommand {
   }
 
   if (normalized === "logs") {
-    throw new Error("Task id cannot be empty.");
+    return { kind: "streamSelectedTaskLogs" };
   }
 
   if (normalized.startsWith("logs ")) {
@@ -20,7 +20,7 @@ export function parseReplCommand(input: string): AppCommand {
   }
 
   if (normalized === "diff") {
-    throw new Error("Task id cannot be empty.");
+    return { kind: "showSelectedTaskDiff" };
   }
 
   if (normalized.startsWith("diff ")) {
@@ -28,7 +28,7 @@ export function parseReplCommand(input: string): AppCommand {
   }
 
   if (normalized === "focus") {
-    throw new Error("Task id cannot be empty.");
+    return { kind: "focusSelectedTask" };
   }
 
   if (normalized.startsWith("focus ")) {
@@ -36,7 +36,7 @@ export function parseReplCommand(input: string): AppCommand {
   }
 
   if (normalized === "open") {
-    throw new Error("Task id cannot be empty.");
+    return { kind: "openSelectedTask" };
   }
 
   if (normalized.startsWith("open ")) {
@@ -44,7 +44,7 @@ export function parseReplCommand(input: string): AppCommand {
   }
 
   if (normalized === "check") {
-    throw new Error("Task id cannot be empty.");
+    return { kind: "runSelectedTaskChecks" };
   }
 
   if (normalized.startsWith("check ")) {
@@ -52,7 +52,7 @@ export function parseReplCommand(input: string): AppCommand {
   }
 
   if (normalized === "commit") {
-    throw new Error("Task id cannot be empty.");
+    return { kind: "commitSelectedTask" };
   }
 
   if (normalized.startsWith("commit ")) {
@@ -60,7 +60,7 @@ export function parseReplCommand(input: string): AppCommand {
   }
 
   if (normalized === "pr") {
-    throw new Error("Task id cannot be empty.");
+    return { kind: "openSelectedTaskPullRequest", watch: false };
   }
 
   if (normalized.startsWith("pr ")) {
@@ -68,7 +68,7 @@ export function parseReplCommand(input: string): AppCommand {
   }
 
   if (normalized === "merge") {
-    throw new Error("Task id cannot be empty.");
+    return { kind: "mergeSelectedTask", preserveWorktree: false };
   }
 
   if (normalized.startsWith("merge ")) {
@@ -91,6 +91,10 @@ export function parseReplCommand(input: string): AppCommand {
 
   if (normalized === "list") {
     return { kind: "listTasks" };
+  }
+
+  if (normalized === "refresh") {
+    return { kind: "refreshInteractiveState" };
   }
 
   if (normalized === "help") {
@@ -116,30 +120,46 @@ function requireTaskId(value: string): string {
 
 function parsePullRequestCommand(value: string) {
   const parts = value.trim().split(/\s+/).filter(Boolean);
-  const taskId = requireTaskId(parts[0] ?? "");
+  const watch = parts.at(-1) === "--watch";
+  const taskId = parts[0];
 
-  if (parts.length > 2 || (parts[1] && parts[1] !== "--watch")) {
+  if (parts.length > 2 || (parts.length === 2 && !watch)) {
     throw new Error(`Unknown command: pr ${value.trim()}. Type 'help' for available commands.`);
+  }
+
+  if (!taskId || taskId === "--watch") {
+    return {
+      kind: "openSelectedTaskPullRequest" as const,
+      watch,
+    };
   }
 
   return {
     kind: "openPullRequest" as const,
     taskId,
-    watch: parts[1] === "--watch",
+    watch,
   };
 }
 
 function parseMergeCommand(value: string) {
   const parts = value.trim().split(/\s+/).filter(Boolean);
-  const taskId = requireTaskId(parts[0] ?? "");
+  const preserveWorktree = parts.at(-1) === "--preserve-worktree";
+  const taskId = parts[0];
 
-  if (parts.length > 2 || (parts[1] && parts[1] !== "--preserve-worktree")) {
+  if (parts.length > 2 || (parts.length === 2 && !preserveWorktree)) {
     throw new Error(`Unknown command: merge ${value.trim()}. Type 'help' for available commands.`);
+  }
+
+  if (!taskId || taskId === "--preserve-worktree") {
+    return {
+      kind: "mergeSelectedTask" as const,
+      preserveWorktree,
+    };
   }
 
   return {
     kind: "mergeTask" as const,
     taskId,
-    preserveWorktree: parts[1] === "--preserve-worktree",
+    preserveWorktree,
   };
 }

@@ -2,7 +2,12 @@ import { spawn } from "node:child_process";
 import { createHash } from "node:crypto";
 import path from "node:path";
 
-import { readSessionRuntime, writeSessionRuntime, type CraigSessionRuntime } from "../state/runtime-store.js";
+import {
+  getDefaultUiRuntime,
+  readSessionRuntime,
+  writeSessionRuntime,
+  type CraigSessionRuntime,
+} from "../state/runtime-store.js";
 import { runCommand, runCommandAllowingFailure } from "../utils/exec.js";
 import { shellEscape } from "../utils/shell-escape.js";
 
@@ -105,6 +110,7 @@ export async function writeWorkspaceRuntime(
         windowTarget: page.windowTarget,
         isPrimary: page.isPrimary,
       })),
+      ui: getDefaultUiRuntime(),
       updatedAt: new Date().toISOString(),
     },
   );
@@ -172,31 +178,35 @@ async function createPaneInWindow(repoRoot: string, windowTarget: string, worktr
 }
 
 async function configurePrimaryWindow(repoRoot: string, windowTarget: string, controlPaneTarget: string): Promise<void> {
-  await runCommand("tmux", ["resize-pane", "-t", controlPaneTarget, "-y", `${CONTROL_PANE_HEIGHT}`], {
-    cwd: repoRoot,
-  });
-  await relayoutManagedWindow(repoRoot, windowTarget, true);
+  await relayoutManagedWindow(repoRoot, windowTarget, true, controlPaneTarget);
 }
 
 export async function relayoutManagedWindow(
   repoRoot: string,
   windowTarget: string,
   hasControlPane: boolean,
+  controlPaneTarget?: string,
 ): Promise<void> {
-  if (hasControlPane) {
-    const paneResult = await runCommand("tmux", ["list-panes", "-F", "#{pane_id}", "-t", windowTarget], {
-      cwd: repoRoot,
-    });
-    const paneTargets = toTargets(paneResult.stdout);
+  await runCommand("tmux", ["select-layout", "-t", windowTarget, "tiled"], { cwd: repoRoot });
 
-    if (paneTargets.length > 0) {
-      await runCommand("tmux", ["resize-pane", "-t", paneTargets[0]!, "-y", `${CONTROL_PANE_HEIGHT}`], {
+  if (hasControlPane) {
+    const target =
+      controlPaneTarget ??
+      (
+        await runCommand("tmux", ["list-panes", "-F", "#{pane_id}", "-t", windowTarget], {
+          cwd: repoRoot,
+        })
+      ).stdout
+        .split(/\s+/)
+        .map((line) => line.trim())
+        .find((line) => line.length > 0);
+
+    if (target) {
+      await runCommand("tmux", ["resize-pane", "-t", target, "-y", `${CONTROL_PANE_HEIGHT}`], {
         cwd: repoRoot,
       });
     }
   }
-
-  await runCommand("tmux", ["select-layout", "-t", windowTarget, "tiled"], { cwd: repoRoot });
 }
 
 export async function enablePaneLogging(paneId: string, logPath: string, cwd: string): Promise<void> {
