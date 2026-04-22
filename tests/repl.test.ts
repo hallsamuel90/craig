@@ -9,7 +9,6 @@ type MockReadline = {
 
 const createInterfaceMock = vi.fn();
 const executeCommandMock = vi.fn();
-const focusPaneMock = vi.fn();
 const streamTaskLogsMock = vi.fn();
 const stdoutWriteMock = vi.fn();
 
@@ -28,12 +27,12 @@ vi.mock("../src/commands/command-router.js", () => ({
   executeCommand: executeCommandMock,
 }));
 
-vi.mock("../src/services/tmux-session.js", () => ({
-  focusPane: focusPaneMock,
-}));
-
 vi.mock("../src/services/stream-task-logs.js", () => ({
   streamTaskLogs: streamTaskLogsMock,
+}));
+
+vi.mock("../src/control-view.js", () => ({
+  renderControlView: vi.fn(async () => "CRAIG CONTROL\n<no tasks>"),
 }));
 
 function buildReadline(answers: string[]): MockReadline {
@@ -58,7 +57,6 @@ describe("startRepl", () => {
     vi.resetModules();
     createInterfaceMock.mockReset();
     executeCommandMock.mockReset();
-    focusPaneMock.mockReset();
     streamTaskLogsMock.mockReset();
     stdoutWriteMock.mockReset();
   });
@@ -67,11 +65,10 @@ describe("startRepl", () => {
     vi.clearAllMocks();
   });
 
-  test("recreates the REPL after focus failures instead of exiting", async () => {
-    const firstRl = buildReadline(["new refactor auth"]);
-    const secondRl = buildReadline(["exit"]);
+  test("keeps the REPL active after creating a task", async () => {
+    const firstRl = buildReadline(["new refactor auth", "exit"]);
 
-    createInterfaceMock.mockReturnValueOnce(firstRl).mockReturnValueOnce(secondRl);
+    createInterfaceMock.mockReturnValueOnce(firstRl);
     executeCommandMock
       .mockResolvedValueOnce({
         kind: "createTask",
@@ -83,7 +80,6 @@ describe("startRepl", () => {
         runner: "cursor",
       })
       .mockResolvedValueOnce({ kind: "exit" });
-    focusPaneMock.mockRejectedValueOnce(new Error("tmux select failed"));
 
     const { startRepl } = await import("../src/repl.js");
     const exitCode = await startRepl({
@@ -93,9 +89,9 @@ describe("startRepl", () => {
     } as never);
 
     expect(exitCode).toBe(0);
-    expect(createInterfaceMock).toHaveBeenCalledTimes(2);
-    expect(secondRl.question).toHaveBeenCalledWith("craig> ");
-    expect(stdoutWriteMock).toHaveBeenCalledWith(expect.stringContaining("tmux select failed"));
+    expect(createInterfaceMock).toHaveBeenCalledTimes(1);
+    expect(firstRl.question).toHaveBeenCalledWith("craig> ");
+    expect(stdoutWriteMock).toHaveBeenCalledWith(expect.stringContaining("Created task task_1"));
   });
 
   test("recreates the REPL after streaming logs", async () => {

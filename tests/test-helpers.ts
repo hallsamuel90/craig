@@ -15,6 +15,7 @@ export async function createCraigState(repoRoot: string, taskIds: string[] = [])
 
   await mkdir(paths.craigDir, { recursive: true });
   await Promise.all([
+    mkdir(paths.runtimeDir, { recursive: true }),
     mkdir(paths.tasksDir, { recursive: true }),
     mkdir(paths.jobsDir, { recursive: true }),
     mkdir(paths.logsDir, { recursive: true }),
@@ -74,6 +75,9 @@ export function buildTaskRecord(
     worktreePath: task.worktreePath ?? path.join(paths.worktreesDir, task.id),
     branch: task.branch ?? `craig/${task.id}`,
     tmuxTarget: task.tmuxTarget ?? "%42",
+    tmuxWindowTarget: task.tmuxWindowTarget ?? "@1",
+    tmuxPage: task.tmuxPage ?? 1,
+    layoutSlot: task.layoutSlot ?? 1,
     runnerSession: task.runnerSession ?? {
       command: ["cursor", "agent", task.title ?? "test task"],
       tmuxTarget: task.tmuxTarget ?? "%42",
@@ -173,8 +177,10 @@ set -eu
 state_file="\${CRAIG_TEST_TMUX_STATE_FILE:-}"
 command_log="\${CRAIG_TEST_TMUX_COMMAND_LOG:-}"
 window_target="\${CRAIG_TEST_TMUX_WINDOW_TARGET:-@0}"
+control_pane_id="\${CRAIG_TEST_TMUX_CONTROL_PANE_ID:-%1}"
 split_fail="\${CRAIG_TEST_TMUX_SPLIT_FAIL:-0}"
 new_window_pane_id="\${CRAIG_TEST_TMUX_NEW_WINDOW_PANE_ID:-%84}"
+new_window_target="\${CRAIG_TEST_TMUX_NEW_WINDOW_TARGET:-@1}"
 if [ "\${CRAIG_TEST_TMUX_FAIL:-0}" = "1" ]; then
   echo "tmux failure" >&2
   exit 1
@@ -190,12 +196,21 @@ case "$1" in
   new-session)
     [ -n "$state_file" ] && : > "$state_file"
     if [ "$4" = "-F" ]; then
-      echo "$window_target"
+      echo "$window_target $control_pane_id"
     fi
     exit 0
     ;;
   list-windows)
     echo "$window_target"
+    exit 0
+    ;;
+  list-panes)
+    if [ "$4" = "-t" ] && [ "$5" = "$window_target" ]; then
+      echo "$control_pane_id"
+      echo "%42"
+      exit 0
+    fi
+    echo "$new_window_pane_id"
     exit 0
     ;;
   split-window)
@@ -207,13 +222,16 @@ case "$1" in
     exit 0
     ;;
   new-window)
-    echo "$new_window_pane_id"
+    echo "$new_window_target $new_window_pane_id"
     exit 0
     ;;
   pipe-pane)
     exit 0
     ;;
   select-layout)
+    exit 0
+    ;;
+  resize-pane)
     exit 0
     ;;
   select-window)

@@ -10,7 +10,7 @@ export async function focusTask(paths: CraigPaths, taskId: string): Promise<Comm
     throw new Error(`Task ${task.id} does not have a tmux target.`);
   }
 
-  await focusPane(paths.repoRoot, task.tmuxTarget);
+  await focusPane(paths.repoRoot, task.tmuxTarget, task.tmuxWindowTarget);
 
   return {
     kind: "focusTask",

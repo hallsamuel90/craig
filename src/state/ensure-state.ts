@@ -10,6 +10,7 @@ export async function ensureCraigState(repoRoot: string): Promise<CraigIndex> {
 
   await mkdir(paths.craigDir, { recursive: true });
   await Promise.all([
+    mkdir(paths.runtimeDir, { recursive: true }),
     mkdir(paths.tasksDir, { recursive: true }),
     mkdir(paths.jobsDir, { recursive: true }),
     mkdir(paths.logsDir, { recursive: true }),

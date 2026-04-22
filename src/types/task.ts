@@ -94,6 +94,9 @@ export interface TaskRecord {
   worktreePath: string;
   branch: string;
   tmuxTarget: string;
+  tmuxWindowTarget: string | null;
+  tmuxPage: number | null;
+  layoutSlot: number | null;
   runnerSession: RunnerSession;
   prompt: TaskPromptSource;
   checks: TaskChecks;

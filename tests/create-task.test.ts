@@ -60,8 +60,11 @@ describe("createTask", () => {
     expect(task.runnerSession.lastKnownState).toBe("running");
     expect(task.runnerSession.startedAt).toBeTruthy();
     expect(task.tmuxTarget).toBe("%42");
+    expect(task.tmuxWindowTarget).toBe("@0");
+    expect(task.tmuxPage).toBe(1);
     expect(task.artifacts.logPath).toBe(`.craig/logs/${result.taskId}.log`);
-    expect(tmuxCommands).toContain("select-layout -t %42 tiled");
+    expect(tmuxCommands).toContain("resize-pane -t %1 -y 8");
+    expect(tmuxCommands).toContain("select-layout -t @0 tiled");
     expect(tmuxCommands).toContain("send-keys -t %42");
     expect(tmuxCommands).toContain("cursor agent 'refactor auth'");
   });
@@ -84,9 +87,9 @@ describe("createTask", () => {
     const tmuxCommands = await readFile(tmuxCommandLog, "utf8");
     const sessionName = getSessionNameForRepo(repoRoot);
 
-    expect(tmuxCommands).toContain(`new-session -d -P -F #{window_id} -s ${sessionName} -n ${sessionName} -c`);
+    expect(tmuxCommands).toContain(`new-session -d -P -F #{window_id} #{pane_id} -s ${sessionName} -n ${sessionName} -c`);
     expect(tmuxCommands).toContain("split-window -d -P -F #{pane_id} -t @9 -c");
-    expect(tmuxCommands).toContain("select-layout -t %42 tiled");
+    expect(tmuxCommands).toContain("select-layout -t @9 tiled");
   });
 
   test("sizes a detached craig session from the current terminal when available", async () => {
@@ -110,7 +113,7 @@ describe("createTask", () => {
     const sessionName = getSessionNameForRepo(repoRoot);
 
     expect(tmuxCommands).toContain(
-      `new-session -d -P -F #{window_id} -s ${sessionName} -n ${sessionName} -x 211 -y 61 -c`,
+      `new-session -d -P -F #{window_id} #{pane_id} -s ${sessionName} -n ${sessionName} -x 211 -y 61 -c`,
     );
   });
 
@@ -134,9 +137,11 @@ describe("createTask", () => {
     const sessionName = getSessionNameForRepo(repoRoot);
 
     expect(task.tmuxTarget).toBe("%84");
+    expect(task.tmuxWindowTarget).toBe("@1");
+    expect(task.tmuxPage).toBe(2);
     expect(tmuxCommands).toContain("split-window -d -P -F #{pane_id}");
-    expect(tmuxCommands).toContain(`new-window -d -P -F #{pane_id} -t ${sessionName} -c`);
-    expect(tmuxCommands).toContain("select-layout -t %84 tiled");
+    expect(tmuxCommands).toContain(`new-window -d -P -F #{window_id} #{pane_id} -t ${sessionName} -c`);
+    expect(tmuxCommands).toContain("select-layout -t @1 tiled");
   });
 
   test("allocates the next task id when the first branch already exists", async () => {

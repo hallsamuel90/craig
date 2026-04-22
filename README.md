@@ -2,7 +2,7 @@
 
 Craig is a local control plane for repo-backed agent work.
 
-This repo now implements RFC phase `1.4`, including the full local checks-to-merge workflow. Automated verification is complete for `1.4`; live manual GitHub verification is still pending.
+This repo now implements RFC phase `1.4` and an initial `4.1` tmux-grid workspace pass. Automated verification is complete for both; live manual GitHub and multi-window tmux verification are still pending.
 
 ## Current status
 
@@ -44,6 +44,14 @@ Implemented in `1.4`:
 - GitHub CLI-backed PR creation, PR refresh, CI watch, and merge support
 - post-merge cleanup with optional `--preserve-worktree`
 - `show <id>` live PR refresh for tracked tasks
+
+Implemented in `4.1`:
+
+- Craig stays in the interactive control surface after `new <task>` instead of auto-focusing the task pane
+- task panes persist page/window metadata so focus and cleanup can target managed tmux layouts
+- Craig renders a compact control summary above the prompt in the REPL
+- tmux pane allocation now falls back to new tmux windows when the current grid runs out of space
+- Craig persists tmux runtime metadata under `.craig/runtime/session.json`
 
 Still deferred:
 

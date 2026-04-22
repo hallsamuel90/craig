@@ -4,6 +4,8 @@ export interface CraigPaths {
   repoRoot: string;
   craigDir: string;
   indexFile: string;
+  runtimeDir: string;
+  sessionFile: string;
   tasksDir: string;
   jobsDir: string;
   logsDir: string;
@@ -19,6 +21,8 @@ export function getCraigPaths(repoRoot: string): CraigPaths {
     repoRoot,
     craigDir,
     indexFile: path.join(craigDir, "index.json"),
+    runtimeDir: path.join(craigDir, "runtime"),
+    sessionFile: path.join(craigDir, "runtime", "session.json"),
     tasksDir: path.join(craigDir, "tasks"),
     jobsDir: path.join(craigDir, "jobs"),
     logsDir: path.join(craigDir, "logs"),
