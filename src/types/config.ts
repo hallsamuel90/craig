@@ -5,4 +5,8 @@ export interface CraigConfig {
   open?: {
     command: string[];
   };
+  github?: {
+    mergeMethod?: "merge" | "rebase" | "squash";
+    watchIntervalSeconds?: number;
+  };
 }

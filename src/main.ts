@@ -26,8 +26,11 @@ export function formatCommandResult(result: CommandResult): string {
       }
 
       return [
-        "ID\tSTATUS\tTITLE",
-        ...result.tasks.map((task) => `${task.id}\t${task.status}\t${task.title}`),
+        "ID\tSTATUS\tCHECKS\tPR\tTITLE",
+        ...result.tasks.map(
+          (task) =>
+            `${task.id}\t${task.status}\t${summarizeListChecks(task)}\t${summarizeListPr(task)}\t${task.title}`,
+        ),
       ].join("\n");
     case "showTask":
       return [
@@ -43,7 +46,9 @@ export function formatCommandResult(result: CommandResult): string {
         `Started: ${result.task.runnerSession.startedAt ?? "not started"}`,
         `Exited: ${result.task.runnerSession.exitedAt ?? "still running"}`,
         `Checks: ${result.inspection.checksSummary}`,
+        `Last commit: ${result.inspection.lastCommitSummary}`,
         `PR: ${result.inspection.prSummary}`,
+        `Cleanup: ${result.inspection.cleanupSummary}`,
         ...buildShowWarnings(result),
       ].join("\n");
     case "streamTaskLogs":
@@ -56,6 +61,30 @@ export function formatCommandResult(result: CommandResult): string {
       return result.launched
         ? `Opened task ${result.taskId} at ${result.worktreePath}`
         : result.worktreePath;
+    case "runChecks":
+      return `Checks ${result.status} for ${result.taskId}: ${result.commands.join(", ")}`;
+    case "commitTask":
+      return [
+        `Committed task ${result.taskId}`,
+        `Status: ${result.status}`,
+        `Commit: ${result.commitSha}`,
+        `Message: ${result.message}`,
+      ].join("\n");
+    case "openPullRequest":
+      return [
+        `${result.watch ? "Watched" : "Updated"} PR for ${result.taskId}`,
+        `PR: #${result.prNumber} ${result.url}`,
+        `Status: ${result.status}`,
+        `Mergeable: ${result.mergeable}`,
+        `Checks: ${result.requiredChecksSummary}`,
+      ].join("\n");
+    case "mergeTask":
+      return [
+        `Merged task ${result.taskId} from PR #${result.prNumber}`,
+        `Status: ${result.status}`,
+        `Preserved worktree: ${result.preservedWorktree}`,
+        `Cleanup warning: ${result.cleanupWarning ?? "none"}`,
+      ].join("\n");
     default:
       return assertNever(result);
   }
@@ -65,7 +94,21 @@ function buildShowWarnings(result: Extract<CommandResult, { kind: "showTask" }>)
   const warnings: string[] = [];
 
   if (!result.inspection.worktreeExists) {
-    warnings.push(`Warning: worktree is missing at ${result.task.worktreePath}`);
+    const intentionallyCleanedUp =
+      result.task.status === "merged" &&
+      !result.task.cleanup.preservedWorktree &&
+      Boolean(result.task.cleanup.worktreeRemovedAt);
+
+    if (!intentionallyCleanedUp) {
+      warnings.push(`Warning: worktree is missing at ${result.task.worktreePath}`);
+    }
+  }
+
+  if (
+    result.task.cleanup.warning &&
+    !(result.task.status === "merged" && !result.task.cleanup.worktreeRemovedAt)
+  ) {
+    warnings.push(`Cleanup warning: ${result.task.cleanup.warning}`);
   }
 
   if (result.task.artifacts.logPath && !result.inspection.logExists) {
@@ -81,4 +124,16 @@ function buildShowWarnings(result: Extract<CommandResult, { kind: "showTask" }>)
 
 function assertNever(value: never): never {
   throw new Error(`Unsupported result: ${JSON.stringify(value)}`);
+}
+
+function summarizeListChecks(task: Extract<CommandResult, { kind: "listTasks" }>["tasks"][number]): string {
+  return task.checks.status;
+}
+
+function summarizeListPr(task: Extract<CommandResult, { kind: "listTasks" }>["tasks"][number]): string {
+  if (!task.pullRequest.number) {
+    return "-";
+  }
+
+  return `#${task.pullRequest.number}:${task.pullRequest.status ?? "unknown"}`;
 }

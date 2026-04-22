@@ -1,0 +1,424 @@
+import { mkdtemp, mkdir, readFile, rm, symlink, writeFile } from "node:fs/promises";
+import os from "node:os";
+import path from "node:path";
+
+import { afterEach, describe, expect, test } from "vitest";
+
+import { commitTask } from "../src/services/commit-task.js";
+import { mergeTask } from "../src/services/merge-task.js";
+import { openPullRequest } from "../src/services/open-pull-request.js";
+import { runChecks } from "../src/services/run-checks.js";
+import { showTask } from "../src/services/show-task.js";
+import { readTask } from "../src/state/task-store.js";
+import { runCommand } from "../src/utils/exec.js";
+import {
+  createCraigState,
+  createGitRepo,
+  createRepoRoot,
+  createStubCommands,
+  writeTaskRecord,
+} from "./test-helpers.js";
+
+const tempRoots: string[] = [];
+const originalPath = process.env.PATH ?? "";
+const originalEnv = {
+  CRAIG_TEST_GH_MODE: process.env.CRAIG_TEST_GH_MODE,
+  CRAIG_TEST_GH_PR_NUMBER: process.env.CRAIG_TEST_GH_PR_NUMBER,
+  CRAIG_TEST_GH_PR_URL: process.env.CRAIG_TEST_GH_PR_URL,
+  CRAIG_TEST_GH_VIEW_FILE: process.env.CRAIG_TEST_GH_VIEW_FILE,
+  CRAIG_TEST_TMUX_STATE_FILE: process.env.CRAIG_TEST_TMUX_STATE_FILE,
+};
+
+afterEach(async () => {
+  await Promise.all(tempRoots.splice(0).map(async (root) => rm(root, { recursive: true, force: true })));
+  process.env.PATH = originalPath;
+  process.env.CRAIG_TEST_GH_MODE = originalEnv.CRAIG_TEST_GH_MODE;
+  process.env.CRAIG_TEST_GH_PR_NUMBER = originalEnv.CRAIG_TEST_GH_PR_NUMBER;
+  process.env.CRAIG_TEST_GH_PR_URL = originalEnv.CRAIG_TEST_GH_PR_URL;
+  process.env.CRAIG_TEST_GH_VIEW_FILE = originalEnv.CRAIG_TEST_GH_VIEW_FILE;
+  process.env.CRAIG_TEST_TMUX_STATE_FILE = originalEnv.CRAIG_TEST_TMUX_STATE_FILE;
+});
+
+describe("task lifecycle services", () => {
+  test("runChecks fails clearly when no checks are configured", async () => {
+    const repoRoot = await createRepoRoot("craig-checks-empty-");
+    tempRoots.push(repoRoot);
+    const paths = await createCraigState(repoRoot);
+    await createGitRepo(repoRoot);
+    await seedGitRepo(repoRoot);
+
+    await writeTaskRecord(paths.repoRoot, {
+      id: "task_1",
+      status: "review",
+      worktreePath: repoRoot,
+    });
+
+    await expect(runChecks(paths, "task_1")).rejects.toThrow(/checks\.commands/);
+  });
+
+  test("runChecks persists results and promotes the task to checked", async () => {
+    const repoRoot = await createRepoRoot("craig-checks-pass-");
+    tempRoots.push(repoRoot);
+    const paths = await createCraigState(repoRoot);
+    await createGitRepo(repoRoot);
+    await seedGitRepo(repoRoot);
+    await writeFile(paths.configFile, JSON.stringify({ checks: { commands: ["printf ok"] } }, null, 2), "utf8");
+
+    await writeTaskRecord(paths.repoRoot, {
+      id: "task_1",
+      status: "review",
+      worktreePath: repoRoot,
+    });
+
+    const result = await runChecks(paths, "task_1");
+    const task = await readTask(paths, "task_1");
+    const summary = JSON.parse(
+      await readFile(path.join(paths.artifactsDir, "task_1", "check-summary.json"), "utf8"),
+    ) as { status: string; results: Array<{ exitCode: number }> };
+
+    expect(result.status).toBe("passed");
+    expect(task.status).toBe("checked");
+    expect(task.checks.status).toBe("passed");
+    expect(task.checks.results).toHaveLength(1);
+    expect(summary.status).toBe("passed");
+    expect(summary.results[0]?.exitCode).toBe(0);
+  });
+
+  test("commitTask uses the task title as the default commit message", async () => {
+    const repoRoot = await createRepoRoot("craig-commit-");
+    tempRoots.push(repoRoot);
+    const paths = await createCraigState(repoRoot);
+    await createGitRepo(repoRoot);
+    await seedGitRepo(repoRoot);
+    await writeFile(path.join(repoRoot, "index.ts"), "export const value = 2;\n", "utf8");
+
+    await writeTaskRecord(paths.repoRoot, {
+      id: "task_1",
+      title: "ship phase 1.4",
+      prompt: { source: "inline", value: "ship phase 1.4" },
+      status: "review",
+      worktreePath: repoRoot,
+    });
+
+    const result = await commitTask(paths, "task_1");
+    const task = await readTask(paths, "task_1");
+
+    expect(result.message).toBe("ship phase 1.4");
+    expect(task.lastCommit?.message).toBe("ship phase 1.4");
+    expect(task.lastCommit?.sha).toBeTruthy();
+  });
+
+  test("openPullRequest creates and refreshes tracked PR state", async () => {
+    const repoRoot = await createRepoRoot("craig-pr-");
+    tempRoots.push(repoRoot);
+    const { paths, worktreePath, stubDir } = await createTrackedTaskRepo(repoRoot);
+    process.env.PATH = `${stubDir}:${originalPath}`;
+
+    const viewFile = path.join(repoRoot, "gh-view.json");
+    await writeFile(
+      viewFile,
+      JSON.stringify({
+        number: 17,
+        url: "https://github.com/example/repo/pull/17",
+        baseRefName: "main",
+        headRefName: "craig/task_1",
+        state: "OPEN",
+        mergeable: "MERGEABLE",
+        mergeStateStatus: "CLEAN",
+        statusCheckRollup: [{ context: "ci", state: "SUCCESS", conclusion: "SUCCESS" }],
+      }),
+      "utf8",
+    );
+    process.env.CRAIG_TEST_GH_VIEW_FILE = viewFile;
+
+    await writeTaskRecord(paths.repoRoot, {
+      id: "task_1",
+      status: "checked",
+      branch: "craig/task_1",
+      worktreePath,
+      lastCommit: {
+        sha: "abc1234",
+        message: "ship task",
+        committedAt: "2026-04-21T00:00:00.000Z",
+      },
+    });
+
+    const result = await openPullRequest(paths, "task_1", { watch: false });
+    const task = await readTask(paths, "task_1");
+
+    expect(result.prNumber).toBe(17);
+    expect(task.pullRequest.number).toBe(17);
+    expect(task.status).toBe("merge_ready");
+    expect(task.pullRequest.requiredChecks[0]?.status).toBe("success");
+  });
+
+  test("openPullRequest pushes new commits when refreshing an existing PR", async () => {
+    const repoRoot = await createRepoRoot("craig-pr-refresh-");
+    tempRoots.push(repoRoot);
+    const { paths, worktreePath, stubDir, remoteRepo } = await createTrackedTaskRepo(repoRoot);
+    process.env.PATH = `${stubDir}:${originalPath}`;
+
+    const viewFile = path.join(repoRoot, "gh-view.json");
+    await writeFile(
+      viewFile,
+      JSON.stringify({
+        number: 17,
+        url: "https://github.com/example/repo/pull/17",
+        baseRefName: "main",
+        headRefName: "craig/task_1",
+        state: "OPEN",
+        mergeable: "MERGEABLE",
+        mergeStateStatus: "CLEAN",
+        statusCheckRollup: [{ context: "ci", state: "SUCCESS", conclusion: "SUCCESS" }],
+      }),
+      "utf8",
+    );
+    process.env.CRAIG_TEST_GH_VIEW_FILE = viewFile;
+
+    const initialRemoteSha = (
+      await runCommand("git", ["rev-parse", "refs/heads/craig/task_1"], { cwd: remoteRepo })
+    ).stdout.trim();
+
+    await writeFile(path.join(worktreePath, "index.ts"), "export const value = 3;\n", "utf8");
+    await runCommand("git", ["add", "-A"], { cwd: worktreePath });
+    await runCommand("git", ["commit", "-m", "refresh task"], { cwd: worktreePath });
+    const refreshedSha = (await runCommand("git", ["rev-parse", "HEAD"], { cwd: worktreePath })).stdout.trim();
+
+    await writeTaskRecord(paths.repoRoot, {
+      id: "task_1",
+      status: "checked",
+      branch: "craig/task_1",
+      worktreePath,
+      pullRequest: {
+        provider: "github",
+        number: 17,
+        url: "https://github.com/example/repo/pull/17",
+        baseBranch: "main",
+        headBranch: "craig/task_1",
+        status: "open",
+        mergeable: true,
+        mergeStateStatus: "CLEAN",
+        requiredChecks: [],
+        lastSyncedAt: "2026-04-21T00:00:00.000Z",
+      },
+      lastCommit: {
+        sha: refreshedSha,
+        message: "refresh task",
+        committedAt: "2026-04-21T00:00:00.000Z",
+      },
+    });
+
+    await openPullRequest(paths, "task_1", { watch: false });
+
+    const finalRemoteSha = (
+      await runCommand("git", ["rev-parse", "refs/heads/craig/task_1"], { cwd: remoteRepo })
+    ).stdout.trim();
+
+    expect(finalRemoteSha).not.toBe(initialRemoteSha);
+    expect(finalRemoteSha).toBe(refreshedSha);
+  });
+
+  test("mergeTask marks the task merged and preserves the worktree when requested", async () => {
+    const repoRoot = await createRepoRoot("craig-merge-");
+    tempRoots.push(repoRoot);
+    const { paths, worktreePath, stubDir } = await createTrackedTaskRepo(repoRoot);
+    process.env.PATH = `${stubDir}:${originalPath}`;
+    process.env.CRAIG_TEST_TMUX_STATE_FILE = path.join(repoRoot, "tmux-state");
+
+    const viewFile = path.join(repoRoot, "gh-view.json");
+    await writeFile(
+      viewFile,
+      JSON.stringify({
+        number: 17,
+        url: "https://github.com/example/repo/pull/17",
+        baseRefName: "main",
+        headRefName: "craig/task_1",
+        state: "OPEN",
+        mergeable: "MERGEABLE",
+        mergeStateStatus: "CLEAN",
+        statusCheckRollup: [{ context: "ci", state: "SUCCESS", conclusion: "SUCCESS" }],
+      }),
+      "utf8",
+    );
+    process.env.CRAIG_TEST_GH_VIEW_FILE = viewFile;
+
+    await writeTaskRecord(paths.repoRoot, {
+      id: "task_1",
+      status: "merge_ready",
+      branch: "craig/task_1",
+      worktreePath,
+      tmuxTarget: "%42",
+      pullRequest: {
+        provider: "github",
+        number: 17,
+        url: "https://github.com/example/repo/pull/17",
+        baseBranch: "main",
+        headBranch: "craig/task_1",
+        status: "open",
+        mergeable: true,
+        mergeStateStatus: "CLEAN",
+        requiredChecks: [{ name: "ci", status: "success", conclusion: "SUCCESS" }],
+        lastSyncedAt: "2026-04-21T00:00:00.000Z",
+      },
+      lastCommit: {
+        sha: "abc1234",
+        message: "ship task",
+        committedAt: "2026-04-21T00:00:00.000Z",
+      },
+    });
+
+    const result = await mergeTask(paths, "task_1", { preserveWorktree: true });
+    const task = await readTask(paths, "task_1");
+
+    expect(result.status).toBe("merged");
+    expect(task.status).toBe("merged");
+    expect(task.cleanup.preservedWorktree).toBe(true);
+    await expect(readFile(path.join(worktreePath, "index.ts"), "utf8")).resolves.toContain("value");
+  });
+
+  test("showTask refreshes persisted PR state for tracked tasks", async () => {
+    const repoRoot = await createRepoRoot("craig-show-pr-");
+    tempRoots.push(repoRoot);
+    const paths = await createCraigState(repoRoot);
+    const stubDir = await createStubCommands(repoRoot);
+    process.env.PATH = `${stubDir}:${originalPath}`;
+
+    const worktreePath = path.join(repoRoot, "worktree");
+    await mkdir(worktreePath, { recursive: true });
+
+    const viewFile = path.join(repoRoot, "gh-view.json");
+    await writeFile(
+      viewFile,
+      JSON.stringify({
+        number: 21,
+        url: "https://github.com/example/repo/pull/21",
+        baseRefName: "main",
+        headRefName: "craig/task_1",
+        state: "OPEN",
+        mergeable: "CONFLICTING",
+        mergeStateStatus: "DIRTY",
+        statusCheckRollup: [{ context: "ci", state: "PENDING", conclusion: null }],
+      }),
+      "utf8",
+    );
+    process.env.CRAIG_TEST_GH_VIEW_FILE = viewFile;
+
+    await writeTaskRecord(repoRoot, {
+      id: "task_1",
+      worktreePath,
+      status: "pr_open",
+      pullRequest: {
+        provider: "github",
+        number: 21,
+        url: "https://github.com/example/repo/pull/21",
+        baseBranch: "main",
+        headBranch: "craig/task_1",
+        status: "open",
+        mergeable: true,
+        mergeStateStatus: "CLEAN",
+        requiredChecks: [],
+        lastSyncedAt: "2026-04-21T00:00:00.000Z",
+      },
+    });
+
+    const result = await showTask(paths, "task_1");
+
+    expect(result.task.pullRequest.mergeable).toBe(false);
+    expect(result.task.pullRequest.mergeStateStatus).toBe("DIRTY");
+    expect(result.inspection.prSummary).toContain("mergeable=false");
+  });
+
+  test("openPullRequest watch exits when the tracked PR is closed", async () => {
+    const repoRoot = await createRepoRoot("craig-pr-watch-closed-");
+    tempRoots.push(repoRoot);
+    const { paths, worktreePath, stubDir } = await createTrackedTaskRepo(repoRoot);
+    process.env.PATH = `${stubDir}:${originalPath}`;
+    await writeFile(
+      paths.configFile,
+      JSON.stringify({ github: { watchIntervalSeconds: 1 } }, null, 2),
+      "utf8",
+    );
+
+    const viewFile = path.join(repoRoot, "gh-view.json");
+    await writeFile(
+      viewFile,
+      JSON.stringify({
+        number: 17,
+        url: "https://github.com/example/repo/pull/17",
+        baseRefName: "main",
+        headRefName: "craig/task_1",
+        state: "CLOSED",
+        mergeable: "CONFLICTING",
+        mergeStateStatus: "DIRTY",
+        statusCheckRollup: [],
+      }),
+      "utf8",
+    );
+    process.env.CRAIG_TEST_GH_VIEW_FILE = viewFile;
+
+    await writeTaskRecord(paths.repoRoot, {
+      id: "task_1",
+      status: "pr_open",
+      branch: "craig/task_1",
+      worktreePath,
+      pullRequest: {
+        provider: "github",
+        number: 17,
+        url: "https://github.com/example/repo/pull/17",
+        baseBranch: "main",
+        headBranch: "craig/task_1",
+        status: "open",
+        mergeable: true,
+        mergeStateStatus: "CLEAN",
+        requiredChecks: [],
+        lastSyncedAt: "2026-04-21T00:00:00.000Z",
+      },
+      lastCommit: {
+        sha: "abc1234",
+        message: "ship task",
+        committedAt: "2026-04-21T00:00:00.000Z",
+      },
+    });
+
+    const result = await openPullRequest(paths, "task_1", { watch: true });
+    const task = await readTask(paths, "task_1");
+
+    expect(result.status).toBe("checked");
+    expect(task.status).toBe("checked");
+    expect(task.pullRequest.status).toBe("closed");
+  });
+});
+
+async function seedGitRepo(repoRoot: string) {
+  await writeFile(path.join(repoRoot, "index.ts"), "export const value = 1;\n", "utf8");
+  await runCommand("git", ["add", "index.ts"], { cwd: repoRoot });
+  await runCommand("git", ["commit", "-m", "initial"], { cwd: repoRoot });
+}
+
+async function createTrackedTaskRepo(repoRoot: string) {
+  const mainRepo = path.join(repoRoot, "repo");
+  const remoteRepo = await mkdtemp(path.join(os.tmpdir(), "craig-remote-"));
+  tempRoots.push(remoteRepo);
+
+  await mkdir(mainRepo, { recursive: true });
+  const paths = await createCraigState(mainRepo);
+  await createGitRepo(mainRepo);
+  await seedGitRepo(mainRepo);
+  await runCommand("git", ["init", "--bare", remoteRepo], { cwd: repoRoot });
+  await runCommand("git", ["remote", "add", "origin", remoteRepo], { cwd: mainRepo });
+  await runCommand("git", ["push", "-u", "origin", "main"], { cwd: mainRepo });
+
+  const worktreePath = path.join(paths.worktreesDir, "task_1");
+  await runCommand("git", ["worktree", "add", "-b", "craig/task_1", worktreePath, "main"], { cwd: mainRepo });
+  await writeFile(path.join(worktreePath, "index.ts"), "export const value = 2;\n", "utf8");
+  await runCommand("git", ["add", "-A"], { cwd: worktreePath });
+  await runCommand("git", ["commit", "-m", "ship task"], { cwd: worktreePath });
+  await runCommand("git", ["push", "-u", "origin", "craig/task_1"], { cwd: worktreePath });
+
+  const fullStubDir = await createStubCommands(mainRepo);
+  const stubDir = await mkdtemp(path.join(os.tmpdir(), "craig-gh-tmux-"));
+  tempRoots.push(stubDir);
+  await symlink(path.join(fullStubDir, "gh"), path.join(stubDir, "gh"));
+  await symlink(path.join(fullStubDir, "tmux"), path.join(stubDir, "tmux"));
+  return { paths, worktreePath, stubDir, remoteRepo };
+}

@@ -43,6 +43,38 @@ export function parseReplCommand(input: string): AppCommand {
     return { kind: "openTask", taskId: requireTaskId(normalized.slice(5)) };
   }
 
+  if (normalized === "check") {
+    throw new Error("Task id cannot be empty.");
+  }
+
+  if (normalized.startsWith("check ")) {
+    return { kind: "runChecks", taskId: requireTaskId(normalized.slice(6)) };
+  }
+
+  if (normalized === "commit") {
+    throw new Error("Task id cannot be empty.");
+  }
+
+  if (normalized.startsWith("commit ")) {
+    return { kind: "commitTask", taskId: requireTaskId(normalized.slice(7)) };
+  }
+
+  if (normalized === "pr") {
+    throw new Error("Task id cannot be empty.");
+  }
+
+  if (normalized.startsWith("pr ")) {
+    return parsePullRequestCommand(normalized.slice(3));
+  }
+
+  if (normalized === "merge") {
+    throw new Error("Task id cannot be empty.");
+  }
+
+  if (normalized.startsWith("merge ")) {
+    return parseMergeCommand(normalized.slice(6));
+  }
+
   if (normalized === "new") {
     throw new Error("Task title cannot be empty.");
   }
@@ -80,4 +112,34 @@ function requireTaskId(value: string): string {
   }
 
   return taskId;
+}
+
+function parsePullRequestCommand(value: string) {
+  const parts = value.trim().split(/\s+/).filter(Boolean);
+  const taskId = requireTaskId(parts[0] ?? "");
+
+  if (parts.length > 2 || (parts[1] && parts[1] !== "--watch")) {
+    throw new Error(`Unknown command: pr ${value.trim()}. Type 'help' for available commands.`);
+  }
+
+  return {
+    kind: "openPullRequest" as const,
+    taskId,
+    watch: parts[1] === "--watch",
+  };
+}
+
+function parseMergeCommand(value: string) {
+  const parts = value.trim().split(/\s+/).filter(Boolean);
+  const taskId = requireTaskId(parts[0] ?? "");
+
+  if (parts.length > 2 || (parts[1] && parts[1] !== "--preserve-worktree")) {
+    throw new Error(`Unknown command: merge ${value.trim()}. Type 'help' for available commands.`);
+  }
+
+  return {
+    kind: "mergeTask" as const,
+    taskId,
+    preserveWorktree: parts[1] === "--preserve-worktree",
+  };
 }

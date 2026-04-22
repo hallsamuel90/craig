@@ -14,6 +14,13 @@ export interface TaskPromptSource {
   value: string;
 }
 
+export interface TaskCheckResult {
+  command: string;
+  startedAt: string;
+  finishedAt: string;
+  exitCode: number;
+}
+
 export interface TaskChecks {
   source: {
     type: "repo_config";
@@ -22,6 +29,7 @@ export interface TaskChecks {
   lastRunAt: string | null;
   status: "not_run" | "running" | "passed" | "failed";
   commands: string[];
+  results: TaskCheckResult[];
 }
 
 export interface TaskPullRequestCheck {
@@ -38,12 +46,14 @@ export interface TaskPullRequest {
   headBranch: string | null;
   status: "open" | "closed" | "merged" | null;
   mergeable: boolean;
+  mergeStateStatus: string | null;
   requiredChecks: TaskPullRequestCheck[];
   lastSyncedAt: string | null;
 }
 
 export interface TaskArtifacts {
   logPath: string | null;
+  checkSummaryPath: string | null;
   prDraftPath: string | null;
   prStatusPath: string | null;
 }
@@ -60,6 +70,19 @@ export interface RunnerSession {
   exitedAt: string | null;
 }
 
+export interface TaskLastCommit {
+  sha: string;
+  message: string;
+  committedAt: string;
+}
+
+export interface TaskCleanup {
+  paneClosedAt: string | null;
+  worktreeRemovedAt: string | null;
+  preservedWorktree: boolean;
+  warning: string | null;
+}
+
 export interface TaskRecord {
   id: string;
   title: string;
@@ -74,8 +97,10 @@ export interface TaskRecord {
   runnerSession: RunnerSession;
   prompt: TaskPromptSource;
   checks: TaskChecks;
+  lastCommit: TaskLastCommit | null;
   pullRequest: TaskPullRequest;
   artifacts: TaskArtifacts;
+  cleanup: TaskCleanup;
   lastFailureReason?: string | null;
   createdAt: string;
   updatedAt: string;

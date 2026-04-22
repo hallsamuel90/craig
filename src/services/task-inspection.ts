@@ -52,7 +52,9 @@ export async function buildTaskInspection(
     recentFailureReason: task.lastFailureReason ?? null,
     runnerCommandText: task.runnerSession.command.join(" "),
     checksSummary: summarizeChecks(task),
+    lastCommitSummary: summarizeLastCommit(task),
     prSummary: summarizePullRequest(task),
+    cleanupSummary: summarizeCleanup(task),
   };
 }
 
@@ -68,7 +70,16 @@ async function pathExists(targetPath: string): Promise<boolean> {
 function summarizeChecks(task: TaskRecord): string {
   const count = task.checks.commands.length;
   const label = count === 1 ? "command" : "commands";
-  return `${task.checks.status} (${count} ${label})`;
+  const lastRun = task.checks.lastRunAt ? ` at ${task.checks.lastRunAt}` : "";
+  return `${task.checks.status} (${count} ${label})${lastRun}`;
+}
+
+function summarizeLastCommit(task: TaskRecord): string {
+  if (!task.lastCommit) {
+    return "not committed";
+  }
+
+  return `${task.lastCommit.sha.slice(0, 7)} ${task.lastCommit.message}`;
 }
 
 function summarizePullRequest(task: TaskRecord): string {
@@ -78,7 +89,27 @@ function summarizePullRequest(task: TaskRecord): string {
 
   const checks = task.pullRequest.requiredChecks.length;
   const checkLabel = checks === 1 ? "check" : "checks";
-  return `#${task.pullRequest.number} ${task.pullRequest.status ?? "unknown"} mergeable=${task.pullRequest.mergeable} (${checks} ${checkLabel})`;
+  return `#${task.pullRequest.number} ${task.pullRequest.status ?? "unknown"} mergeable=${task.pullRequest.mergeable} mergeState=${task.pullRequest.mergeStateStatus ?? "unknown"} (${checks} ${checkLabel})`;
+}
+
+function summarizeCleanup(task: TaskRecord): string {
+  if (task.status !== "merged") {
+    return "not merged";
+  }
+
+  if (task.cleanup.warning) {
+    return `warning: ${task.cleanup.warning}`;
+  }
+
+  if (task.cleanup.preservedWorktree) {
+    return "preserved worktree";
+  }
+
+  if (task.cleanup.worktreeRemovedAt) {
+    return `worktree removed at ${task.cleanup.worktreeRemovedAt}`;
+  }
+
+  return "cleanup pending";
 }
 
 function isFileMissingError(error: unknown): error is { code: string } {

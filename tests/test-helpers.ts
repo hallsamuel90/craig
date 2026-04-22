@@ -95,7 +95,9 @@ export function buildTaskRecord(
       lastRunAt: null,
       status: "not_run",
       commands: [],
+      results: [],
     },
+    lastCommit: task.lastCommit ?? null,
     pullRequest: task.pullRequest ?? {
       provider: "github",
       number: null,
@@ -104,13 +106,21 @@ export function buildTaskRecord(
       headBranch: null,
       status: null,
       mergeable: false,
+      mergeStateStatus: null,
       requiredChecks: [],
       lastSyncedAt: null,
     },
     artifacts: task.artifacts ?? {
       logPath: `.craig/logs/${task.id}.log`,
+      checkSummaryPath: `.craig/artifacts/${task.id}/check-summary.json`,
       prDraftPath: null,
       prStatusPath: `.craig/artifacts/${task.id}/pr-status.json`,
+    },
+    cleanup: task.cleanup ?? {
+      paneClosedAt: null,
+      worktreeRemovedAt: null,
+      preservedWorktree: false,
+      warning: null,
     },
     lastFailureReason: task.lastFailureReason ?? null,
     createdAt: task.createdAt ?? now,
@@ -125,6 +135,7 @@ export async function createStubCommands(root: string): Promise<string> {
   const gitScript = path.join(stubDir, "git-stub.sh");
   const tmuxScript = path.join(stubDir, "tmux-stub.sh");
   const cursorScript = path.join(stubDir, "cursor-stub.sh");
+  const ghScript = path.join(stubDir, "gh-stub.sh");
   const scriptLog = path.join(stubDir, "script-log.sh");
 
   await writeFile(
@@ -201,6 +212,9 @@ case "$1" in
   attach-session)
     exit 0
     ;;
+  kill-pane)
+    exit 0
+    ;;
   send-keys)
     exit 0
     ;;
@@ -235,14 +249,54 @@ exit 1
     "utf8",
   );
 
+  await writeFile(
+    ghScript,
+    `#!/bin/sh
+set -eu
+mode="\${CRAIG_TEST_GH_MODE:-success}"
+pr_number="\${CRAIG_TEST_GH_PR_NUMBER:-17}"
+pr_url="\${CRAIG_TEST_GH_PR_URL:-https://github.com/example/repo/pull/17}"
+view_file="\${CRAIG_TEST_GH_VIEW_FILE:-}"
+if [ "$1" = "auth" ] && [ "$2" = "status" ]; then
+  if [ "$mode" = "auth-fail" ]; then
+    echo "gh auth failed" >&2
+    exit 1
+  fi
+  exit 0
+fi
+if [ "$1" = "pr" ] && [ "$2" = "create" ]; then
+  echo "$pr_url"
+  exit 0
+fi
+if [ "$1" = "pr" ] && [ "$2" = "view" ]; then
+  if [ -n "$view_file" ]; then
+    cat "$view_file"
+    exit 0
+  fi
+  cat <<EOF
+{"number":$pr_number,"url":"$pr_url","baseRefName":"main","headRefName":"craig/task_1","state":"OPEN","mergeable":"MERGEABLE","mergeStateStatus":"CLEAN","statusCheckRollup":[]}
+EOF
+  exit 0
+fi
+if [ "$1" = "pr" ] && [ "$2" = "merge" ]; then
+  exit 0
+fi
+echo "unsupported gh stub invocation: $*" >&2
+exit 1
+`,
+    "utf8",
+  );
+
   await chmod(gitScript, 0o755);
   await chmod(tmuxScript, 0o755);
   await chmod(cursorScript, 0o755);
+  await chmod(ghScript, 0o755);
   await chmod(scriptLog, 0o755);
 
   await symlink("git-stub.sh", path.join(stubDir, "git"));
   await symlink("tmux-stub.sh", path.join(stubDir, "tmux"));
   await symlink("cursor-stub.sh", path.join(stubDir, "cursor"));
+  await symlink("gh-stub.sh", path.join(stubDir, "gh"));
 
   return stubDir;
 }

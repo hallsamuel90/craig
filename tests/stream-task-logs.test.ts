@@ -37,6 +37,7 @@ describe("stream-task-logs", () => {
       id: "task_1",
       artifacts: {
         logPath: null,
+        checkSummaryPath: ".craig/artifacts/task_1/check-summary.json",
         prDraftPath: null,
         prStatusPath: ".craig/artifacts/task_1/pr-status.json",
       },

@@ -79,6 +79,68 @@ describe("command routing", () => {
       kind: "openTask",
       taskId: "task_1",
     });
+
+    expect(parseArgv(["task", "check", "task_1"]).command).toEqual({
+      kind: "runChecks",
+      taskId: "task_1",
+    });
+    expect(parseReplCommand("check task_1")).toEqual({
+      kind: "runChecks",
+      taskId: "task_1",
+    });
+
+    expect(parseArgv(["task", "commit", "task_1"]).command).toEqual({
+      kind: "commitTask",
+      taskId: "task_1",
+    });
+    expect(parseReplCommand("commit task_1")).toEqual({
+      kind: "commitTask",
+      taskId: "task_1",
+    });
+
+    expect(parseArgv(["task", "pr", "task_1"]).command).toEqual({
+      kind: "openPullRequest",
+      taskId: "task_1",
+      watch: false,
+    });
+    expect(parseReplCommand("pr task_1")).toEqual({
+      kind: "openPullRequest",
+      taskId: "task_1",
+      watch: false,
+    });
+
+    expect(parseArgv(["task", "pr", "task_1", "--watch"]).command).toEqual({
+      kind: "openPullRequest",
+      taskId: "task_1",
+      watch: true,
+    });
+    expect(parseReplCommand("pr task_1 --watch")).toEqual({
+      kind: "openPullRequest",
+      taskId: "task_1",
+      watch: true,
+    });
+
+    expect(parseArgv(["task", "merge", "task_1"]).command).toEqual({
+      kind: "mergeTask",
+      taskId: "task_1",
+      preserveWorktree: false,
+    });
+    expect(parseReplCommand("merge task_1")).toEqual({
+      kind: "mergeTask",
+      taskId: "task_1",
+      preserveWorktree: false,
+    });
+
+    expect(parseArgv(["task", "merge", "task_1", "--preserve-worktree"]).command).toEqual({
+      kind: "mergeTask",
+      taskId: "task_1",
+      preserveWorktree: true,
+    });
+    expect(parseReplCommand("merge task_1 --preserve-worktree")).toEqual({
+      kind: "mergeTask",
+      taskId: "task_1",
+      preserveWorktree: true,
+    });
   });
 
   test("argv and REPL new commands normalize to the same command", () => {

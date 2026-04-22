@@ -57,19 +57,14 @@ function normalizeLegacyTaskRecord(value: unknown): unknown {
 
   const candidate = value as Partial<TaskRecord>;
 
-  if (candidate.runnerSession !== undefined) {
-    return value;
-  }
-
-  const runnerSession = buildLegacyRunnerSession(candidate);
-
-  if (!runnerSession) {
-    return value;
-  }
-
   return {
     ...candidate,
-    runnerSession,
+    runnerSession: candidate.runnerSession ?? buildLegacyRunnerSession(candidate),
+    checks: normalizeLegacyChecks(candidate),
+    lastCommit: candidate.lastCommit ?? null,
+    pullRequest: normalizeLegacyPullRequest(candidate),
+    artifacts: normalizeLegacyArtifacts(candidate),
+    cleanup: normalizeLegacyCleanup(candidate),
   };
 }
 
@@ -114,8 +109,10 @@ function isTaskRecord(value: unknown): value is TaskRecord {
     isRunnerSession(candidate.runnerSession) &&
     isPromptSource(candidate.prompt) &&
     isChecks(candidate.checks) &&
+    isLastCommit(candidate.lastCommit) &&
     isPullRequest(candidate.pullRequest) &&
     isArtifacts(candidate.artifacts) &&
+    isCleanup(candidate.cleanup) &&
     (candidate.lastFailureReason === undefined ||
       candidate.lastFailureReason === null ||
       typeof candidate.lastFailureReason === "string") &&
@@ -165,7 +162,28 @@ function isChecks(value: TaskRecord["checks"] | undefined): boolean {
       value.status === "passed" ||
       value.status === "failed") &&
     Array.isArray(value.commands) &&
-    value.commands.every((entry) => typeof entry === "string")
+    value.commands.every((entry) => typeof entry === "string") &&
+    Array.isArray(value.results) &&
+    value.results.every(
+      (result) =>
+        typeof result === "object" &&
+        result !== null &&
+        typeof result.command === "string" &&
+        typeof result.startedAt === "string" &&
+        typeof result.finishedAt === "string" &&
+        typeof result.exitCode === "number",
+    )
+  );
+}
+
+function isLastCommit(value: TaskRecord["lastCommit"] | undefined): boolean {
+  return (
+    value === null ||
+    (typeof value === "object" &&
+      value !== null &&
+      typeof value.sha === "string" &&
+      typeof value.message === "string" &&
+      typeof value.committedAt === "string")
   );
 }
 
@@ -183,6 +201,7 @@ function isPullRequest(value: TaskRecord["pullRequest"] | undefined): boolean {
       value.status === "merged" ||
       value.status === null) &&
     typeof value.mergeable === "boolean" &&
+    (typeof value.mergeStateStatus === "string" || value.mergeStateStatus === null) &&
     Array.isArray(value.requiredChecks) &&
     value.requiredChecks.every(
       (check) =>
@@ -201,7 +220,92 @@ function isArtifacts(value: TaskRecord["artifacts"] | undefined): boolean {
     typeof value === "object" &&
     value !== null &&
     (typeof value.logPath === "string" || value.logPath === null) &&
+    (typeof value.checkSummaryPath === "string" || value.checkSummaryPath === null) &&
     (typeof value.prDraftPath === "string" || value.prDraftPath === null) &&
     (typeof value.prStatusPath === "string" || value.prStatusPath === null)
+  );
+}
+
+function isCleanup(value: TaskRecord["cleanup"] | undefined): boolean {
+  return (
+    typeof value === "object" &&
+    value !== null &&
+    (typeof value.paneClosedAt === "string" || value.paneClosedAt === null) &&
+    (typeof value.worktreeRemovedAt === "string" || value.worktreeRemovedAt === null) &&
+    typeof value.preservedWorktree === "boolean" &&
+    (typeof value.warning === "string" || value.warning === null)
+  );
+}
+
+function normalizeLegacyChecks(candidate: Partial<TaskRecord>): TaskRecord["checks"] {
+  if (!candidate.checks) {
+    return {
+      source: {
+        type: "repo_config",
+        path: ".craig/config.json",
+      },
+      lastRunAt: null,
+      status: "not_run",
+      commands: [],
+      results: [],
+    };
+  }
+
+  return {
+    ...candidate.checks,
+    results: candidate.checks.results ?? [],
+  };
+}
+
+function normalizeLegacyPullRequest(candidate: Partial<TaskRecord>): TaskRecord["pullRequest"] {
+  const current = candidate.pullRequest;
+
+  if (!current) {
+    return {
+      provider: "github",
+      number: null,
+      url: null,
+      baseBranch: null,
+      headBranch: null,
+      status: null,
+      mergeable: false,
+      mergeStateStatus: null,
+      requiredChecks: [],
+      lastSyncedAt: null,
+    };
+  }
+
+  return {
+    ...current,
+    mergeStateStatus: current.mergeStateStatus ?? null,
+  };
+}
+
+function normalizeLegacyArtifacts(candidate: Partial<TaskRecord>): TaskRecord["artifacts"] {
+  const current = candidate.artifacts;
+
+  if (!current) {
+    return {
+      logPath: null,
+      checkSummaryPath: null,
+      prDraftPath: null,
+      prStatusPath: null,
+    };
+  }
+
+  return {
+    ...current,
+    checkSummaryPath: current.checkSummaryPath ?? null,
+  };
+}
+
+function normalizeLegacyCleanup(candidate: Partial<TaskRecord>): TaskRecord["cleanup"] {
+  return (
+    candidate.cleanup ?? {
+      paneClosedAt: null,
+      worktreeRemovedAt: null,
+      preservedWorktree: false,
+      warning: null,
+    }
   );
 }
