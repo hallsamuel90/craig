@@ -15,6 +15,7 @@ import { mergeTask } from "../services/merge-task.js";
 
 export interface CommandContext {
   paths: CraigPaths;
+  selectedTaskId?: string | null;
 }
 
 export async function executeCommand(
@@ -26,24 +27,46 @@ export async function executeCommand(
       return createTask(context.paths, command.title);
     case "listTasks":
       return listTasks(context.paths);
+    case "refreshInteractiveState":
+      throw new Error("Interactive refresh should be handled by the interactive app.");
     case "showTask":
       return showTask(context.paths, command.taskId);
+    case "showSelectedTask":
+      return showTask(context.paths, requireSelectedTaskId(context, "show"));
     case "streamTaskLogs":
       return prepareTaskLogs(context.paths, command.taskId);
+    case "streamSelectedTaskLogs":
+      return prepareTaskLogs(context.paths, requireSelectedTaskId(context, "logs"));
     case "showTaskDiff":
       return showTaskDiff(context.paths, command.taskId);
+    case "showSelectedTaskDiff":
+      return showTaskDiff(context.paths, requireSelectedTaskId(context, "diff"));
     case "focusTask":
       return focusTask(context.paths, command.taskId);
+    case "focusSelectedTask":
+      return focusTask(context.paths, requireSelectedTaskId(context, "focus"));
     case "openTask":
       return openTask(context.paths, command.taskId);
+    case "openSelectedTask":
+      return openTask(context.paths, requireSelectedTaskId(context, "open"));
     case "runChecks":
       return runChecks(context.paths, command.taskId);
+    case "runSelectedTaskChecks":
+      return runChecks(context.paths, requireSelectedTaskId(context, "check"));
     case "commitTask":
       return commitTask(context.paths, command.taskId);
+    case "commitSelectedTask":
+      return commitTask(context.paths, requireSelectedTaskId(context, "commit"));
     case "openPullRequest":
       return openPullRequest(context.paths, command.taskId, { watch: command.watch });
+    case "openSelectedTaskPullRequest":
+      return openPullRequest(context.paths, requireSelectedTaskId(context, "pr"), { watch: command.watch });
     case "mergeTask":
       return mergeTask(context.paths, command.taskId, {
+        preserveWorktree: command.preserveWorktree,
+      });
+    case "mergeSelectedTask":
+      return mergeTask(context.paths, requireSelectedTaskId(context, "merge"), {
         preserveWorktree: command.preserveWorktree,
       });
     case "help":
@@ -57,4 +80,12 @@ export async function executeCommand(
 
 function assertNever(value: never): never {
   throw new Error(`Unsupported command: ${JSON.stringify(value)}`);
+}
+
+function requireSelectedTaskId(context: CommandContext, commandName: string): string {
+  if (context.selectedTaskId) {
+    return context.selectedTaskId;
+  }
+
+  throw new Error(`No task selected. Create a task with 'new <task>' or use '${commandName} <id>'.`);
 }

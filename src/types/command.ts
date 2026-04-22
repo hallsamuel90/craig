@@ -3,15 +3,25 @@ import type { TaskRecord } from "./task.js";
 export type AppCommand =
   | { kind: "createTask"; title: string }
   | { kind: "listTasks" }
+  | { kind: "refreshInteractiveState" }
   | { kind: "showTask"; taskId: string }
+  | { kind: "showSelectedTask" }
   | { kind: "streamTaskLogs"; taskId: string }
+  | { kind: "streamSelectedTaskLogs" }
   | { kind: "showTaskDiff"; taskId: string }
+  | { kind: "showSelectedTaskDiff" }
   | { kind: "focusTask"; taskId: string }
+  | { kind: "focusSelectedTask" }
   | { kind: "openTask"; taskId: string }
+  | { kind: "openSelectedTask" }
   | { kind: "runChecks"; taskId: string }
+  | { kind: "runSelectedTaskChecks" }
   | { kind: "commitTask"; taskId: string }
+  | { kind: "commitSelectedTask" }
   | { kind: "openPullRequest"; taskId: string; watch: boolean }
+  | { kind: "openSelectedTaskPullRequest"; watch: boolean }
   | { kind: "mergeTask"; taskId: string; preserveWorktree: boolean }
+  | { kind: "mergeSelectedTask"; preserveWorktree: boolean }
   | { kind: "help" }
   | { kind: "exit" };
 

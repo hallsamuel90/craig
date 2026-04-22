@@ -5,7 +5,7 @@ import { executeCommand } from "../src/commands/command-router.js";
 import { parseArgv } from "../src/commands/parse-argv.js";
 import { parseReplCommand } from "../src/commands/parse-repl.js";
 import { readTask } from "../src/state/task-store.js";
-import { createCraigState, createRepoRoot, createStubCommands } from "./test-helpers.js";
+import { createCraigState, createRepoRoot, createStubCommands, writeTaskRecord } from "./test-helpers.js";
 
 const tempRoots: string[] = [];
 const originalPath = process.env.PATH ?? "";
@@ -39,6 +39,9 @@ describe("command routing", () => {
       kind: "showTask",
       taskId: "task_1",
     });
+    expect(parseReplCommand("show")).toEqual({
+      kind: "showSelectedTask",
+    });
     expect(parseReplCommand("show task_1")).toEqual({
       kind: "showTask",
       taskId: "task_1",
@@ -47,6 +50,9 @@ describe("command routing", () => {
     expect(parseArgv(["task", "logs", "task_1"]).command).toEqual({
       kind: "streamTaskLogs",
       taskId: "task_1",
+    });
+    expect(parseReplCommand("logs")).toEqual({
+      kind: "streamSelectedTaskLogs",
     });
     expect(parseReplCommand("logs task_1")).toEqual({
       kind: "streamTaskLogs",
@@ -57,6 +63,9 @@ describe("command routing", () => {
       kind: "showTaskDiff",
       taskId: "task_1",
     });
+    expect(parseReplCommand("diff")).toEqual({
+      kind: "showSelectedTaskDiff",
+    });
     expect(parseReplCommand("diff task_1")).toEqual({
       kind: "showTaskDiff",
       taskId: "task_1",
@@ -65,6 +74,9 @@ describe("command routing", () => {
     expect(parseArgv(["task", "focus", "task_1"]).command).toEqual({
       kind: "focusTask",
       taskId: "task_1",
+    });
+    expect(parseReplCommand("focus")).toEqual({
+      kind: "focusSelectedTask",
     });
     expect(parseReplCommand("focus task_1")).toEqual({
       kind: "focusTask",
@@ -75,6 +87,9 @@ describe("command routing", () => {
       kind: "openTask",
       taskId: "task_1",
     });
+    expect(parseReplCommand("open")).toEqual({
+      kind: "openSelectedTask",
+    });
     expect(parseReplCommand("open task_1")).toEqual({
       kind: "openTask",
       taskId: "task_1",
@@ -83,6 +98,9 @@ describe("command routing", () => {
     expect(parseArgv(["task", "check", "task_1"]).command).toEqual({
       kind: "runChecks",
       taskId: "task_1",
+    });
+    expect(parseReplCommand("check")).toEqual({
+      kind: "runSelectedTaskChecks",
     });
     expect(parseReplCommand("check task_1")).toEqual({
       kind: "runChecks",
@@ -93,6 +111,9 @@ describe("command routing", () => {
       kind: "commitTask",
       taskId: "task_1",
     });
+    expect(parseReplCommand("commit")).toEqual({
+      kind: "commitSelectedTask",
+    });
     expect(parseReplCommand("commit task_1")).toEqual({
       kind: "commitTask",
       taskId: "task_1",
@@ -102,6 +123,14 @@ describe("command routing", () => {
       kind: "openPullRequest",
       taskId: "task_1",
       watch: false,
+    });
+    expect(parseReplCommand("pr")).toEqual({
+      kind: "openSelectedTaskPullRequest",
+      watch: false,
+    });
+    expect(parseReplCommand("pr --watch")).toEqual({
+      kind: "openSelectedTaskPullRequest",
+      watch: true,
     });
     expect(parseReplCommand("pr task_1")).toEqual({
       kind: "openPullRequest",
@@ -124,6 +153,14 @@ describe("command routing", () => {
       kind: "mergeTask",
       taskId: "task_1",
       preserveWorktree: false,
+    });
+    expect(parseReplCommand("merge")).toEqual({
+      kind: "mergeSelectedTask",
+      preserveWorktree: false,
+    });
+    expect(parseReplCommand("merge --preserve-worktree")).toEqual({
+      kind: "mergeSelectedTask",
+      preserveWorktree: true,
     });
     expect(parseReplCommand("merge task_1")).toEqual({
       kind: "mergeTask",
@@ -151,6 +188,9 @@ describe("command routing", () => {
     expect(parseReplCommand("new refactor auth")).toEqual({
       kind: "createTask",
       title: "refactor auth",
+    });
+    expect(parseReplCommand("refresh")).toEqual({
+      kind: "refreshInteractiveState",
     });
   });
 
@@ -212,12 +252,23 @@ describe("command routing", () => {
     expect(() => parseReplCommand("new")).toThrow(/Task title cannot be empty/);
   });
 
-  test("empty task ids are rejected for inspection commands", () => {
+  test("selected-task routing uses the current selection and fails clearly when missing", async () => {
+    const repoRoot = await createRepoRoot("craig-router-selected-");
+    tempRoots.push(repoRoot);
+    const paths = await createCraigState(repoRoot, ["task_1"]);
+    await writeTaskRecord(repoRoot, { id: "task_1" });
+
+    const result = await executeCommand({ kind: "showSelectedTask" }, { paths, selectedTaskId: "task_1" });
+
+    expect(result.kind).toBe("showTask");
+    await expect(executeCommand({ kind: "showSelectedTask" }, { paths, selectedTaskId: null })).rejects.toThrow(
+      /No task selected/,
+    );
+  });
+
+  test("command mode still rejects empty task ids for explicit commands", () => {
     expect(() => parseArgv(["task", "show", ""])).toThrow(/Task id cannot be empty/);
-    expect(() => parseReplCommand("show")).toThrow(/Task id cannot be empty/);
     expect(() => parseArgv(["task", "logs", ""])).toThrow(/Task id cannot be empty/);
-    expect(() => parseReplCommand("diff")).toThrow(/Task id cannot be empty/);
     expect(() => parseArgv(["task", "focus", ""])).toThrow(/Task id cannot be empty/);
-    expect(() => parseReplCommand("open")).toThrow(/Task id cannot be empty/);
   });
 });

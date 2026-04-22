@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 
 import { executeCommand } from "./commands/command-router.js";
+import { startInteractiveApp } from "./interactive/app.js";
 import { parseArgv } from "./commands/parse-argv.js";
 import { startRepl } from "./repl.js";
 import { renderBanner } from "./banner.js";
@@ -22,7 +23,11 @@ async function main(): Promise<number> {
 
     if (parsed.mode === "interactive") {
       process.stdout.write(`${renderBanner(repoRoot, index)}\n\n`);
-      return startRepl(context);
+      try {
+        return await startInteractiveApp(context);
+      } catch {
+        return startRepl(context);
+      }
     }
 
     if (!parsed.command) {

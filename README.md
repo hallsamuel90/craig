@@ -2,7 +2,7 @@
 
 Craig is a local control plane for repo-backed agent work.
 
-This repo now implements RFC phase `1.4` and an initial `4.1` tmux-grid workspace pass. Automated verification is complete for both; live manual GitHub and multi-window tmux verification are still pending.
+This repo now implements RFC phase `2.1` with automated verification complete. Live manual verification is still pending for the GitHub-backed `1.4` flow and the tmux-backed `2.1` control surface.
 
 ## Current status
 
@@ -45,13 +45,14 @@ Implemented in `1.4`:
 - post-merge cleanup with optional `--preserve-worktree`
 - `show <id>` live PR refresh for tracked tasks
 
-Implemented in `4.1`:
+Implemented in `2.1`:
 
-- Craig stays in the interactive control surface after `new <task>` instead of auto-focusing the task pane
-- task panes persist page/window metadata so focus and cleanup can target managed tmux layouts
-- Craig renders a compact control summary above the prompt in the REPL
-- tmux pane allocation now falls back to new tmux windows when the current grid runs out of space
-- Craig persists tmux runtime metadata under `.craig/runtime/session.json`
+- `craig` now prefers a Craig-owned full-screen terminal control surface in interactive mode
+- the interactive surface renders a three-zone layout with task list, Craig command surface, and selected-task context
+- the middle work surface stays Craig-controlled by default and reuses the existing command parser and service layer
+- Craig persists UI runtime state in `.craig/runtime/session.json` when tmux session metadata exists
+- `logs <id>` temporarily suspends the full-screen surface and restores Craig afterward
+- interactive mode falls back to the legacy prompt REPL automatically when the richer terminal surface cannot start
 
 Still deferred:
 
@@ -80,7 +81,7 @@ pnpm build
 
 ## Run
 
-Start the interactive REPL from the repo root:
+Start the interactive Craig control surface from the repo root:
 
 ```bash
 pnpm start
@@ -173,6 +174,7 @@ On first run, Craig creates:
 ```text
 .craig/
   index.json
+  runtime/
   tasks/
   jobs/
   logs/
@@ -199,12 +201,15 @@ Per-task records under `.craig/tasks/` now track:
 - PR status and cleanup metadata
 - artifact paths
 
+`.craig/runtime/session.json` tracks Craig session metadata plus persisted UI state such as the last selected task and recent control-surface output when a tmux-backed session has been created.
+
 ## Current limitations
 
 - `logs <id>` depends on local `tail` for live follow behavior.
 - `focus <id>` depends on tmux target state that Craig recorded during task creation.
 - `open <id>` prints the worktree path when no opener is configured.
 - Full live manual verification of the GitHub-backed `pr --watch` to `merge` flow still depends on a locally authenticated `gh` session and a real repo remote.
+- Full live manual verification of the new tmux-backed three-zone control surface is still pending.
 
 ## Development
 

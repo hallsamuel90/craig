@@ -4,7 +4,7 @@ import path from "node:path";
 import type { CommandCreateTaskResult } from "../types/command.js";
 import type { TaskRecord } from "../types/task.js";
 import type { CraigPaths } from "../state/craig-paths.js";
-import { readSessionRuntime, writeSessionRuntime } from "../state/runtime-store.js";
+import { getDefaultUiRuntime, readSessionRuntime, writeSessionRuntime } from "../state/runtime-store.js";
 import { appendTaskId, writeTask } from "../state/task-store.js";
 import { allocateTaskId } from "./task-id.js";
 import { createWorktree } from "./git-task.js";
@@ -85,6 +85,7 @@ export async function createTask(paths: CraigPaths, title: string): Promise<Comm
           isPrimary: pane.pageNumber === 1,
         },
       ]),
+      ui: runtime?.ui ?? getDefaultUiRuntime(),
       updatedAt: new Date().toISOString(),
     });
     await writeTask(paths, task);
