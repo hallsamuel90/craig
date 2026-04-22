@@ -12,7 +12,10 @@ export async function cleanupTask(
 
   try {
     if (task.tmuxTarget) {
-      await killPane(paths.repoRoot, task.tmuxTarget);
+      await killPane(paths.repoRoot, task.tmuxTarget, {
+        windowTarget: task.tmuxWindowTarget,
+        hasControlPane: task.tmuxPage === 1,
+      });
       task.cleanup.paneClosedAt = new Date().toISOString();
     }
   } catch (error) {

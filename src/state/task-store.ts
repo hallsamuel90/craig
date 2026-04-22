@@ -59,6 +59,9 @@ function normalizeLegacyTaskRecord(value: unknown): unknown {
 
   return {
     ...candidate,
+    tmuxWindowTarget: typeof candidate.tmuxWindowTarget === "string" ? candidate.tmuxWindowTarget : null,
+    tmuxPage: typeof candidate.tmuxPage === "number" ? candidate.tmuxPage : null,
+    layoutSlot: typeof candidate.layoutSlot === "number" ? candidate.layoutSlot : null,
     runnerSession: candidate.runnerSession ?? buildLegacyRunnerSession(candidate),
     checks: normalizeLegacyChecks(candidate),
     lastCommit: candidate.lastCommit ?? null,
@@ -106,6 +109,9 @@ function isTaskRecord(value: unknown): value is TaskRecord {
     typeof candidate.worktreePath === "string" &&
     typeof candidate.branch === "string" &&
     typeof candidate.tmuxTarget === "string" &&
+    (typeof candidate.tmuxWindowTarget === "string" || candidate.tmuxWindowTarget === null) &&
+    (typeof candidate.tmuxPage === "number" || candidate.tmuxPage === null) &&
+    (typeof candidate.layoutSlot === "number" || candidate.layoutSlot === null) &&
     isRunnerSession(candidate.runnerSession) &&
     isPromptSource(candidate.prompt) &&
     isChecks(candidate.checks) &&

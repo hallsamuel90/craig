@@ -4,10 +4,11 @@ import path from "node:path";
 import type { CommandCreateTaskResult } from "../types/command.js";
 import type { TaskRecord } from "../types/task.js";
 import type { CraigPaths } from "../state/craig-paths.js";
+import { readSessionRuntime, writeSessionRuntime } from "../state/runtime-store.js";
 import { appendTaskId, writeTask } from "../state/task-store.js";
 import { allocateTaskId } from "./task-id.js";
 import { createWorktree } from "./git-task.js";
-import { createPane, enablePaneLogging } from "./tmux-session.js";
+import { allocateTaskPane, enablePaneLogging, ensureCraigWorkspace } from "./tmux-session.js";
 import { assertCursorAvailable, launchCursorInPane } from "./cursor-runner.js";
 
 export async function createTask(paths: CraigPaths, title: string): Promise<CommandCreateTaskResult> {
@@ -41,8 +42,20 @@ export async function createTask(paths: CraigPaths, title: string): Promise<Comm
     await createWorktree(paths.repoRoot, branch, worktreePath);
     await writeFile(logPath, "", "utf8");
 
-    const pane = await createPane(paths.repoRoot, worktreePath);
+    const workspace = await ensureCraigWorkspace(paths.repoRoot);
+    const runtime = await readSessionRuntime({ sessionFile: paths.sessionFile });
+    const pane = await allocateTaskPane(paths.repoRoot, worktreePath, [
+      {
+        pageNumber: 1,
+        windowTarget: workspace.primaryWindowTarget,
+        isPrimary: true,
+      },
+      ...(runtime?.managedPages.filter((page) => !page.isPrimary) ?? []),
+    ]);
     task.tmuxTarget = pane.persistedTarget;
+    task.tmuxWindowTarget = pane.windowTarget;
+    task.tmuxPage = pane.pageNumber;
+    task.layoutSlot = pane.layoutSlot;
     task.runnerSession.tmuxTarget = pane.persistedTarget;
 
     await enablePaneLogging(pane.paneId, logPath, paths.repoRoot);
@@ -55,6 +68,25 @@ export async function createTask(paths: CraigPaths, title: string): Promise<Comm
     task.lastFailureReason = null;
 
     await launchCursorInPane(paths.repoRoot, pane.paneId, trimmedTitle);
+    await writeSessionRuntime({ sessionFile: paths.sessionFile }, {
+      sessionName: workspace.sessionName,
+      controlPaneTarget: workspace.controlPaneTarget,
+      primaryWindowTarget: workspace.primaryWindowTarget,
+      managedPages: dedupePages([
+        {
+          pageNumber: 1,
+          windowTarget: workspace.primaryWindowTarget,
+          isPrimary: true,
+        },
+        ...(runtime?.managedPages ?? []),
+        {
+          pageNumber: pane.pageNumber,
+          windowTarget: pane.windowTarget,
+          isPrimary: pane.pageNumber === 1,
+        },
+      ]),
+      updatedAt: new Date().toISOString(),
+    });
     await writeTask(paths, task);
 
     return {
@@ -98,6 +130,9 @@ function buildDraftTask(paths: CraigPaths, input: DraftTaskInput): TaskRecord {
     worktreePath: input.worktreePath,
     branch: input.branch,
     tmuxTarget: "",
+    tmuxWindowTarget: null,
+    tmuxPage: null,
+    layoutSlot: null,
     runnerSession: {
       command: ["cursor", "agent", input.title],
       tmuxTarget: "",
@@ -161,4 +196,16 @@ function slugify(value: string): string {
     .replace(/[^a-z0-9]+/g, "-")
     .replace(/^-+|-+$/g, "")
     .replace(/-{2,}/g, "-");
+}
+
+function dedupePages(
+  pages: Array<{ pageNumber: number; windowTarget: string; isPrimary: boolean }>,
+): Array<{ pageNumber: number; windowTarget: string; isPrimary: boolean }> {
+  const map = new Map<number, { pageNumber: number; windowTarget: string; isPrimary: boolean }>();
+
+  for (const page of pages) {
+    map.set(page.pageNumber, page);
+  }
+
+  return [...map.values()].sort((left, right) => left.pageNumber - right.pageNumber);
 }

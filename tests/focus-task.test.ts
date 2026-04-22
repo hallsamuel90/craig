@@ -30,7 +30,7 @@ describe("focusTask", () => {
     const result = await focusTask(paths, "task_1");
 
     expect(result.tmuxTarget).toBe("%77");
-    expect(focusPaneMock).toHaveBeenCalledWith(repoRoot, "%77");
+    expect(focusPaneMock).toHaveBeenCalledWith(repoRoot, "%77", "@1");
   });
 
   test("fails when the task does not have a tmux target", async () => {
