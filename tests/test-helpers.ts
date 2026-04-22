@@ -173,6 +173,8 @@ set -eu
 state_file="\${CRAIG_TEST_TMUX_STATE_FILE:-}"
 command_log="\${CRAIG_TEST_TMUX_COMMAND_LOG:-}"
 window_target="\${CRAIG_TEST_TMUX_WINDOW_TARGET:-@0}"
+split_fail="\${CRAIG_TEST_TMUX_SPLIT_FAIL:-0}"
+new_window_pane_id="\${CRAIG_TEST_TMUX_NEW_WINDOW_PANE_ID:-%84}"
 if [ "\${CRAIG_TEST_TMUX_FAIL:-0}" = "1" ]; then
   echo "tmux failure" >&2
   exit 1
@@ -197,10 +199,24 @@ case "$1" in
     exit 0
     ;;
   split-window)
+    if [ "$split_fail" = "1" ]; then
+      echo "no space for new pane" >&2
+      exit 1
+    fi
     echo "%42"
     exit 0
     ;;
+  new-window)
+    echo "$new_window_pane_id"
+    exit 0
+    ;;
   pipe-pane)
+    exit 0
+    ;;
+  select-layout)
+    exit 0
+    ;;
+  select-window)
     exit 0
     ;;
   select-pane)

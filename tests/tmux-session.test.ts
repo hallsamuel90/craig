@@ -2,7 +2,7 @@ import { readFile, rm } from "node:fs/promises";
 
 import { afterEach, describe, expect, test } from "vitest";
 
-import { focusPane } from "../src/services/tmux-session.js";
+import { focusPane, getSessionNameForRepo } from "../src/services/tmux-session.js";
 import { createRepoRoot, createStubCommands } from "./test-helpers.js";
 
 const tempRoots: string[] = [];
@@ -33,9 +33,11 @@ describe("focusPane", () => {
     await focusPane(repoRoot, "%42");
 
     const tmuxCommands = await readFile(tmuxCommandLog, "utf8");
+    const sessionName = getSessionNameForRepo(repoRoot);
 
+    expect(tmuxCommands).toContain("select-window -t %42");
     expect(tmuxCommands).toContain("select-pane -t %42");
-    expect(tmuxCommands).toContain("attach-session -t craig");
+    expect(tmuxCommands).toContain(`attach-session -t ${sessionName}`);
   });
 
   test("switches the current client when already inside tmux", async () => {
@@ -51,9 +53,11 @@ describe("focusPane", () => {
     await focusPane(repoRoot, "%42");
 
     const tmuxCommands = await readFile(tmuxCommandLog, "utf8");
+    const sessionName = getSessionNameForRepo(repoRoot);
 
+    expect(tmuxCommands).toContain("select-window -t %42");
     expect(tmuxCommands).toContain("select-pane -t %42");
-    expect(tmuxCommands).toContain("switch-client -t craig");
-    expect(tmuxCommands).not.toContain("attach-session -t craig");
+    expect(tmuxCommands).toContain(`switch-client -t ${sessionName}`);
+    expect(tmuxCommands).not.toContain(`attach-session -t ${sessionName}`);
   });
 });

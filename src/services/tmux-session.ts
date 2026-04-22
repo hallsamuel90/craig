@@ -1,9 +1,11 @@
 import { spawn } from "node:child_process";
+import { createHash } from "node:crypto";
+import path from "node:path";
 
 import { runCommand, runCommandAllowingFailure } from "../utils/exec.js";
 import { shellEscape } from "../utils/shell-escape.js";
 
-const SESSION_NAME = "craig";
+const SESSION_PREFIX = "craig";
 
 export interface ProvisionedPane {
   paneId: string;
@@ -11,14 +13,12 @@ export interface ProvisionedPane {
 }
 
 export async function createPane(repoRoot: string, worktreePath: string): Promise<ProvisionedPane> {
+  const sessionName = getSessionNameForRepo(repoRoot);
   const windowTarget = await resolveWindowTarget(repoRoot);
 
-  const result = await runCommand(
-    "tmux",
-    ["split-window", "-d", "-P", "-F", "#{pane_id}", "-t", windowTarget, "-c", worktreePath],
-    { cwd: repoRoot },
-  );
+  const result = await createPaneInWindow(repoRoot, sessionName, windowTarget, worktreePath);
   const paneId = result.stdout.trim();
+  await relayoutPaneWindow(repoRoot, paneId);
 
   return {
     paneId,
@@ -26,22 +26,62 @@ export async function createPane(repoRoot: string, worktreePath: string): Promis
   };
 }
 
+async function createPaneInWindow(
+  repoRoot: string,
+  sessionName: string,
+  windowTarget: string,
+  worktreePath: string,
+): Promise<{ stdout: string; stderr: string }> {
+  try {
+    return await runCommand(
+      "tmux",
+      ["split-window", "-d", "-P", "-F", "#{pane_id}", "-t", windowTarget, "-c", worktreePath],
+      { cwd: repoRoot },
+    );
+  } catch (error) {
+    if (!isInsufficientPaneSpaceError(error)) {
+      throw error;
+    }
+
+    return runCommand(
+      "tmux",
+      ["new-window", "-d", "-P", "-F", "#{pane_id}", "-t", sessionName, "-c", worktreePath],
+      { cwd: repoRoot },
+    );
+  }
+}
+
 async function resolveWindowTarget(repoRoot: string): Promise<string> {
-  const sessionState = await runCommandAllowingFailure("tmux", ["has-session", "-t", SESSION_NAME], {
+  const sessionName = getSessionNameForRepo(repoRoot);
+  const sessionState = await runCommandAllowingFailure("tmux", ["has-session", "-t", sessionName], {
     cwd: repoRoot,
   });
 
   if (sessionState.exitCode !== 0) {
+    const sizeArgs = getInitialSessionSizeArgs();
     const result = await runCommand(
       "tmux",
-      ["new-session", "-d", "-P", "-F", "#{window_id}", "-s", SESSION_NAME, "-n", SESSION_NAME, "-c", repoRoot],
+      [
+        "new-session",
+        "-d",
+        "-P",
+        "-F",
+        "#{window_id}",
+        "-s",
+        sessionName,
+        "-n",
+        sessionName,
+        ...sizeArgs,
+        "-c",
+        repoRoot,
+      ],
       { cwd: repoRoot },
     );
 
     return requireWindowTarget(result.stdout);
   }
 
-  const result = await runCommand("tmux", ["list-windows", "-F", "#{window_id}", "-t", SESSION_NAME], {
+  const result = await runCommand("tmux", ["list-windows", "-F", "#{window_id}", "-t", sessionName], {
     cwd: repoRoot,
   });
 
@@ -61,6 +101,55 @@ function requireWindowTarget(stdout: string): string {
   return windowTarget;
 }
 
+function isInsufficientPaneSpaceError(error: unknown): boolean {
+  if (!(error instanceof Error)) {
+    return false;
+  }
+
+  const message = error.message.toLowerCase();
+  return message.includes("no space for new pane") || message.includes("not enough space for new pane");
+}
+
+export function getSessionNameForRepo(repoRoot: string): string {
+  const baseName = path.basename(repoRoot);
+  const normalizedBase =
+    baseName
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, "-")
+      .replace(/^-+|-+$/g, "") || "repo";
+  const digest = createHash("sha1").update(repoRoot).digest("hex").slice(0, 8);
+
+  return `${SESSION_PREFIX}-${normalizedBase}-${digest}`;
+}
+
+function getInitialSessionSizeArgs(): string[] {
+  const size = readTerminalSize();
+  if (!size) {
+    return [];
+  }
+
+  return ["-x", `${size.columns}`, "-y", `${size.rows}`];
+}
+
+function readTerminalSize(): { columns: number; rows: number } | null {
+  const candidates = [process.stdout, process.stderr, process.stdin];
+
+  for (const candidate of candidates) {
+    const columns = "columns" in candidate ? candidate.columns : undefined;
+    const rows = "rows" in candidate ? candidate.rows : undefined;
+
+    if (typeof columns === "number" && columns > 0 && typeof rows === "number" && rows > 0) {
+      return { columns, rows };
+    }
+  }
+
+  return null;
+}
+
+async function relayoutPaneWindow(repoRoot: string, paneId: string): Promise<void> {
+  await runCommand("tmux", ["select-layout", "-t", paneId, "tiled"], { cwd: repoRoot });
+}
+
 export async function enablePaneLogging(paneId: string, logPath: string, cwd: string): Promise<void> {
   await runCommand(
     "tmux",
@@ -74,14 +163,16 @@ export async function sendCommandToPane(paneId: string, command: string, cwd: st
 }
 
 export async function focusPane(repoRoot: string, paneId: string): Promise<void> {
+  const sessionName = getSessionNameForRepo(repoRoot);
+  await runCommand("tmux", ["select-window", "-t", paneId], { cwd: repoRoot });
   await runCommand("tmux", ["select-pane", "-t", paneId], { cwd: repoRoot });
 
   if (process.env.TMUX) {
-    await runCommand("tmux", ["switch-client", "-t", SESSION_NAME], { cwd: repoRoot });
+    await runCommand("tmux", ["switch-client", "-t", sessionName], { cwd: repoRoot });
     return;
   }
 
-  await runInteractiveTmuxCommand(repoRoot, ["attach-session", "-t", SESSION_NAME]);
+  await runInteractiveTmuxCommand(repoRoot, ["attach-session", "-t", sessionName]);
 }
 
 export async function killPane(repoRoot: string, paneId: string): Promise<void> {
