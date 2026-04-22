@@ -8,82 +8,142 @@
 
 ## Context and goals
 
-Craig is a terminal-first local control plane for agent runners. It is not a model, chatbot, hosted system, or replacement for runner CLIs. In this RFC, Craig is the local system that coordinates repo-backed development work on top of Cursor CLI first and Codex CLI later.
+Craig is a terminal-native local control plane for repo-backed agent work. It is not a model, hosted system, generic shell wrapper, or replacement for vendor runner CLIs. Craig is the product and the orchestrator. It coordinates repo tasks, review flow, execution context, and durable state on top of runner backends such as Cursor CLI first and Codex CLI later.
 
-The Phase 1 vertical slice matters because raw agent CLI workflows leave the full developer loop fragmented across shell history, ad hoc branch naming, manual worktree setup, separate terminal sessions, and one-off review and merge steps. The missing system is not prompt generation. The missing system is a local control plane that owns task lifecycle, execution context, durable state, and review-to-merge workflow.
+The current implementation may begin with CLI and minimal-shell scaffolding, but that is not the intended product endpoint. Craig should evolve into an interactive terminal application with a TUI control surface that feels like mission control for repo tasks.
 
-This RFC solves the concrete repo-task workflow problems that currently create friction:
+The terminal toolchain for this RFC is:
+
+- Ghostty as the preferred terminal emulator, without making Craig depend on it programmatically
+- Craig as the control plane and interactive terminal application
+- tmux as the execution and session substrate for long-running task contexts
+- `nvim` as the file viewer and editor surface
+- Cursor CLI first and Codex CLI later as runner backends
+
+The Phase 1 vertical slice matters because raw runner CLI workflows still leave the developer loop fragmented across shell history, manual branch and worktree setup, hard-to-resume long-running sessions, scattered logs and diffs, and PR and CI state that must be managed outside the task workflow.
+
+This RFC solves the concrete workflow problems that currently create friction:
 
 - task state is implicit in shell history and branch names
-- long-running agent sessions are hard to monitor and resume
-- diffs, logs, and review checkpoints are spread across terminals
-- pull request state and CI status have to be tracked manually outside the task workflow
-- worktree setup and cleanup are manual and error-prone
-- idea-to-merged-code is not represented as one coherent system
+- worktree setup, branch setup, and cleanup are manual and error-prone
+- long-running runner sessions are hard to monitor, resume, and navigate
+- logs, diffs, review checkpoints, and PR state are spread across separate tools and terminals
+- file inspection and editing require ad hoc context switches
+- idea-to-merged-code is not represented as one coherent local system
 
 Goals for this RFC:
 
-- ship a local control plane for repo-backed development tasks on top of Cursor CLI
-- make the full developer loop first-class: create, run, inspect, check, commit, prepare PR artifacts, merge, and clean up
-- keep state filesystem-backed under `.craig/` with no database, server, or daemon in the initial architecture
-- use tmux as the execution/session layer while keeping Craig, not tmux, as the source of truth for task state
-- define a runner abstraction that supports Cursor first and Codex second without over-generalizing for unsupported runners
-- keep the interactive REPL as the primary UX and command mode as a thin wrapper over the same application services
+- ship a terminal-native control plane for repo-backed development tasks
+- make the full developer loop first-class: create, run, inspect, review, check, commit, open PR, watch CI, merge, and clean up
+- keep state filesystem-backed under `.craig/` with no database, daemon, or hosted service initially
+- keep worktrees as the core execution unit for repo tasks
+- use tmux underneath as execution/session substrate while keeping Craig, not tmux, as the source of truth for task state
+- evolve toward a TUI control surface while allowing the near-term implementation to begin with a minimal shell or REPL
+- keep command mode available for scripts and automation
+- define a thin runner abstraction that supports Cursor first and Codex second without over-generalizing
 
 ## Non-goals
 
 - supporting Claude Code in this RFC
 - building hosted sync, remote coordination, or multi-user state
-- introducing a database, background daemon, or queueing system in the initial implementation
-- solving general non-repo tasks or scheduled jobs in Phase 1
-- shipping a rich TUI dashboard before the core repo-task loop works end to end
+- introducing a database, background daemon, or queueing system in the initial architecture
+- building a full editor inside Craig
+- broad general-task orchestration in Phase 1
 - abstracting every possible runner capability up front
+- making tmux itself the product UX
+- treating the minimal shell or REPL as the final product surface
 
----
+The TUI direction is intentional and product-defining, but the richer Craig UX should build on top of a proven repo-task workflow rather than replacing that workflow with UI ambition before the underlying loop works end to end.
 
 ## Proposal
 
-### System model
+Craig is an interactive terminal control plane with supporting command surfaces. The minimal shell or REPL is a bootstrap interaction surface, not the intended end-state product. Craig owns task lifecycle, durable state, orchestration, review flow, and operator visibility across the repo-backed development loop.
 
-Craig is a local CLI application with three layers:
+Craig uses tmux to host persistent runner execution contexts. Craig uses `nvim` to hand off deep file inspection and editing. Craig preserves command mode for scripting and automation. Craig should read as the terminal-native orchestrator that coordinates those components rather than a thin wrapper around Cursor and tmux.
 
-1. Control plane: owns task lifecycle, job lifecycle, prompt templating, review flow, runner selection, and command dispatch.
-2. Runner layer: owns adapter-specific launch behavior and capability declarations for Cursor CLI first and Codex later.
-3. State layer: owns durable filesystem state under `.craig/`, including task records, job records, worktree metadata, logs, and generated artifacts.
+## System model
+
+Craig has five layers:
+
+1. Control plane layer: owns task lifecycle, orchestration, review-to-merge workflow, UI/control-surface state, and command dispatch.
+2. Runner layer: owns thin adapters for Cursor first and Codex later.
+3. Session and execution substrate: uses tmux for long-running execution contexts, pane or window targeting, and session continuity.
+4. State layer: owns durable filesystem state under `.craig/`, including task records, logs, artifacts, worktree metadata, and runtime metadata.
+5. File surface: uses `nvim` as the file viewing and editing handoff surface.
 
 The primary operating model is:
 
 1. User starts `craig`.
-2. Craig loads or initializes `.craig/index.json`.
-3. User creates a repo task with `new <task>`.
-4. Craig allocates a task id, creates a git worktree, creates branch `craig/<task-id>`, creates a tmux target, and launches the configured runner in that worktree.
-5. The runner executes in an isolated terminal context while Craig records metadata and surfaces logs, diff status, review state, and next actions.
-6. Craig provides first-class commands for `list`, `show`, `logs`, `diff`, `focus`, `open`, `check`, `commit`, `pr`, and `merge`.
-7. `pr <id>` creates or updates the pull request via GitHub CLI, persists the PR number, URL, head/base refs, and latest CI summary into the task record, and can optionally stay attached until required checks complete.
-8. `merge <id>` refreshes PR state, verifies the PR is mergeable and required checks are green, performs the merge via GitHub CLI, records the merge result, and cleans up the worktree unless the user explicitly preserves it.
+2. Craig loads or initializes `.craig/index.json` and any related repo-local state.
+3. Craig presents an interactive terminal control surface.
+4. User creates or selects a repo task.
+5. Craig allocates a task id, creates a git worktree, creates branch `craig/<task-id>`, provisions a persistent execution context through tmux, and launches the configured runner in that worktree.
+6. Craig records metadata and surfaces status, logs, diff state, review state, and next actions through its interactive control surface.
+7. Craig provides first-class actions for inspect, diff, focus, file drill-down, checks, commit, PR creation or refresh, CI watch, merge, and cleanup.
+8. When the user needs deep file inspection or editing, Craig hands off to `nvim` in the correct worktree or file context.
 
-Craig is interactive-first. Command mode exists for scripts and direct invocations, but it must call the same service layer and produce the same task-state side effects as the REPL.
+Craig is interactive-first at the product level. Command mode remains required for scripts, automation, and direct invocation, but it should call the same service layer and produce the same task-state side effects as the interactive terminal application.
 
-### Control plane responsibilities
+## UI and interaction model
 
-The control plane exposes application services such as:
+Craig should evolve toward a TUI control surface that acts as mission control for repo tasks.
 
-- `createTask`
-- `listTasks`
-- `showTask`
-- `streamLogs`
-- `showDiff`
-- `focusTask`
-- `runChecks`
-- `commitTask`
-- `openPullRequest`
-- `refreshPullRequestStatus`
-- `mergeTask`
-- `cleanupTask`
+Near-term implementation direction:
 
-The control plane owns lifecycle transitions and state updates. It does not infer task readiness solely from git cleanliness or passing checks. Commands must update both the underlying system state and the durable Craig task record.
+- interactive terminal shell or minimal REPL
+- task listing and task status rendering
+- command entry and concise action feedback
+- compact control-surface visibility over task execution resources
 
-### Runner model
+End-state product direction:
+
+- TUI control surface
+- panels for tasks and worktrees
+- selected task details
+- logs
+- diff summary
+- changed files
+- review state
+- available actions
+
+Interaction model decisions:
+
+- Craig remains the visible mission-control surface
+- task execution remains long-running, persistent, and inspectable underneath
+- file-level drill-down launches `nvim`
+- command mode remains available outside the TUI
+- tmux may continue to host persistent execution contexts, but the UX should be described in Craig terms rather than tmux terms
+
+Craig should feel more like:
+
+- `lazygit`
+- `k9s`
+- a conductor-like mission-control UI in the terminal
+
+Craig should feel less like:
+
+- a basic shell prompt
+- a pile of subcommands
+- tmux with helper scripts around it
+
+Minimum interaction contract for the richer Craig TUI:
+
+- the left panel is the task and worktree list and owns the primary selection cursor
+- the upper-right panel shows the selected task summary, lifecycle state, runner state, checks, PR state, and next actions
+- the lower-right panel switches between logs, diff summary, changed files, and review details for the selected task
+- Craig keeps exactly one selected task and one active panel at a time
+- `j` and `k` or the arrow keys move the current list selection
+- `tab` and `shift-tab` cycle focus between the task list, task detail panel, and lower-right detail modes
+- `enter` executes the default action for the current focus target
+- `l` opens the logs view for the selected task
+- `d` opens the diff-summary view for the selected task
+- `f` opens the changed-files view for the selected task
+- `a` opens the available-actions view for the selected task
+- `o` opens the selected task or file in the configured opener, with explicit `nvim` handoff supported once file-level drill-down lands
+- `/` filters the task list
+- if the richer TUI renderer is unavailable or fails, Craig falls back to the minimal interactive shell without changing task lifecycle behavior or command semantics
+
+## Runner model
 
 Runner adapters implement a deliberately narrow contract:
 
@@ -93,11 +153,11 @@ Runner adapters implement a deliberately narrow contract:
 - `stop(task, context)`
 - `collectArtifacts(task, context)`
 
-`context` includes repo root, worktree path, tmux target, environment variables, and optional prompt file paths.
+`context` includes repo root, worktree path, tmux target metadata, environment variables, and optional prompt file paths.
 
-Craig wraps runner execution, not runner cognition. Vendor CLIs remain the source of truth for agent behavior, planning, prompt semantics, tool use, and internal chat state. Craig owns the local control-plane boundary around those CLIs so it can launch them in the correct workspace/session context, track them as durable execution resources, and collect the metadata and artifacts needed for orchestration.
+Runners are execution backends, not the product UX. Craig supervises runner sessions, artifacts, and lifecycle transitions. Craig does not attempt to reimplement runner cognition, planning, prompt semantics, tool behavior, or review logic that belongs to the underlying CLI.
 
-Phase 1 includes only the Cursor adapter using `cursor agent` as the concrete launch contract. Phase 2 adds Codex on the same task model and runner-session boundary. The interface is shaped by what Cursor and planned Codex integration both need, not by hypothetical future runners. Craig owns task lifecycle and state transitions; runners report launch success, execution status, exit status, and capability metadata.
+Phase 1 includes only the Cursor adapter using `cursor agent` as the concrete launch contract. Phase 3 adds Codex on the same task model and runner-session boundary after the mission-control UX is stable enough to validate a second runner cleanly. Claude Code remains explicitly out of scope.
 
 Runner design principles:
 
@@ -106,29 +166,20 @@ Runner design principles:
 - `Stable control-plane contract`: Craig needs one lifecycle boundary across runners
 - `Capability-driven differences`: expose runner-specific limits rather than hiding them behind fake uniformity
 
-Runner abstraction decisions:
-
-- the runner layer must stay as light as possible and should not add heavy orchestration logic on top of model CLIs
-- Craig should launch model CLIs in the right directory, with the right environment and session context, then let them behave as intended
-- adapters should translate Craig task context into CLI invocation details, not re-implement agent behavior, prompt semantics, planning models, tool behavior, or review logic that already belongs to the underlying CLI
-- launching a vendor CLI "directly" with no stable runner boundary is not enough for Craig's long-term role, because Craig must coordinate multiple concurrent agents and therefore needs durable launch bookkeeping for launch success and failure, session targeting, process identity, log capture, artifact collection, stop and resume semantics, and capability reporting
-- the wrapper exists for orchestration and observability, not to replace or standardize the internal behavior of the runner
-- if a capability requires deep CLI-specific behavior that cannot fit the narrow adapter contract cleanly, Craig should prefer exposing that limitation over growing a heavy abstraction layer
-
-Conceptually, `launch` and `status` must surface enough runner-session information for Craig to supervise the execution resource even when the underlying CLI remains vendor-native. At minimum, the runner boundary must be able to provide:
+Conceptually, `launch` and `status` must surface enough runner-session information for Craig to supervise live execution resources even when the underlying CLI remains vendor-native. At minimum, the runner boundary must be able to provide:
 
 - launch timestamp
-- runner command
+- resolved runner command
 - pid when available from the local platform or session manager
-- tmux target
+- substrate target metadata such as tmux target
 - worktree path
 - log path
 - last known runner state
 - optional exit code and exit timestamp
 
-Craig persists that runner-session metadata for local orchestration and inspection. It is not intended to mirror vendor-internal state.
+Craig persists that runner-session metadata for orchestration and inspection. It is not intended to mirror vendor-internal state.
 
-### State model and filesystem layout
+## State model and filesystem layout
 
 Craig stores durable local state under:
 
@@ -136,6 +187,8 @@ Craig stores durable local state under:
 .craig/
   index.json
   config.json
+  runtime/
+    session.json
   tasks/
     <task-id>.json
   jobs/
@@ -153,15 +206,18 @@ Craig stores durable local state under:
 
 State model decisions:
 
-- `.craig/` is the only Craig-owned durable state root
+- `.craig/` is the Craig-owned durable state root
 - `index.json` is a lightweight registry for task ids, job ids, and path references
 - per-task JSON files are authoritative for task details to avoid large index rewrites
 - logs are append-only text files
 - artifacts have stable paths so `pr` and `check` can update them idempotently
-- worktrees should live under `.craig/worktrees/` when git supports that layout cleanly; if git requires or benefits from an external path, the resolved path must be stored explicitly in the task record
+- `.craig/runtime/` may store UI, session, and runtime metadata needed by Craig
+- worktrees should live under `.craig/worktrees/` when git supports that cleanly; if git requires or benefits from an external path, the resolved path must be stored explicitly in the task record
 - JSON writes should be atomic to prevent corruption on interruption
 
-### Task lifecycle
+Task records may include execution substrate metadata such as tmux targets, `tmuxWindowTarget`, `tmuxPage`, and `layoutSlot`, but Craig state remains authoritative. Those fields are runtime and navigation metadata in support of Craig, not the primary product abstraction.
+
+## Task lifecycle
 
 Craig owns this repo-task lifecycle:
 
@@ -173,22 +229,30 @@ Lifecycle decisions:
 - `running` means the runner session is provisioned and Craig considers the task active
 - `review` means the task has code changes ready for inspection
 - `checked` means Craig has completed configured checks and persisted their results
-- `pr_open` means Craig has created or attached a pull request and is tracking remote review and CI state for the task
+- `pr_open` means Craig has created or attached a pull request and is tracking remote review and CI state
 - `merge_ready` means the tracked pull request is mergeable and all required remote checks are green
 - `merged` means the merge succeeded even if cleanup later reports warnings
 
 Lifecycle transition decisions:
 
-- task creation failure returns the task to `draft` with a recorded failure reason; Phase 1 does not introduce a separate failure status
+- task creation failure returns the task to `draft` with a recorded failure reason
 - `commit <id>` is allowed only from `review` or `checked`
 - `pr <id>` is allowed only from `checked` and transitions the task to `pr_open` after the PR is successfully created or attached
 - Craig refreshes PR state during `show <id>`, `pr <id> --watch`, and `merge <id>`; a task moves from `pr_open` to `merge_ready` only when the PR is mergeable and required remote checks are green
 - `merge <id>` is allowed only from `merge_ready` and transitions to `merged` only after the underlying GitHub merge succeeds
-- Craig must block invalid transitions by default, such as merge before checks, PR creation before commit, or commit with no diff, unless a later implementation explicitly adds override flags
+- Craig blocks invalid transitions by default unless a later implementation explicitly adds override flags
 
-### CLI surfaces
+Lifecycle state is owned by Craig, not inferred from tmux layout or runner internals. Different Craig UI surfaces may render different slices of lifecycle information, but they share the same durable task state.
 
-The primary interface is the `craig` REPL with these commands:
+## CLI and terminal surfaces
+
+Craig has three surface types in this RFC.
+
+### Interactive terminal application
+
+The primary product surface is the interactive terminal application.
+
+In the current implementation shape, that may begin as a minimal shell or REPL with commands such as:
 
 - `new <task>`
 - `list`
@@ -202,7 +266,13 @@ The primary interface is the `craig` REPL with these commands:
 - `pr <id>`
 - `merge <id>`
 
-Command mode is secondary and mirrors the same operations:
+That minimal shell is the initial implementation shape, not the end-state product. The intended direction is a richer TUI control surface that still supports the same lifecycle and command model.
+
+### Command mode
+
+Command mode remains secondary but first-class for automation and scripting.
+
+Examples:
 
 - `craig task new "refactor auth"`
 - `craig task list`
@@ -210,15 +280,24 @@ Command mode is secondary and mirrors the same operations:
 - `craig task pr <id> --watch`
 - `craig task merge <id>`
 
-CLI surface decisions:
+Command mode decisions:
 
-- REPL commands remain terse verbs because the REPL is the primary UX
 - command mode uses namespaced forms for clarity in scripts
-- both surfaces must call the same service layer
-- task ids are Craig-generated and opaque; normal flow does not require the user to choose branch names
-- `open <id>` opens the worktree in the user’s configured tool or prints the resolved path when no opener is configured
-- `pr <id>` is the CLI-owned entrypoint for PR creation and PR status refresh; `pr <id> --watch` may remain attached and poll until required remote checks reach a terminal state
-- `merge <id>` performs the actual merge through GitHub CLI after revalidating mergeability and required remote checks
+- both command mode and the interactive application must call the same service layer
+- task ids are Craig-generated and opaque
+
+### File surface handoff
+
+Craig does not build an editor. `nvim` is the file viewer and editor surface.
+
+File-surface decisions:
+
+- `open <id>` opens the task worktree in the user’s configured tool or prints the resolved path when no opener is configured
+- Craig should be able to open the selected worktree in `nvim`
+- Craig should be able to open selected changed files in `nvim`
+- near-term phases may still rely on the configured opener or printed path for worktree-level inspection
+- explicit selected-file `nvim` handoff is a first-class UX goal for the richer Craig mission-control phases rather than a blocker for the initial workflow slice
+- Craig may later expose explicit actions such as opening the current task or the selected changed file in `nvim`
 
 The interactive boot flow should present Craig as a local control plane and render a boot sequence consistent with the product brief, including the ASCII banner and current workspace summary.
 
@@ -226,92 +305,61 @@ Boot experience decisions:
 
 - the `CRAIG` ASCII art should render in slime-green or matrix-green terminal styling rather than default monochrome output
 - the banner styling should work in common ANSI-capable terminals without requiring a custom font or truecolor-only features
-- supporting text under the banner should stay visually subordinate to the green ASCII mark so the boot experience reads as one branded unit
+- supporting text under the banner should stay visually subordinate to the green ASCII mark
 - the banner support copy should include the easter egg line `crAIg is that you?`
 
-### tmux execution model
-
-Craig uses tmux as the execution/session layer and runs inside tmux session `craig`. Each task maps to exactly one tmux target.
-
-Phase 1.2 is pane-first and pane-only. Each task maps to exactly one tmux pane in a managed Craig layout inside session `craig`. Window-mode support is deferred unless a later RFC or amendment adds it explicitly.
-
-tmux decisions:
-
-- Craig creates and focuses tmux targets as execution resources
-- Craig does not treat tmux layout metadata as the source of truth for task state
-- losing a pane title, renaming a window, or manually moving panes and windows must not erase Craig task metadata
-- `focus <id>` switches the user to the mapped tmux target
-
-### Phase 1 developer workflow
+## Developer workflow
 
 Phase 1 must support this repo-task flow end to end:
 
 1. create task id
 2. create worktree
 3. create branch
-4. open tmux pane
-5. run Cursor CLI in that context
-6. monitor logs and agent progress
-7. inspect diff
+4. launch the runner in a persistent execution context
+5. monitor logs and agent progress
+6. inspect task state and diff state
+7. drill into worktree inspection through the current opener flow when needed
 8. run checks
 9. commit changes
 10. open or update PR
 11. wait for or inspect CI status
 12. merge
-13. clean up worktree and tmux resources
+13. clean up worktree and execution resources
 
-Craig should treat these steps as one connected system. Users should not need ad hoc shell scripting for the normal repo-task workflow.
-
-### Deferred capabilities and explicit exclusions
-
-Phase 1 is limited to repo tasks plus Cursor. The following remain deferred or excluded:
-
-- Codex support is deferred to Phase 2 on the same runner boundary
-- general tasks and scheduled jobs are deferred to Phase 3
-- richer TUI and orchestration dashboards are deferred to Phase 4
-- Claude Code is explicitly out of scope for Phase 1 and this RFC's implementation plan, although the runner boundary should be designed so future vendor additions do not require a new task model or a separate lifecycle system
-- hosted services, daemons, remote sync, and database-backed state are out of scope
-
-### Future multi-agent coordination
-
-Craig may later coordinate several concurrent agents across heterogeneous runners. That coordination depends on a normalized runner boundary, not a uniform agent implementation.
-
-Craig should be able to assign work, track ownership, inspect artifacts, and reason about runner capability differences without forcing identical behavior across tools. The control plane should therefore normalize lifecycle, session, and artifact concerns while letting each underlying runner remain vendor-native.
-
-### Open questions
-
-- What is the minimal stable Cursor invocation contract Craig can depend on across local environments?
-- Should `commit <id>` synthesize commit messages from task artifacts, runner output, or user prompts by default?
-- Which PR merge strategy should Craig default to when multiple GitHub merge methods are allowed for the repo?
+Craig should treat these steps as one connected system. Users should not need ad hoc shell scripting for the normal repo-task workflow, and Craig should reduce context switching across git state, runner state, terminal navigation, review readiness, and PR status. Richer in-terminal file and diff navigation, including first-class selected-file `nvim` handoff, should follow immediately after the workflow foundation as the next UX priority.
 
 ## Implementation tracker
 
 ### Status summary
 
-- `1.1` Bootstrap CLI shell, state store, and REPL scaffolding: `implemented`
-- `1.2` Repo task creation with worktree, branch, tmux, and Cursor launch: `implemented and verified`
-- `1.3` Task inspection, logs, diff, and focus/open flows: `implemented and verified`
+- `1.1` Bootstrap CLI shell, shared control-plane services, and interactive terminal foundation: `implemented`
+- `1.2` Repo task creation with worktree, branch, execution substrate, and Cursor launch: `implemented and verified`
+- `1.3` Task inspection, logs, diff, focus, and open flows: `implemented and verified`
 - `1.4` Checks, commit, PR creation, CI tracking, merge, and cleanup: `implemented; automated verification complete; manual GitHub flow verification pending`
-- `2.1` Codex runner adapter on the same task model: `pending`
-- `3.1` General tasks and scheduled jobs: `pending`
-- `4.1` Rich TUI and orchestration visibility: `pending`
+- `2.1` Terminal control-surface foundation on top of tmux-backed execution contexts: `implemented; automated verification complete; live interactive verification pending`
+- `2.2` Richer Craig TUI navigation and task inspection: `pending`
+- `2.3` Review, file, and diff navigation improvements with mission-control polish: `pending`
+- `3.1` Codex runner adapter on the same task model: `pending`
+- `4.1` General tasks and scheduled jobs: `pending`
 
 ### Verification summary
 
 - `1.1` Verified via shared command-dispatch tests plus passing `pnpm test`, `pnpm typecheck`, and `pnpm lint`.
-- `1.2` Verified via automated coverage, passing `pnpm test`, `pnpm typecheck`, and `pnpm lint`, plus a live manual run of `craig task new "manual verification task"` that created the worktree, created the tmux pane, persisted runner-session metadata, and launched Cursor in the correct worktree.
-- `1.3` Verified via parser, service, and REPL coverage for `show`, `logs`, `diff`, `focus`, and `open`, plus passing `pnpm test`, `pnpm typecheck`, and `pnpm lint`, plus a manual built-CLI run in a temporary git repo that confirmed `show`, `diff`, `open`, and `focus` against durable task state and the recorded tmux target. Current limitations: `logs` depends on local `tail`, `focus` is tmux-target based, and `open` prints the path when no opener is configured.
-- `1.4` Automated verification completed via parser and lifecycle-service coverage for `check`, `commit`, `pr`, `merge`, cleanup preservation, and tracked-PR refresh behavior, plus passing `pnpm test`, `pnpm typecheck`, and `pnpm lint`. Manual authenticated GitHub verification of the full `new` to `pr --watch` to `merge` flow is still pending in a real repo/remote environment.
+- `1.2` Verified via automated coverage, passing `pnpm test`, `pnpm typecheck`, and `pnpm lint`, plus a live manual run of `craig task new "manual verification task"` that created the worktree, provisioned the execution context, persisted runner-session metadata, and launched Cursor in the correct worktree.
+- `1.3` Verified via parser, service, and minimal-shell coverage for `show`, `logs`, `diff`, `focus`, and `open`, plus passing `pnpm test`, `pnpm typecheck`, and `pnpm lint`, plus a manual built-CLI run in a temporary git repo that confirmed `show`, `diff`, `open`, and `focus` against durable task state and recorded substrate metadata. Current limitations: `logs` depends on local `tail`, focus still depends on persisted tmux metadata, and `open` prints the path when no opener is configured.
+- `1.4` Automated verification completed via parser and lifecycle-service coverage for `check`, `commit`, `pr`, `merge`, cleanup preservation, and tracked-PR refresh behavior, plus passing `pnpm test`, `pnpm typecheck`, and `pnpm lint`. Manual authenticated GitHub verification of the full `new` to `pr --watch` to `merge` flow is still pending in a real repo and remote environment.
+- `2.1` Automated verification completed via tmux-service, create-task, focus, command-router, and interactive-shell coverage for control-surface foundation behavior, page-aware session layout, overflow-window fallback, persisted window and page metadata, and the removal of post-create auto-focus, plus passing `pnpm test`, `pnpm typecheck`, and `pnpm lint`. Live interactive verification of the terminal control-surface behavior is still pending.
 
 ### Next resume point
 
-Resume at the first sub-phase that is not both implemented and verified. The current resume point is still `1.4` to complete the live manual GitHub flow verification, then advance to `2.1`.
+Resume at the first sub-phase that is not both implemented and verified. The current resume point is `1.4` to complete live manual GitHub verification, then `2.1` for live tmux-backed control-surface verification and hardening, then `2.2`.
 
 ### Deferred phases
 
-- `2.1` Deferred until the Cursor vertical slice validates the shared runner boundary.
-- `3.1` Deferred until repo tasks are end-to-end complete.
-- `4.1` Deferred until the control plane is stable enough to justify richer UI investment.
+- `2.2` Deferred until the terminal control-surface foundation is stable enough to support richer TUI navigation cleanly.
+- `2.3` Deferred until task navigation and inspection are stable enough to justify deeper review and file-navigation workflows.
+- `3.1` Deferred until the workflow foundation and UX direction are stable enough to validate a second runner cleanly.
+- `4.1` Deferred until repo tasks and UX navigation are stable enough to relax repo-specific assumptions intentionally.
 
 ### Phase execution and verification policy
 
@@ -326,11 +374,11 @@ Every implementation session must resume from the first sub-phase that is not bo
 
 ## API and data model changes
 
-The external API surface in Phase 1 is the CLI command contract. There is no network API in this RFC.
+The external API surface in Phase 1 is the CLI and terminal command contract. There is no network API in this RFC.
 
-### CLI command contract
+### Interactive command contract
 
-Interactive commands:
+Interactive commands in the minimal shell include:
 
 - `new <task>`
 - `list`
@@ -344,7 +392,7 @@ Interactive commands:
 - `pr <id>`
 - `merge <id>`
 
-Command mode examples:
+### Command mode examples
 
 - `craig task new "refactor auth"`
 - `craig task list`
@@ -368,6 +416,9 @@ Initial task record schema contract:
   "worktreePath": "/path/to/repo/.craig/worktrees/task_20260420_01",
   "branch": "craig/task_20260420_01",
   "tmuxTarget": "%1",
+  "tmuxWindowTarget": "@1",
+  "tmuxPage": 1,
+  "layoutSlot": 2,
   "runnerSession": {
     "command": ["cursor", "agent", "refactor auth"],
     "tmuxTarget": "%1",
@@ -427,13 +478,15 @@ Required task record fields:
 - repo root
 - resolved worktree path
 - branch name
-- tmux target metadata
+- substrate target metadata when needed for execution and navigation
 - runner-session metadata sufficient for Craig to supervise and inspect the launched runner
 - prompt source metadata
 - latest check summary metadata
 - tracked pull request metadata
 - artifact references
 - creation and update timestamps
+
+Substrate metadata such as `tmuxTarget`, `tmuxWindowTarget`, `tmuxPage`, and `layoutSlot` exists to help Craig supervise execution resources and navigation. Those fields are subordinate to Craig-owned lifecycle and orchestration state.
 
 ### Runner adapter contract
 
@@ -445,13 +498,14 @@ Runner adapters must implement:
 - `stop(task, context)`
 - `collectArtifacts(task, context)`
 
-`launch` and `status` must be able to surface the runner-session metadata Craig needs to supervise a live runner without depending on vendor-internal state. That includes the resolved command, tmux target, start time, last known runner state, and optional pid and exit metadata when the platform exposes them cleanly.
+`launch` and `status` must be able to surface the runner-session metadata Craig needs to supervise a live runner without depending on vendor-internal state. That includes the resolved command, substrate target metadata, start time, last known runner state, and optional pid and exit metadata when the platform exposes them cleanly.
 
 ### State directory contract
 
 Craig introduces:
 
 - `.craig/index.json`
+- `.craig/runtime/session.json`
 - `.craig/tasks/<task-id>.json`
 - `.craig/jobs/<job-id>.json`
 - `.craig/logs/<task-id>.log`
@@ -463,7 +517,7 @@ Craig introduces:
 Phase 1 check commands come from Craig repo configuration.
 
 - `.craig/config.json` may define an ordered list of shell commands under a repo-level `checks.commands` key
-- `check <id>` runs exactly that ordered list inside the task worktree and persists command, exit code, start/end times, and aggregate status
+- `check <id>` runs exactly that ordered list inside the task worktree and persists command, exit code, start and end times, and aggregate status
 - if no check commands are configured, `check <id>` fails with a clear configuration error and the task remains in `review`
 - a task may enter `checked` only when every configured check command exits successfully
 
@@ -489,11 +543,18 @@ Task lifecycle statuses in scope for Phase 1:
 - `merge_ready`
 - `merged`
 
+### Terminal toolchain contract
+
+- Ghostty is the preferred terminal emulator, but Craig must not depend on it programmatically
+- tmux is required for managed runner sessions in the current phases
+- `nvim` is optional but first-class for file drill-down and editing handoff
+- command mode remains scriptable without requiring tmux-attached interaction
+
 ## Edge cases and failure modes
 
 - git worktree creation fails because of dirty or incompatible repo state: Craig stops task creation, records the failure, and leaves no partial task marked as running
 - branch creation collides with an existing `craig/<task-id>` reference: Craig allocates a new task id and retries before surfacing failure
-- tmux is unavailable or the `craig` session cannot be created: Craig fails fast with a prerequisite error
+- tmux is unavailable or the Craig execution session cannot be created: Craig fails fast with a prerequisite error and surfaces it as substrate failure rather than task-state corruption
 - Cursor launch fails after worktree creation: Craig marks the task `draft`, records the failure reason, and keeps the worktree available for inspection
 - log streaming encounters truncation or rotation: Craig treats Craig-managed logs as append-only and surfaces any mismatch as an operator-visible error
 - checks pass but the diff is empty: Craig blocks `commit` and `pr` by default
@@ -502,6 +563,8 @@ Task lifecycle statuses in scope for Phase 1:
 - remote CI reports a failing or missing required check: Craig keeps the task in `pr_open`, surfaces the failing check names, and blocks `merge <id>`
 - GitHub marks the PR unmergeable because the branch is behind or has conflicts: Craig surfaces the reason, keeps the task out of `merge_ready`, and requires the user to update the branch before retrying merge
 - merge succeeds but cleanup fails: Craig records the task as `merged` with a cleanup warning instead of downgrading merge state
+- `nvim` is unavailable when Craig tries to launch deep file inspection: Craig fails clearly and preserves task context
+- TUI or control-surface rendering fails: Craig degrades to minimal shell output rather than blocking lifecycle commands
 
 ## Security and privacy
 
@@ -513,6 +576,7 @@ Craig is local-only, but it still manages potentially sensitive code, prompts, a
 - PR artifacts are generated locally and are not transmitted automatically
 - GitHub CLI authentication and PR metadata access should use the user’s existing local auth context and avoid storing tokens inside `.craig/`
 - runner adapters should pass through only the environment variables they need rather than inheriting an unconstrained environment by default
+- launching `nvim` or other local tooling should use the user’s local environment without persisting secrets into Craig-managed state
 
 ## Observability
 
@@ -524,6 +588,7 @@ Craig needs local observability rather than fleet telemetry.
 - command results should emit concise terminal feedback and persist machine-readable summaries for checks and merge outcomes
 - persisted PR status snapshots make CI and mergeability visible without forcing the user to query GitHub manually
 - the boot banner color treatment provides an immediate visual confirmation that the user is inside Craig rather than a generic shell flow
+- the interactive terminal control surface should make task state, execution visibility, review readiness, file-change visibility, and PR or CI visibility legible inside Craig
 - a later `doctor` or `debug` command is reasonable, but not required for Phase 1
 
 Manual success indicators for early implementation:
@@ -536,17 +601,17 @@ Manual success indicators for early implementation:
 
 ## Rollout plan
 
-### Phase 1: Cursor dev workflow vertical slice
+### Phase 1: Cursor repo-task workflow vertical slice
 
-#### 1.1 Bootstrap CLI shell, state store, and REPL scaffolding
+#### 1.1 Bootstrap CLI shell, shared control-plane services, and interactive terminal foundation
 
-Deliver a `craig` executable that initializes `.craig/`, renders the boot experience, loads config, and dispatches shared control-plane services from both REPL and command mode.
+Deliver a `craig` executable that initializes `.craig/`, renders the boot experience, loads config, and dispatches shared control-plane services from both the minimal interactive shell and command mode.
 
-#### 1.2 Repo task creation with worktree, branch, tmux, and Cursor launch
+#### 1.2 Repo task creation with worktree, branch, execution substrate, and Cursor launch
 
-Deliver end-to-end task creation for repo tasks on Cursor, including task ids, branch creation, worktree provisioning, pane-based tmux target creation, runner launch through the thin runner wrapper boundary, runner-session persistence, and durable task records.
+Deliver end-to-end task creation for repo tasks on Cursor, including task ids, branch creation, worktree provisioning, substrate-backed execution context creation, runner launch through the thin runner wrapper boundary, runner-session persistence, and durable task records.
 
-#### 1.3 Task inspection, logs, diff, and focus/open flows
+#### 1.3 Task inspection, logs, diff, focus, and open flows
 
 Deliver the command surface needed to observe and navigate active tasks without leaving Craig.
 
@@ -554,25 +619,33 @@ Deliver the command surface needed to observe and navigate active tasks without 
 
 Deliver the rest of the developer loop so a user can go from generated code to opened PR, green CI, and merged change from inside Craig.
 
-### Phase 2: Codex vertical slice
+### Phase 2: Richer Craig terminal mission control
 
-#### 2.1 Codex runner adapter on the same task model
+#### 2.1 Interactive terminal control-surface foundation
+
+Stabilize Craig as the visible terminal control surface while using tmux-backed execution contexts underneath. This includes control-surface visibility, runtime metadata, and session layout improvements that support Craig-first interaction.
+
+#### 2.2 Richer TUI navigation, status panels, and orchestration visibility
+
+Add richer Craig TUI navigation and inspection panels so task selection, task details, logs, and available actions no longer depend on typed commands for every move.
+
+#### 2.3 File, diff, and review workflows with stronger mission-control feel
+
+Add changed-file navigation, diff-summary navigation, explicit `nvim` handoff from selected task or file context, stronger review workflows, and later MCP-facing integration points where appropriate.
+
+tmux layout improvements may continue in Phase 2, but they are subordinate to Craig UX goals rather than the primary definition of the phase.
+
+### Phase 3: Codex vertical slice
+
+#### 3.1 Codex runner adapter on the same task model
 
 Add a Codex runner adapter with the same task lifecycle, runner-session boundary, artifact model, and command behavior, validating that the thin runner wrapper is real.
 
-### Phase 3: General tasks and jobs
+### Phase 4: General tasks and jobs
 
-#### 3.1 General tasks and scheduled jobs
+#### 4.1 General tasks and scheduled jobs
 
 Expand beyond repo tasks into general tasks and recurring jobs while reusing the existing control-plane and artifact model where possible.
-
-### Phase 4: Rich UX
-
-#### 4.1 Rich TUI and orchestration visibility
-
-Add richer dashboards, status panes, and orchestration views after the workflow model is proven.
-
-Later phases may add prompt templating, richer artifact browsers, policy hooks for checks and merge strategy, and other UX improvements, but they do not change the Phase 1 requirement to prove the full Cursor-based repo-task workflow first.
 
 ## Plan Mode handoff checklist and acceptance criteria
 
@@ -582,14 +655,14 @@ Later phases may add prompt templating, richer artifact browsers, policy hooks f
 
 - Add a `craig` CLI entrypoint and boot sequence.
 - Initialize `.craig/` and `index.json` on first run.
-- Implement a shared command-dispatch layer used by REPL and command mode.
+- Implement a shared command-dispatch layer used by the minimal interactive shell and command mode.
 - Render the boot banner in slime-green or matrix-green terminal styling, include the `crAIg is that you?` easter egg line, and include the current workspace summary.
 - Define the base task record schema and atomic JSON write helpers.
 
 #### Verification
 
 - Run unit coverage for state initialization and command dispatch.
-- Manually verify `craig` launches into the REPL in a repo without `.craig/`.
+- Manually verify `craig` launches into the interactive shell in a repo without `.craig/`.
 - Manually verify `craig task list` and `list` both hit the same logic path.
 
 #### Tracking update
@@ -603,20 +676,20 @@ Later phases may add prompt templating, richer artifact browsers, policy hooks f
 
 - Implement task-id allocation and repo-task creation flow.
 - Create git worktrees and `craig/<task-id>` branches.
-- Create or attach tmux session `craig` and provision pane targets.
+- Create or attach tmux-backed execution contexts.
 - Implement the Cursor runner adapter and `cursor agent` launch flow through the thin runner wrapper boundary.
-- Persist worktree path, branch, tmux target, runner metadata, and runner-session metadata into the task record.
+- Persist worktree path, branch, substrate metadata, runner metadata, and runner-session metadata into the task record.
 
 #### Verification
 
 - Run automated tests around task-id allocation and task record persistence.
-- Manually run `new <task>` in pane mode.
-- Verify the worktree exists, the branch is checked out, the tmux pane target is live, Cursor starts in the correct directory, and Craig persists enough runner-session metadata to identify the launched Cursor process.
+- Manually run `new <task>` in pane-first substrate mode.
+- Verify the worktree exists, the branch is checked out, the execution context is live, Cursor starts in the correct directory, and Craig persists enough runner-session metadata to identify the launched Cursor process.
 
 #### Tracking update
 
 - Mark `1.2` verified only when task creation works end to end from Craig command to live Cursor session.
-- Record that `1.2` is pane-only and note any known limitations around pane layout assumptions or Cursor startup assumptions explicitly.
+- Record that `1.2` is substrate-backed and note any known limitations around session layout assumptions or Cursor startup assumptions explicitly.
 
 ### 1.3 Handoff
 
@@ -629,13 +702,13 @@ Later phases may add prompt templating, richer artifact browsers, policy hooks f
 
 #### Verification
 
-- Run automated coverage for task lookup and diff/log command behavior.
+- Run automated coverage for task lookup and diff and log command behavior.
 - Manually verify a running task can be inspected from a separate Craig session.
-- Confirm `focus <id>` targets the correct tmux window or pane and `open <id>` resolves the worktree path.
+- Confirm `focus <id>` targets the correct execution context and `open <id>` resolves the worktree path.
 
 #### Tracking update
 
-- Keep `1.3` open if any core inspection command exists only in REPL or only in command mode.
+- Keep `1.3` open if any core inspection command exists only in the interactive shell or only in command mode.
 - Note any log-streaming limitations or diff edge cases found during verification.
 
 ### 1.4 Handoff
@@ -664,20 +737,74 @@ Later phases may add prompt templating, richer artifact browsers, policy hooks f
 
 #### Implementation
 
+- Stabilize the terminal control-surface foundation.
+- Keep Craig visible while runners execute in substrate-backed sessions.
+- Persist runtime and session metadata.
+- Keep command mode and scripting surfaces intact.
+
+#### Verification
+
+- Run the current automated coverage around control-surface foundation behavior.
+- Manually verify the interactive terminal control surface and live execution behavior together.
+
+#### Tracking update
+
+- Keep `2.1` open until live interactive verification passes.
+
+### 2.2 Handoff
+
+#### Implementation
+
+- Add richer TUI panels for tasks, selected task details, logs, diff summary, changed files, and available actions.
+- Implement the keyboard interaction contract from the UI section, including list selection, panel switching, filtering, and per-view shortcuts.
+- Add task navigation that does not depend on typed commands for every move.
+
+#### Verification
+
+- Run UI-level or renderer-level coverage where practical.
+- Manually validate the richer interactive terminal experience against the documented keyboard model.
+
+#### Tracking update
+
+- Keep `2.2` open if the richer UI regresses scriptability, breaks the documented keyboard model, or hides critical state.
+
+### 2.3 Handoff
+
+#### Implementation
+
+- Add changed-file navigation.
+- Add diff-summary navigation.
+- Add explicit `nvim` handoff from selected task or file context.
+- Add stronger review and mission-control workflows.
+- Call out later MCP-facing follow-ons explicitly instead of implying they are already in scope.
+
+#### Verification
+
+- Manually validate the review workflow.
+- Manually validate file-navigation and `nvim` handoff flows.
+
+#### Tracking update
+
+- Keep `2.3` open until Craig supports review and file-inspection flows without forcing users back to ad hoc shell navigation.
+
+### 3.1 Handoff
+
+#### Implementation
+
 - Add a Codex runner adapter using the existing task model, lifecycle hooks, and runner-session boundary.
-- Reuse the same worktree, tmux, and artifact infrastructure.
+- Reuse the same worktree, substrate, and artifact infrastructure.
 - Add runner selection config and CLI affordances where needed.
 
 #### Verification
 
 - Run adapter-level tests for launch and status handling.
-- Manually verify one repo task completes on Codex with the same inspect/check/commit flow.
+- Manually verify one repo task completes on Codex with the same inspect, check, and commit flow.
 
 #### Tracking update
 
-- Keep `2.1` blocked if Codex requires lifecycle exceptions that would weaken the shared runner contract.
+- Keep `3.1` blocked if Codex requires lifecycle exceptions that would weaken the shared runner contract.
 
-### 3.1 Handoff
+### 4.1 Handoff
 
 #### Implementation
 
@@ -694,32 +821,18 @@ Later phases may add prompt templating, richer artifact browsers, policy hooks f
 
 - Record which existing repo-task assumptions had to be relaxed before marking this sub-phase complete.
 
-### 4.1 Handoff
-
-#### Implementation
-
-- Add richer TUI surfaces for task lists, detail views, and orchestration visibility.
-- Keep the existing command surfaces functional for automation and fallback.
-
-#### Verification
-
-- Run UI-level tests where practical.
-- Manually verify the TUI still supports the full Phase 1 flow without hiding critical state.
-
-#### Tracking update
-
-- Leave `4.1` pending if the richer UX reduces observability or scriptability relative to the REPL baseline.
-
 ### Acceptance criteria
 
-- `[1.1]` Running `craig` in a repo initializes local Craig state and enters a working REPL.
-- `[1.1]` REPL commands and command-mode invocations share the same underlying control-plane services.
-- `[1.2]` `new <task>` creates a durable task record, a git worktree, a `craig/<task-id>` branch, a tmux target, and launches Cursor in that context.
+- `[1.1]` Running `craig` in a repo initializes local Craig state and enters a working interactive shell.
+- `[1.1]` Interactive commands and command-mode invocations share the same underlying control-plane services.
+- `[1.2]` `new <task>` creates a durable task record, a git worktree, a `craig/<task-id>` branch, a persistent execution context, and launches Cursor in that context.
 - `[1.2]` Craig persists enough runner-session metadata to identify and inspect the launched Cursor agent.
-- `[1.3]` Users can inspect task status, logs, diffs, and terminal focus for active tasks from Craig commands alone.
+- `[1.3]` Users can inspect task status, logs, diffs, and execution focus for active tasks from Craig commands alone.
 - `[1.4]` Users can run configured checks, commit changes, open a PR, inspect or watch required CI status, merge, and clean up without falling back to ad hoc shell scripts for the normal flow.
 - `[1.4]` `merge <id>` performs the actual GitHub merge only after Craig verifies the tracked PR is mergeable and all required remote checks are green.
-- `[2.1]` Adding Codex does not require a second task model, a separate lifecycle implementation, or a different runner-session boundary.
-- `[2.x+]` Future vendor additions do not require a second control-plane lifecycle or a separate task model.
-- `[3.1]` Craig can run at least one non-repo scheduled workflow that produces a durable artifact.
-- `[4.1]` A richer UX preserves the same task lifecycle, command semantics, and underlying control-plane model while exposing task and PR state more directly.
+- `[2.1]` Craig remains the visible terminal control surface while execution contexts stay persistent underneath.
+- `[2.2]` Craig exposes richer task and orchestration visibility through a TUI-style control surface that matches the documented panel and keyboard model.
+- `[2.3]` Craig supports file, diff, and review navigation with explicit `nvim` handoff and a stronger mission-control flow.
+- `[3.1]` Adding Codex does not require a second task model, a separate lifecycle implementation, or a different runner-session boundary.
+- `[3.x+]` Future vendor additions do not require a second control-plane lifecycle or a separate task model.
+- `[4.1]` Craig can run at least one non-repo scheduled workflow that produces a durable artifact.
