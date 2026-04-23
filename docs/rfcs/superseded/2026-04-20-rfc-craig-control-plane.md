@@ -1,8 +1,9 @@
 # RFC: Craig Local Control Plane
 
 - **Date:** 2026-04-20
-- **Status:** In Flight
+- **Status:** Superseded
 - **Author:** Codex
+- **Superseded By:** 2026-04-23-rfc-craig-multi-repo-control-plane.md
 
 ---
 
