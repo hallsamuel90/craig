@@ -3,7 +3,29 @@ import { describe, expect, test } from "vitest";
 import { renderWorkspaceOverlay } from "../src/interactive/render-layout.js";
 
 function stripAnsi(value: string): string {
-  return value.replace(/\u001b\[[0-9;]*m/g, "");
+  let result = "";
+  let index = 0;
+
+  while (index < value.length) {
+    if (value.charCodeAt(index) === 27 && value[index + 1] === "[") {
+      index += 2;
+
+      while (index < value.length && value[index] !== "m") {
+        index += 1;
+      }
+
+      if (index < value.length) {
+        index += 1;
+      }
+
+      continue;
+    }
+
+    result += value[index] ?? "";
+    index += 1;
+  }
+
+  return result;
 }
 
 describe("renderWorkspaceOverlay", () => {
