@@ -30,6 +30,7 @@ export function getDefaultUiState(): CraigUiRuntime {
     version: 1,
     selectedRepoId: null,
     selectedWorkspaceId: null,
+    selectedTaskId: null,
     activeSurface: "overlay",
     overlayMode: "start",
     updatedAt: new Date().toISOString(),
@@ -48,6 +49,10 @@ function validateUiState(value: unknown, filePath: string): CraigUiRuntime {
     !(
       (value as Partial<CraigUiRuntime>).selectedWorkspaceId === null ||
       typeof (value as Partial<CraigUiRuntime>).selectedWorkspaceId === "string"
+    ) ||
+    !(
+      (value as Partial<CraigUiRuntime>).selectedTaskId === null ||
+      typeof (value as Partial<CraigUiRuntime>).selectedTaskId === "string"
     ) ||
     (value as Partial<CraigUiRuntime>).activeSurface !== "overlay" ||
     ((value as Partial<CraigUiRuntime>).overlayMode !== "start" &&

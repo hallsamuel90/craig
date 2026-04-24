@@ -37,12 +37,25 @@ export function formatCommandResult(result: CommandResult): string {
     case "createTask":
       return [
         `Created task ${result.taskId}`,
+        `Repo: ${result.repoId}`,
+        `Session: ${result.sessionId}`,
         `Status: ${result.status}`,
         `Branch: ${result.branch}`,
         `Worktree: ${result.worktreePath}`,
-        `tmux: ${result.tmuxTarget}`,
         `Runner: ${result.runner}`,
       ].join("\n");
+    case "attachTask":
+      return `Attached to task ${result.taskId} via session ${result.sessionId}`;
+    case "addTaskLink":
+      return `Linked repo ${result.repoId} to task ${result.taskId}: ${result.linkedRepoIds.join(", ")}`;
+    case "listTaskLinks":
+      if (result.repos.length === 0) {
+        return `Task ${result.taskId} has no linked repos.`;
+      }
+
+      return ["ID\tNAME\tBRANCH\tPATH", ...result.repos.map((repo) => `${repo.id}\t${repo.name}\t${repo.defaultBranch}\t${repo.rootPath}`)].join(
+        "\n",
+      );
     case "help":
       return result.text;
     case "exit":
@@ -54,14 +67,14 @@ export function formatCommandResult(result: CommandResult): string {
             ? ` (${result.missingTaskIds.length} referenced task file(s) missing from .craig/tasks)` 
             : "";
 
-        return `No Craig tasks yet. Use 'new <task>' to create one.${suffix}`;
+        return `No Craig tasks yet. Use 'task new --repo <repo-id> <prompt>' to create one.${suffix}`;
       }
 
       return [
-        "ID\tSTATUS\tCHECKS\tPR\tTITLE",
+        "ID\tREPO\tSTATUS\tCHECKS\tPR\tTITLE",
         ...result.tasks.map(
           (task) =>
-            `${task.id}\t${task.status}\t${summarizeListChecks(task)}\t${summarizeListPr(task)}\t${task.title}`,
+            `${task.id}\t${task.repoId}\t${task.status}\t${summarizeListChecks(task)}\t${summarizeListPr(task)}\t${task.title}`,
         ),
       ].join("\n");
     case "showTask":
@@ -69,9 +82,13 @@ export function formatCommandResult(result: CommandResult): string {
         `${result.task.id}: ${result.task.title}`,
         `Status: ${result.task.status}`,
         `Runner: ${result.task.runner}`,
+        `Repo: ${result.task.repoId}`,
+        `Workspace: ${result.task.workspaceId}`,
         `Branch: ${result.task.branch}`,
         `Worktree: ${result.task.worktreePath}`,
-        `tmux: ${result.task.tmuxTarget || "<missing>"}`,
+        `Session: ${result.task.sessionId ?? "<missing>"}`,
+        `tmux: ${(result.session?.paneId ?? result.task.tmuxTarget) || "<missing>"}`,
+        `Linked repos: ${result.task.linkedRepoIds.length > 0 ? result.task.linkedRepoIds.join(", ") : "none"}`,
         `Prompt: ${result.task.prompt.source} ${JSON.stringify(result.task.prompt.value)}`,
         `Runner command: ${result.inspection.runnerCommandText || "<none>"}`,
         `Runner state: ${result.task.runnerSession.lastKnownState}`,

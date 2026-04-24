@@ -4,117 +4,149 @@ import path from "node:path";
 import type { CommandCreateTaskResult } from "../types/command.js";
 import type { TaskRecord } from "../types/task.js";
 import type { CraigPaths } from "../state/craig-paths.js";
-import { getDefaultUiRuntime, readSessionRuntime, writeSessionRuntime } from "../state/runtime-store.js";
+import { readRepo } from "../state/repo-store.js";
+import { writeSession } from "../state/session-store.js";
 import { appendTaskId, writeTask } from "../state/task-store.js";
-import { allocateTaskId } from "./task-id.js";
+import { readUiState, writeUiState, getDefaultUiState } from "../state/ui-state-store.js";
+import { listWorkspaceRecords } from "../state/workspace-store.js";
+import { codexRunnerAdapter } from "./codex-runner.js";
 import { createWorktree } from "./git-task.js";
-import { allocateTaskPane, enablePaneLogging, ensureCraigWorkspace } from "./tmux-session.js";
-import { assertCursorAvailable, launchCursorInPane } from "./cursor-runner.js";
+import { tmuxSessionManager } from "./session-manager.js";
+import { allocateTaskIdForRepo } from "./task-id.js";
 
-export async function createTask(paths: CraigPaths, title: string): Promise<CommandCreateTaskResult> {
-  const trimmedTitle = title.trim();
+export async function createTask(
+  paths: CraigPaths,
+  repoId: string,
+  prompt: string,
+): Promise<CommandCreateTaskResult> {
+  const trimmedPrompt = prompt.trim();
 
-  if (trimmedTitle.length === 0) {
-    throw new Error("Task title cannot be empty.");
+  if (repoId.trim().length === 0) {
+    throw new Error("Repo id cannot be empty.");
   }
 
-  const taskId = await allocateTaskId(paths);
+  if (trimmedPrompt.length === 0) {
+    throw new Error("Task prompt cannot be empty.");
+  }
+
+  const repo = await readRepo(paths, repoId);
+  const workspace = await resolveWorkspaceForRepo(paths, repo.id);
+  const taskId = await allocateTaskIdForRepo(paths, repo.rootPath);
+  const sessionId = `session_${taskId}`;
   const branch = `craig/${taskId}`;
-  const worktreePath = path.join(paths.worktreesDir, taskId);
+  const worktreePath = path.join(paths.worktreesDir, repo.id, taskId);
   const logPath = path.join(paths.logsDir, `${taskId}.log`);
-  const prArtifactsDir = path.join(paths.artifactsDir, taskId);
-  const checkSummaryPath = path.join(prArtifactsDir, "check-summary.json");
-  const relativeLogPath = path.relative(paths.repoRoot, logPath);
-  const task = buildDraftTask(paths, {
+  const artifactDir = path.join(paths.artifactsDir, taskId);
+
+  await mkdir(path.dirname(worktreePath), { recursive: true });
+  await mkdir(artifactDir, { recursive: true });
+  await writeFile(logPath, "", "utf8");
+
+  const draftTask = buildDraftTask(paths, {
     taskId,
-    title: trimmedTitle,
+    repoId: repo.id,
+    workspaceId: workspace.id,
+    sessionId,
+    repoRoot: repo.rootPath,
+    prompt: trimmedPrompt,
     branch,
     worktreePath,
-    logPath: relativeLogPath,
-    checkSummaryPath: path.relative(paths.repoRoot, checkSummaryPath),
   });
 
-  await mkdir(prArtifactsDir, { recursive: true });
-  await writeTask(paths, task);
-  await appendTaskId(paths, task.id);
+  await writeTask(paths, draftTask);
+  await appendTaskId(paths, taskId);
 
   try {
-    await createWorktree(paths.repoRoot, branch, worktreePath);
-    await writeFile(logPath, "", "utf8");
+    await createWorktree(repo.rootPath, branch, worktreePath);
+    await codexRunnerAdapter.prepare(draftTask, { repoRoot: repo.rootPath });
 
-    const workspace = await ensureCraigWorkspace(paths.repoRoot);
-    const runtime = await readSessionRuntime({ sessionFile: paths.sessionFile });
-    const pane = await allocateTaskPane(paths.repoRoot, worktreePath, [
-      {
-        pageNumber: 1,
-        windowTarget: workspace.primaryWindowTarget,
-        isPrimary: true,
-      },
-      ...(runtime?.managedPages.filter((page) => !page.isPrimary) ?? []),
-    ]);
-    task.tmuxTarget = pane.persistedTarget;
-    task.tmuxWindowTarget = pane.windowTarget;
-    task.tmuxPage = pane.pageNumber;
-    task.layoutSlot = pane.layoutSlot;
-    task.runnerSession.tmuxTarget = pane.persistedTarget;
-
-    await enablePaneLogging(pane.paneId, logPath, paths.repoRoot);
-    await assertCursorAvailable(paths.repoRoot);
+    let session = await tmuxSessionManager.create(paths, {
+      sessionId,
+      taskId,
+      repoId: repo.id,
+      workspaceId: workspace.id,
+      repoRoot: repo.rootPath,
+      worktreePath,
+      logPath,
+      command: ["codex", trimmedPrompt],
+    });
+    await codexRunnerAdapter.launch(draftTask, { repoRoot: repo.rootPath, session });
 
     const startedAt = new Date().toISOString();
-    task.runnerSession.startedAt = startedAt;
-    task.runnerSession.lastKnownState = "running";
-    task.status = "running";
-    task.lastFailureReason = null;
+    session = {
+      ...session,
+      status: "running",
+      startedAt,
+      command: ["codex", trimmedPrompt],
+    };
 
-    await launchCursorInPane(paths.repoRoot, pane.paneId, trimmedTitle);
-    await writeSessionRuntime({ sessionFile: paths.sessionFile }, {
-      sessionName: workspace.sessionName,
-      controlPaneTarget: workspace.controlPaneTarget,
-      primaryWindowTarget: workspace.primaryWindowTarget,
-      managedPages: dedupePages([
-        {
-          pageNumber: 1,
-          windowTarget: workspace.primaryWindowTarget,
-          isPrimary: true,
-        },
-        ...(runtime?.managedPages ?? []),
-        {
-          pageNumber: pane.pageNumber,
-          windowTarget: pane.windowTarget,
-          isPrimary: pane.pageNumber === 1,
-        },
-      ]),
-      ui: runtime?.ui ?? getDefaultUiRuntime(),
-      updatedAt: new Date().toISOString(),
-    });
-    await writeTask(paths, task);
+    const runningTask: TaskRecord = {
+      ...draftTask,
+      status: "running",
+      runner: "codex",
+      sessionId: session.id,
+      tmuxTarget: session.paneId,
+      tmuxWindowTarget: session.windowTarget,
+      tmuxPage: session.pageNumber,
+      layoutSlot: session.layoutSlot,
+      runnerSession: {
+        command: session.command,
+        tmuxTarget: session.paneId,
+        pid: null,
+        startedAt,
+        lastKnownState: "running",
+        exitCode: null,
+        exitedAt: null,
+      },
+    };
+
+    await writeTask(paths, runningTask);
+    await writeSession(paths, session);
+    await writeUiState(
+      { uiStateFile: paths.uiStateFile },
+      {
+        ...((await readUiState({ uiStateFile: paths.uiStateFile })) ?? getDefaultUiState()),
+        selectedRepoId: runningTask.repoId,
+        selectedWorkspaceId: runningTask.workspaceId,
+        selectedTaskId: runningTask.id,
+        activeSurface: "overlay",
+      },
+    );
 
     return {
       kind: "createTask",
-      taskId: task.id,
-      status: task.status,
-      branch: task.branch,
-      worktreePath: task.worktreePath,
-      tmuxTarget: task.tmuxTarget,
-      runner: task.runner,
+      taskId: runningTask.id,
+      repoId: runningTask.repoId,
+      sessionId: session.id,
+      status: runningTask.status,
+      branch: runningTask.branch,
+      worktreePath: runningTask.worktreePath,
+      runner: runningTask.runner,
     };
   } catch (error) {
-    task.status = "draft";
-    task.runnerSession.lastKnownState = "failed";
-    task.lastFailureReason = error instanceof Error ? error.message : "Unknown Craig error";
-    await writeTask(paths, task);
+    const failedTask: TaskRecord = {
+      ...draftTask,
+      status: "draft",
+      runnerSession: {
+        ...draftTask.runnerSession,
+        lastKnownState: "failed",
+      },
+      lastFailureReason: error instanceof Error ? error.message : "Unknown Craig error",
+    };
+    await writeTask(paths, failedTask);
     throw error;
   }
 }
 
 interface DraftTaskInput {
   taskId: string;
-  title: string;
+  repoId: string;
+  workspaceId: string;
+  sessionId: string;
+  repoRoot: string;
+  prompt: string;
   branch: string;
   worktreePath: string;
-  logPath: string;
-  checkSummaryPath: string;
 }
 
 function buildDraftTask(paths: CraigPaths, input: DraftTaskInput): TaskRecord {
@@ -122,12 +154,16 @@ function buildDraftTask(paths: CraigPaths, input: DraftTaskInput): TaskRecord {
 
   return {
     id: input.taskId,
-    title: input.title,
-    slug: slugify(input.title),
+    title: input.prompt,
+    slug: slugify(input.prompt),
     type: "repo",
     status: "draft",
-    runner: "cursor",
-    repoRoot: paths.repoRoot,
+    runner: "codex",
+    repoId: input.repoId,
+    workspaceId: input.workspaceId,
+    sessionId: input.sessionId,
+    linkedRepoIds: [],
+    repoRoot: input.repoRoot,
     worktreePath: input.worktreePath,
     branch: input.branch,
     tmuxTarget: "",
@@ -135,7 +171,7 @@ function buildDraftTask(paths: CraigPaths, input: DraftTaskInput): TaskRecord {
     tmuxPage: null,
     layoutSlot: null,
     runnerSession: {
-      command: ["cursor", "agent", input.title],
+      command: ["codex", input.prompt],
       tmuxTarget: "",
       pid: null,
       startedAt: null,
@@ -145,12 +181,12 @@ function buildDraftTask(paths: CraigPaths, input: DraftTaskInput): TaskRecord {
     },
     prompt: {
       source: "inline",
-      value: input.title,
+      value: input.prompt,
     },
     checks: {
       source: {
         type: "repo_config",
-        path: path.relative(paths.repoRoot, paths.configFile),
+        path: path.relative(paths.workspaceRoot, paths.configFile),
       },
       lastRunAt: null,
       status: "not_run",
@@ -171,13 +207,10 @@ function buildDraftTask(paths: CraigPaths, input: DraftTaskInput): TaskRecord {
       lastSyncedAt: null,
     },
     artifacts: {
-      logPath: input.logPath,
-      checkSummaryPath: input.checkSummaryPath,
+      logPath: path.relative(paths.workspaceRoot, path.join(paths.logsDir, `${input.taskId}.log`)),
+      checkSummaryPath: path.relative(paths.workspaceRoot, path.join(paths.artifactsDir, input.taskId, "check-summary.json")),
       prDraftPath: null,
-      prStatusPath: path.relative(
-        paths.repoRoot,
-        path.join(paths.artifactsDir, input.taskId, "pr-status.json"),
-      ),
+      prStatusPath: path.relative(paths.workspaceRoot, path.join(paths.artifactsDir, input.taskId, "pr-status.json")),
     },
     cleanup: {
       paneClosedAt: null,
@@ -191,22 +224,21 @@ function buildDraftTask(paths: CraigPaths, input: DraftTaskInput): TaskRecord {
   };
 }
 
+async function resolveWorkspaceForRepo(paths: CraigPaths, repoId: string) {
+  const workspaces = await listWorkspaceRecords(paths);
+  const workspace = workspaces.find((entry) => entry.primaryRepoId === repoId && entry.status === "active");
+
+  if (!workspace) {
+    throw new Error(`Repo ${repoId} does not have an active workspace.`);
+  }
+
+  return workspace;
+}
+
 function slugify(value: string): string {
   return value
     .toLowerCase()
     .replace(/[^a-z0-9]+/g, "-")
     .replace(/^-+|-+$/g, "")
     .replace(/-{2,}/g, "-");
-}
-
-function dedupePages(
-  pages: Array<{ pageNumber: number; windowTarget: string; isPrimary: boolean }>,
-): Array<{ pageNumber: number; windowTarget: string; isPrimary: boolean }> {
-  const map = new Map<number, { pageNumber: number; windowTarget: string; isPrimary: boolean }>();
-
-  for (const page of pages) {
-    map.set(page.pageNumber, page);
-  }
-
-  return [...map.values()].sort((left, right) => left.pageNumber - right.pageNumber);
 }

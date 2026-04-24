@@ -3,6 +3,10 @@ import type { CraigPaths } from "../state/craig-paths.js";
 import { branchExists } from "./git-task.js";
 
 export async function allocateTaskId(paths: CraigPaths): Promise<string> {
+  return allocateTaskIdForRepo(paths, paths.repoRoot);
+}
+
+export async function allocateTaskIdForRepo(paths: CraigPaths, repoRoot: string): Promise<string> {
   const index = await readCraigIndex(paths);
   const dateSegment = formatDate(new Date());
   let sequence = nextSequence(index.taskIds, dateSegment);
@@ -11,7 +15,7 @@ export async function allocateTaskId(paths: CraigPaths): Promise<string> {
     const taskId = `task_${dateSegment}_${String(sequence).padStart(2, "0")}`;
     const branch = `craig/${taskId}`;
 
-    if (!(await branchExists(paths.repoRoot, branch))) {
+    if (!(await branchExists(repoRoot, branch))) {
       return taskId;
     }
 

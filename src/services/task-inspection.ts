@@ -35,7 +35,7 @@ export function resolveTaskLogPath(paths: CraigPaths, task: TaskRecord): string 
     return task.artifacts.logPath;
   }
 
-  return path.join(paths.repoRoot, task.artifacts.logPath);
+  return path.join(paths.workspaceRoot, task.artifacts.logPath);
 }
 
 export async function buildTaskInspection(

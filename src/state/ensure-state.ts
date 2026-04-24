@@ -12,6 +12,7 @@ export async function ensureCraigState(workspaceRoot: string): Promise<CraigInde
   await Promise.all([
     mkdir(paths.reposDir, { recursive: true }),
     mkdir(paths.workspacesDir, { recursive: true }),
+    mkdir(paths.sessionsDir, { recursive: true }),
     mkdir(paths.runtimeDir, { recursive: true }),
     mkdir(paths.tasksDir, { recursive: true }),
     mkdir(paths.jobsDir, { recursive: true }),

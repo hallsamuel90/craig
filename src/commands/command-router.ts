@@ -3,6 +3,7 @@ import type { CraigPaths } from "../state/craig-paths.js";
 import { getHelpText } from "./parse-argv.js";
 import { createTask } from "../services/create-task.js";
 import { listTasks } from "../services/list-tasks.js";
+import { attachTask } from "../services/attach-task.js";
 import { showTask } from "../services/show-task.js";
 import { prepareTaskLogs } from "../services/stream-task-logs.js";
 import { showTaskDiff } from "../services/show-task-diff.js";
@@ -13,6 +14,7 @@ import { commitTask } from "../services/commit-task.js";
 import { openPullRequest } from "../services/open-pull-request.js";
 import { mergeTask } from "../services/merge-task.js";
 import { addRepo, listRegisteredRepos, removeRepo } from "../services/repo-registry.js";
+import { addTaskLink, listTaskLinks } from "../services/task-links.js";
 import { archiveWorkspace, listWorkspaces, restoreWorkspace } from "../services/workspace-registry.js";
 
 export interface CommandContext {
@@ -38,9 +40,15 @@ export async function executeCommand(
     case "restoreWorkspace":
       return restoreWorkspace(context.paths, command.workspaceId);
     case "createTask":
-      return createTask(context.paths, command.title);
+      return createTask(context.paths, command.repoId, command.prompt);
     case "listTasks":
-      return listTasks(context.paths);
+      return command.repoId ? listTasks(context.paths, { repoId: command.repoId }) : listTasks(context.paths);
+    case "attachTask":
+      return attachTask(context.paths, command.taskId);
+    case "addTaskLink":
+      return addTaskLink(context.paths, command.taskId, command.repoId);
+    case "listTaskLinks":
+      return listTaskLinks(context.paths, command.taskId);
     case "refreshInteractiveState":
       throw new Error("Interactive refresh should be handled by the interactive app.");
     case "showTask":
@@ -101,5 +109,5 @@ function requireSelectedTaskId(context: CommandContext, commandName: string): st
     return context.selectedTaskId;
   }
 
-  throw new Error(`No task selected. Create a task with 'new <task>' or use '${commandName} <id>'.`);
+  throw new Error(`No task selected. Create a task with 'task new --repo <repo-id> <prompt>' or use '${commandName} <id>'.`);
 }

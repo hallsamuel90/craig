@@ -8,6 +8,7 @@ interface RenderWorkspaceOverlayInput {
   repos: RepoRecord[];
   workspaces: WorkspaceRecord[];
   archivedWorkspaces: WorkspaceRecord[];
+  selectedTaskId: string | null;
   overlayMode: OverlayMode;
   selectedMenuIndex: number;
   messageLines: string[];
@@ -25,6 +26,7 @@ export function renderWorkspaceOverlay(input: RenderWorkspaceOverlayInput): stri
   lines.push(truncate(`CRAIG | ${path.basename(input.workspaceRoot)} | overlay`, width));
   lines.push(divider(width));
   lines.push(truncate(`Repos: ${input.repos.length} | Active workspaces: ${input.workspaces.length} | Archived: ${input.archivedWorkspaces.length}`, width));
+  lines.push(truncate(`Selected task: ${input.selectedTaskId ?? "<none>"}`, width));
   lines.push("");
 
   for (const [index, item] of MENU_ITEMS.entries()) {

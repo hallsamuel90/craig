@@ -1,11 +1,19 @@
-import { readFile, rm } from "node:fs/promises";
+import { mkdir, readFile, rm } from "node:fs/promises";
+import path from "node:path";
 
 import { afterEach, describe, expect, test } from "vitest";
 
 import { createTask } from "../src/services/create-task.js";
 import { getSessionNameForRepo } from "../src/services/tmux-session.js";
+import { readSession } from "../src/state/session-store.js";
 import { readTask } from "../src/state/task-store.js";
-import { createCraigState, createRepoRoot, createStubCommands, getDateSegment } from "./test-helpers.js";
+import {
+  createCraigState,
+  createRepoRoot,
+  createStubCommands,
+  getDateSegment,
+  writeRepoRecord,
+} from "./test-helpers.js";
 
 const tempRoots: string[] = [];
 const originalPath = process.env.PATH ?? "";
@@ -38,51 +46,58 @@ afterEach(async () => {
 });
 
 describe("createTask", () => {
-  test("creates a running task with runner-session metadata", async () => {
-    const repoRoot = await createRepoRoot("craig-create-");
-    tempRoots.push(repoRoot);
-    const paths = await createCraigState(repoRoot);
-    const stubDir = await createStubCommands(repoRoot);
-    const tmuxStateFile = `${repoRoot}/tmux-state`;
-    const tmuxCommandLog = `${repoRoot}/tmux-commands.log`;
+  test("creates a running task with workspace-scoped session metadata", async () => {
+    const workspaceRoot = await createRepoRoot("craig-create-");
+    const { paths, repoRoot, repoId, workspaceId } = await setupRegisteredRepo(workspaceRoot, "repo-a");
+    const stubDir = await createStubCommands(workspaceRoot);
+    const tmuxStateFile = `${workspaceRoot}/tmux-state`;
+    const tmuxCommandLog = `${workspaceRoot}/tmux-commands.log`;
 
     process.env.PATH = `${stubDir}:${originalPath}`;
     process.env.CRAIG_TEST_TMUX_STATE_FILE = tmuxStateFile;
     process.env.CRAIG_TEST_TMUX_COMMAND_LOG = tmuxCommandLog;
 
-    const result = await createTask(paths, "refactor auth");
+    const result = await createTask(paths, repoId, "refactor auth");
     const task = await readTask(paths, result.taskId);
+    const session = await readSession(paths, result.sessionId);
     const tmuxCommands = await readFile(tmuxCommandLog, "utf8");
 
     expect(result.kind).toBe("createTask");
+    expect(result.repoId).toBe(repoId);
     expect(task.status).toBe("running");
-    expect(task.runnerSession.command).toEqual(["cursor", "agent", "refactor auth"]);
+    expect(task.runner).toBe("codex");
+    expect(task.repoId).toBe(repoId);
+    expect(task.workspaceId).toBe(workspaceId);
+    expect(task.sessionId).toBe(result.sessionId);
+    expect(task.runnerSession.command).toEqual(["codex", "refactor auth"]);
     expect(task.runnerSession.lastKnownState).toBe("running");
-    expect(task.runnerSession.startedAt).toBeTruthy();
     expect(task.tmuxTarget).toBe("%42");
     expect(task.tmuxWindowTarget).toBe("@0");
     expect(task.tmuxPage).toBe(1);
-    expect(task.artifacts.logPath).toBe(`.craig/logs/${result.taskId}.log`);
+    expect(task.worktreePath).toBe(path.join(paths.worktreesDir, repoId, result.taskId));
+    expect(session.repoId).toBe(repoId);
+    expect(session.taskId).toBe(result.taskId);
+    expect(session.worktreePath).toBe(task.worktreePath);
     expect(tmuxCommands).toContain("resize-pane -t %1 -y 8");
     expect(tmuxCommands).toContain("select-layout -t @0 tiled");
     expect(tmuxCommands).toContain("send-keys -t %42");
-    expect(tmuxCommands).toContain("cursor agent 'refactor auth'");
+    expect(tmuxCommands).toContain("codex 'refactor auth'");
+    expect(getSessionNameForRepo(repoRoot)).toBe(session.sessionName);
   });
 
   test("creates panes against the resolved tmux window instead of assuming craig:0", async () => {
-    const repoRoot = await createRepoRoot("craig-create-base-index-");
-    tempRoots.push(repoRoot);
-    const paths = await createCraigState(repoRoot);
-    const stubDir = await createStubCommands(repoRoot);
-    const tmuxStateFile = `${repoRoot}/tmux-state`;
-    const tmuxCommandLog = `${repoRoot}/tmux-commands.log`;
+    const workspaceRoot = await createRepoRoot("craig-create-base-index-");
+    const { paths, repoRoot, repoId } = await setupRegisteredRepo(workspaceRoot, "repo-a");
+    const stubDir = await createStubCommands(workspaceRoot);
+    const tmuxStateFile = `${workspaceRoot}/tmux-state`;
+    const tmuxCommandLog = `${workspaceRoot}/tmux-commands.log`;
 
     process.env.PATH = `${stubDir}:${originalPath}`;
     process.env.CRAIG_TEST_TMUX_STATE_FILE = tmuxStateFile;
     process.env.CRAIG_TEST_TMUX_COMMAND_LOG = tmuxCommandLog;
     process.env.CRAIG_TEST_TMUX_WINDOW_TARGET = "@9";
 
-    await createTask(paths, "window lookup");
+    await createTask(paths, repoId, "window lookup");
 
     const tmuxCommands = await readFile(tmuxCommandLog, "utf8");
     const sessionName = getSessionNameForRepo(repoRoot);
@@ -93,12 +108,11 @@ describe("createTask", () => {
   });
 
   test("sizes a detached craig session from the current terminal when available", async () => {
-    const repoRoot = await createRepoRoot("craig-create-session-size-");
-    tempRoots.push(repoRoot);
-    const paths = await createCraigState(repoRoot);
-    const stubDir = await createStubCommands(repoRoot);
-    const tmuxStateFile = `${repoRoot}/tmux-state`;
-    const tmuxCommandLog = `${repoRoot}/tmux-commands.log`;
+    const workspaceRoot = await createRepoRoot("craig-create-session-size-");
+    const { paths, repoId, repoRoot } = await setupRegisteredRepo(workspaceRoot, "repo-a");
+    const stubDir = await createStubCommands(workspaceRoot);
+    const tmuxStateFile = `${workspaceRoot}/tmux-state`;
+    const tmuxCommandLog = `${workspaceRoot}/tmux-commands.log`;
 
     Object.defineProperty(process.stdout, "columns", { value: 211, configurable: true });
     Object.defineProperty(process.stdout, "rows", { value: 61, configurable: true });
@@ -107,7 +121,7 @@ describe("createTask", () => {
     process.env.CRAIG_TEST_TMUX_STATE_FILE = tmuxStateFile;
     process.env.CRAIG_TEST_TMUX_COMMAND_LOG = tmuxCommandLog;
 
-    await createTask(paths, "session sizing");
+    await createTask(paths, repoId, "session sizing");
 
     const tmuxCommands = await readFile(tmuxCommandLog, "utf8");
     const sessionName = getSessionNameForRepo(repoRoot);
@@ -118,12 +132,11 @@ describe("createTask", () => {
   });
 
   test("falls back to a new tmux window when the current window has no room for another pane", async () => {
-    const repoRoot = await createRepoRoot("craig-create-window-fallback-");
-    tempRoots.push(repoRoot);
-    const paths = await createCraigState(repoRoot);
-    const stubDir = await createStubCommands(repoRoot);
-    const tmuxStateFile = `${repoRoot}/tmux-state`;
-    const tmuxCommandLog = `${repoRoot}/tmux-commands.log`;
+    const workspaceRoot = await createRepoRoot("craig-create-window-fallback-");
+    const { paths, repoId, repoRoot } = await setupRegisteredRepo(workspaceRoot, "repo-a");
+    const stubDir = await createStubCommands(workspaceRoot);
+    const tmuxStateFile = `${workspaceRoot}/tmux-state`;
+    const tmuxCommandLog = `${workspaceRoot}/tmux-commands.log`;
 
     process.env.PATH = `${stubDir}:${originalPath}`;
     process.env.CRAIG_TEST_TMUX_STATE_FILE = tmuxStateFile;
@@ -131,7 +144,7 @@ describe("createTask", () => {
     process.env.CRAIG_TEST_TMUX_SPLIT_FAIL = "1";
     process.env.CRAIG_TEST_TMUX_NEW_WINDOW_PANE_ID = "%84";
 
-    const result = await createTask(paths, "pane fallback");
+    const result = await createTask(paths, repoId, "pane fallback");
     const task = await readTask(paths, result.taskId);
     const tmuxCommands = await readFile(tmuxCommandLog, "utf8");
     const sessionName = getSessionNameForRepo(repoRoot);
@@ -145,32 +158,30 @@ describe("createTask", () => {
   });
 
   test("allocates the next task id when the first branch already exists", async () => {
-    const repoRoot = await createRepoRoot("craig-create-collision-");
-    tempRoots.push(repoRoot);
-    const paths = await createCraigState(repoRoot);
-    const stubDir = await createStubCommands(repoRoot);
-    const tmuxStateFile = `${repoRoot}/tmux-state`;
+    const workspaceRoot = await createRepoRoot("craig-create-collision-");
+    const { paths, repoId } = await setupRegisteredRepo(workspaceRoot, "repo-a");
+    const stubDir = await createStubCommands(workspaceRoot);
+    const tmuxStateFile = `${workspaceRoot}/tmux-state`;
     const dateSegment = getDateSegment();
 
     process.env.PATH = `${stubDir}:${originalPath}`;
     process.env.CRAIG_TEST_TMUX_STATE_FILE = tmuxStateFile;
     process.env.CRAIG_TEST_GIT_EXISTING_BRANCHES = `refs/heads/craig/task_${dateSegment}_01`;
 
-    const result = await createTask(paths, "branch collision");
+    const result = await createTask(paths, repoId, "branch collision");
 
     expect(result.taskId).toBe(`task_${dateSegment}_02`);
   });
 
   test("keeps a durable draft task when provisioning fails after allocation", async () => {
-    const repoRoot = await createRepoRoot("craig-create-fail-");
-    tempRoots.push(repoRoot);
-    const paths = await createCraigState(repoRoot);
-    const stubDir = await createStubCommands(repoRoot);
+    const workspaceRoot = await createRepoRoot("craig-create-fail-");
+    const { paths, repoId } = await setupRegisteredRepo(workspaceRoot, "repo-a");
+    const stubDir = await createStubCommands(workspaceRoot);
 
     process.env.PATH = `${stubDir}:${originalPath}`;
     process.env.CRAIG_TEST_TMUX_FAIL = "1";
 
-    await expect(createTask(paths, "tmux missing")).rejects.toThrow(/tmux/);
+    await expect(createTask(paths, repoId, "tmux missing")).rejects.toThrow(/tmux/);
 
     const tasks = await import("../src/services/list-tasks.js").then(({ listTasks }) => listTasks(paths));
     expect(tasks.tasks).toHaveLength(1);
@@ -182,6 +193,40 @@ describe("createTask", () => {
     expect(failedTask?.lastFailureReason).toMatch(/tmux/);
   });
 });
+
+async function setupRegisteredRepo(workspaceRoot: string, repoName: string) {
+  tempRoots.push(workspaceRoot);
+  const paths = await createCraigState(workspaceRoot);
+  const repoRoot = path.join(workspaceRoot, repoName);
+  await mkdir(repoRoot, { recursive: true });
+  const repoId = `repo_${repoName}`;
+  const workspaceId = `workspace_${repoId}`;
+  const timestamp = "2026-04-24T00:00:00.000Z";
+
+  await writeRepoRecord(
+    workspaceRoot,
+    {
+      id: repoId,
+      name: repoName,
+      rootPath: repoRoot,
+      defaultBranch: "main",
+      createdAt: timestamp,
+      updatedAt: timestamp,
+    },
+    {
+      id: workspaceId,
+      primaryRepoId: repoId,
+      branch: "main",
+      status: "active",
+      linkedRepoIds: [],
+      archivedAt: null,
+      createdAt: timestamp,
+      updatedAt: timestamp,
+    },
+  );
+
+  return { paths, repoRoot, repoId, workspaceId };
+}
 
 function restoreStreamDimension(
   stream: typeof process.stdout,

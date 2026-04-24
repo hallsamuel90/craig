@@ -4,6 +4,7 @@ import path from "node:path";
 
 import { getCraigPaths } from "../src/state/craig-paths.js";
 import type { TaskRecord } from "../src/types/task.js";
+import type { RepoRecord, WorkspaceRecord } from "../src/types/workspace.js";
 import { runCommand } from "../src/utils/exec.js";
 
 export async function createRepoRoot(prefix: string): Promise<string> {
@@ -18,6 +19,7 @@ export async function createCraigState(repoRoot: string, taskIds: string[] = [])
     mkdir(paths.runtimeDir, { recursive: true }),
     mkdir(paths.reposDir, { recursive: true }),
     mkdir(paths.workspacesDir, { recursive: true }),
+    mkdir(paths.sessionsDir, { recursive: true }),
     mkdir(paths.tasksDir, { recursive: true }),
     mkdir(paths.jobsDir, { recursive: true }),
     mkdir(paths.logsDir, { recursive: true }),
@@ -52,6 +54,27 @@ export async function createGitRepo(repoRoot: string): Promise<void> {
   await runCommand("git", ["config", "user.email", "craig@example.com"], { cwd: repoRoot });
 }
 
+export async function writeRepoRecord(
+  workspaceRoot: string,
+  repo: RepoRecord,
+  workspace?: WorkspaceRecord,
+): Promise<void> {
+  const paths = getCraigPaths(workspaceRoot);
+  await writeFile(`${paths.reposDir}/${repo.id}.json`, JSON.stringify(repo, null, 2), "utf8");
+
+  if (workspace) {
+    await writeFile(`${paths.workspacesDir}/${workspace.id}.json`, JSON.stringify(workspace, null, 2), "utf8");
+  }
+
+  const index = JSON.parse(await import("node:fs/promises").then(({ readFile }) => readFile(paths.indexFile, "utf8")));
+  const next = {
+    ...index,
+    repoIds: [...new Set([...(index.repoIds ?? []), repo.id])],
+    workspaceIds: workspace ? [...new Set([...(index.workspaceIds ?? []), workspace.id])] : index.workspaceIds ?? [],
+  };
+  await writeFile(paths.indexFile, JSON.stringify(next, null, 2), "utf8");
+}
+
 export async function writeTaskRecord(repoRoot: string, task: Partial<TaskRecord> & { id: string }) {
   const paths = getCraigPaths(repoRoot);
   const record = buildTaskRecord(repoRoot, task);
@@ -74,7 +97,11 @@ export function buildTaskRecord(
     slug: task.slug ?? "test-task",
     type: "repo",
     status: task.status ?? "running",
-    runner: task.runner ?? "cursor",
+    runner: task.runner ?? "codex",
+    repoId: task.repoId ?? "repo_test",
+    workspaceId: task.workspaceId ?? "workspace_repo_test",
+    sessionId: task.sessionId ?? `session_${task.id}`,
+    linkedRepoIds: task.linkedRepoIds ?? [],
     repoRoot,
     worktreePath: task.worktreePath ?? path.join(paths.worktreesDir, task.id),
     branch: task.branch ?? `craig/${task.id}`,
@@ -83,7 +110,7 @@ export function buildTaskRecord(
     tmuxPage: task.tmuxPage ?? 1,
     layoutSlot: task.layoutSlot ?? 1,
     runnerSession: task.runnerSession ?? {
-      command: ["cursor", "agent", task.title ?? "test task"],
+      command: ["codex", task.title ?? "test task"],
       tmuxTarget: task.tmuxTarget ?? "%42",
       pid: null,
       startedAt: now,
@@ -143,6 +170,7 @@ export async function createStubCommands(root: string): Promise<string> {
   const gitScript = path.join(stubDir, "git-stub.sh");
   const tmuxScript = path.join(stubDir, "tmux-stub.sh");
   const cursorScript = path.join(stubDir, "cursor-stub.sh");
+  const codexScript = path.join(stubDir, "codex-stub.sh");
   const ghScript = path.join(stubDir, "gh-stub.sh");
   const scriptLog = path.join(stubDir, "script-log.sh");
 
@@ -288,6 +316,18 @@ exit 1
   );
 
   await writeFile(
+    codexScript,
+    `#!/bin/sh
+set -eu
+if [ "$1" = "--help" ]; then
+  exit 0
+fi
+exit 0
+`,
+    "utf8",
+  );
+
+  await writeFile(
     ghScript,
     `#!/bin/sh
 set -eu
@@ -328,12 +368,14 @@ exit 1
   await chmod(gitScript, 0o755);
   await chmod(tmuxScript, 0o755);
   await chmod(cursorScript, 0o755);
+  await chmod(codexScript, 0o755);
   await chmod(ghScript, 0o755);
   await chmod(scriptLog, 0o755);
 
   await symlink("git-stub.sh", path.join(stubDir, "git"));
   await symlink("tmux-stub.sh", path.join(stubDir, "tmux"));
   await symlink("cursor-stub.sh", path.join(stubDir, "cursor"));
+  await symlink("codex-stub.sh", path.join(stubDir, "codex"));
   await symlink("gh-stub.sh", path.join(stubDir, "gh"));
 
   return stubDir;

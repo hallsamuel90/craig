@@ -59,6 +59,13 @@ function normalizeLegacyTaskRecord(value: unknown): unknown {
 
   return {
     ...candidate,
+    repoId: typeof candidate.repoId === "string" ? candidate.repoId : "legacy_repo",
+    workspaceId: typeof candidate.workspaceId === "string" ? candidate.workspaceId : "legacy_workspace",
+    sessionId:
+      typeof candidate.sessionId === "string" || candidate.sessionId === null ? candidate.sessionId : null,
+    linkedRepoIds: Array.isArray(candidate.linkedRepoIds)
+      ? candidate.linkedRepoIds.filter((entry): entry is string => typeof entry === "string")
+      : [],
     tmuxWindowTarget: typeof candidate.tmuxWindowTarget === "string" ? candidate.tmuxWindowTarget : null,
     tmuxPage: typeof candidate.tmuxPage === "number" ? candidate.tmuxPage : null,
     layoutSlot: typeof candidate.layoutSlot === "number" ? candidate.layoutSlot : null,
@@ -105,6 +112,11 @@ function isTaskRecord(value: unknown): value is TaskRecord {
     candidate.type === "repo" &&
     typeof candidate.status === "string" &&
     typeof candidate.runner === "string" &&
+    typeof candidate.repoId === "string" &&
+    typeof candidate.workspaceId === "string" &&
+    (typeof candidate.sessionId === "string" || candidate.sessionId === null) &&
+    Array.isArray(candidate.linkedRepoIds) &&
+    candidate.linkedRepoIds.every((entry) => typeof entry === "string") &&
     typeof candidate.repoRoot === "string" &&
     typeof candidate.worktreePath === "string" &&
     typeof candidate.branch === "string" &&

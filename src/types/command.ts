@@ -1,3 +1,4 @@
+import type { SessionRecord } from "./session.js";
 import type { TaskRecord } from "./task.js";
 import type { RepoRecord, WorkspaceRecord } from "./workspace.js";
 
@@ -8,8 +9,11 @@ export type AppCommand =
   | { kind: "listWorkspaces"; archived: boolean }
   | { kind: "archiveWorkspace"; workspaceId: string }
   | { kind: "restoreWorkspace"; workspaceId: string }
-  | { kind: "createTask"; title: string }
-  | { kind: "listTasks" }
+  | { kind: "createTask"; repoId: string; prompt: string }
+  | { kind: "listTasks"; repoId?: string }
+  | { kind: "attachTask"; taskId: string }
+  | { kind: "addTaskLink"; taskId: string; repoId: string }
+  | { kind: "listTaskLinks"; taskId: string }
   | { kind: "refreshInteractiveState" }
   | { kind: "showTask"; taskId: string }
   | { kind: "showSelectedTask" }
@@ -35,10 +39,11 @@ export type AppCommand =
 export interface CommandCreateTaskResult {
   kind: "createTask";
   taskId: string;
+  repoId: string;
+  sessionId: string;
   status: string;
   branch: string;
   worktreePath: string;
-  tmuxTarget: string;
   runner: string;
 }
 
@@ -93,6 +98,27 @@ export interface CommandListResult {
   kind: "listTasks";
   tasks: TaskRecord[];
   missingTaskIds: string[];
+  repoId: string | null;
+}
+
+export interface CommandAttachTaskResult {
+  kind: "attachTask";
+  taskId: string;
+  sessionId: string;
+  disposition: "attached";
+}
+
+export interface CommandAddTaskLinkResult {
+  kind: "addTaskLink";
+  taskId: string;
+  repoId: string;
+  linkedRepoIds: string[];
+}
+
+export interface CommandListTaskLinksResult {
+  kind: "listTaskLinks";
+  taskId: string;
+  repos: RepoRecord[];
 }
 
 export interface TaskInspection {
@@ -110,6 +136,7 @@ export interface CommandShowTaskResult {
   kind: "showTask";
   task: TaskRecord;
   inspection: TaskInspection;
+  session: SessionRecord | null;
 }
 
 export interface CommandLogsResult {
@@ -182,6 +209,9 @@ export type CommandResult =
   | CommandArchiveWorkspaceResult
   | CommandRestoreWorkspaceResult
   | CommandCreateTaskResult
+  | CommandAttachTaskResult
+  | CommandAddTaskLinkResult
+  | CommandListTaskLinksResult
   | CommandHelpResult
   | CommandExitResult
   | CommandListResult

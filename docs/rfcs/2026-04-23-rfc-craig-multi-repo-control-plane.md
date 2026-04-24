@@ -263,7 +263,7 @@ Overlay reference:
 ### Status summary
 
 - `1.1` Workspace bootstrap, archive model, and repo registry: `implemented`
-- `1.2` Task creation, linked repo context, and session execution: `pending`
+- `1.2` Task creation, linked repo context, and session execution: `implemented`
 - `1.3` Mission-control interaction shell: `pending`
 - `1.4a` End-to-end developer loop with setup, run, check, PR, merge, and cleanup: `pending`
 - `1.4b` Todos, checkpoints, and review guidance on top of the core loop: `pending`
@@ -275,7 +275,7 @@ Overlay reference:
 ### Verification summary
 
 - `1.1` Verified with workspace-scoped bootstrap, repo registry, workspace archive and restore, persisted UI restore state, overlay rendering, and updated command routing covered by `pnpm test`, `pnpm typecheck`, and `pnpm lint`.
-- `1.2` Not yet verified under this superseding RFC. Prior worktree and runner launch behavior depends on repo-local assumptions and `tmux`-backed execution.
+- `1.2` Verified for the new task-creation path with workspace-scoped task and session records, Codex launch, linked repo persistence, task attach, task restore, and updated command routing covered by `pnpm test`, `pnpm typecheck`, and `pnpm lint`. Deprecated tmux-target compatibility fields still exist on task records for later lifecycle services and should remain treated as transitional.
 - `1.3` Not yet verified under this superseding RFC. Prior interactive control-surface work exists but does not satisfy the multi-repo and native-PTY ownership requirements.
 - `1.4a` Not yet verified under this superseding RFC. Prior developer-loop flows exist only on the old task and session model.
 - `1.4b` Not yet verified under this superseding RFC. Prior todo, checkpoint, and review-guidance behavior does not exist on the new workspace model.
@@ -286,7 +286,7 @@ Overlay reference:
 
 ### Next resume point
 
-Resume at the first sub-phase that is not both implemented and verified. The current resume point is `1.2`.
+Resume at the first sub-phase that is not both implemented and verified. The current resume point is `1.3`.
 
 ### Deferred phases
 

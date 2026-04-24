@@ -8,6 +8,9 @@ import {
   type TerminalSession,
 } from "./terminal-io.js";
 import { getDefaultUiState, readUiState, writeUiState } from "../state/ui-state-store.js";
+import { readRepo } from "../state/repo-store.js";
+import { readSession } from "../state/session-store.js";
+import { readTask } from "../state/task-store.js";
 import type { CommandContext } from "../commands/command-router.js";
 import type { OverlayMode } from "../types/workspace.js";
 
@@ -29,7 +32,7 @@ export async function startInteractiveApp(context: CommandContext, options?: Int
   }
 
   const terminal = options?.terminal ?? createTerminalSession();
-  const uiState = (await readUiState({ uiStateFile: context.paths.uiStateFile })) ?? getDefaultUiState();
+  const uiState = await sanitizeUiState(context);
   const state: InteractiveState = {
     overlayMode: uiState.overlayMode,
     selectedMenuIndex: uiState.overlayMode === "archives" ? 1 : 0,
@@ -119,6 +122,7 @@ async function renderFrame(
     repos: reposResult.repos,
     workspaces: activeWorkspaces.workspaces,
     archivedWorkspaces: archivedWorkspaces.workspaces,
+    selectedTaskId: (await readUiState({ uiStateFile: context.paths.uiStateFile }))?.selectedTaskId ?? null,
     overlayMode: state.overlayMode,
     selectedMenuIndex: state.selectedMenuIndex,
     messageLines: state.messageLines,
@@ -131,10 +135,34 @@ async function persistUiState(context: CommandContext, state: InteractiveState):
 
   await writeUiState(
     { uiStateFile: context.paths.uiStateFile },
-    {
+      {
+        ...current,
+        activeSurface: "overlay",
+        overlayMode: state.overlayMode,
+      },
+    );
+}
+
+async function sanitizeUiState(context: CommandContext) {
+  const current = (await readUiState({ uiStateFile: context.paths.uiStateFile })) ?? getDefaultUiState();
+
+  if (!current.selectedTaskId) {
+    return current;
+  }
+
+  try {
+    const task = await readTask(context.paths, current.selectedTaskId);
+    await Promise.all([
+      readRepo(context.paths, task.repoId),
+      task.sessionId ? readSession(context.paths, task.sessionId) : Promise.resolve(null),
+    ]);
+    return current;
+  } catch {
+    const sanitized = {
       ...current,
-      activeSurface: "overlay",
-      overlayMode: state.overlayMode,
-    },
-  );
+      selectedTaskId: null,
+    };
+    await writeUiState({ uiStateFile: context.paths.uiStateFile }, sanitized);
+    return sanitized;
+  }
 }
