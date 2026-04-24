@@ -61,7 +61,7 @@ describe("showTask", () => {
     expect(result.task.id).toBe("task_1");
     expect(result.inspection.worktreeExists).toBe(true);
     expect(result.inspection.logExists).toBe(true);
-    expect(result.inspection.runnerCommandText).toBe("cursor agent inspect me");
+    expect(result.inspection.runnerCommandText).toBe("codex inspect me");
     expect(result.inspection.checksSummary).toBe("not_run (1 command)");
     expect(result.inspection.prSummary).toContain("#12 open");
   });

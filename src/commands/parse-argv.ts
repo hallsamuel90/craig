@@ -58,17 +58,46 @@ export function parseArgv(argv: string[]): ParsedArgvCommand {
   }
 
   if (trimmedArgv.length >= 2 && trimmedArgv[0] === "task" && trimmedArgv[1] === "new") {
-    const title = trimmedArgv.slice(2).join(" ").trim();
+    const repoFlagIndex = trimmedArgv.indexOf("--repo");
 
-    if (title.length === 0) {
-      throw new Error("Task title cannot be empty.\n\n" + getHelpText());
+    if (repoFlagIndex === -1) {
+      throw new Error("Task creation now requires '--repo <repo-id>'.\n\n" + getHelpText());
     }
 
-    return { mode: "command", command: { kind: "createTask", title } };
+    const repoId = trimmedArgv[repoFlagIndex + 1]?.trim() ?? "";
+    const promptParts = trimmedArgv.filter((_, index) => index > 1 && index !== repoFlagIndex && index !== repoFlagIndex + 1);
+    const prompt = promptParts.join(" ").trim();
+
+    if (repoId.length === 0) {
+      throw new Error("Repo id cannot be empty.\n\n" + getHelpText());
+    }
+
+    if (prompt.length === 0) {
+      throw new Error("Task prompt cannot be empty.\n\n" + getHelpText());
+    }
+
+    return { mode: "command", command: { kind: "createTask", repoId, prompt } };
   }
 
-  if (trimmedArgv.length === 2 && trimmedArgv[0] === "task" && trimmedArgv[1] === "list") {
-    return { mode: "command", command: { kind: "listTasks" } };
+  if (
+    trimmedArgv.length >= 2 &&
+    trimmedArgv.length <= 4 &&
+    trimmedArgv[0] === "task" &&
+    trimmedArgv[1] === "list"
+  ) {
+    if (trimmedArgv.length === 2) {
+      return { mode: "command", command: { kind: "listTasks" } };
+    }
+
+    if (trimmedArgv.length === 4 && trimmedArgv[2] === "--repo") {
+      return { mode: "command", command: { kind: "listTasks", repoId: trimmedArgv[3]!.trim() } };
+    }
+
+    throw new Error(`Unsupported command: ${trimmedArgv.join(" ")}\n\n${getHelpText()}`);
+  }
+
+  if (trimmedArgv.length === 3 && trimmedArgv[0] === "task" && trimmedArgv[1] === "attach") {
+    return { mode: "command", command: { kind: "attachTask", taskId: requireTaskId(trimmedArgv[2]!) } };
   }
 
   if (trimmedArgv.length === 3 && trimmedArgv[0] === "task" && trimmedArgv[1] === "show") {
@@ -138,6 +167,27 @@ export function parseArgv(argv: string[]): ParsedArgvCommand {
     };
   }
 
+  if (trimmedArgv.length === 4 && trimmedArgv[0] === "link" && trimmedArgv[1] === "add") {
+    return {
+      mode: "command",
+      command: {
+        kind: "addTaskLink",
+        taskId: requireTaskId(trimmedArgv[2]!),
+        repoId: requireRepoId(trimmedArgv[3]!),
+      },
+    };
+  }
+
+  if (trimmedArgv.length === 3 && trimmedArgv[0] === "link" && trimmedArgv[1] === "list") {
+    return {
+      mode: "command",
+      command: {
+        kind: "listTaskLinks",
+        taskId: requireTaskId(trimmedArgv[2]!),
+      },
+    };
+  }
+
   if (
     trimmedArgv.length >= 3 &&
     trimmedArgv.length <= 4 &&
@@ -170,17 +220,20 @@ export function getHelpText(): string {
     "  craig workspace list --archived  List archived workspaces",
     "  craig workspace archive   Archive a workspace",
     "  craig workspace restore   Restore an archived workspace",
-    "  craig task new     Create a new Craig task",
-    "  craig task list    List known Craig tasks",
+    "  craig task new --repo <repo-id> <prompt>  Create a new Craig task",
+    "  craig task list [--repo <repo-id>]  List known Craig tasks",
     "  craig task show    Show details for a Craig task",
     "  craig task logs    Stream Craig-managed logs for a task",
     "  craig task diff    Show the current worktree diff for a task",
+    "  craig task attach  Attach to a live task session",
     "  craig task focus   Focus the tmux pane for a task",
     "  craig task open    Open the task worktree or print its path",
     "  craig task check   Run configured checks for a task",
     "  craig task commit  Commit all task worktree changes",
     "  craig task pr      Create or refresh a task pull request",
     "  craig task merge   Merge a task pull request and clean up",
+    "  craig link add     Add a linked repo to a task",
+    "  craig link list    List linked repos for a task",
     "",
     "REPL commands:",
     "  repo add <path>",
@@ -189,17 +242,20 @@ export function getHelpText(): string {
     "  workspace list [--archived]",
     "  workspace archive <workspace-id>",
     "  workspace restore <workspace-id>",
-    "  new <task>",
-    "  list",
+    "  task new --repo <repo-id> <prompt>",
+    "  task list [--repo <repo-id>]",
     "  show [id]",
     "  logs [id]",
     "  diff [id]",
+    "  task attach <task-id>",
     "  focus [id]",
     "  open [id]",
     "  check [id]",
     "  commit [id]",
     "  pr [id] [--watch]",
     "  merge [id] [--preserve-worktree]",
+    "  link add <task-id> <repo-id>",
+    "  link list <task-id>",
     "  refresh",
     "  help",
     "  exit",
@@ -216,4 +272,14 @@ function requireTaskId(value: string): string {
   }
 
   return taskId;
+}
+
+function requireRepoId(value: string): string {
+  const repoId = value.trim();
+
+  if (repoId.length === 0) {
+    throw new Error(`Repo id cannot be empty.\n\n${getHelpText()}`);
+  }
+
+  return repoId;
 }

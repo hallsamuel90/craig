@@ -90,6 +90,10 @@ export interface TaskRecord {
   type: TaskType;
   status: TaskStatus;
   runner: RunnerType;
+  repoId: string;
+  workspaceId: string;
+  sessionId: string | null;
+  linkedRepoIds: string[];
   repoRoot: string;
   worktreePath: string;
   branch: string;

@@ -26,6 +26,7 @@ export interface CraigUiRuntime {
   version: 1;
   selectedRepoId: string | null;
   selectedWorkspaceId: string | null;
+  selectedTaskId: string | null;
   activeSurface: "overlay";
   overlayMode: OverlayMode;
   updatedAt: string;

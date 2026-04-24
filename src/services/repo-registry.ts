@@ -12,6 +12,7 @@ import { readCraigIndex, writeCraigIndex } from "../state/state-store.js";
 import { deleteRepo, listRepos, readRepo, writeRepo } from "../state/repo-store.js";
 import { listWorkspaceRecords, writeWorkspace } from "../state/workspace-store.js";
 import { getDefaultUiState, readUiState, writeUiState } from "../state/ui-state-store.js";
+import { listTasks } from "./list-tasks.js";
 import { removeWorkspaceRecord } from "./workspace-registry.js";
 import { runCommand } from "../utils/exec.js";
 
@@ -73,10 +74,11 @@ export async function addRepo(paths: CraigPaths, rawPath: string): Promise<Comma
     { uiStateFile: paths.uiStateFile },
     {
       ...((await readUiState({ uiStateFile: paths.uiStateFile })) ?? getDefaultUiState()),
-      selectedRepoId: repo.id,
-      selectedWorkspaceId: workspace.id,
-      activeSurface: "overlay",
-    },
+        selectedRepoId: repo.id,
+        selectedWorkspaceId: workspace.id,
+        selectedTaskId: null,
+        activeSurface: "overlay",
+      },
   );
 
   return {
@@ -99,9 +101,14 @@ export async function removeRepo(paths: CraigPaths, repoId: string): Promise<Com
   const workspaces = await listWorkspaceRecords(paths);
   const referencing = workspaces.filter((workspace) => workspace.primaryRepoId === repoId);
   const activeReferences = referencing.filter((workspace) => workspace.status === "active");
+  const tasks = await listTasks(paths, { repoId });
 
   if (activeReferences.length > 0) {
     throw new Error(`Cannot remove repo ${repoId} while active workspace records still reference it.`);
+  }
+
+  if (tasks.tasks.length > 0) {
+    throw new Error(`Cannot remove repo ${repoId} while task records still reference it.`);
   }
 
   await Promise.all(referencing.map((workspace) => removeWorkspaceRecord(paths, workspace.id)));
@@ -122,6 +129,7 @@ export async function removeRepo(paths: CraigPaths, repoId: string): Promise<Com
         ...ui,
         selectedRepoId: null,
         selectedWorkspaceId: null,
+        selectedTaskId: null,
         activeSurface: "overlay",
       },
     );
