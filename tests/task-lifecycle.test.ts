@@ -334,7 +334,6 @@ describe("task lifecycle services", () => {
       status: "merge_ready",
       branch: "craig/task_1",
       worktreePath,
-      tmuxTarget: "%42",
       pullRequest: {
         provider: "github",
         number: 17,

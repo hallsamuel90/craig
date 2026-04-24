@@ -212,7 +212,7 @@ export function parseArgv(argv: string[]): ParsedArgvCommand {
 export function getHelpText(): string {
   return [
     "Craig commands:",
-    "  craig              Start the Craig REPL",
+    "  craig              Start the Craig interactive shell",
     "  craig repo add     Register a repo in the current Craig workspace",
     "  craig repo list    List registered repos",
     "  craig repo remove  Remove a registered repo",
@@ -235,7 +235,7 @@ export function getHelpText(): string {
     "  craig link add     Add a linked repo to a task",
     "  craig link list    List linked repos for a task",
     "",
-    "REPL commands:",
+    "Interactive command bar:",
     "  repo add <path>",
     "  repo list",
     "  repo remove <repo-id>",

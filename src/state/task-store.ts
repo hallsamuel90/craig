@@ -55,7 +55,12 @@ function normalizeLegacyTaskRecord(value: unknown): unknown {
     return value;
   }
 
-  const candidate = value as Partial<TaskRecord>;
+  const candidate = value as Partial<TaskRecord> & {
+    tmuxWindowTarget?: string | null;
+    tmuxPage?: number | null;
+    layoutSlot?: number | null;
+    tmuxTarget?: string;
+  };
 
   return {
     ...candidate,
@@ -66,9 +71,6 @@ function normalizeLegacyTaskRecord(value: unknown): unknown {
     linkedRepoIds: Array.isArray(candidate.linkedRepoIds)
       ? candidate.linkedRepoIds.filter((entry): entry is string => typeof entry === "string")
       : [],
-    tmuxWindowTarget: typeof candidate.tmuxWindowTarget === "string" ? candidate.tmuxWindowTarget : null,
-    tmuxPage: typeof candidate.tmuxPage === "number" ? candidate.tmuxPage : null,
-    layoutSlot: typeof candidate.layoutSlot === "number" ? candidate.layoutSlot : null,
     runnerSession: candidate.runnerSession ?? buildLegacyRunnerSession(candidate),
     checks: normalizeLegacyChecks(candidate),
     lastCommit: candidate.lastCommit ?? null,
@@ -79,17 +81,12 @@ function normalizeLegacyTaskRecord(value: unknown): unknown {
 }
 
 function buildLegacyRunnerSession(candidate: Partial<TaskRecord>): RunnerSession | null {
-  if (
-    typeof candidate.runner !== "string" ||
-    typeof candidate.tmuxTarget !== "string" ||
-    typeof candidate.title !== "string"
-  ) {
+  if (typeof candidate.runner !== "string" || typeof candidate.title !== "string") {
     return null;
   }
 
   return {
     command: [candidate.runner, "agent", candidate.title],
-    tmuxTarget: candidate.tmuxTarget,
     pid: null,
     startedAt: null,
     lastKnownState: candidate.status === "running" ? "running" : "starting",
@@ -120,10 +117,6 @@ function isTaskRecord(value: unknown): value is TaskRecord {
     typeof candidate.repoRoot === "string" &&
     typeof candidate.worktreePath === "string" &&
     typeof candidate.branch === "string" &&
-    typeof candidate.tmuxTarget === "string" &&
-    (typeof candidate.tmuxWindowTarget === "string" || candidate.tmuxWindowTarget === null) &&
-    (typeof candidate.tmuxPage === "number" || candidate.tmuxPage === null) &&
-    (typeof candidate.layoutSlot === "number" || candidate.layoutSlot === null) &&
     isRunnerSession(candidate.runnerSession) &&
     isPromptSource(candidate.prompt) &&
     isChecks(candidate.checks) &&
@@ -145,7 +138,6 @@ function isRunnerSession(value: TaskRecord["runnerSession"] | undefined): boolea
     value !== null &&
     Array.isArray(value.command) &&
     value.command.every((entry) => typeof entry === "string") &&
-    typeof value.tmuxTarget === "string" &&
     (typeof value.pid === "number" || value.pid === null) &&
     (typeof value.startedAt === "string" || value.startedAt === null) &&
     (value.lastKnownState === "starting" ||

@@ -1,13 +1,21 @@
 export type SessionSubstrate = "tmux";
 export type SessionStatus = "starting" | "running" | "exited" | "failed";
 
+export interface SessionTerminalSize {
+  columns: number;
+  rows: number;
+}
+
 export interface SessionSnapshot {
   paneId: string;
   windowTarget: string | null;
-  pageNumber: number | null;
-  layoutSlot: number | null;
   alive: boolean;
   capturedAt: string;
+}
+
+export interface SessionAttachState {
+  detachChord: "ctrl+]";
+  lastSize: SessionTerminalSize | null;
 }
 
 export interface SessionRecord {
@@ -19,8 +27,6 @@ export interface SessionRecord {
   sessionName: string;
   paneId: string;
   windowTarget: string | null;
-  pageNumber: number | null;
-  layoutSlot: number | null;
   worktreePath: string;
   logPath: string | null;
   command: string[];
@@ -29,6 +35,7 @@ export interface SessionRecord {
   exitedAt: string | null;
   exitCode: number | null;
   lastAttachedAt: string | null;
+  attach: SessionAttachState;
   snapshot: SessionSnapshot | null;
   createdAt: string;
   updatedAt: string;

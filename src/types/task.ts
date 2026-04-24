@@ -62,7 +62,6 @@ export type RunnerSessionState = "starting" | "running" | "exited" | "failed";
 
 export interface RunnerSession {
   command: string[];
-  tmuxTarget: string;
   pid: number | null;
   startedAt: string | null;
   lastKnownState: RunnerSessionState;
@@ -97,10 +96,6 @@ export interface TaskRecord {
   repoRoot: string;
   worktreePath: string;
   branch: string;
-  tmuxTarget: string;
-  tmuxWindowTarget: string | null;
-  tmuxPage: number | null;
-  layoutSlot: number | null;
   runnerSession: RunnerSession;
   prompt: TaskPromptSource;
   checks: TaskChecks;

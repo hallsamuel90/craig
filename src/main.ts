@@ -87,7 +87,7 @@ export function formatCommandResult(result: CommandResult): string {
         `Branch: ${result.task.branch}`,
         `Worktree: ${result.task.worktreePath}`,
         `Session: ${result.task.sessionId ?? "<missing>"}`,
-        `tmux: ${(result.session?.paneId ?? result.task.tmuxTarget) || "<missing>"}`,
+        `tmux: ${result.session?.paneId ?? "<missing>"}`,
         `Linked repos: ${result.task.linkedRepoIds.length > 0 ? result.task.linkedRepoIds.join(", ") : "none"}`,
         `Prompt: ${result.task.prompt.source} ${JSON.stringify(result.task.prompt.value)}`,
         `Runner command: ${result.inspection.runnerCommandText || "<none>"}`,

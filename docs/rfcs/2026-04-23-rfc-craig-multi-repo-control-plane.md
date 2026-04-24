@@ -21,7 +21,7 @@ The current implementation proved some useful scaffolding around local state, wo
 The rewrite in this RFC makes four explicit product decisions:
 
 - Craig is multi-repo from phase `1.1`
-- Craig owns the session contract and PTY lifecycle through a Craig-controlled `SessionManager`
+- Craig owns the session contract through `SessionManager`, with Ink owning control-mode rendering and `node-pty` owning the embedded terminal client
 - Codex is the first runner vertical slice
 - the current codebase is bootstrap context, not a baseline the design must preserve
 
@@ -41,8 +41,8 @@ Goals for this RFC:
 - make `task = worktree = session-backed execution unit` the primary mental model
 - support the full developer loop inside Craig: register repo, create task, launch runner, inspect, review, check, commit, PR, merge, and cleanup
 - keep durable state local under one workspace-scoped `.craig/`
-- make the Craig session contract primary and keep any durable session substrate, including `tmux`, behind `SessionManager` as an implementation detail
-- make Craig-controlled input the default, with explicit transitions into terminal attach and `nvim`
+- make the Craig session contract primary while keeping `tmux` hidden as the durable task-session substrate and `node-pty` as the embedded attach client
+- make Craig-controlled input the default, with Ink owning control mode and `node-pty` owning terminal mode
 - ship the mission-control interaction model early rather than as a late-phase embellishment
 - validate the control-plane architecture with Codex first and add other runners only after the core contracts are proven
 
@@ -61,14 +61,15 @@ Goals for this RFC:
 
 ## Proposal
 
-Craig is a workspace-native local control plane. A workspace contains registered repos. A repo contains tasks. A task owns exactly one worktree and exactly one Craig-managed PTY session. The Craig UI owns navigation, orchestration, and input routing; terminal attachment and `nvim` handoff are explicit mode changes rather than the default operating state.
+Craig is a workspace-native local control plane. A workspace contains registered repos. A repo contains tasks. A task owns exactly one worktree and exactly one hidden durable tmux session. The Craig UI is an Ink application in control mode. Terminal attachment is an explicit mode change where Craig launches a disposable `node-pty` client that attaches to the selected task session. `nvim` handoff remains a separate explicit mode change.
 
 Craig is responsible for:
 
 - workspace bootstrap and repo registration
 - workspace archival, restore, and global workspace listing
 - task lifecycle and worktree management
-- PTY session creation, attachment, resize, and termination
+- durable task-session creation, attachment, resize, and termination
+- embedded terminal bridge lifecycle for terminal mode
 - runner launch and supervision through a narrow adapter boundary
 - state persistence and restore
 - task inspection, review, and developer-loop actions
@@ -79,17 +80,19 @@ Craig uses external tools selectively:
 - Git for repo and worktree operations
 - Codex CLI for the phase `1.x` runner
 - GitHub CLI for PR and merge flows when GitHub-backed review is in use
+- `node-pty` for the embedded terminal client used during Craig terminal mode
 - `nvim` for deep file inspection and editing handoff
-- a durable terminal substrate behind `SessionManager`, with `tmux` explicitly allowed in phase `1.x` if it is the most practical way to preserve live sessions across Craig restarts
+- hidden per-task `tmux` sessions as the durable runner substrate in phase `1.x`
 
-Craig does not expose `tmux` as part of its public product contract. The user-facing model is always Craig task plus Craig session. Phase `1.x` may implement durable sessions with `tmux` under the hood, or another substrate later, so long as session creation, attach, restore, resize, and termination continue to flow through `SessionManager` and the persisted session contract defined by this RFC.
+Craig does not expose `tmux` as part of its public product contract. The user-facing model is always Craig task plus Craig session. In phase `1.x`, each task gets its own hidden tmux session with exactly one runner pane. Craig attaches to that session only through a disposable `node-pty` client in terminal mode, and Craig intercepts the detach chord before it ever reaches tmux.
 
 ### Core abstractions
 
 - `workspace`: one Craig root containing registered repos and shared state
 - `repo`: one registered source repository inside the workspace
 - `task`: one execution unit bound to exactly one repo, one branch, and one worktree
-- `session`: one Craig-owned PTY-backed terminal session bound to exactly one task
+- `session`: one hidden durable tmux-backed runner session bound to exactly one task
+- `terminal bridge`: one disposable `node-pty` client that temporarily owns terminal-mode input for the selected task session
 - `surface`: one Craig UI context such as `agent`, `files`, `diff`, or `terminal`
 - `archive`: a workspace state in which work is hidden from the active view but can later be restored with history and metadata intact
 
@@ -100,11 +103,11 @@ Craig does not expose `tmux` as part of its public product contract. The user-fa
 3. Craig restores the previously selected repo, task, and surface when still valid.
 4. The user registers repos or selects an existing repo.
 5. The user creates a task against one repo.
-6. Craig creates the task record, branch, worktree, PTY session, and runner launch context.
+6. Craig creates the task record, branch, worktree, hidden tmux session, and runner launch context.
 7. Craig launches Codex in the new session and begins supervising task and session state.
-8. The user navigates between Craig surfaces without losing control-plane context.
-9. The user may explicitly attach to the live terminal session or open files in `nvim`.
-10. Craig preserves orientation and restores the same task and surface on return.
+8. The user navigates between Craig Ink surfaces without losing control-plane context.
+9. The user may explicitly attach to the live terminal session through the embedded `node-pty` client or open files in `nvim`.
+10. Craig preserves orientation and restores the same task and surface on detach or return.
 11. Craig supports checks, commit, PR, merge, and cleanup inside the same task model.
 12. When work is complete, the user archives the workspace and may restore it later from a global workspace list.
 
@@ -114,10 +117,10 @@ Craig has six layers:
 
 1. Control plane: workspace lifecycle, task orchestration, command dispatch, and action routing
 2. Workspace and repo model: repo registration, selection, worktree allocation, and repo-local metadata
-3. Session layer: Craig-owned session lifecycle, PTY IO, resize, attach, snapshot, and termination over a durable substrate
+3. Session layer: hidden durable tmux task sessions managed through `SessionManager`
 4. Runner layer: Codex-first adapter contract with later runner expansion
 5. State layer: workspace-scoped durable state and runtime restore data under `.craig/`
-6. UI layer: task navigation, work surfaces, context panels, and explicit input ownership
+6. UI layer: Ink-owned task navigation, work surfaces, context panels, terminal-bridge handoff, and explicit input ownership
 
 Dependency direction should remain one-way:
 
@@ -158,10 +161,11 @@ Craig should present a three-column mission-control surface from the first inter
 
 The product must preserve explicit input ownership:
 
-- `control` mode: Craig owns all keystrokes
-- `attach` mode: the selected task session owns keystrokes
+- `control` mode: Ink owns all keystrokes
+- `attach` mode: the disposable `node-pty` client owns all keystrokes
 - transitions into `attach` mode are explicit
 - transitions out of `attach` mode use a Craig-owned detach chord
+- there is no background REPL, second stdin listener, or direct stdout rendering outside the active owner
 - switching surfaces must not implicitly transfer input ownership
 
 Surface rules:
@@ -186,6 +190,18 @@ The overlay is the Craig-owned shell for:
 - explicit pause
 - restore and archive browsing
 - settings and setup actions
+
+### Screen fidelity and layout rules
+
+- interactive startup enters the alternate screen immediately after TTY checks pass
+- Craig does not print a pre-banner before the Ink shell mounts
+- all control-mode rendering flows through one Ink tree; there is no hand-rolled full-screen frame renderer and no REPL fallback
+- panel widths come from shared layout constants rather than content-driven width calculation
+- scrolling happens inside Craig panels rather than by relying on terminal scrollback
+- tmux chrome stays hidden in the embedded experience: no tmux status line, pane borders, or visible tmux keybindings
+- `full` layout is supported at `>= 160x48`
+- `compact` layout is supported at `>= 120x36` and `< 160x48`, where the right context panel collapses into a tab rail plus on-demand drawer
+- below `120x36`, Craig renders a resize overlay instead of a degraded shell
 
 Archiving a workspace must move it out of the active task list without deleting its durable state. Restoring an archived workspace must return it to the active list and restore the most recent valid UI state.
 
@@ -264,7 +280,7 @@ Overlay reference:
 
 - `1.1` Workspace bootstrap, archive model, and repo registry: `implemented`
 - `1.2` Task creation, linked repo context, and session execution: `implemented`
-- `1.3` Mission-control interaction shell: `pending`
+- `1.3` Mission-control interaction shell and screenshot shell chrome: `implemented`
 - `1.4a` End-to-end developer loop with setup, run, check, PR, merge, and cleanup: `pending`
 - `1.4b` Todos, checkpoints, and review guidance on top of the core loop: `pending`
 - `2.1` Files, diff, right-context panels, and guided review: `pending`
@@ -275,8 +291,8 @@ Overlay reference:
 ### Verification summary
 
 - `1.1` Verified with workspace-scoped bootstrap, repo registry, workspace archive and restore, persisted UI restore state, overlay rendering, and updated command routing covered by `pnpm test`, `pnpm typecheck`, and `pnpm lint`.
-- `1.2` Verified for the new task-creation path with workspace-scoped task and session records, Codex launch, linked repo persistence, task attach, task restore, and updated command routing covered by `pnpm test`, `pnpm typecheck`, and `pnpm lint`. Deprecated tmux-target compatibility fields still exist on task records for later lifecycle services and should remain treated as transitional.
-- `1.3` Not yet verified under this superseding RFC. Prior interactive control-surface work exists but does not satisfy the multi-repo and native-PTY ownership requirements.
+- `1.2` Verified for the new task-creation path with workspace-scoped task and session records, Codex launch, linked repo persistence, task attach, task restore, and updated command routing covered by `pnpm test`, `pnpm typecheck`, and `pnpm lint`. Session records now own durable tmux metadata; task records no longer act as the authoritative home for tmux targets.
+- `1.3` Implemented with an Ink-owned full-screen shell, hidden per-task tmux persistence, an embedded `node-pty` attach bridge, updated UI restore state, REPL removal, and screenshot-driven shell chrome for the header, three-column frame, boot overlay, compact drawer, and resize floor. Automated verification passed via `pnpm test`, `pnpm typecheck`, `pnpm lint`, and `pnpm build`, including render coverage for the `160x48` shell, `120x36` compact layout, boot overlay, and resize overlay. Live manual verification of terminal attach and detach on a locally built `node-pty` binary is still pending, so this sub-phase remains the current resume point.
 - `1.4a` Not yet verified under this superseding RFC. Prior developer-loop flows exist only on the old task and session model.
 - `1.4b` Not yet verified under this superseding RFC. Prior todo, checkpoint, and review-guidance behavior does not exist on the new workspace model.
 - `2.1` Not yet verified.
@@ -286,7 +302,7 @@ Overlay reference:
 
 ### Next resume point
 
-Resume at the first sub-phase that is not both implemented and verified. The current resume point is `1.3`.
+Resume at the first sub-phase that is not both implemented and verified. The current resume point remains `1.3` until live terminal attach and detach are manually verified on the shipped shell.
 
 ### Deferred phases
 
@@ -355,21 +371,31 @@ Responsible for creating, loading, updating, querying, checkpointing, archiving,
 
 #### `SessionManager`
 
-Responsible for Craig-owned session lifecycle over a durable terminal substrate:
+Responsible for Craig-owned durable task-session lifecycle over the hidden tmux substrate:
 
 - `create(task, context)`
-- `attach(sessionId, io)`
+- `attach(sessionId)`
 - `resize(sessionId, size)`
-- `write(sessionId, data)`
-- `read(sessionId)`
 - `terminate(sessionId, reason)`
 - `snapshot(sessionId)`
 
-`SessionManager` is the only layer allowed to know whether the underlying implementation is direct PTY ownership, `tmux`, or another durable session mechanism. Higher layers must depend only on the Craig session contract.
+`SessionManager` is the only layer allowed to know that phase `1.x` uses hidden per-task tmux sessions. Higher layers depend only on the Craig session contract and the persisted session record.
 
-Phase `1.x` explicitly allows `tmux` as the default durable substrate because Craig needs live-session continuity across restarts before investing in a custom broker. That does not change the public product model.
+Phase `1.x` intentionally keeps tmux as the durable process owner so live runner sessions can survive Craig restarts. That does not change the public product model because Craig never exposes tmux UI directly.
 
 `snapshot` must provide enough state to restore orientation after Craig restarts, including process status, last-known terminal metadata, substrate identity, and any replayable tail buffer Craig chooses to persist. Restoring orientation after restart is required; reattachment to a live session is required only when the configured substrate actually preserved that session.
+
+#### `TerminalBridge`
+
+Responsible for the embedded terminal-mode client lifecycle:
+
+- `attach(sessionId, size)`
+- `resize(sessionId, size)`
+- `write(sessionId, data)`
+- `detach(sessionId)`
+- `dispose(sessionId)`
+
+In phase `1.x`, `TerminalBridge` is implemented with `node-pty` and attaches a disposable tmux client to the selected task session. It owns stdin only while Craig is in terminal mode.
 
 #### `RunnerAdapter`
 
@@ -385,11 +411,11 @@ Phase `1.x` includes only a Codex adapter. Future adapters must reuse the same t
 
 #### `InputRouter`
 
-Responsible for routing keystrokes between Craig control mode and explicit terminal attach mode. It owns the detach chord and must make input ownership inspectable by the UI.
+Responsible for routing keystrokes between Ink control mode and explicit terminal attach mode. It owns the detach chord, ensures there is only one stdin owner at a time, and must make input ownership inspectable by the UI.
 
 #### `SurfaceStateStore`
 
-Responsible for selected repo, selected task, active surface, transient overlays, per-task UI context, and restore metadata. `SurfaceStateStore` persisted in `.craig/runtime/ui-state.json` is the sole authority for UI restore and selection state. Task and session records may reference IDs used by the UI, but they must not duplicate authoritative UI-selection fields.
+Responsible for selected repo, selected task, active surface, input mode, center-surface mode, right-context tab, transient overlays, and restore metadata. `SurfaceStateStore` persisted in `.craig/runtime/ui-state.json` is the sole authority for UI restore and selection state. Task and session records may reference IDs used by the UI, but they must not duplicate authoritative UI-selection fields.
 
 #### `ScriptRegistry`
 
@@ -446,7 +472,7 @@ State model decisions locked by this RFC:
 - repos are first-class records rather than implicit cwd assumptions
 - sessions are first-class records rather than fields hidden inside task state only
 - UI restore state is explicit, versioned, and authoritative only in `runtime/ui-state.json`
-- task records point to artifacts and sessions instead of embedding all volatile session state inline
+- task records point to artifacts and sessions instead of embedding volatile tmux session metadata inline
 - manual todos are first-class merge-readiness state
 - checkpoints are first-class recoverability state
 - writes to JSON state must be atomic
@@ -628,11 +654,11 @@ Deliver workspace initialization, repo registration, workspace-scoped state, ove
 
 #### 1.2 Task creation, linked repo context, and session execution
 
-Deliver per-repo task creation, branch and worktree provisioning, linked-repo context, Craig-owned session creation through `SessionManager`, Codex launch, and durable workspace plus task plus session records.
+Deliver per-repo task creation, branch and worktree provisioning, linked-repo context, hidden per-task tmux session creation through `SessionManager`, Codex launch, and durable workspace plus task plus session records.
 
 #### 1.3 Mission-control interaction shell
 
-Deliver the three-column control surface, Craig-controlled default input, overlay state, explicit attach and detach, selected repo and task persistence, and live task plus session visibility.
+Deliver the three-column Ink control surface, Craig-controlled default input, overlay state, explicit terminal attach and detach through `node-pty`, selected repo and task persistence, layout breakpoints, and live task plus session visibility without any REPL fallback.
 
 #### 1.4a End-to-end developer loop with setup, run, check, PR, merge, and cleanup
 
@@ -698,7 +724,7 @@ Consider generalized jobs only if the core workspace-repo-task product is solid 
 - implement task creation against a selected `repoId`
 - create repo-scoped worktree paths under workspace state
 - implement optional linked repo ids for task context
-- implement Craig-owned sessions through `SessionManager`, using a durable substrate such as `tmux` in phase `1.x` if needed
+- implement Craig-owned sessions through `SessionManager`, with hidden per-task tmux sessions as the durable substrate in phase `1.x`
 - implement the Codex runner adapter using the new `RunnerAdapter` contract
 - persist first-class workspace, task, and session records linked by `sessionId`
 
@@ -711,19 +737,20 @@ Consider generalized jobs only if the core workspace-repo-task product is solid 
 
 #### Tracking update
 
-- keep `1.2` open if higher layers still depend directly on `tmux` semantics or repo-local cwd assumptions
+- keep `1.2` open if higher layers still depend on duplicated tmux metadata in task records or repo-local cwd assumptions
 - record any native-PTY portability limitations explicitly
 
 ### 1.3 Handoff
 
 #### Implementation
 
-- implement the three-column mission-control shell on the new workspace model
-- make Craig-controlled input the default at startup and during normal navigation
+- implement the three-column Ink mission-control shell on the new workspace model
+- make Ink the sole control-mode stdin owner at startup and during normal navigation
 - implement overlay entry for start, pause, archive access, and top-level workspace actions
-- implement explicit attach mode and a Craig-owned detach chord
-- persist selected repo, selected task, active surface, transient surface state, and per-task UI context in `SurfaceStateStore`
+- implement explicit attach mode through `node-pty` and a Craig-owned detach chord intercepted before tmux sees it
+- persist selected repo, selected task, active surface, input mode, center-surface mode, context tab, and last attached session id in `SurfaceStateStore`
 - surface live task and session status without forcing users into raw terminal mode
+- enter the alternate screen immediately, remove the REPL fallback, and enforce the `160x48` full / `120x36` compact / resize-overlay breakpoint contract
 
 #### Verification
 
@@ -731,11 +758,12 @@ Consider generalized jobs only if the core workspace-repo-task product is solid 
 - manually verify switching between `agent`, `files`, `diff`, and `terminal` surfaces without implicit input-ownership changes
 - manually verify explicit attach, terminal interaction, and Craig-owned detach returning to the same task and surface
 - manually verify overlay open and close behavior does not lose task orientation
+- manually verify the full-screen shell against the reference screenshots at the documented viewport sizes
 
 #### Tracking update
 
-- keep `1.3` open if refresh, restore, or surface switching changes input ownership implicitly
-- record any UI limitations around restore stability or large-workspace performance
+- keep `1.3` open if refresh, restore, or surface switching changes input ownership implicitly, if Ink falls back to non-full-screen behavior, or if `node-pty` cannot be built locally
+- record any UI limitations around restore stability, large-workspace performance, or native `node-pty` setup explicitly
 
 ### 1.4a Handoff
 
@@ -871,9 +899,11 @@ Consider generalized jobs only if the core workspace-repo-task product is solid 
 - `[1.2]` Craig can restore the selected task after restart without requiring implicit session attach, and can reattach only when the configured session substrate preserved a live session.
 - `[1.2]` `repo remove <repo-id>` is blocked until no task records still reference that repo.
 - `[1.2]` Linked repos can be attached for context without changing the task's primary repo ownership.
-- `[1.3]` Craig presents a three-column mission-control shell with Craig-owned input by default.
+- `[1.3]` Craig presents a three-column Ink mission-control shell with Ink-owned input by default.
 - `[1.3]` Switching between `agent`, `files`, `diff`, and `terminal` surfaces does not implicitly transfer input ownership.
-- `[1.3]` Explicit attach and Craig-owned detach return the user to the same task and surface context.
+- `[1.3]` Explicit attach through `node-pty` and Craig-owned detach return the user to the same task and surface context.
+- `[1.3]` Interactive startup enters the alternate screen immediately, does not print a pre-banner, and does not fall back to a REPL.
+- `[1.3]` The interactive shell stays on the documented full, compact, and resize-overlay layouts instead of freeform reflow.
 - `[1.4a]` Users can run setup scripts, run scripts, inspect, check, commit, open a PR, watch CI, merge, and clean up from the selected task on the new multi-repo model.
 - `[1.4a]` Craig blocks invalid transitions against missing, degraded, or non-ready tasks.
 - `[1.4b]` Users can manage merge-blocking todos and see guided next actions derived from checks, todos, and PR state.

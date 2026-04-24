@@ -3,6 +3,7 @@ import os from "node:os";
 import path from "node:path";
 
 import { getCraigPaths } from "../src/state/craig-paths.js";
+import type { SessionRecord } from "../src/types/session.js";
 import type { TaskRecord } from "../src/types/task.js";
 import type { RepoRecord, WorkspaceRecord } from "../src/types/workspace.js";
 import { runCommand } from "../src/utils/exec.js";
@@ -84,6 +85,18 @@ export async function writeTaskRecord(repoRoot: string, task: Partial<TaskRecord
   return record;
 }
 
+export async function writeSessionRecord(
+  workspaceRoot: string,
+  session: Partial<SessionRecord> & { id: string; taskId: string },
+) {
+  const paths = getCraigPaths(workspaceRoot);
+  const record = buildSessionRecord(workspaceRoot, session);
+
+  await writeFile(`${paths.sessionsDir}/${record.id}.json`, JSON.stringify(record, null, 2), "utf8");
+
+  return record;
+}
+
 export function buildTaskRecord(
   repoRoot: string,
   task: Partial<TaskRecord> & { id: string },
@@ -105,13 +118,8 @@ export function buildTaskRecord(
     repoRoot,
     worktreePath: task.worktreePath ?? path.join(paths.worktreesDir, task.id),
     branch: task.branch ?? `craig/${task.id}`,
-    tmuxTarget: task.tmuxTarget ?? "%42",
-    tmuxWindowTarget: task.tmuxWindowTarget ?? "@1",
-    tmuxPage: task.tmuxPage ?? 1,
-    layoutSlot: task.layoutSlot ?? 1,
     runnerSession: task.runnerSession ?? {
       command: ["codex", task.title ?? "test task"],
-      tmuxTarget: task.tmuxTarget ?? "%42",
       pid: null,
       startedAt: now,
       lastKnownState: "running",
@@ -163,6 +171,48 @@ export function buildTaskRecord(
   };
 }
 
+export function buildSessionRecord(
+  workspaceRoot: string,
+  session: Partial<SessionRecord> & { id: string; taskId: string },
+): SessionRecord {
+  const paths = getCraigPaths(workspaceRoot);
+  const now = "2026-04-21T00:00:00.000Z";
+
+  return {
+    id: session.id,
+    taskId: session.taskId,
+    repoId: session.repoId ?? "repo_test",
+    workspaceId: session.workspaceId ?? "workspace_repo_test",
+    substrate: "tmux",
+    sessionName: session.sessionName ?? `craig-test-${session.taskId}`,
+    paneId: session.paneId ?? "%42",
+    windowTarget: session.windowTarget ?? "@1",
+    worktreePath: session.worktreePath ?? path.join(paths.worktreesDir, session.taskId),
+    logPath: session.logPath ?? `.craig/logs/${session.taskId}.log`,
+    command: session.command ?? ["codex", "test task"],
+    status: session.status ?? "running",
+    startedAt: session.startedAt ?? now,
+    exitedAt: session.exitedAt ?? null,
+    exitCode: session.exitCode ?? null,
+    lastAttachedAt: session.lastAttachedAt ?? null,
+    attach: session.attach ?? {
+      detachChord: "ctrl+]",
+      lastSize: {
+        columns: 160,
+        rows: 48,
+      },
+    },
+    snapshot: session.snapshot ?? {
+      paneId: session.paneId ?? "%42",
+      windowTarget: session.windowTarget ?? "@1",
+      alive: true,
+      capturedAt: now,
+    },
+    createdAt: session.createdAt ?? now,
+    updatedAt: session.updatedAt ?? now,
+  };
+}
+
 export async function createStubCommands(root: string): Promise<string> {
   const stubDir = path.join(root, "stubs");
   await mkdir(stubDir, { recursive: true });
@@ -208,11 +258,9 @@ exit 1
 set -eu
 state_file="\${CRAIG_TEST_TMUX_STATE_FILE:-}"
 command_log="\${CRAIG_TEST_TMUX_COMMAND_LOG:-}"
+session_name="\${CRAIG_TEST_TMUX_SESSION_NAME:-craig-test-task_1}"
 window_target="\${CRAIG_TEST_TMUX_WINDOW_TARGET:-@0}"
-control_pane_id="\${CRAIG_TEST_TMUX_CONTROL_PANE_ID:-%1}"
-split_fail="\${CRAIG_TEST_TMUX_SPLIT_FAIL:-0}"
-new_window_pane_id="\${CRAIG_TEST_TMUX_NEW_WINDOW_PANE_ID:-%84}"
-new_window_target="\${CRAIG_TEST_TMUX_NEW_WINDOW_TARGET:-@1}"
+pane_id="\${CRAIG_TEST_TMUX_PANE_ID:-%42}"
 if [ "\${CRAIG_TEST_TMUX_FAIL:-0}" = "1" ]; then
   echo "tmux failure" >&2
   exit 1
@@ -228,42 +276,21 @@ case "$1" in
   new-session)
     [ -n "$state_file" ] && : > "$state_file"
     if [ "$4" = "-F" ]; then
-      echo "$window_target $control_pane_id"
+      echo "$session_name $window_target $pane_id"
     fi
-    exit 0
-    ;;
-  list-windows)
-    echo "$window_target"
     exit 0
     ;;
   list-panes)
-    if [ "$4" = "-t" ] && [ "$5" = "$window_target" ]; then
-      echo "$control_pane_id"
-      echo "%42"
-      exit 0
-    fi
-    echo "$new_window_pane_id"
-    exit 0
-    ;;
-  split-window)
-    if [ "$split_fail" = "1" ]; then
-      echo "no space for new pane" >&2
-      exit 1
-    fi
-    echo "%42"
-    exit 0
-    ;;
-  new-window)
-    echo "$new_window_target $new_window_pane_id"
+    echo "$pane_id"
     exit 0
     ;;
   pipe-pane)
     exit 0
     ;;
-  select-layout)
+  set-option)
     exit 0
     ;;
-  resize-pane)
+  set-window-option)
     exit 0
     ;;
   select-window)
@@ -276,6 +303,12 @@ case "$1" in
     exit 0
     ;;
   attach-session)
+    exit 0
+    ;;
+  resize-window)
+    exit 0
+    ;;
+  kill-session)
     exit 0
     ;;
   kill-pane)

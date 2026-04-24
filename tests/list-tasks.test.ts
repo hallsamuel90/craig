@@ -53,7 +53,6 @@ describe("listTasks", () => {
           repoRoot,
           worktreePath: `${paths.worktreesDir}/task_1`,
           branch: "craig/task_1",
-          tmuxTarget: "%42",
           prompt: {
             source: "inline",
             value: "legacy task",
@@ -98,7 +97,6 @@ describe("listTasks", () => {
     expect(result.tasks).toHaveLength(1);
     expect(result.tasks[0]?.runnerSession).toEqual({
       command: ["cursor", "agent", "legacy task"],
-      tmuxTarget: "%42",
       pid: null,
       startedAt: null,
       lastKnownState: "running",
