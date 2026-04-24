@@ -1,10 +1,15 @@
 import path from "node:path";
 
 export interface CraigPaths {
+  workspaceRoot: string;
+  // Kept as a compatibility alias for deferred repo-scoped services.
   repoRoot: string;
   craigDir: string;
   indexFile: string;
+  reposDir: string;
+  workspacesDir: string;
   runtimeDir: string;
+  uiStateFile: string;
   sessionFile: string;
   tasksDir: string;
   jobsDir: string;
@@ -14,14 +19,18 @@ export interface CraigPaths {
   configFile: string;
 }
 
-export function getCraigPaths(repoRoot: string): CraigPaths {
-  const craigDir = path.join(repoRoot, ".craig");
+export function getCraigPaths(workspaceRoot: string): CraigPaths {
+  const craigDir = path.join(workspaceRoot, ".craig");
 
   return {
-    repoRoot,
+    workspaceRoot,
+    repoRoot: workspaceRoot,
     craigDir,
     indexFile: path.join(craigDir, "index.json"),
+    reposDir: path.join(craigDir, "repos"),
+    workspacesDir: path.join(craigDir, "workspaces"),
     runtimeDir: path.join(craigDir, "runtime"),
+    uiStateFile: path.join(craigDir, "runtime", "ui-state.json"),
     sessionFile: path.join(craigDir, "runtime", "session.json"),
     tasksDir: path.join(craigDir, "tasks"),
     jobsDir: path.join(craigDir, "jobs"),

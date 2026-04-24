@@ -1,34 +1,27 @@
 import path from "node:path";
 
 import type { CommandContext } from "./commands/command-router.js";
-import { listTasks } from "./services/list-tasks.js";
+import { listRegisteredRepos } from "./services/repo-registry.js";
+import { listWorkspaces } from "./services/workspace-registry.js";
 
 export async function renderControlView(context: CommandContext, recentEvent: string | null): Promise<string> {
-  const listing = await listTasks(context.paths);
+  const [repos, workspaces, archived] = await Promise.all([
+    listRegisteredRepos(context.paths),
+    listWorkspaces(context.paths, { archived: false }),
+    listWorkspaces(context.paths, { archived: true }),
+  ]);
   const lines = [
-    "CRAIG CONTROL",
-    `Workspace: ${path.basename(context.paths.repoRoot)} | Tasks: ${listing.tasks.length}`,
+    "CRAIG WORKSPACE",
+    `Workspace: ${path.basename(context.paths.workspaceRoot)} | Repos: ${repos.repos.length} | Active workspaces: ${workspaces.workspaces.length}`,
+    `Archived: ${archived.workspaces.length}`,
     recentEvent ? `Recent: ${recentEvent}` : "Recent: ready",
-    "ID\tSTATUS\tRUNNER\tCHECKS\tPR\tPAGE\tTITLE",
   ];
 
-  for (const task of listing.tasks) {
-    const pr = task.pullRequest.number ? `#${task.pullRequest.number}:${task.pullRequest.status ?? "unknown"}` : "-";
-    lines.push(
-      [
-        task.id,
-        task.status,
-        task.runnerSession.lastKnownState,
-        task.checks.status,
-        pr,
-        task.tmuxPage ?? "-",
-        task.title,
-      ].join("\t"),
-    );
-  }
-
-  if (listing.tasks.length === 0) {
-    lines.push("<no tasks>");
+  if (repos.repos.length === 0) {
+    lines.push("<no repos>");
+  } else {
+    lines.push("REPOS");
+    lines.push(...repos.repos.map((repo) => `${repo.id}\t${repo.defaultBranch}\t${repo.rootPath}`));
   }
 
   return lines.join("\n");

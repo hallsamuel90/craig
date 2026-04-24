@@ -1,274 +1,174 @@
-import { rm } from "node:fs/promises";
+import { readFile, rm } from "node:fs/promises";
+import path from "node:path";
+
 import { afterEach, describe, expect, test } from "vitest";
 
 import { executeCommand } from "../src/commands/command-router.js";
 import { parseArgv } from "../src/commands/parse-argv.js";
 import { parseReplCommand } from "../src/commands/parse-repl.js";
-import { readTask } from "../src/state/task-store.js";
-import { createCraigState, createRepoRoot, createStubCommands, writeTaskRecord } from "./test-helpers.js";
+import { getCraigPaths } from "../src/state/craig-paths.js";
+import { readRepo } from "../src/state/repo-store.js";
+import { readUiState } from "../src/state/ui-state-store.js";
+import { readWorkspace } from "../src/state/workspace-store.js";
+import { createCraigState, createGitRepo, createRepoRoot } from "./test-helpers.js";
 
 const tempRoots: string[] = [];
-const originalPath = process.env.PATH ?? "";
-const originalEnv = {
-  CRAIG_TEST_GIT_EXISTING_BRANCHES: process.env.CRAIG_TEST_GIT_EXISTING_BRANCHES,
-  CRAIG_TEST_GIT_WORKTREE_FAIL: process.env.CRAIG_TEST_GIT_WORKTREE_FAIL,
-  CRAIG_TEST_TMUX_STATE_FILE: process.env.CRAIG_TEST_TMUX_STATE_FILE,
-  CRAIG_TEST_TMUX_COMMAND_LOG: process.env.CRAIG_TEST_TMUX_COMMAND_LOG,
-};
 
 afterEach(async () => {
-  await Promise.all(
-    tempRoots.splice(0).map(async (root) => rm(root, { recursive: true, force: true })),
-  );
-  process.env.PATH = originalPath;
-  process.env.CRAIG_TEST_GIT_EXISTING_BRANCHES = originalEnv.CRAIG_TEST_GIT_EXISTING_BRANCHES;
-  process.env.CRAIG_TEST_GIT_WORKTREE_FAIL = originalEnv.CRAIG_TEST_GIT_WORKTREE_FAIL;
-  process.env.CRAIG_TEST_TMUX_STATE_FILE = originalEnv.CRAIG_TEST_TMUX_STATE_FILE;
-  process.env.CRAIG_TEST_TMUX_COMMAND_LOG = originalEnv.CRAIG_TEST_TMUX_COMMAND_LOG;
+  await Promise.all(tempRoots.splice(0).map(async (root) => rm(root, { recursive: true, force: true })));
 });
 
 describe("command routing", () => {
-  test("argv and REPL list commands normalize to the same command", () => {
-    expect(parseArgv(["task", "list"]).command).toEqual({ kind: "listTasks" });
-    expect(parseArgv(["--", "task", "list"]).command).toEqual({ kind: "listTasks" });
-    expect(parseReplCommand("list")).toEqual({ kind: "listTasks" });
+  test("argv and REPL repo list commands normalize to the same command", () => {
+    expect(parseArgv(["repo", "list"]).command).toEqual({ kind: "listRepos" });
+    expect(parseArgv(["--", "repo", "list"]).command).toEqual({ kind: "listRepos" });
+    expect(parseReplCommand("repo list")).toEqual({ kind: "listRepos" });
   });
 
-  test("argv and REPL inspection commands normalize to the same command", () => {
-    expect(parseArgv(["task", "show", "task_1"]).command).toEqual({
-      kind: "showTask",
-      taskId: "task_1",
+  test("argv and REPL workspace commands normalize to the same command", () => {
+    expect(parseArgv(["workspace", "list"]).command).toEqual({ kind: "listWorkspaces", archived: false });
+    expect(parseArgv(["workspace", "list", "--archived"]).command).toEqual({
+      kind: "listWorkspaces",
+      archived: true,
     });
-    expect(parseReplCommand("show")).toEqual({
-      kind: "showSelectedTask",
+    expect(parseReplCommand("workspace list")).toEqual({ kind: "listWorkspaces", archived: false });
+    expect(parseReplCommand("workspace list --archived")).toEqual({ kind: "listWorkspaces", archived: true });
+    expect(parseArgv(["workspace", "archive", "workspace_repo_one"]).command).toEqual({
+      kind: "archiveWorkspace",
+      workspaceId: "workspace_repo_one",
     });
-    expect(parseReplCommand("show task_1")).toEqual({
-      kind: "showTask",
-      taskId: "task_1",
-    });
-
-    expect(parseArgv(["task", "logs", "task_1"]).command).toEqual({
-      kind: "streamTaskLogs",
-      taskId: "task_1",
-    });
-    expect(parseReplCommand("logs")).toEqual({
-      kind: "streamSelectedTaskLogs",
-    });
-    expect(parseReplCommand("logs task_1")).toEqual({
-      kind: "streamTaskLogs",
-      taskId: "task_1",
-    });
-
-    expect(parseArgv(["task", "diff", "task_1"]).command).toEqual({
-      kind: "showTaskDiff",
-      taskId: "task_1",
-    });
-    expect(parseReplCommand("diff")).toEqual({
-      kind: "showSelectedTaskDiff",
-    });
-    expect(parseReplCommand("diff task_1")).toEqual({
-      kind: "showTaskDiff",
-      taskId: "task_1",
-    });
-
-    expect(parseArgv(["task", "focus", "task_1"]).command).toEqual({
-      kind: "focusTask",
-      taskId: "task_1",
-    });
-    expect(parseReplCommand("focus")).toEqual({
-      kind: "focusSelectedTask",
-    });
-    expect(parseReplCommand("focus task_1")).toEqual({
-      kind: "focusTask",
-      taskId: "task_1",
-    });
-
-    expect(parseArgv(["task", "open", "task_1"]).command).toEqual({
-      kind: "openTask",
-      taskId: "task_1",
-    });
-    expect(parseReplCommand("open")).toEqual({
-      kind: "openSelectedTask",
-    });
-    expect(parseReplCommand("open task_1")).toEqual({
-      kind: "openTask",
-      taskId: "task_1",
-    });
-
-    expect(parseArgv(["task", "check", "task_1"]).command).toEqual({
-      kind: "runChecks",
-      taskId: "task_1",
-    });
-    expect(parseReplCommand("check")).toEqual({
-      kind: "runSelectedTaskChecks",
-    });
-    expect(parseReplCommand("check task_1")).toEqual({
-      kind: "runChecks",
-      taskId: "task_1",
-    });
-
-    expect(parseArgv(["task", "commit", "task_1"]).command).toEqual({
-      kind: "commitTask",
-      taskId: "task_1",
-    });
-    expect(parseReplCommand("commit")).toEqual({
-      kind: "commitSelectedTask",
-    });
-    expect(parseReplCommand("commit task_1")).toEqual({
-      kind: "commitTask",
-      taskId: "task_1",
-    });
-
-    expect(parseArgv(["task", "pr", "task_1"]).command).toEqual({
-      kind: "openPullRequest",
-      taskId: "task_1",
-      watch: false,
-    });
-    expect(parseReplCommand("pr")).toEqual({
-      kind: "openSelectedTaskPullRequest",
-      watch: false,
-    });
-    expect(parseReplCommand("pr --watch")).toEqual({
-      kind: "openSelectedTaskPullRequest",
-      watch: true,
-    });
-    expect(parseReplCommand("pr task_1")).toEqual({
-      kind: "openPullRequest",
-      taskId: "task_1",
-      watch: false,
-    });
-
-    expect(parseArgv(["task", "pr", "task_1", "--watch"]).command).toEqual({
-      kind: "openPullRequest",
-      taskId: "task_1",
-      watch: true,
-    });
-    expect(parseReplCommand("pr task_1 --watch")).toEqual({
-      kind: "openPullRequest",
-      taskId: "task_1",
-      watch: true,
-    });
-
-    expect(parseArgv(["task", "merge", "task_1"]).command).toEqual({
-      kind: "mergeTask",
-      taskId: "task_1",
-      preserveWorktree: false,
-    });
-    expect(parseReplCommand("merge")).toEqual({
-      kind: "mergeSelectedTask",
-      preserveWorktree: false,
-    });
-    expect(parseReplCommand("merge --preserve-worktree")).toEqual({
-      kind: "mergeSelectedTask",
-      preserveWorktree: true,
-    });
-    expect(parseReplCommand("merge task_1")).toEqual({
-      kind: "mergeTask",
-      taskId: "task_1",
-      preserveWorktree: false,
-    });
-
-    expect(parseArgv(["task", "merge", "task_1", "--preserve-worktree"]).command).toEqual({
-      kind: "mergeTask",
-      taskId: "task_1",
-      preserveWorktree: true,
-    });
-    expect(parseReplCommand("merge task_1 --preserve-worktree")).toEqual({
-      kind: "mergeTask",
-      taskId: "task_1",
-      preserveWorktree: true,
+    expect(parseReplCommand("workspace restore workspace_repo_one")).toEqual({
+      kind: "restoreWorkspace",
+      workspaceId: "workspace_repo_one",
     });
   });
 
-  test("argv and REPL new commands normalize to the same command", () => {
-    expect(parseArgv(["task", "new", "refactor", "auth"]).command).toEqual({
-      kind: "createTask",
-      title: "refactor auth",
-    });
-    expect(parseReplCommand("new refactor auth")).toEqual({
-      kind: "createTask",
-      title: "refactor auth",
-    });
-    expect(parseReplCommand("refresh")).toEqual({
-      kind: "refreshInteractiveState",
-    });
-  });
+  test("shared executor registers a repo and creates a matching active workspace", async () => {
+    const workspaceRoot = await createRepoRoot("craig-router-");
+    const repoRoot = path.join(workspaceRoot, "repo-a");
+    tempRoots.push(workspaceRoot);
+    await createCraigState(workspaceRoot);
+    await import("node:fs/promises").then(({ mkdir }) => mkdir(repoRoot, { recursive: true }));
+    await createGitRepo(repoRoot);
+    const paths = getCraigPaths(workspaceRoot);
 
-  test("shared executor handles list commands from both entry points", async () => {
-    const repoRoot = await createRepoRoot("craig-router-");
-    tempRoots.push(repoRoot);
-    const paths = await createCraigState(repoRoot);
+    const argvResult = await executeCommand(parseArgv(["repo", "add", "./repo-a"]).command!, { paths });
+    const replResult = await executeCommand(parseReplCommand("repo list"), { paths });
 
-    const argvCommand = parseArgv(["task", "list"]).command;
-    const replCommand = parseReplCommand("list");
-
-    const argvResult = await executeCommand(argvCommand!, { paths });
-    const replResult = await executeCommand(replCommand, { paths });
-
-    expect(argvResult).toEqual(replResult);
-  });
-
-  test("shared executor handles create-task commands from both entry points", async () => {
-    const repoRootA = await createRepoRoot("craig-router-create-a-");
-    const repoRootB = await createRepoRoot("craig-router-create-b-");
-    tempRoots.push(repoRootA, repoRootB);
-    const pathsA = await createCraigState(repoRootA);
-    const pathsB = await createCraigState(repoRootB);
-    const stubDir = await createStubCommands(repoRootA);
-    const tmuxStateFile = `${repoRootA}/tmux-state`;
-    const tmuxCommandLog = `${repoRootA}/tmux-commands.log`;
-
-    process.env.PATH = `${stubDir}:${originalPath}`;
-    process.env.CRAIG_TEST_TMUX_STATE_FILE = tmuxStateFile;
-    process.env.CRAIG_TEST_TMUX_COMMAND_LOG = tmuxCommandLog;
-
-    const argvResult = await executeCommand(parseArgv(["task", "new", "refactor", "auth"]).command!, {
-      paths: pathsA,
-    });
-    const replResult = await executeCommand(parseReplCommand("new refactor auth"), {
-      paths: pathsB,
-    });
-
-    if (argvResult.kind !== "createTask" || replResult.kind !== "createTask") {
-      throw new Error("Expected createTask results from both command paths.");
+    expect(argvResult.kind).toBe("createRepo");
+    if (argvResult.kind !== "createRepo" || replResult.kind !== "listRepos") {
+      throw new Error("Expected repo registration results.");
     }
 
-    expect(argvResult.kind).toBe("createTask");
-    expect(replResult.kind).toBe("createTask");
-    expect(argvResult.branch).toBe(replResult.branch);
-    expect(argvResult.runner).toBe("cursor");
-    expect(replResult.runner).toBe("cursor");
+    expect(argvResult.created).toBe(true);
+    expect(replResult.repos).toHaveLength(1);
 
-    const createdTask = await readTask(pathsA, argvResult.taskId);
-    expect(createdTask.status).toBe("running");
+    const repo = await readRepo(paths, argvResult.repo.id);
+    const workspace = await readWorkspace(paths, argvResult.workspaceId);
+    const uiState = await readUiState({ uiStateFile: paths.uiStateFile });
+
+    expect(repo.rootPath).toBe(repoRoot);
+    expect(workspace.primaryRepoId).toBe(repo.id);
+    expect(workspace.status).toBe("active");
+    expect(uiState?.selectedRepoId).toBe(repo.id);
+    expect(uiState?.selectedWorkspaceId).toBe(workspace.id);
   });
 
-  test("unknown commands are rejected in both parsing flows", () => {
-    expect(() => parseArgv(["task", "unknown"])).toThrow(/Unsupported command/);
-    expect(() => parseReplCommand("wat")).toThrow(/Unknown command/);
+  test("repo list is deterministic across multiple registrations", async () => {
+    const workspaceRoot = await createRepoRoot("craig-router-list-");
+    tempRoots.push(workspaceRoot);
+    await createCraigState(workspaceRoot);
+    const paths = getCraigPaths(workspaceRoot);
+
+    for (const name of ["zebra", "alpha"]) {
+      const repoRoot = path.join(workspaceRoot, name);
+      await import("node:fs/promises").then(({ mkdir }) => mkdir(repoRoot, { recursive: true }));
+      await createGitRepo(repoRoot);
+      await executeCommand({ kind: "addRepo", path: `./${name}` }, { paths });
+    }
+
+    const result = await executeCommand({ kind: "listRepos" }, { paths });
+
+    expect(result.kind).toBe("listRepos");
+    if (result.kind !== "listRepos") {
+      throw new Error("Expected listRepos result.");
+    }
+
+    expect(result.repos.map((repo) => repo.name)).toEqual(["alpha", "zebra"]);
   });
-  test("empty new commands are rejected", () => {
-    expect(() => parseArgv(["task", "new"])).toThrow(/Task title cannot be empty/);
-    expect(() => parseReplCommand("new")).toThrow(/Task title cannot be empty/);
+
+  test("workspace archive and restore update state and persisted UI selection", async () => {
+    const workspaceRoot = await createRepoRoot("craig-router-archive-");
+    const repoRoot = path.join(workspaceRoot, "repo-a");
+    tempRoots.push(workspaceRoot);
+    await createCraigState(workspaceRoot);
+    await import("node:fs/promises").then(({ mkdir }) => mkdir(repoRoot, { recursive: true }));
+    await createGitRepo(repoRoot);
+    const paths = getCraigPaths(workspaceRoot);
+
+    const created = await executeCommand({ kind: "addRepo", path: "./repo-a" }, { paths });
+    if (created.kind !== "createRepo") {
+      throw new Error("Expected createRepo result.");
+    }
+
+    const archived = await executeCommand({ kind: "archiveWorkspace", workspaceId: created.workspaceId }, { paths });
+    expect(archived.kind).toBe("archiveWorkspace");
+
+    const archivedRecord = await readWorkspace(paths, created.workspaceId);
+    const afterArchiveUi = await readUiState({ uiStateFile: paths.uiStateFile });
+    expect(archivedRecord.status).toBe("archived");
+    expect(afterArchiveUi?.selectedRepoId).toBeNull();
+    expect(afterArchiveUi?.overlayMode).toBe("archives");
+
+    const restored = await executeCommand({ kind: "restoreWorkspace", workspaceId: created.workspaceId }, { paths });
+    expect(restored.kind).toBe("restoreWorkspace");
+
+    const restoredRecord = await readWorkspace(paths, created.workspaceId);
+    const afterRestoreUi = await readUiState({ uiStateFile: paths.uiStateFile });
+    expect(restoredRecord.status).toBe("active");
+    expect(afterRestoreUi?.selectedRepoId).toBe(created.repo.id);
+    expect(afterRestoreUi?.selectedWorkspaceId).toBe(created.workspaceId);
   });
 
-  test("selected-task routing uses the current selection and fails clearly when missing", async () => {
-    const repoRoot = await createRepoRoot("craig-router-selected-");
-    tempRoots.push(repoRoot);
-    const paths = await createCraigState(repoRoot, ["task_1"]);
-    await writeTaskRecord(repoRoot, { id: "task_1" });
+  test("repo remove requires the workspace to be archived first and then removes archived state", async () => {
+    const workspaceRoot = await createRepoRoot("craig-router-remove-");
+    const repoRoot = path.join(workspaceRoot, "repo-a");
+    tempRoots.push(workspaceRoot);
+    await createCraigState(workspaceRoot);
+    await import("node:fs/promises").then(({ mkdir }) => mkdir(repoRoot, { recursive: true }));
+    await createGitRepo(repoRoot);
+    const paths = getCraigPaths(workspaceRoot);
 
-    const result = await executeCommand({ kind: "showSelectedTask" }, { paths, selectedTaskId: "task_1" });
+    const created = await executeCommand({ kind: "addRepo", path: "./repo-a" }, { paths });
+    if (created.kind !== "createRepo") {
+      throw new Error("Expected createRepo result.");
+    }
 
-    expect(result.kind).toBe("showTask");
-    await expect(executeCommand({ kind: "showSelectedTask" }, { paths, selectedTaskId: null })).rejects.toThrow(
-      /No task selected/,
+    await expect(executeCommand({ kind: "removeRepo", repoId: created.repo.id }, { paths })).rejects.toThrow(
+      /active workspace records still reference it/,
+    );
+
+    await executeCommand({ kind: "archiveWorkspace", workspaceId: created.workspaceId }, { paths });
+    const removed = await executeCommand({ kind: "removeRepo", repoId: created.repo.id }, { paths });
+
+    expect(removed.kind).toBe("removeRepo");
+    await expect(readFile(path.join(paths.reposDir, `${created.repo.id}.json`), "utf8")).rejects.toThrow();
+    await expect(readFile(path.join(paths.workspacesDir, `${created.workspaceId}.json`), "utf8")).rejects.toThrow();
+  });
+
+  test("invalid repo registrations are rejected", async () => {
+    const workspaceRoot = await createRepoRoot("craig-router-invalid-");
+    tempRoots.push(workspaceRoot);
+    await createCraigState(workspaceRoot);
+    const paths = getCraigPaths(workspaceRoot);
+
+    await expect(executeCommand({ kind: "addRepo", path: "./missing" }, { paths })).rejects.toThrow(
+      /Repo path does not exist/,
     );
   });
 
-  test("command mode still rejects empty task ids for explicit commands", () => {
-    expect(() => parseArgv(["task", "show", ""])).toThrow(/Task id cannot be empty/);
-    expect(() => parseArgv(["task", "logs", ""])).toThrow(/Task id cannot be empty/);
-    expect(() => parseArgv(["task", "focus", ""])).toThrow(/Task id cannot be empty/);
+  test("unknown commands are rejected in both parsing flows", () => {
+    expect(() => parseArgv(["repo", "unknown"])).toThrow(/Unsupported command/);
+    expect(() => parseReplCommand("wat")).toThrow(/Unknown command/);
   });
 });

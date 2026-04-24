@@ -1,6 +1,13 @@
 import type { TaskRecord } from "./task.js";
+import type { RepoRecord, WorkspaceRecord } from "./workspace.js";
 
 export type AppCommand =
+  | { kind: "addRepo"; path: string }
+  | { kind: "listRepos" }
+  | { kind: "removeRepo"; repoId: string }
+  | { kind: "listWorkspaces"; archived: boolean }
+  | { kind: "archiveWorkspace"; workspaceId: string }
+  | { kind: "restoreWorkspace"; workspaceId: string }
   | { kind: "createTask"; title: string }
   | { kind: "listTasks" }
   | { kind: "refreshInteractiveState" }
@@ -33,6 +40,44 @@ export interface CommandCreateTaskResult {
   worktreePath: string;
   tmuxTarget: string;
   runner: string;
+}
+
+export interface CommandCreateRepoResult {
+  kind: "createRepo";
+  repo: RepoRecord;
+  workspaceId: string;
+  created: boolean;
+}
+
+export interface CommandListReposResult {
+  kind: "listRepos";
+  repos: RepoRecord[];
+}
+
+export interface CommandRemoveRepoResult {
+  kind: "removeRepo";
+  repoId: string;
+  rootPath: string;
+}
+
+export interface CommandListWorkspacesResult {
+  kind: "listWorkspaces";
+  workspaces: WorkspaceRecord[];
+  archivedOnly: boolean;
+}
+
+export interface CommandArchiveWorkspaceResult {
+  kind: "archiveWorkspace";
+  workspaceId: string;
+  status: "archived";
+  branch: string;
+}
+
+export interface CommandRestoreWorkspaceResult {
+  kind: "restoreWorkspace";
+  workspaceId: string;
+  status: "active";
+  branch: string;
 }
 
 export interface CommandHelpResult {
@@ -130,6 +175,12 @@ export interface CommandMergeResult {
 }
 
 export type CommandResult =
+  | CommandCreateRepoResult
+  | CommandListReposResult
+  | CommandRemoveRepoResult
+  | CommandListWorkspacesResult
+  | CommandArchiveWorkspaceResult
+  | CommandRestoreWorkspaceResult
   | CommandCreateTaskResult
   | CommandHelpResult
   | CommandExitResult

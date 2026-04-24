@@ -12,6 +12,8 @@ import { runChecks } from "../services/run-checks.js";
 import { commitTask } from "../services/commit-task.js";
 import { openPullRequest } from "../services/open-pull-request.js";
 import { mergeTask } from "../services/merge-task.js";
+import { addRepo, listRegisteredRepos, removeRepo } from "../services/repo-registry.js";
+import { archiveWorkspace, listWorkspaces, restoreWorkspace } from "../services/workspace-registry.js";
 
 export interface CommandContext {
   paths: CraigPaths;
@@ -23,6 +25,18 @@ export async function executeCommand(
   context: CommandContext,
 ): Promise<CommandResult> {
   switch (command.kind) {
+    case "addRepo":
+      return addRepo(context.paths, command.path);
+    case "listRepos":
+      return listRegisteredRepos(context.paths);
+    case "removeRepo":
+      return removeRepo(context.paths, command.repoId);
+    case "listWorkspaces":
+      return listWorkspaces(context.paths, { archived: command.archived });
+    case "archiveWorkspace":
+      return archiveWorkspace(context.paths, command.workspaceId);
+    case "restoreWorkspace":
+      return restoreWorkspace(context.paths, command.workspaceId);
     case "createTask":
       return createTask(context.paths, command.title);
     case "listTasks":

@@ -2,6 +2,38 @@ import type { CommandResult } from "./types/command.js";
 
 export function formatCommandResult(result: CommandResult): string {
   switch (result.kind) {
+    case "createRepo":
+      return [
+        `${result.created ? "Registered" : "Already registered"} repo ${result.repo.id}`,
+        `Path: ${result.repo.rootPath}`,
+        `Branch: ${result.repo.defaultBranch}`,
+        `Workspace: ${result.workspaceId}`,
+      ].join("\n");
+    case "listRepos":
+      if (result.repos.length === 0) {
+        return "No repos registered yet. Use 'craig repo add <path>'.";
+      }
+
+      return ["ID\tNAME\tBRANCH\tPATH", ...result.repos.map((repo) => `${repo.id}\t${repo.name}\t${repo.defaultBranch}\t${repo.rootPath}`)].join(
+        "\n",
+      );
+    case "removeRepo":
+      return `Removed repo ${result.repoId} (${result.rootPath})`;
+    case "listWorkspaces":
+      if (result.workspaces.length === 0) {
+        return result.archivedOnly
+          ? "No archived workspaces."
+          : "No active workspaces yet. Register a repo with 'craig repo add <path>'.";
+      }
+
+      return [
+        "ID\tSTATUS\tREPO\tBRANCH",
+        ...result.workspaces.map((workspace) => `${workspace.id}\t${workspace.status}\t${workspace.primaryRepoId}\t${workspace.branch}`),
+      ].join("\n");
+    case "archiveWorkspace":
+      return `Archived workspace ${result.workspaceId} on branch ${result.branch}`;
+    case "restoreWorkspace":
+      return `Restored workspace ${result.workspaceId} on branch ${result.branch}`;
     case "createTask":
       return [
         `Created task ${result.taskId}`,
