@@ -2,9 +2,13 @@ import { describe, expect, test } from "vitest";
 
 import { renderWorkspaceOverlay } from "../src/interactive/render-layout.js";
 
+function stripAnsi(value: string): string {
+  return value.replace(/\u001b\[[0-9;]*m/g, "");
+}
+
 describe("renderWorkspaceOverlay", () => {
   test("renders the overlay summary and menu on wide terminals", () => {
-    const frame = renderWorkspaceOverlay({
+    const frame = stripAnsi(renderWorkspaceOverlay({
       workspaceRoot: "/workspace/seattle",
       repos: [
         {
@@ -36,7 +40,7 @@ describe("renderWorkspaceOverlay", () => {
         columns: 120,
         rows: 24,
       },
-    });
+    }));
 
     expect(frame).toContain("CRAIG | seattle | overlay");
     expect(frame).toContain("Repos: 1 | Active workspaces: 1 | Archived: 0");
@@ -46,7 +50,7 @@ describe("renderWorkspaceOverlay", () => {
   });
 
   test("renders archived workspace mode on narrow terminals", () => {
-    const frame = renderWorkspaceOverlay({
+    const frame = stripAnsi(renderWorkspaceOverlay({
       workspaceRoot: "/workspace/seattle",
       repos: [],
       workspaces: [],
@@ -69,7 +73,7 @@ describe("renderWorkspaceOverlay", () => {
         columns: 70,
         rows: 16,
       },
-    });
+    }));
 
     expect(frame).toContain("Archived workspaces");
     expect(frame).toContain("> Archives");
@@ -78,7 +82,7 @@ describe("renderWorkspaceOverlay", () => {
   });
 
   test("shows empty-state text when no repos are registered", () => {
-    const frame = renderWorkspaceOverlay({
+    const frame = stripAnsi(renderWorkspaceOverlay({
       workspaceRoot: "/workspace/seattle",
       repos: [],
       workspaces: [],
@@ -90,7 +94,7 @@ describe("renderWorkspaceOverlay", () => {
         columns: 80,
         rows: 14,
       },
-    });
+    }));
 
     expect(frame).toContain("<no repos registered>");
   });
