@@ -8,13 +8,13 @@ export async function readCraigIndex(paths: CraigPaths): Promise<CraigIndex> {
   const raw = await readFile(paths.indexFile, "utf8");
   const parsed = JSON.parse(raw) as unknown;
 
-  return validateCraigIndex(parsed, paths.repoRoot, paths.indexFile);
+  return validateCraigIndex(parsed, paths.workspaceRoot, paths.indexFile);
 }
 
 export async function writeCraigIndex(paths: CraigPaths, index: CraigIndex): Promise<void> {
   const normalized: CraigIndex = {
     ...index,
-    repoRoot: paths.repoRoot,
+    workspaceRoot: paths.workspaceRoot,
     updatedAt: new Date().toISOString(),
   };
 
@@ -23,7 +23,7 @@ export async function writeCraigIndex(paths: CraigPaths, index: CraigIndex): Pro
 
 export function validateCraigIndex(
   value: unknown,
-  repoRoot: string,
+  workspaceRoot: string,
   filePath: string,
 ): CraigIndex {
   if (!isCraigIndex(value)) {
@@ -32,9 +32,9 @@ export function validateCraigIndex(
     );
   }
 
-  if (value.repoRoot !== repoRoot) {
+  if (value.workspaceRoot !== workspaceRoot) {
     throw new Error(
-      `Craig index at ${filePath} belongs to ${value.repoRoot}, not ${repoRoot}. Remove or repair the file before rerunning Craig.`,
+      `Craig index at ${filePath} belongs to ${value.workspaceRoot}, not ${workspaceRoot}. Remove or repair the file before rerunning Craig.`,
     );
   }
 
@@ -49,8 +49,12 @@ function isCraigIndex(value: unknown): value is CraigIndex {
   const candidate = value as Partial<CraigIndex>;
 
   return (
-    candidate.version === 1 &&
-    typeof candidate.repoRoot === "string" &&
+    candidate.version === 2 &&
+    typeof candidate.workspaceRoot === "string" &&
+    Array.isArray(candidate.repoIds) &&
+    candidate.repoIds.every((entry) => typeof entry === "string") &&
+    Array.isArray(candidate.workspaceIds) &&
+    candidate.workspaceIds.every((entry) => typeof entry === "string") &&
     Array.isArray(candidate.taskIds) &&
     candidate.taskIds.every((entry) => typeof entry === "string") &&
     Array.isArray(candidate.jobIds) &&

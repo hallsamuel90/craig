@@ -16,6 +16,8 @@ export async function createCraigState(repoRoot: string, taskIds: string[] = [])
   await mkdir(paths.craigDir, { recursive: true });
   await Promise.all([
     mkdir(paths.runtimeDir, { recursive: true }),
+    mkdir(paths.reposDir, { recursive: true }),
+    mkdir(paths.workspacesDir, { recursive: true }),
     mkdir(paths.tasksDir, { recursive: true }),
     mkdir(paths.jobsDir, { recursive: true }),
     mkdir(paths.logsDir, { recursive: true }),
@@ -27,8 +29,10 @@ export async function createCraigState(repoRoot: string, taskIds: string[] = [])
     paths.indexFile,
     JSON.stringify(
       {
-        version: 1,
-        repoRoot,
+        version: 2,
+        workspaceRoot: repoRoot,
+        repoIds: [],
+        workspaceIds: [],
         taskIds,
         jobIds: [],
         createdAt: "2026-04-21T00:00:00.000Z",

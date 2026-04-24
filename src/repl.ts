@@ -5,7 +5,6 @@ import { executeCommand, type CommandContext } from "./commands/command-router.j
 import { parseReplCommand } from "./commands/parse-repl.js";
 import { renderControlView } from "./control-view.js";
 import { formatCommandResult } from "./main.js";
-import { streamTaskLogs } from "./services/stream-task-logs.js";
 
 type ReplInterface = ReturnType<typeof createInterface>;
 
@@ -27,18 +26,6 @@ export async function startRepl(context: CommandContext): Promise<number> {
 
         if (result.kind === "exit") {
           return 0;
-        }
-
-        if (result.kind === "streamTaskLogs") {
-          rl.close();
-          try {
-            recentEvent = formatCommandResult(result).split("\n")[0] ?? null;
-            output.write(`${formatCommandResult(result)}\n`);
-            await streamTaskLogs(result.logPath);
-          } finally {
-            rl = createReadline();
-          }
-          continue;
         }
 
         const message = formatCommandResult(result);

@@ -1,6 +1,8 @@
 export interface CraigIndex {
-  version: 1;
-  repoRoot: string;
+  version: 2;
+  workspaceRoot: string;
+  repoIds: string[];
+  workspaceIds: string[];
   taskIds: string[];
   jobIds: string[];
   createdAt: string;

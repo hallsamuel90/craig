@@ -9,7 +9,6 @@ type MockReadline = {
 
 const createInterfaceMock = vi.fn();
 const executeCommandMock = vi.fn();
-const streamTaskLogsMock = vi.fn();
 const stdoutWriteMock = vi.fn();
 
 vi.mock("node:readline/promises", () => ({
@@ -27,12 +26,8 @@ vi.mock("../src/commands/command-router.js", () => ({
   executeCommand: executeCommandMock,
 }));
 
-vi.mock("../src/services/stream-task-logs.js", () => ({
-  streamTaskLogs: streamTaskLogsMock,
-}));
-
 vi.mock("../src/control-view.js", () => ({
-  renderControlView: vi.fn(async () => "CRAIG CONTROL\n<no tasks>"),
+  renderControlView: vi.fn(async () => "CRAIG CONTROL\n<workspace summary>"),
 }));
 
 function buildReadline(answers: string[]): MockReadline {
@@ -57,7 +52,6 @@ describe("startRepl", () => {
     vi.resetModules();
     createInterfaceMock.mockReset();
     executeCommandMock.mockReset();
-    streamTaskLogsMock.mockReset();
     stdoutWriteMock.mockReset();
   });
 
@@ -65,60 +59,55 @@ describe("startRepl", () => {
     vi.clearAllMocks();
   });
 
-  test("keeps the REPL active after creating a task", async () => {
-    const firstRl = buildReadline(["new refactor auth", "exit"]);
+  test("keeps the REPL active after registering a repo", async () => {
+    const firstRl = buildReadline(["repo add ./repo-a", "exit"]);
 
     createInterfaceMock.mockReturnValueOnce(firstRl);
     executeCommandMock
       .mockResolvedValueOnce({
-        kind: "createTask",
-        taskId: "task_1",
-        status: "running",
-        branch: "craig/task_1",
-        worktreePath: "/tmp/task_1",
-        tmuxTarget: "%42",
-        runner: "cursor",
+        kind: "createRepo",
+        repo: {
+          id: "repo_repo-a",
+          name: "repo-a",
+          rootPath: "/workspace/repo-a",
+          defaultBranch: "main",
+          createdAt: "2026-04-23T00:00:00.000Z",
+          updatedAt: "2026-04-23T00:00:00.000Z",
+        },
+        workspaceId: "workspace_repo_repo-a",
+        created: true,
       })
       .mockResolvedValueOnce({ kind: "exit" });
 
     const { startRepl } = await import("../src/repl.js");
     const exitCode = await startRepl({
       paths: {
-        repoRoot: "/repo",
+        workspaceRoot: "/workspace",
       },
     } as never);
 
     expect(exitCode).toBe(0);
     expect(createInterfaceMock).toHaveBeenCalledTimes(1);
     expect(firstRl.question).toHaveBeenCalledWith("craig> ");
-    expect(stdoutWriteMock).toHaveBeenCalledWith(expect.stringContaining("Created task task_1"));
+    expect(stdoutWriteMock).toHaveBeenCalledWith(expect.stringContaining("Registered repo repo_repo-a"));
   });
 
-  test("recreates the REPL after streaming logs", async () => {
-    const firstRl = buildReadline(["logs task_1"]);
-    const secondRl = buildReadline(["exit"]);
+  test("prints command errors and keeps the REPL active until exit", async () => {
+    const firstRl = buildReadline(["repo remove repo_missing", "exit"]);
 
-    createInterfaceMock.mockReturnValueOnce(firstRl).mockReturnValueOnce(secondRl);
-    executeCommandMock
-      .mockResolvedValueOnce({
-        kind: "streamTaskLogs",
-        taskId: "task_1",
-        logPath: "/tmp/task_1.log",
-      })
-      .mockResolvedValueOnce({ kind: "exit" });
+    createInterfaceMock.mockReturnValueOnce(firstRl);
+    executeCommandMock.mockRejectedValueOnce(new Error("Cannot remove repo repo_missing."));
+    executeCommandMock.mockResolvedValueOnce({ kind: "exit" });
 
     const { startRepl } = await import("../src/repl.js");
     const exitCode = await startRepl({
       paths: {
-        repoRoot: "/repo",
+        workspaceRoot: "/workspace",
       },
     } as never);
 
     expect(exitCode).toBe(0);
-    expect(createInterfaceMock).toHaveBeenCalledTimes(2);
-    expect(streamTaskLogsMock).toHaveBeenCalledWith("/tmp/task_1.log");
-    expect(stdoutWriteMock).toHaveBeenCalledWith(
-      expect.stringContaining("Streaming logs for task_1 from /tmp/task_1.log"),
-    );
+    expect(createInterfaceMock).toHaveBeenCalledTimes(1);
+    expect(stdoutWriteMock).toHaveBeenCalledWith(expect.stringContaining("Cannot remove repo repo_missing."));
   });
 });

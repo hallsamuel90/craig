@@ -16,6 +16,47 @@ export function parseArgv(argv: string[]): ParsedArgvCommand {
     return { mode: "interactive" };
   }
 
+  if (trimmedArgv.length >= 3 && trimmedArgv[0] === "repo" && trimmedArgv[1] === "add") {
+    const repoPath = trimmedArgv.slice(2).join(" ").trim();
+
+    if (repoPath.length === 0) {
+      throw new Error("Repo path cannot be empty.\n\n" + getHelpText());
+    }
+
+    return { mode: "command", command: { kind: "addRepo", path: repoPath } };
+  }
+
+  if (trimmedArgv.length === 2 && trimmedArgv[0] === "repo" && trimmedArgv[1] === "list") {
+    return { mode: "command", command: { kind: "listRepos" } };
+  }
+
+  if (trimmedArgv.length === 3 && trimmedArgv[0] === "repo" && trimmedArgv[1] === "remove") {
+    return { mode: "command", command: { kind: "removeRepo", repoId: trimmedArgv[2]!.trim() } };
+  }
+
+  if (
+    trimmedArgv.length >= 2 &&
+    trimmedArgv.length <= 3 &&
+    trimmedArgv[0] === "workspace" &&
+    trimmedArgv[1] === "list"
+  ) {
+    const archived = trimmedArgv[2] === "--archived";
+
+    if (trimmedArgv.length === 3 && !archived) {
+      throw new Error(`Unsupported command: ${trimmedArgv.join(" ")}\n\n${getHelpText()}`);
+    }
+
+    return { mode: "command", command: { kind: "listWorkspaces", archived } };
+  }
+
+  if (trimmedArgv.length === 3 && trimmedArgv[0] === "workspace" && trimmedArgv[1] === "archive") {
+    return { mode: "command", command: { kind: "archiveWorkspace", workspaceId: trimmedArgv[2]!.trim() } };
+  }
+
+  if (trimmedArgv.length === 3 && trimmedArgv[0] === "workspace" && trimmedArgv[1] === "restore") {
+    return { mode: "command", command: { kind: "restoreWorkspace", workspaceId: trimmedArgv[2]!.trim() } };
+  }
+
   if (trimmedArgv.length >= 2 && trimmedArgv[0] === "task" && trimmedArgv[1] === "new") {
     const title = trimmedArgv.slice(2).join(" ").trim();
 
@@ -122,6 +163,13 @@ export function getHelpText(): string {
   return [
     "Craig commands:",
     "  craig              Start the Craig REPL",
+    "  craig repo add     Register a repo in the current Craig workspace",
+    "  craig repo list    List registered repos",
+    "  craig repo remove  Remove a registered repo",
+    "  craig workspace list      List active workspaces",
+    "  craig workspace list --archived  List archived workspaces",
+    "  craig workspace archive   Archive a workspace",
+    "  craig workspace restore   Restore an archived workspace",
     "  craig task new     Create a new Craig task",
     "  craig task list    List known Craig tasks",
     "  craig task show    Show details for a Craig task",
@@ -135,6 +183,12 @@ export function getHelpText(): string {
     "  craig task merge   Merge a task pull request and clean up",
     "",
     "REPL commands:",
+    "  repo add <path>",
+    "  repo list",
+    "  repo remove <repo-id>",
+    "  workspace list [--archived]",
+    "  workspace archive <workspace-id>",
+    "  workspace restore <workspace-id>",
     "  new <task>",
     "  list",
     "  show [id]",

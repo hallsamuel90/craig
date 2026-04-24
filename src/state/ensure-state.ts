@@ -5,11 +5,13 @@ import { atomicWriteJson } from "./atomic-write.js";
 import { getCraigPaths } from "./craig-paths.js";
 import { validateCraigIndex } from "./state-store.js";
 
-export async function ensureCraigState(repoRoot: string): Promise<CraigIndex> {
-  const paths = getCraigPaths(repoRoot);
+export async function ensureCraigState(workspaceRoot: string): Promise<CraigIndex> {
+  const paths = getCraigPaths(workspaceRoot);
 
   await mkdir(paths.craigDir, { recursive: true });
   await Promise.all([
+    mkdir(paths.reposDir, { recursive: true }),
+    mkdir(paths.workspacesDir, { recursive: true }),
     mkdir(paths.runtimeDir, { recursive: true }),
     mkdir(paths.tasksDir, { recursive: true }),
     mkdir(paths.jobsDir, { recursive: true }),
@@ -22,7 +24,7 @@ export async function ensureCraigState(repoRoot: string): Promise<CraigIndex> {
     const existing = await readFile(paths.indexFile, "utf8");
     const parsed = JSON.parse(existing) as unknown;
 
-    return validateCraigIndex(parsed, repoRoot, paths.indexFile);
+    return validateCraigIndex(parsed, workspaceRoot, paths.indexFile);
   } catch (error) {
     if (!isFileMissingError(error)) {
       if (error instanceof SyntaxError) {
@@ -37,8 +39,10 @@ export async function ensureCraigState(repoRoot: string): Promise<CraigIndex> {
 
   const timestamp = new Date().toISOString();
   const index: CraigIndex = {
-    version: 1,
-    repoRoot,
+    version: 2,
+    workspaceRoot,
+    repoIds: [],
+    workspaceIds: [],
     taskIds: [],
     jobIds: [],
     createdAt: timestamp,
@@ -55,7 +59,7 @@ function isFileMissingError(error: unknown): error is { code: string } {
     typeof error === "object" &&
     error !== null &&
     "code" in error &&
-    typeof error.code === "string" &&
-    error.code === "ENOENT"
+    typeof (error as { code?: unknown }).code === "string" &&
+    (error as { code: string }).code === "ENOENT"
   );
 }

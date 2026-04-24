@@ -3,12 +3,18 @@ import { mkdir, rm, writeFile } from "node:fs/promises";
 import { afterEach, describe, expect, test } from "vitest";
 
 import { showTask } from "../src/services/show-task.js";
-import { createCraigState, createRepoRoot, writeTaskRecord } from "./test-helpers.js";
+import { createCraigState, createRepoRoot, createStubCommands, writeTaskRecord } from "./test-helpers.js";
 
 const tempRoots: string[] = [];
+const originalPath = process.env.PATH ?? "";
+const originalGhMode = process.env.CRAIG_TEST_GH_MODE;
+const originalGhPrNumber = process.env.CRAIG_TEST_GH_PR_NUMBER;
 
 afterEach(async () => {
   await Promise.all(tempRoots.splice(0).map(async (root) => rm(root, { recursive: true, force: true })));
+  process.env.PATH = originalPath;
+  process.env.CRAIG_TEST_GH_MODE = originalGhMode;
+  process.env.CRAIG_TEST_GH_PR_NUMBER = originalGhPrNumber;
 });
 
 describe("showTask", () => {
@@ -17,10 +23,14 @@ describe("showTask", () => {
     tempRoots.push(repoRoot);
     const paths = await createCraigState(repoRoot);
     const worktreePath = `${repoRoot}/worktree`;
+    const stubDir = await createStubCommands(repoRoot);
 
     await mkdir(worktreePath, { recursive: true });
     await mkdir(paths.logsDir, { recursive: true });
     await writeFile(`${paths.logsDir}/task_1.log`, "runner output\n", "utf8");
+    process.env.PATH = `${stubDir}:${originalPath}`;
+    process.env.CRAIG_TEST_GH_MODE = "success";
+    process.env.CRAIG_TEST_GH_PR_NUMBER = "12";
     await writeTaskRecord(repoRoot, {
       id: "task_1",
       title: "inspect me",
