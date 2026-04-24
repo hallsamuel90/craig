@@ -1,7 +1,8 @@
 import type { CraigPaths } from "../state/craig-paths.js";
+import { readSession } from "../state/session-store.js";
 import { writeTask } from "../state/task-store.js";
 import { removeWorktree } from "./git-task.js";
-import { killPane } from "./tmux-session.js";
+import { killSession } from "./tmux-session.js";
 
 export async function cleanupTask(
   paths: CraigPaths,
@@ -11,15 +12,13 @@ export async function cleanupTask(
   const warnings: string[] = [];
 
   try {
-    if (task.tmuxTarget) {
-      await killPane(paths.repoRoot, task.tmuxTarget, {
-        windowTarget: task.tmuxWindowTarget,
-        hasControlPane: task.tmuxPage === 1,
-      });
+    if (task.sessionId) {
+      const session = await readSession(paths, task.sessionId);
+      await killSession(paths.repoRoot, session.sessionName);
       task.cleanup.paneClosedAt = new Date().toISOString();
     }
   } catch (error) {
-    warnings.push(error instanceof Error ? error.message : "Failed to close tmux pane.");
+    warnings.push(error instanceof Error ? error.message : "Failed to close tmux session.");
   }
 
   task.cleanup.preservedWorktree = options.preserveWorktree;

@@ -1,21 +1,20 @@
 /* eslint-disable no-unused-vars */
 import type { CraigPaths } from "../state/craig-paths.js";
-import { readSessionRuntime, writeSessionRuntime } from "../state/runtime-store.js";
 import { writeSession } from "../state/session-store.js";
-import type { SessionRecord, SessionSnapshot } from "../types/session.js";
+import type { SessionRecord, SessionSnapshot, SessionTerminalSize } from "../types/session.js";
 import { runCommandAllowingFailure } from "../utils/exec.js";
 import {
-  allocateTaskPane,
+  createDetachedTaskSession,
   enablePaneLogging,
-  ensureCraigWorkspace,
   focusPane,
-  getSessionNameForRepo,
+  getSessionNameForTask,
+  resizeSessionWindow,
 } from "./tmux-session.js";
 
 export interface SessionManager {
   create(...args: [CraigPaths, CreateSessionInput]): Promise<SessionRecord>;
   attach(...args: [CraigPaths, SessionRecord, string]): Promise<SessionRecord>;
-  resize(...args: [string, { columns: number; rows: number }]): Promise<void>;
+  resize(...args: [CraigPaths, SessionRecord, SessionTerminalSize, string]): Promise<SessionRecord>;
   write(...args: [string, string]): Promise<void>;
   read(...args: [string]): Promise<string>;
   terminate(...args: [CraigPaths, SessionRecord, string]): Promise<SessionRecord>;
@@ -35,56 +34,15 @@ export interface CreateSessionInput {
 
 export const tmuxSessionManager: SessionManager = {
   async create(paths, input) {
-    const workspace = await ensureCraigWorkspace(input.repoRoot);
-    const runtime = await readSessionRuntime({ sessionFile: paths.sessionFile });
-    const pane = await allocateTaskPane(input.repoRoot, input.worktreePath, [
-      {
-        pageNumber: 1,
-        windowTarget: workspace.primaryWindowTarget,
-        isPrimary: true,
-      },
-      ...(runtime?.managedPages.filter((page) => !page.isPrimary) ?? []),
-    ]);
+    const provisioned = await createDetachedTaskSession(input.repoRoot, input.taskId, input.worktreePath);
 
     if (input.logPath) {
-      await enablePaneLogging(pane.paneId, input.logPath, input.repoRoot);
+      await enablePaneLogging(provisioned.paneId, input.logPath, input.repoRoot);
     }
 
-    await writeSessionRuntime(
-      { sessionFile: paths.sessionFile },
-      {
-        sessionName: workspace.sessionName,
-        controlPaneTarget: workspace.controlPaneTarget,
-        primaryWindowTarget: workspace.primaryWindowTarget,
-        managedPages: dedupePages([
-          {
-            pageNumber: 1,
-            windowTarget: workspace.primaryWindowTarget,
-            isPrimary: true,
-          },
-          ...(runtime?.managedPages ?? []),
-          {
-            pageNumber: pane.pageNumber,
-            windowTarget: pane.windowTarget,
-            isPrimary: pane.pageNumber === 1,
-          },
-        ]),
-        ui: runtime?.ui ?? {
-          selectedTaskId: null,
-          workSurfaceMode: "command",
-          lastContextView: "summary",
-          lastCommandBuffer: "",
-          lastOutputLines: [],
-        },
-        updatedAt: new Date().toISOString(),
-      },
-    );
-
     const snapshot = await createSnapshot({
-      paneId: pane.persistedTarget,
-      windowTarget: pane.windowTarget,
-      pageNumber: pane.pageNumber,
-      layoutSlot: pane.layoutSlot,
+      paneId: provisioned.paneId,
+      windowTarget: provisioned.windowTarget,
       alive: true,
     });
     const session: SessionRecord = {
@@ -93,11 +51,9 @@ export const tmuxSessionManager: SessionManager = {
       repoId: input.repoId,
       workspaceId: input.workspaceId,
       substrate: "tmux",
-      sessionName: getSessionNameForRepo(input.repoRoot),
-      paneId: pane.persistedTarget,
-      windowTarget: pane.windowTarget,
-      pageNumber: pane.pageNumber,
-      layoutSlot: pane.layoutSlot,
+      sessionName: provisioned.sessionName || getSessionNameForTask(input.repoRoot, input.taskId),
+      paneId: provisioned.paneId,
+      windowTarget: provisioned.windowTarget,
       worktreePath: input.worktreePath,
       logPath: input.logPath,
       command: input.command,
@@ -106,6 +62,10 @@ export const tmuxSessionManager: SessionManager = {
       exitedAt: null,
       exitCode: null,
       lastAttachedAt: null,
+      attach: {
+        detachChord: "ctrl+]",
+        lastSize: null,
+      },
       snapshot,
       createdAt: new Date().toISOString(),
       updatedAt: new Date().toISOString(),
@@ -122,7 +82,7 @@ export const tmuxSessionManager: SessionManager = {
       throw new Error(`Session ${session.id} is no longer live and cannot be attached.`);
     }
 
-    await focusPane(repoRoot, session.paneId, session.windowTarget);
+    await focusPane(repoRoot, session.paneId, session.windowTarget, session.sessionName);
     const attached: SessionRecord = {
       ...session,
       status: "running",
@@ -133,16 +93,25 @@ export const tmuxSessionManager: SessionManager = {
     return attached;
   },
 
-  async resize() {
-    return;
+  async resize(paths, session, size, repoRoot) {
+    await resizeSessionWindow(repoRoot, session.sessionName, size);
+    const resized: SessionRecord = {
+      ...session,
+      attach: {
+        ...session.attach,
+        lastSize: size,
+      },
+    };
+    await writeSession(paths, resized);
+    return resized;
   },
 
   async write() {
-    throw new Error("Direct session writes are deferred until RFC 1.3.");
+    throw new Error("Direct session writes are owned by the terminal bridge.");
   },
 
   async read() {
-    throw new Error("Direct session reads are deferred until RFC 1.3.");
+    throw new Error("Direct session reads are owned by the terminal bridge.");
   },
 
   async terminate(paths, session, reason) {
@@ -154,8 +123,6 @@ export const tmuxSessionManager: SessionManager = {
         ...(session.snapshot ?? {
           paneId: session.paneId,
           windowTarget: session.windowTarget,
-          pageNumber: session.pageNumber,
-          layoutSlot: session.layoutSlot,
           alive: false,
           capturedAt: new Date().toISOString(),
         }),
@@ -181,8 +148,6 @@ async function snapshotSession(session: SessionRecord, repoRoot: string): Promis
   return createSnapshot({
     paneId: session.paneId,
     windowTarget: session.windowTarget,
-    pageNumber: session.pageNumber,
-    layoutSlot: session.layoutSlot,
     alive: result.exitCode === 0 && result.stdout.split(/\s+/).some((entry) => entry.trim() === session.paneId),
   });
 }
@@ -190,28 +155,12 @@ async function snapshotSession(session: SessionRecord, repoRoot: string): Promis
 async function createSnapshot(input: {
   paneId: string;
   windowTarget: string | null;
-  pageNumber: number | null;
-  layoutSlot: number | null;
   alive: boolean;
 }): Promise<SessionSnapshot> {
   return {
     paneId: input.paneId,
     windowTarget: input.windowTarget,
-    pageNumber: input.pageNumber,
-    layoutSlot: input.layoutSlot,
     alive: input.alive,
     capturedAt: new Date().toISOString(),
   };
-}
-
-function dedupePages(
-  pages: Array<{ pageNumber: number; windowTarget: string; isPrimary: boolean }>,
-): Array<{ pageNumber: number; windowTarget: string; isPrimary: boolean }> {
-  const map = new Map<number, { pageNumber: number; windowTarget: string; isPrimary: boolean }>();
-
-  for (const page of pages) {
-    map.set(page.pageNumber, page);
-  }
-
-  return [...map.values()].sort((left, right) => left.pageNumber - right.pageNumber);
 }

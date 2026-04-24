@@ -3,8 +3,6 @@
 import { executeCommand } from "./commands/command-router.js";
 import { startInteractiveApp } from "./interactive/app.js";
 import { parseArgv } from "./commands/parse-argv.js";
-import { startRepl } from "./repl.js";
-import { renderBanner } from "./banner.js";
 import { ensureCraigState } from "./state/ensure-state.js";
 import { getCraigPaths } from "./state/craig-paths.js";
 import { formatCommandResult } from "./main.js";
@@ -19,12 +17,8 @@ async function main(): Promise<number> {
     const context = { paths };
 
     if (parsed.mode === "interactive") {
-      process.stdout.write(`${renderBanner(paths.workspaceRoot, index)}\n\n`);
-      try {
-        return await startInteractiveApp(context);
-      } catch {
-        return startRepl(context);
-      }
+      void index;
+      return await startInteractiveApp(context);
     }
 
     if (!parsed.command) {

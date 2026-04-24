@@ -2,218 +2,75 @@ import { spawn } from "node:child_process";
 import { createHash } from "node:crypto";
 import path from "node:path";
 
-import {
-  getDefaultUiRuntime,
-  readSessionRuntime,
-  writeSessionRuntime,
-  type CraigSessionRuntime,
-} from "../state/runtime-store.js";
 import { runCommand, runCommandAllowingFailure } from "../utils/exec.js";
 import { shellEscape } from "../utils/shell-escape.js";
 
 const SESSION_PREFIX = "craig";
-const CONTROL_PANE_HEIGHT = 8;
 
-export interface ProvisionedPane {
-  paneId: string;
-  persistedTarget: string;
-  windowTarget: string;
-  pageNumber: number;
-  layoutSlot: number | null;
-}
-
-export interface CraigWorkspace {
+export interface ProvisionedSession {
   sessionName: string;
-  controlPaneTarget: string;
-  primaryWindowTarget: string;
-}
-
-interface ManagedPage {
-  pageNumber: number;
+  paneId: string;
   windowTarget: string;
-  isPrimary: boolean;
 }
 
-export async function ensureCraigWorkspace(repoRoot: string, sessionFileContext?: { sessionFile: string }): Promise<CraigWorkspace> {
-  const sessionName = getSessionNameForRepo(repoRoot);
-  const existing = sessionFileContext ? null : null;
-  void existing;
-  const sessionState = await runCommandAllowingFailure("tmux", ["has-session", "-t", sessionName], {
-    cwd: repoRoot,
-  });
-
-  if (sessionState.exitCode !== 0) {
-    const sizeArgs = getInitialSessionSizeArgs();
-    const result = await runCommand(
-      "tmux",
-      [
-        "new-session",
-        "-d",
-        "-P",
-        "-F",
-        "#{window_id} #{pane_id}",
-        "-s",
-        sessionName,
-        "-n",
-        sessionName,
-        ...sizeArgs,
-        "-c",
-        repoRoot,
-      ],
-      { cwd: repoRoot },
-    );
-
-    const [primaryWindowTarget, controlPaneTarget] = requireTargets(result.stdout);
-
-    return {
-      sessionName,
-      controlPaneTarget,
-      primaryWindowTarget,
-    };
-  }
-
-  const windowResult = await runCommand(
-    "tmux",
-    ["list-windows", "-F", "#{window_id}", "-t", sessionName],
-    { cwd: repoRoot },
-  );
-  const primaryWindowTarget = requireWindowTarget(windowResult.stdout);
-  const paneResult = await runCommand(
-    "tmux",
-    ["list-panes", "-F", "#{pane_id}", "-t", primaryWindowTarget],
-    { cwd: repoRoot },
-  );
-  const controlPaneTarget = requirePaneTarget(paneResult.stdout);
-
-  await configurePrimaryWindow(repoRoot, primaryWindowTarget, controlPaneTarget);
-
-  return {
-    sessionName,
-    controlPaneTarget,
-    primaryWindowTarget,
-  };
-}
-
-export async function writeWorkspaceRuntime(
-  sessionFileContext: { repoRoot: string; sessionFile: string },
-  workspace: CraigWorkspace,
-  pages: ManagedPage[],
-): Promise<void> {
-  await writeSessionRuntime(
-    { sessionFile: sessionFileContext.sessionFile },
-    {
-      sessionName: workspace.sessionName,
-      controlPaneTarget: workspace.controlPaneTarget,
-      primaryWindowTarget: workspace.primaryWindowTarget,
-      managedPages: pages.map((page) => ({
-        pageNumber: page.pageNumber,
-        windowTarget: page.windowTarget,
-        isPrimary: page.isPrimary,
-      })),
-      ui: getDefaultUiRuntime(),
-      updatedAt: new Date().toISOString(),
-    },
-  );
-}
-
-export async function readWorkspaceRuntime(
-  sessionFileContext: { repoRoot: string; sessionFile: string },
-): Promise<CraigSessionRuntime | null> {
-  return readSessionRuntime({ sessionFile: sessionFileContext.sessionFile });
-}
-
-export async function allocateTaskPane(
+export async function createDetachedTaskSession(
   repoRoot: string,
+  taskId: string,
   worktreePath: string,
-  pages: Array<{ pageNumber: number; windowTarget: string; isPrimary: boolean }>,
-): Promise<ProvisionedPane> {
-  const sessionName = getSessionNameForRepo(repoRoot);
-  const sortedPages = [...pages].sort((left, right) => left.pageNumber - right.pageNumber);
+): Promise<ProvisionedSession> {
+  const sessionName = getSessionNameForTask(repoRoot, taskId);
+  const sizeArgs = getInitialSessionSizeArgs();
+  const result = await runCommand(
+    "tmux",
+    [
+      "new-session",
+      "-d",
+      "-P",
+      "-F",
+      "#{session_name} #{window_id} #{pane_id}",
+      "-s",
+      sessionName,
+      "-n",
+      "runner",
+      ...sizeArgs,
+      "-c",
+      worktreePath,
+    ],
+    { cwd: repoRoot },
+  );
+  const provisioned = requireSessionTargets(result.stdout);
+  await configureHiddenSession(repoRoot, sessionName);
 
-  for (const page of sortedPages) {
-    try {
-      const paneId = await createPaneInWindow(repoRoot, page.windowTarget, worktreePath);
-      await relayoutManagedWindow(repoRoot, page.windowTarget, page.isPrimary);
+  return provisioned;
+}
 
-      return {
-        paneId,
-        persistedTarget: paneId,
-        windowTarget: page.windowTarget,
-        pageNumber: page.pageNumber,
-        layoutSlot: await countWindowPanes(repoRoot, page.windowTarget),
-      };
-    } catch (error) {
-      if (!isInsufficientPaneSpaceError(error)) {
-        throw error;
-      }
-    }
+export async function ensureSessionAlive(repoRoot: string, sessionName: string): Promise<boolean> {
+  const result = await runCommandAllowingFailure("tmux", ["has-session", "-t", sessionName], { cwd: repoRoot });
+  return result.exitCode === 0;
+}
+
+export async function configureHiddenSession(repoRoot: string, sessionName: string): Promise<void> {
+  const commands: string[][] = [
+    ["set-option", "-t", sessionName, "status", "off"],
+    ["set-option", "-t", sessionName, "detach-on-destroy", "off"],
+    ["set-window-option", "-t", sessionName, "pane-border-status", "off"],
+    ["set-window-option", "-t", sessionName, "aggressive-resize", "on"],
+  ];
+
+  for (const args of commands) {
+    await runCommand("tmux", args, { cwd: repoRoot });
   }
-
-  const pageNumber = sortedPages.length + 1;
-  const result = await runCommand(
-    "tmux",
-    ["new-window", "-d", "-P", "-F", "#{window_id} #{pane_id}", "-t", sessionName, "-c", worktreePath],
-    { cwd: repoRoot },
-  );
-  const [windowTarget, paneId] = requireTargets(result.stdout);
-  await relayoutManagedWindow(repoRoot, windowTarget, false);
-
-  return {
-    paneId,
-    persistedTarget: paneId,
-    windowTarget,
-    pageNumber,
-    layoutSlot: 1,
-  };
 }
 
-async function createPaneInWindow(repoRoot: string, windowTarget: string, worktreePath: string): Promise<string> {
-  const result = await runCommand(
-    "tmux",
-    ["split-window", "-d", "-P", "-F", "#{pane_id}", "-t", windowTarget, "-c", worktreePath],
-    { cwd: repoRoot },
-  );
-
-  return result.stdout.trim();
-}
-
-async function configurePrimaryWindow(repoRoot: string, windowTarget: string, controlPaneTarget: string): Promise<void> {
-  await relayoutManagedWindow(repoRoot, windowTarget, true, controlPaneTarget);
-}
-
-export async function relayoutManagedWindow(
+export async function resizeSessionWindow(
   repoRoot: string,
-  windowTarget: string,
-  hasControlPane: boolean,
-  controlPaneTarget?: string,
+  sessionName: string,
+  size: { columns: number; rows: number },
 ): Promise<void> {
-  await runCommand("tmux", ["select-layout", "-t", windowTarget, "tiled"], { cwd: repoRoot });
-
-  if (hasControlPane) {
-    const target =
-      controlPaneTarget ??
-      (
-        await runCommand("tmux", ["list-panes", "-F", "#{pane_id}", "-t", windowTarget], {
-          cwd: repoRoot,
-        })
-      ).stdout
-        .split(/\s+/)
-        .map((line) => line.trim())
-        .find((line) => line.length > 0);
-
-    if (target) {
-      await runCommand("tmux", ["resize-pane", "-t", target, "-y", `${CONTROL_PANE_HEIGHT}`], {
-        cwd: repoRoot,
-      });
-    }
-  }
-}
-
-export async function enablePaneLogging(paneId: string, logPath: string, cwd: string): Promise<void> {
   await runCommand(
     "tmux",
-    ["pipe-pane", "-o", "-t", paneId, `cat >> ${shellEscape(logPath)}`],
-    { cwd },
+    ["resize-window", "-t", sessionName, "-x", `${size.columns}`, "-y", `${size.rows}`],
+    { cwd: repoRoot },
   );
 }
 
@@ -229,8 +86,17 @@ export async function clearPane(repoRoot: string, paneId: string): Promise<void>
   await runCommand("tmux", ["send-keys", "-t", paneId, "C-l"], { cwd: repoRoot });
 }
 
-export async function focusPane(repoRoot: string, paneId: string, windowTarget?: string | null): Promise<void> {
-  const sessionName = getSessionNameForRepo(repoRoot);
+export async function enablePaneLogging(paneId: string, logPath: string, cwd: string): Promise<void> {
+  await runCommand("tmux", ["pipe-pane", "-o", "-t", paneId, `cat >> ${shellEscape(logPath)}`], { cwd });
+}
+
+export async function focusPane(
+  repoRoot: string,
+  paneId: string,
+  windowTarget?: string | null,
+  sessionName?: string,
+): Promise<void> {
+  const resolvedSessionName = sessionName ?? getSessionNameForRepo(repoRoot);
 
   if (windowTarget) {
     await runCommand("tmux", ["select-window", "-t", windowTarget], { cwd: repoRoot });
@@ -241,15 +107,23 @@ export async function focusPane(repoRoot: string, paneId: string, windowTarget?:
   await runCommand("tmux", ["select-pane", "-t", paneId], { cwd: repoRoot });
 
   if (process.env.TMUX) {
-    await runCommand("tmux", ["switch-client", "-t", sessionName], { cwd: repoRoot });
+    await runCommand("tmux", ["switch-client", "-t", resolvedSessionName], { cwd: repoRoot });
     return;
   }
 
-  await runInteractiveTmuxCommand(repoRoot, ["attach-session", "-t", sessionName]);
+  await runInteractiveTmuxCommand(repoRoot, ["attach-session", "-t", resolvedSessionName]);
 }
 
 export async function focusControlPane(repoRoot: string, controlPaneTarget: string, windowTarget: string): Promise<void> {
   await focusPane(repoRoot, controlPaneTarget, windowTarget);
+}
+
+export async function relayoutManagedWindow(): Promise<void> {
+  return;
+}
+
+export async function killSession(repoRoot: string, sessionName: string): Promise<void> {
+  await runCommand("tmux", ["kill-session", "-t", sessionName], { cwd: repoRoot });
 }
 
 export async function killPane(
@@ -257,11 +131,8 @@ export async function killPane(
   paneId: string,
   options?: { windowTarget?: string | null; hasControlPane?: boolean },
 ): Promise<void> {
+  void options;
   await runCommand("tmux", ["kill-pane", "-t", paneId], { cwd: repoRoot });
-
-  if (options?.windowTarget) {
-    await relayoutManagedWindow(repoRoot, options.windowTarget, options.hasControlPane ?? false);
-  }
 }
 
 export function getSessionNameForRepo(repoRoot: string): string {
@@ -274,6 +145,10 @@ export function getSessionNameForRepo(repoRoot: string): string {
   const digest = createHash("sha1").update(repoRoot).digest("hex").slice(0, 8);
 
   return `${SESSION_PREFIX}-${normalizedBase}-${digest}`;
+}
+
+export function getSessionNameForTask(repoRoot: string, taskId: string): string {
+  return `${getSessionNameForRepo(repoRoot)}-${taskId.toLowerCase()}`;
 }
 
 function getInitialSessionSizeArgs(): string[] {
@@ -300,42 +175,18 @@ function readTerminalSize(): { columns: number; rows: number } | null {
   return null;
 }
 
-async function countWindowPanes(repoRoot: string, windowTarget: string): Promise<number> {
-  const result = await runCommand("tmux", ["list-panes", "-F", "#{pane_id}", "-t", windowTarget], {
-    cwd: repoRoot,
-  });
-
-  return toTargets(result.stdout).length;
-}
-
-function requireTargets(stdout: string): [string, string] {
+function requireSessionTargets(stdout: string): ProvisionedSession {
   const targets = toTargets(stdout);
 
-  if (targets.length < 2) {
-    throw new Error("tmux did not return the expected window and pane targets for the Craig workspace.");
+  if (targets.length < 3) {
+    throw new Error("tmux did not return the expected session, window, and pane targets for the Craig task session.");
   }
 
-  return [targets[0]!, targets[1]!];
-}
-
-function requireWindowTarget(stdout: string): string {
-  const target = toTargets(stdout)[0];
-
-  if (!target) {
-    throw new Error("tmux did not return a window target for the craig session.");
-  }
-
-  return target;
-}
-
-function requirePaneTarget(stdout: string): string {
-  const target = toTargets(stdout)[0];
-
-  if (!target) {
-    throw new Error("tmux did not return a pane target for the craig session.");
-  }
-
-  return target;
+  return {
+    sessionName: targets[0]!,
+    windowTarget: targets[1]!,
+    paneId: targets[2]!,
+  };
 }
 
 function toTargets(stdout: string): string[] {
@@ -343,15 +194,6 @@ function toTargets(stdout: string): string[] {
     .split(/\s+/)
     .map((line) => line.trim())
     .filter((line) => line.length > 0);
-}
-
-function isInsufficientPaneSpaceError(error: unknown): boolean {
-  if (!(error instanceof Error)) {
-    return false;
-  }
-
-  const message = error.message.toLowerCase();
-  return message.includes("no space for new pane") || message.includes("not enough space for new pane");
 }
 
 async function runInteractiveTmuxCommand(repoRoot: string, args: string[]): Promise<void> {

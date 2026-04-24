@@ -39,60 +39,37 @@ function getSessionFilePath(paths: CraigPaths, sessionId: string): string {
 }
 
 export function validateSessionRecord(value: unknown, filePath: string): SessionRecord {
+  const candidate = normalizeSessionRecord(value);
+
   if (
-    typeof value !== "object" ||
-    value === null ||
-    typeof (value as Partial<SessionRecord>).id !== "string" ||
-    typeof (value as Partial<SessionRecord>).taskId !== "string" ||
-    typeof (value as Partial<SessionRecord>).repoId !== "string" ||
-    typeof (value as Partial<SessionRecord>).workspaceId !== "string" ||
-    (value as Partial<SessionRecord>).substrate !== "tmux" ||
-    typeof (value as Partial<SessionRecord>).sessionName !== "string" ||
-    typeof (value as Partial<SessionRecord>).paneId !== "string" ||
-    !(
-      (value as Partial<SessionRecord>).windowTarget === null ||
-      typeof (value as Partial<SessionRecord>).windowTarget === "string"
-    ) ||
-    !(
-      (value as Partial<SessionRecord>).pageNumber === null ||
-      typeof (value as Partial<SessionRecord>).pageNumber === "number"
-    ) ||
-    !(
-      (value as Partial<SessionRecord>).layoutSlot === null ||
-      typeof (value as Partial<SessionRecord>).layoutSlot === "number"
-    ) ||
-    typeof (value as Partial<SessionRecord>).worktreePath !== "string" ||
-    !(
-      (value as Partial<SessionRecord>).logPath === null ||
-      typeof (value as Partial<SessionRecord>).logPath === "string"
-    ) ||
-    !Array.isArray((value as Partial<SessionRecord>).command) ||
-    !((value as Partial<SessionRecord>).command ?? []).every((entry) => typeof entry === "string") ||
-    !["starting", "running", "exited", "failed"].includes((value as Partial<SessionRecord>).status ?? "") ||
-    !(
-      (value as Partial<SessionRecord>).startedAt === null ||
-      typeof (value as Partial<SessionRecord>).startedAt === "string"
-    ) ||
-    !(
-      (value as Partial<SessionRecord>).exitedAt === null ||
-      typeof (value as Partial<SessionRecord>).exitedAt === "string"
-    ) ||
-    !(
-      (value as Partial<SessionRecord>).exitCode === null ||
-      typeof (value as Partial<SessionRecord>).exitCode === "number"
-    ) ||
-    !(
-      (value as Partial<SessionRecord>).lastAttachedAt === null ||
-      typeof (value as Partial<SessionRecord>).lastAttachedAt === "string"
-    ) ||
-    !isSnapshot((value as Partial<SessionRecord>).snapshot) ||
-    typeof (value as Partial<SessionRecord>).createdAt !== "string" ||
-    typeof (value as Partial<SessionRecord>).updatedAt !== "string"
+    typeof candidate !== "object" ||
+    candidate === null ||
+    typeof candidate.id !== "string" ||
+    typeof candidate.taskId !== "string" ||
+    typeof candidate.repoId !== "string" ||
+    typeof candidate.workspaceId !== "string" ||
+    candidate.substrate !== "tmux" ||
+    typeof candidate.sessionName !== "string" ||
+    typeof candidate.paneId !== "string" ||
+    !(candidate.windowTarget === null || typeof candidate.windowTarget === "string") ||
+    typeof candidate.worktreePath !== "string" ||
+    !(candidate.logPath === null || typeof candidate.logPath === "string") ||
+    !Array.isArray(candidate.command) ||
+    !candidate.command.every((entry) => typeof entry === "string") ||
+    !["starting", "running", "exited", "failed"].includes(candidate.status) ||
+    !(candidate.startedAt === null || typeof candidate.startedAt === "string") ||
+    !(candidate.exitedAt === null || typeof candidate.exitedAt === "string") ||
+    !(candidate.exitCode === null || typeof candidate.exitCode === "number") ||
+    !(candidate.lastAttachedAt === null || typeof candidate.lastAttachedAt === "string") ||
+    !isAttachState(candidate.attach) ||
+    !isSnapshot(candidate.snapshot) ||
+    typeof candidate.createdAt !== "string" ||
+    typeof candidate.updatedAt !== "string"
   ) {
     throw new Error(`Craig session record at ${filePath} is invalid. Remove or repair the file before rerunning Craig.`);
   }
 
-  return value as SessionRecord;
+  return candidate;
 }
 
 function isSnapshot(value: SessionRecord["snapshot"] | undefined): boolean {
@@ -102,9 +79,72 @@ function isSnapshot(value: SessionRecord["snapshot"] | undefined): boolean {
       value !== null &&
       typeof value.paneId === "string" &&
       (typeof value.windowTarget === "string" || value.windowTarget === null) &&
-      (typeof value.pageNumber === "number" || value.pageNumber === null) &&
-      (typeof value.layoutSlot === "number" || value.layoutSlot === null) &&
       typeof value.alive === "boolean" &&
       typeof value.capturedAt === "string")
   );
+}
+
+function isAttachState(value: SessionRecord["attach"] | undefined): boolean {
+  return (
+    typeof value === "object" &&
+    value !== null &&
+    value.detachChord === "ctrl+]" &&
+    (value.lastSize === null ||
+      (typeof value.lastSize === "object" &&
+        value.lastSize !== null &&
+        typeof value.lastSize.columns === "number" &&
+        typeof value.lastSize.rows === "number"))
+  );
+}
+
+function normalizeSessionRecord(value: unknown): SessionRecord {
+  const candidate = (typeof value === "object" && value !== null ? value : {}) as Partial<SessionRecord> & {
+    pageNumber?: number | null;
+    layoutSlot?: number | null;
+  };
+
+  return {
+    id: candidate.id ?? "",
+    taskId: candidate.taskId ?? "",
+    repoId: candidate.repoId ?? "",
+    workspaceId: candidate.workspaceId ?? "",
+    substrate: candidate.substrate ?? "tmux",
+    sessionName: candidate.sessionName ?? "",
+    paneId: candidate.paneId ?? "",
+    windowTarget: typeof candidate.windowTarget === "string" ? candidate.windowTarget : null,
+    worktreePath: candidate.worktreePath ?? "",
+    logPath: typeof candidate.logPath === "string" ? candidate.logPath : null,
+    command: Array.isArray(candidate.command) ? candidate.command.filter((entry): entry is string => typeof entry === "string") : [],
+    status: candidate.status ?? "starting",
+    startedAt: typeof candidate.startedAt === "string" ? candidate.startedAt : null,
+    exitedAt: typeof candidate.exitedAt === "string" ? candidate.exitedAt : null,
+    exitCode: typeof candidate.exitCode === "number" ? candidate.exitCode : null,
+    lastAttachedAt: typeof candidate.lastAttachedAt === "string" ? candidate.lastAttachedAt : null,
+    attach: {
+      detachChord: "ctrl+]",
+      lastSize:
+        typeof candidate.attach === "object" &&
+        candidate.attach !== null &&
+        candidate.attach.lastSize &&
+        typeof candidate.attach.lastSize.columns === "number" &&
+        typeof candidate.attach.lastSize.rows === "number"
+          ? candidate.attach.lastSize
+          : null,
+    },
+    snapshot:
+      candidate.snapshot && typeof candidate.snapshot === "object"
+        ? {
+            paneId: typeof candidate.snapshot.paneId === "string" ? candidate.snapshot.paneId : candidate.paneId ?? "",
+            windowTarget:
+              typeof candidate.snapshot.windowTarget === "string" ? candidate.snapshot.windowTarget : null,
+            alive: Boolean(candidate.snapshot.alive),
+            capturedAt:
+              typeof candidate.snapshot.capturedAt === "string"
+                ? candidate.snapshot.capturedAt
+                : new Date().toISOString(),
+          }
+        : null,
+    createdAt: candidate.createdAt ?? "",
+    updatedAt: candidate.updatedAt ?? "",
+  };
 }

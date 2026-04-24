@@ -113,6 +113,150 @@ export function parseReplCommand(input: string): AppCommand {
     return { kind: "attachTask", taskId };
   }
 
+  if (normalized === "show") {
+    return { kind: "showSelectedTask" };
+  }
+
+  if (normalized.startsWith("show ")) {
+    const taskId = normalized.slice("show ".length).trim();
+
+    if (taskId.length === 0) {
+      throw new Error("Task id cannot be empty.");
+    }
+
+    return { kind: "showTask", taskId };
+  }
+
+  if (normalized === "logs") {
+    return { kind: "streamSelectedTaskLogs" };
+  }
+
+  if (normalized.startsWith("logs ")) {
+    const taskId = normalized.slice("logs ".length).trim();
+
+    if (taskId.length === 0) {
+      throw new Error("Task id cannot be empty.");
+    }
+
+    return { kind: "streamTaskLogs", taskId };
+  }
+
+  if (normalized === "diff") {
+    return { kind: "showSelectedTaskDiff" };
+  }
+
+  if (normalized.startsWith("diff ")) {
+    const taskId = normalized.slice("diff ".length).trim();
+
+    if (taskId.length === 0) {
+      throw new Error("Task id cannot be empty.");
+    }
+
+    return { kind: "showTaskDiff", taskId };
+  }
+
+  if (normalized === "focus") {
+    return { kind: "focusSelectedTask" };
+  }
+
+  if (normalized.startsWith("focus ")) {
+    const taskId = normalized.slice("focus ".length).trim();
+
+    if (taskId.length === 0) {
+      throw new Error("Task id cannot be empty.");
+    }
+
+    return { kind: "focusTask", taskId };
+  }
+
+  if (normalized === "open") {
+    return { kind: "openSelectedTask" };
+  }
+
+  if (normalized.startsWith("open ")) {
+    const taskId = normalized.slice("open ".length).trim();
+
+    if (taskId.length === 0) {
+      throw new Error("Task id cannot be empty.");
+    }
+
+    return { kind: "openTask", taskId };
+  }
+
+  if (normalized === "check") {
+    return { kind: "runSelectedTaskChecks" };
+  }
+
+  if (normalized.startsWith("check ")) {
+    const taskId = normalized.slice("check ".length).trim();
+
+    if (taskId.length === 0) {
+      throw new Error("Task id cannot be empty.");
+    }
+
+    return { kind: "runChecks", taskId };
+  }
+
+  if (normalized === "commit") {
+    return { kind: "commitSelectedTask" };
+  }
+
+  if (normalized.startsWith("commit ")) {
+    const taskId = normalized.slice("commit ".length).trim();
+
+    if (taskId.length === 0) {
+      throw new Error("Task id cannot be empty.");
+    }
+
+    return { kind: "commitTask", taskId };
+  }
+
+  if (normalized === "pr") {
+    return { kind: "openSelectedTaskPullRequest", watch: false };
+  }
+
+  if (normalized === "pr --watch") {
+    return { kind: "openSelectedTaskPullRequest", watch: true };
+  }
+
+  if (normalized.startsWith("pr ")) {
+    const parts = normalized.slice("pr ".length).trim().split(/\s+/);
+    const [taskId = "", watchFlag = ""] = parts;
+
+    if (taskId.length === 0) {
+      throw new Error("Task id cannot be empty.");
+    }
+
+    if (watchFlag.length > 0 && watchFlag !== "--watch") {
+      throw new Error("Usage: pr [task-id] [--watch]");
+    }
+
+    return { kind: "openPullRequest", taskId, watch: watchFlag === "--watch" };
+  }
+
+  if (normalized === "merge") {
+    return { kind: "mergeSelectedTask", preserveWorktree: false };
+  }
+
+  if (normalized === "merge --preserve-worktree") {
+    return { kind: "mergeSelectedTask", preserveWorktree: true };
+  }
+
+  if (normalized.startsWith("merge ")) {
+    const parts = normalized.slice("merge ".length).trim().split(/\s+/);
+    const [taskId = "", preserveFlag = ""] = parts;
+
+    if (taskId.length === 0) {
+      throw new Error("Task id cannot be empty.");
+    }
+
+    if (preserveFlag.length > 0 && preserveFlag !== "--preserve-worktree") {
+      throw new Error("Usage: merge [task-id] [--preserve-worktree]");
+    }
+
+    return { kind: "mergeTask", taskId, preserveWorktree: preserveFlag === "--preserve-worktree" };
+  }
+
   if (normalized.startsWith("link add ")) {
     const [taskId = "", repoId = ""] = normalized.slice("link add ".length).trim().split(/\s+/, 2);
 
