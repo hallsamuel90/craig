@@ -237,7 +237,7 @@ Required durable concerns:
 
 ### Status summary
 
-- `0.1` Remove the old interactive architecture and leave a runnable placeholder shell: `pending`
+- `0.1` Remove the old interactive architecture and leave a runnable placeholder shell: `implemented and verified`
 - `1.1` Build the CRAIG overlay and three-column mock workspace shell in `terminal-kit`: `pending`
 - `1.2` Add keyboard navigation, tab state, and explicit control-mode ownership on mock data: `pending`
 - `2.1` Add PTY-backed terminal mode with explicit attach and `Ctrl + ]` detach: `pending`
@@ -248,7 +248,7 @@ Required durable concerns:
 
 ### Verification summary
 
-- `0.1` Not yet verified.
+- `0.1` Verified by removing the Ink renderer, REPL parser, and interactive-only runtime store; shrinking persisted UI state to command-mode selection metadata; removing `ink`, `react`, `ink-testing-library`, and `node-pty` from the package graph; and replacing no-arg startup with a placeholder message. Automated verification passed via `pnpm test`, `pnpm typecheck`, `pnpm lint`, and `pnpm build`. Manual verification passed by running the built CLI with no arguments and confirming it prints the phase `0.1` placeholder instead of opening the old shell.
 - `1.1` Not yet verified.
 - `1.2` Not yet verified.
 - `2.1` Not yet verified.
@@ -259,7 +259,7 @@ Required durable concerns:
 
 ### Next resume point
 
-Resume at the first sub-phase that is not both implemented and verified. The current resume point is `0.1`, which establishes the clean rewrite baseline before any new UI work lands.
+Resume at the first sub-phase that is not both implemented and verified. The current resume point is `1.1`, which starts the new `terminal-kit` mock workspace shell on top of the phase `0.1` cleanup baseline.
 
 ### Deferred phases
 

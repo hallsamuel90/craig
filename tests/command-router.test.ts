@@ -5,7 +5,6 @@ import { afterEach, describe, expect, test } from "vitest";
 
 import { executeCommand } from "../src/commands/command-router.js";
 import { parseArgv } from "../src/commands/parse-argv.js";
-import { parseReplCommand } from "../src/commands/parse-repl.js";
 import { getCraigPaths } from "../src/state/craig-paths.js";
 import { readRepo } from "../src/state/repo-store.js";
 import { readUiState } from "../src/state/ui-state-store.js";
@@ -19,25 +18,22 @@ afterEach(async () => {
 });
 
 describe("command routing", () => {
-  test("argv and REPL repo list commands normalize to the same command", () => {
+  test("argv repo list commands normalize consistently", () => {
     expect(parseArgv(["repo", "list"]).command).toEqual({ kind: "listRepos" });
     expect(parseArgv(["--", "repo", "list"]).command).toEqual({ kind: "listRepos" });
-    expect(parseReplCommand("repo list")).toEqual({ kind: "listRepos" });
   });
 
-  test("argv and REPL workspace commands normalize to the same command", () => {
+  test("argv workspace commands normalize consistently", () => {
     expect(parseArgv(["workspace", "list"]).command).toEqual({ kind: "listWorkspaces", archived: false });
     expect(parseArgv(["workspace", "list", "--archived"]).command).toEqual({
       kind: "listWorkspaces",
       archived: true,
     });
-    expect(parseReplCommand("workspace list")).toEqual({ kind: "listWorkspaces", archived: false });
-    expect(parseReplCommand("workspace list --archived")).toEqual({ kind: "listWorkspaces", archived: true });
     expect(parseArgv(["workspace", "archive", "workspace_repo_one"]).command).toEqual({
       kind: "archiveWorkspace",
       workspaceId: "workspace_repo_one",
     });
-    expect(parseReplCommand("workspace restore workspace_repo_one")).toEqual({
+    expect(parseArgv(["workspace", "restore", "workspace_repo_one"]).command).toEqual({
       kind: "restoreWorkspace",
       workspaceId: "workspace_repo_one",
     });
@@ -53,15 +49,14 @@ describe("command routing", () => {
     const paths = getCraigPaths(workspaceRoot);
 
     const argvResult = await executeCommand(parseArgv(["repo", "add", "./repo-a"]).command!, { paths });
-    const replResult = await executeCommand(parseReplCommand("repo list"), { paths });
+    const listResult = await executeCommand(parseArgv(["repo", "list"]).command!, { paths });
 
-    expect(argvResult.kind).toBe("createRepo");
-    if (argvResult.kind !== "createRepo" || replResult.kind !== "listRepos") {
+    if (argvResult.kind !== "createRepo" || listResult.kind !== "listRepos") {
       throw new Error("Expected repo registration results.");
     }
 
     expect(argvResult.created).toBe(true);
-    expect(replResult.repos).toHaveLength(1);
+    expect(listResult.repos).toHaveLength(1);
 
     const repo = await readRepo(paths, argvResult.repo.id);
     const workspace = await readWorkspace(paths, argvResult.workspaceId);
@@ -118,7 +113,7 @@ describe("command routing", () => {
     const afterArchiveUi = await readUiState({ uiStateFile: paths.uiStateFile });
     expect(archivedRecord.status).toBe("archived");
     expect(afterArchiveUi?.selectedRepoId).toBeNull();
-    expect(afterArchiveUi?.overlayMode).toBe("archives");
+    expect(afterArchiveUi?.selectedWorkspaceId).toBeNull();
 
     const restored = await executeCommand({ kind: "restoreWorkspace", workspaceId: created.workspaceId }, { paths });
     expect(restored.kind).toBe("restoreWorkspace");
@@ -167,8 +162,7 @@ describe("command routing", () => {
     );
   });
 
-  test("unknown commands are rejected in both parsing flows", () => {
+  test("unknown argv commands are rejected", () => {
     expect(() => parseArgv(["repo", "unknown"])).toThrow(/Unsupported command/);
-    expect(() => parseReplCommand("wat")).toThrow(/Unknown command/);
   });
 });
