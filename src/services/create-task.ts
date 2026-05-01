@@ -104,12 +104,6 @@ export async function createTask(
         selectedRepoId: runningTask.repoId,
         selectedWorkspaceId: runningTask.workspaceId,
         selectedTaskId: runningTask.id,
-        activeSurface: "shell",
-        inputMode: "control",
-        centerSurface: "command",
-        panelFocus: "left",
-        rightContextTab: "summary",
-        lastAttachedSessionId: null,
       },
     );
 

@@ -31,15 +31,6 @@ export function getDefaultUiState(): CraigUiRuntime {
     selectedRepoId: null,
     selectedWorkspaceId: null,
     selectedTaskId: null,
-    activeSurface: "overlay",
-    overlayMode: "start",
-    inputMode: "control",
-    centerSurface: "command",
-    rightContextTab: "summary",
-    panelFocus: "left",
-    lastAttachedSessionId: null,
-    commandBuffer: "",
-    outputLines: [],
     updatedAt: new Date().toISOString(),
   };
 }
@@ -61,22 +52,6 @@ function validateUiState(value: unknown, filePath: string): CraigUiRuntime {
       (value as Partial<CraigUiRuntime>).selectedTaskId === null ||
       typeof (value as Partial<CraigUiRuntime>).selectedTaskId === "string"
     ) ||
-    !["overlay", "shell"].includes((value as Partial<CraigUiRuntime>).activeSurface ?? "") ||
-    ((value as Partial<CraigUiRuntime>).overlayMode !== "start" &&
-      (value as Partial<CraigUiRuntime>).overlayMode !== "archives") ||
-    ((value as Partial<CraigUiRuntime>).inputMode !== "control" &&
-      (value as Partial<CraigUiRuntime>).inputMode !== "terminal") ||
-    ((value as Partial<CraigUiRuntime>).centerSurface !== "command" &&
-      (value as Partial<CraigUiRuntime>).centerSurface !== "terminal") ||
-    !["summary", "logs", "diff", "files", "review"].includes((value as Partial<CraigUiRuntime>).rightContextTab ?? "") ||
-    !["left", "center", "right"].includes((value as Partial<CraigUiRuntime>).panelFocus ?? "") ||
-    !(
-      (value as Partial<CraigUiRuntime>).lastAttachedSessionId === null ||
-      typeof (value as Partial<CraigUiRuntime>).lastAttachedSessionId === "string"
-    ) ||
-    typeof (value as Partial<CraigUiRuntime>).commandBuffer !== "string" ||
-    !Array.isArray((value as Partial<CraigUiRuntime>).outputLines) ||
-    !((value as Partial<CraigUiRuntime>).outputLines ?? []).every((entry) => typeof entry === "string") ||
     typeof (value as Partial<CraigUiRuntime>).updatedAt !== "string"
   ) {
     throw new Error(`Craig UI state at ${filePath} is invalid. Remove or repair the file before rerunning Craig.`);

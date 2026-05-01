@@ -2,42 +2,30 @@ import { readFile, rm } from "node:fs/promises";
 
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 
-import { createCraigState, createRepoRoot } from "./test-helpers.js";
+import { createRepoRoot } from "./test-helpers.js";
 
 const tempRoots: string[] = [];
-const renderMock = vi.fn();
 const stdoutWriteMock = vi.fn(() => true);
+const stderrWriteMock = vi.fn(() => true);
 
-vi.mock("ink", () => ({
-  render: renderMock,
-  useInput: vi.fn(),
-}));
-
-describe("startInteractiveApp", () => {
+describe("cli phase 0 startup", () => {
   beforeEach(() => {
     vi.resetModules();
-    renderMock.mockReset();
     stdoutWriteMock.mockReset();
+    stderrWriteMock.mockReset();
 
     vi.stubGlobal("process", {
       ...process,
-      stdin: {
-        ...process.stdin,
-        isTTY: true,
-      },
+      argv: ["node", "src/cli.ts"],
       stdout: {
         ...process.stdout,
-        isTTY: true,
-        columns: 160,
-        rows: 48,
         write: stdoutWriteMock,
-        on: vi.fn(),
-        off: vi.fn(),
       },
-      env: {
-        ...process.env,
-        TERM: "xterm-256color",
+      stderr: {
+        ...process.stderr,
+        write: stderrWriteMock,
       },
+      exit: vi.fn(),
     });
   });
 
@@ -46,69 +34,24 @@ describe("startInteractiveApp", () => {
     await Promise.all(tempRoots.splice(0).map(async (root) => rm(root, { recursive: true, force: true })));
   });
 
-  test("enters the alternate screen before resolving interactive startup", async () => {
-    const workspaceRoot = await createRepoRoot("craig-ui-");
+  test("no-arg startup prints the phase 0 placeholder", async () => {
+    const workspaceRoot = await createRepoRoot("craig-cli-");
     tempRoots.push(workspaceRoot);
-    const paths = await createCraigState(workspaceRoot);
+    process.chdir(workspaceRoot);
 
-    renderMock.mockImplementation((
-      element: { props: { initialUiState: unknown; onResolve: Function } },
-    ) => {
-      element.props.onResolve({ kind: "exit", code: 0, uiState: element.props.initialUiState });
-      return {
-        unmount: vi.fn(),
-        waitUntilExit: vi.fn(async () => undefined),
-      };
-    });
+    await import("../src/cli.js");
 
-    const { startInteractiveApp } = await import("../src/interactive/app.js");
-    const exitCode = await startInteractiveApp({ paths });
-
-    expect(exitCode).toBe(0);
-    expect(stdoutWriteMock).toHaveBeenNthCalledWith(1, "\x1b[?1049h\x1b[?25l");
-    expect(stdoutWriteMock).toHaveBeenLastCalledWith("\x1b[?25h\x1b[?1049l");
+    expect(stdoutWriteMock).toHaveBeenCalledWith(
+      "Craig phase 0 is active: the old interactive shell has been removed, and the new terminal workspace shell is not implemented yet.\n",
+    );
+    expect(stderrWriteMock).not.toHaveBeenCalled();
   });
 
-  test("the CLI no longer references a REPL fallback or pre-banner write", async () => {
+  test("the CLI no longer references the deleted interactive stack", async () => {
     const source = await readFile(new URL("../src/cli.ts", import.meta.url), "utf8");
 
+    expect(source).not.toContain("startInteractiveApp");
     expect(source).not.toContain("startRepl");
     expect(source).not.toContain("renderBanner");
-  });
-
-  test("successful commands keep persisted task selection changes", async () => {
-    const workspaceRoot = await createRepoRoot("craig-ui-command-state-");
-    tempRoots.push(workspaceRoot);
-    const paths = await createCraigState(workspaceRoot);
-    const { readUiState, writeUiState } = await import("../src/state/ui-state-store.js");
-    const { getDefaultUiState } = await import("../src/state/ui-state-store.js");
-    const { resolveCommandUiState } = await import("../src/interactive/app.js");
-
-    const staleUiState = {
-      ...getDefaultUiState(),
-      activeSurface: "shell" as const,
-      selectedRepoId: "repo_old",
-      selectedWorkspaceId: "workspace_old",
-      selectedTaskId: "task_old",
-    };
-
-    await writeUiState(
-      { uiStateFile: paths.uiStateFile },
-      {
-        ...staleUiState,
-        selectedRepoId: "repo_new",
-        selectedWorkspaceId: "workspace_new",
-        selectedTaskId: "task_new",
-      },
-    );
-
-    const resolved = await resolveCommandUiState({ paths }, staleUiState, ["Command completed."]);
-
-    expect(resolved.selectedRepoId).toBe("repo_new");
-    expect(resolved.selectedWorkspaceId).toBe("workspace_new");
-    expect(resolved.selectedTaskId).toBe("task_new");
-    expect(resolved.commandBuffer).toBe("");
-    expect(resolved.outputLines).toEqual(["Command completed."]);
-    expect((await readUiState({ uiStateFile: paths.uiStateFile }))?.selectedTaskId).toBe("task_new");
   });
 });

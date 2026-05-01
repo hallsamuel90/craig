@@ -74,11 +74,10 @@ export async function addRepo(paths: CraigPaths, rawPath: string): Promise<Comma
     { uiStateFile: paths.uiStateFile },
     {
       ...((await readUiState({ uiStateFile: paths.uiStateFile })) ?? getDefaultUiState()),
-        selectedRepoId: repo.id,
-        selectedWorkspaceId: workspace.id,
-        selectedTaskId: null,
-        activeSurface: "overlay",
-      },
+      selectedRepoId: repo.id,
+      selectedWorkspaceId: workspace.id,
+      selectedTaskId: null,
+    },
   );
 
   return {
@@ -130,7 +129,6 @@ export async function removeRepo(paths: CraigPaths, repoId: string): Promise<Com
         selectedRepoId: null,
         selectedWorkspaceId: null,
         selectedTaskId: null,
-        activeSurface: "overlay",
       },
     );
   }

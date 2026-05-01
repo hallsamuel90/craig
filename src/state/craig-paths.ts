@@ -11,7 +11,6 @@ export interface CraigPaths {
   sessionsDir: string;
   runtimeDir: string;
   uiStateFile: string;
-  sessionFile: string;
   tasksDir: string;
   jobsDir: string;
   logsDir: string;
@@ -33,7 +32,6 @@ export function getCraigPaths(workspaceRoot: string): CraigPaths {
     sessionsDir: path.join(craigDir, "sessions"),
     runtimeDir: path.join(craigDir, "runtime"),
     uiStateFile: path.join(craigDir, "runtime", "ui-state.json"),
-    sessionFile: path.join(craigDir, "runtime", "session.json"),
     tasksDir: path.join(craigDir, "tasks"),
     jobsDir: path.join(craigDir, "jobs"),
     logsDir: path.join(craigDir, "logs"),

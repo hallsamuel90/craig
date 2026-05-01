@@ -58,13 +58,12 @@ export async function restoreWorkspace(paths: CraigPaths, workspaceId: string): 
 
   await writeUiState(
     { uiStateFile: paths.uiStateFile },
-      {
-        ...(ui ?? getDefaultUiState()),
-        selectedWorkspaceId: restored.id,
-        selectedRepoId: restored.primaryRepoId,
-        selectedTaskId: null,
-        activeSurface: "overlay",
-      },
+    {
+      ...(ui ?? getDefaultUiState()),
+      selectedWorkspaceId: restored.id,
+      selectedRepoId: restored.primaryRepoId,
+      selectedTaskId: null,
+    },
   );
 
   return {
@@ -94,12 +93,11 @@ async function clearUiSelection(paths: CraigPaths, workspaceId: string): Promise
 
   await writeUiState(
     { uiStateFile: paths.uiStateFile },
-      {
-        ...ui,
-        selectedWorkspaceId: null,
-        selectedRepoId: null,
-        selectedTaskId: null,
-        overlayMode: "archives",
-      },
+    {
+      ...ui,
+      selectedWorkspaceId: null,
+      selectedRepoId: null,
+      selectedTaskId: null,
+    },
   );
 }
