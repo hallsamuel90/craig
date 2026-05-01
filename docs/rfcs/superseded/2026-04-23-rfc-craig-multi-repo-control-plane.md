@@ -1,9 +1,10 @@
 # RFC: Craig Multi-Repo Control Plane
 
 - **Date:** 2026-04-23
-- **Status:** In Flight
+- **Status:** Superseded
 - **Author:** Codex
 - **Supersedes:** 2026-04-20-rfc-craig-control-plane.md
+- **Superseded By:** 2026-05-01-rfc-craig-terminal-workspace-rewrite.md
 
 ---
 
