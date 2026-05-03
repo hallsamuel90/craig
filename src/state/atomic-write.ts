@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import { open, readFile, rename, rm } from "node:fs/promises";
 import path from "node:path";
 
@@ -5,7 +6,7 @@ export async function atomicWriteJson(filePath: string, value: unknown): Promise
   const directory = path.dirname(filePath);
   const tempFile = path.join(
     directory,
-    `.${path.basename(filePath)}.${process.pid}.${Date.now()}.tmp`,
+    `.${path.basename(filePath)}.${process.pid}.${Date.now()}.${randomUUID()}.tmp`,
   );
   const handle = await open(tempFile, "w");
 

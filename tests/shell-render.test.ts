@@ -35,7 +35,7 @@ describe("terminal shell renderer", () => {
     expect(frame).not.toContain("task/interactive-shell  |");
     expect(frame).toContain("WORKSPACES");
     expect(frame).toContain("RUNNERS");
-    expect(frame).toContain("NORMAL  ? help  / find  : cmd");
+    expect(frame).toContain("NORMAL   ? help   / search   : command");
     expect(frame).toContain("▸ task_20260430_02");
     expect(frame).toContain("running ●");
     expect(frame).toContain("AGENT");
@@ -51,5 +51,25 @@ describe("terminal shell renderer", () => {
     expect(frame).toContain("codex ▸");
     expect(frame).toContain("─────");
     expect(frame).not.toContain("│WORKSPACES");
+  });
+
+  test("renders selected mock state for tabs, tasks, actions, and placeholders", () => {
+    const frame = renderMainShellFrame(
+      MIN_VIEWPORT,
+      getMockShellData({
+        focusedRegion: "actions",
+        selectedTaskId: "task_20260430_04",
+        activeTab: "diff",
+        selectedActionId: "push",
+        actionMessage: "Mock action: push (phase 1.2).",
+      }),
+      { color: false },
+    );
+
+    expect(frame).toContain("▸ task_20260430_04");
+    expect(frame).toContain("DIFF  task_20260430_04 · testing · codex");
+    expect(frame).toContain("Diff preview placeholder.");
+    expect(frame).toContain("▸  push");
+    expect(frame).toContain("Mock action: push (phase 1.2).");
   });
 });

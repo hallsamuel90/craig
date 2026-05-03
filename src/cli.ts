@@ -18,7 +18,7 @@ async function main(): Promise<number> {
 
     if (parsed.mode === "interactive") {
       void index;
-      return await startTerminalApp();
+      return await startTerminalApp({ uiStateFile: paths.uiStateFile });
     }
 
     if (!parsed.command) {
