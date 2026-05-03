@@ -5,10 +5,8 @@ import { parseArgv } from "./commands/parse-argv.js";
 import { ensureCraigState } from "./state/ensure-state.js";
 import { getCraigPaths } from "./state/craig-paths.js";
 import { formatCommandResult } from "./main.js";
+import { startTerminalApp } from "./ui/app.js";
 import { getCurrentWorkingDirectory } from "./utils/cwd.js";
-
-const INTERACTIVE_PLACEHOLDER =
-  "Craig phase 0 is active: the old interactive shell has been removed, and the new terminal workspace shell is not implemented yet.";
 
 async function main(): Promise<number> {
   try {
@@ -20,8 +18,7 @@ async function main(): Promise<number> {
 
     if (parsed.mode === "interactive") {
       void index;
-      process.stdout.write(`${INTERACTIVE_PLACEHOLDER}\n`);
-      return 0;
+      return await startTerminalApp();
     }
 
     if (!parsed.command) {

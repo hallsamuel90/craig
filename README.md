@@ -2,11 +2,11 @@
 
 Craig is a local control plane for repo-backed agent work.
 
-This repo is in rewrite phase `0.1`. The old interactive UI has been removed, and the new terminal workspace shell is not implemented yet.
+This repo is in rewrite phase `1.1`. Craig now boots into a mock `terminal-kit` workspace shell that establishes the new terminal-native layout and branding while command-mode scaffolding remains in place underneath it.
 
 ## Current status
 
-- No-arg startup prints a phase-0 placeholder instead of opening an interactive shell.
+- No-arg startup opens the new mock CRAIG shell with a boot overlay, pause overlay, and three-column workspace layout.
 - Command mode remains available through `craig <command>`.
 - Existing repo, workspace, task, and GitHub task actions remain as scaffolding for the rewrite.
 - `tmux` may still be used by surviving non-interactive task/session commands during the rewrite transition.
@@ -41,7 +41,7 @@ Run Craig from the repo root:
 pnpm start
 ```
 
-No-arg startup currently prints the phase `0.1` rewrite placeholder. Command mode remains available:
+No-arg startup now opens the phase `1.1` mock workspace shell. Command mode remains available:
 
 ```bash
 pnpm start -- task list
@@ -152,7 +152,7 @@ Per-task records under `.craig/tasks/` track:
 - PR status and cleanup metadata
 - artifact paths
 
-Per-session records under `.craig/sessions/` track the hidden tmux session name, pane target, lifecycle state, and last known terminal size used by surviving command-mode flows.
+Per-session records under `.craig/sessions/` track surviving command-mode session metadata used by the pre-PTY scaffolding.
 
 `.craig/runtime/ui-state.json` currently tracks lightweight selection state such as the selected repo, workspace, and task.
 
@@ -161,6 +161,7 @@ Per-session records under `.craig/sessions/` track the hidden tmux session name,
 - `logs <id>` depends on local `tail` for live follow behavior.
 - `focus <id>` and `task attach <id>` still depend on the underlying tmux session being available locally.
 - `open <id>` prints the worktree path when no opener is configured.
+- The phase `1.1` shell is still mock-data driven and does not yet wire the visible workspace UI to real repo or task state.
 - Full live manual verification of the GitHub-backed `pr --watch` to `merge` flow requires a locally authenticated `gh` session and a real repo remote.
 
 ## Development
