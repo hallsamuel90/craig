@@ -1,32 +1,60 @@
 import { createRequire } from "node:module";
 import type * as TerminalKitModule from "terminal-kit";
 
+import { readUiState, writeUiState } from "../state/ui-state-store.js";
 import { getMockShellData } from "./mock-data.js";
 import { getViewport } from "./layout.js";
 import { renderBootOverlayFrame, renderMainShellFrame, renderPauseOverlayFrame } from "./render.js";
+import { createInitialShellState, reduceMainKey, toPersistedUiState, type ControlShellState } from "./state.js";
 
 type OverlayVariant = "boot" | "pause";
-type ShellState =
-  | { mode: "overlay"; variant: OverlayVariant; menuIndex: number; optionsMessage: string | null }
-  | { mode: "main" };
+type AppState =
+  | { mode: "overlay"; variant: OverlayVariant; menuIndex: number; optionsMessage: string | null; shell: ControlShellState }
+  | { mode: "main"; shell: ControlShellState };
+
+export interface TerminalAppOptions {
+  uiStateFile?: string;
+}
 
 const require = createRequire(import.meta.url);
 const terminalKit = require("terminal-kit") as typeof TerminalKitModule;
 const terminal = terminalKit.terminal;
 
-export async function startTerminalApp(): Promise<number> {
+export async function startTerminalApp(options: TerminalAppOptions = {}): Promise<number> {
   if (!process.stdin.isTTY || !process.stdout.isTTY) {
     throw new Error("Craig terminal shell requires a TTY.");
   }
 
+  let runtimeState = options.uiStateFile ? await readUiState({ uiStateFile: options.uiStateFile }) : null;
+  let persistQueue = Promise.resolve();
+  const persistShellState = (shell: ControlShellState) => {
+    if (!options.uiStateFile) {
+      return;
+    }
+
+    runtimeState = toPersistedUiState(runtimeState, shell);
+    const nextRuntimeState = runtimeState;
+    persistQueue = persistQueue.then(
+      () => writeUiState({ uiStateFile: options.uiStateFile! }, nextRuntimeState),
+      () => writeUiState({ uiStateFile: options.uiStateFile! }, nextRuntimeState),
+    );
+    void persistQueue.catch(() => undefined);
+  };
+
   return new Promise<number>((resolve) => {
-    let state: ShellState = { mode: "overlay", variant: "boot", menuIndex: 0, optionsMessage: null };
+    let state: AppState = {
+      mode: "overlay",
+      variant: "boot",
+      menuIndex: 0,
+      optionsMessage: null,
+      shell: createInitialShellState(runtimeState),
+    };
 
     const render = () => {
       const viewport = getViewport(terminal.width, terminal.height);
       const frame =
         state.mode === "main"
-          ? renderMainShellFrame(viewport, getMockShellData())
+          ? renderMainShellFrame(viewport, getMockShellData(state.shell))
           : state.variant === "boot"
             ? renderBootOverlayFrame(viewport, {
                 menuIndex: state.menuIndex,
@@ -64,13 +92,22 @@ export async function startTerminalApp(): Promise<number> {
       }
 
       if (state.mode === "main") {
-        if (key === "q" || key === "Q") {
+        const result = reduceMainKey(state.shell, key);
+
+        if (result.exit) {
           exit(0);
           return;
         }
 
-        if (key === "ESCAPE") {
-          state = { mode: "overlay", variant: "pause", menuIndex: 0, optionsMessage: null };
+        if (result.pause) {
+          state = { mode: "overlay", variant: "pause", menuIndex: 0, optionsMessage: null, shell: result.state };
+          render();
+          return;
+        }
+
+        if (result.changed) {
+          state = { mode: "main", shell: result.state };
+          persistShellState(result.state);
           render();
         }
         return;
@@ -104,7 +141,7 @@ export async function startTerminalApp(): Promise<number> {
 
       if (key === "ESCAPE") {
         if (state.variant === "pause") {
-          state = { mode: "main" };
+          state = { mode: "main", shell: state.shell };
           render();
         }
         return;
@@ -115,7 +152,7 @@ export async function startTerminalApp(): Promise<number> {
       }
 
       if (state.menuIndex === 0) {
-        state = { mode: "main" };
+        state = { mode: "main", shell: state.shell };
         render();
         return;
       }
@@ -123,7 +160,7 @@ export async function startTerminalApp(): Promise<number> {
       if (state.menuIndex === 1) {
         state = {
           ...state,
-          optionsMessage: "Options are not available in phase 1.1.",
+          optionsMessage: "Options are not available in phase 1.2.",
         };
         render();
         return;

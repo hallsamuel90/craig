@@ -239,7 +239,7 @@ Required durable concerns:
 
 - `0.1` Remove the old interactive architecture and leave a runnable placeholder shell: `implemented and verified`
 - `1.1` Build the CRAIG overlay and three-column mock workspace shell in `terminal-kit`: `implemented and verified`
-- `1.2` Add keyboard navigation, tab state, and explicit control-mode ownership on mock data: `pending`
+- `1.2` Add keyboard navigation, tab state, and explicit control-mode ownership on mock data: `implemented and verified`
 - `2.1` Add PTY-backed terminal mode with explicit attach and `Ctrl + ]` detach: `pending`
 - `3.1` Replace mock repos and tasks with real repo, branch, worktree, and persisted task state: `pending`
 - `3.2` Restore selected task, tabs, and inspector state across restarts: `pending`
@@ -250,7 +250,7 @@ Required durable concerns:
 
 - `0.1` Verified by removing the Ink renderer, REPL parser, and interactive-only runtime store; shrinking persisted UI state to command-mode selection metadata; removing `ink`, `react`, `ink-testing-library`, and `node-pty` from the package graph; and replacing no-arg startup with a placeholder message. Automated verification passed via `pnpm test`, `pnpm typecheck`, `pnpm lint`, and `pnpm build`. Manual verification passed by running the built CLI with no arguments and confirming it prints the phase `0.1` placeholder instead of opening the old shell.
 - `1.1` Verified by replacing the phase `0.1` placeholder with a `terminal-kit` app entrypoint; rendering the CRAIG boot and pause overlays from the shared banner source; adding a three-column mock workspace shell with a top status rail, tab strip, and inspector sections; and keeping argv command mode intact for explicit commands. Automated verification passed via `pnpm test`, `pnpm typecheck`, `pnpm lint`, and `pnpm build`. Manual verification passed in a real TTY by running `node dist/cli.js`, confirming the boot overlay appears first, `Start` enters the shell, `Esc` opens the pause overlay, and `Exit` closes the app cleanly.
-- `1.2` Not yet verified.
+- `1.2` Verified by adding Craig-owned control-mode key routing for focus regions, mock task/action selection, center tab state, overlay actions, and non-destructive mock action feedback; deriving mock shell rendering from explicit shell state; and persisting restorable mock orientation fields in the workspace UI runtime state. Automated verification passed via `pnpm test`, `pnpm typecheck`, `pnpm lint`, and `pnpm build`. Manual verification passed in a real TTY by running `node dist/cli.js`, confirming boot Start enters the shell, `Tab`/`[`/`]` changes focus, arrow and Vim keys move selections, tabs change visible center content, `Enter` on actions shows placeholder feedback, `Esc` pauses/resumes, and `q` exits. No second stdin owner or keybinding conflict was observed during control mode.
 - `2.1` Not yet verified.
 - `3.1` Not yet verified.
 - `3.2` Not yet verified.
@@ -259,7 +259,7 @@ Required durable concerns:
 
 ### Next resume point
 
-Resume at the first sub-phase that is not both implemented and verified. The current resume point is `1.2`, which adds keyboard navigation, tab state, and explicit control-mode ownership on top of the phase `1.1` mock shell.
+Resume at the first sub-phase that is not both implemented and verified. The current resume point is `2.1`, which adds PTY-backed terminal mode with explicit attach and `Ctrl + ]` detach on top of the Craig-owned control shell.
 
 ### Deferred phases
 

@@ -31,6 +31,10 @@ export function getDefaultUiState(): CraigUiRuntime {
     selectedRepoId: null,
     selectedWorkspaceId: null,
     selectedTaskId: null,
+    inputMode: "control",
+    focusedRegion: "tasks",
+    activeTab: "agent",
+    selectedActionId: "commit",
     updatedAt: new Date().toISOString(),
   };
 }
@@ -52,12 +56,24 @@ function validateUiState(value: unknown, filePath: string): CraigUiRuntime {
       (value as Partial<CraigUiRuntime>).selectedTaskId === null ||
       typeof (value as Partial<CraigUiRuntime>).selectedTaskId === "string"
     ) ||
+    !optionalString(value, "inputMode") ||
+    !optionalString(value, "focusedRegion") ||
+    !optionalString(value, "activeTab") ||
+    !optionalString(value, "selectedActionId") ||
     typeof (value as Partial<CraigUiRuntime>).updatedAt !== "string"
   ) {
     throw new Error(`Craig UI state at ${filePath} is invalid. Remove or repair the file before rerunning Craig.`);
   }
 
   return value as CraigUiRuntime;
+}
+
+function optionalString(value: unknown, key: keyof CraigUiRuntime): boolean {
+  return (
+    typeof value === "object" &&
+    value !== null &&
+    (!(key in value) || typeof (value as Record<string, unknown>)[key] === "string")
+  );
 }
 
 function isFileMissingError(error: unknown): error is { code: string } {

@@ -23,7 +23,8 @@ interface PaletteColor {
 
 interface SurfaceLine {
   text: string;
-  tone?: "default" | "muted" | "selected";
+  tone?: "default" | "muted" | "selected" | "focused";
+  fullBleed?: boolean;
 }
 
 const BOOT_MENU = ["Start", "Options", "Exit"];
@@ -163,7 +164,7 @@ function toLeftLines(data: MockShellData, width: number, height: number, color: 
   ];
 
   const fitted = fitLines(lines, height);
-  fitted[height - 1] = { text: "NORMAL  ? help  / find  : cmd", tone: "muted" };
+  fitted[height - 1] = { text: "NORMAL   ? help   / search   : command", tone: "muted", fullBleed: true };
   return fitted;
 }
 
@@ -190,8 +191,9 @@ function toCenterLines(data: MockShellData, width: number, height: number, color
 
 function toRightLines(data: MockShellData, width: number, height: number, color: boolean): SurfaceLine[] {
   const divider = muted("─".repeat(Math.max(0, width - 4)), color, PALETTE.rightMuted);
+  const nextAction = data.actionMessage ?? data.rightNextAction;
   const lines: SurfaceLine[] = [
-    { text: "CONTEXT" },
+    { text: sectionTitle("CONTEXT", data.focusedRegion === "tasks", color, PALETTE.rightDefault) },
     emptyLine(),
     ...data.rightContext.map((row) => renderContextRow(row, color)),
     emptyLine(),
@@ -203,7 +205,7 @@ function toRightLines(data: MockShellData, width: number, height: number, color:
     emptyLine(),
     { text: divider, tone: "muted" },
     emptyLine(),
-    { text: "ACTIONS" },
+    { text: sectionTitle("ACTIONS", data.focusedRegion === "actions", color, PALETTE.rightDefault) },
     emptyLine(),
     ...data.rightActions.map((row) => renderActionRow(row, width, color)),
     emptyLine(),
@@ -211,7 +213,7 @@ function toRightLines(data: MockShellData, width: number, height: number, color:
     emptyLine(),
     { text: "NEXT" },
     emptyLine(),
-    { text: data.rightNextAction },
+    { text: nextAction },
   ];
 
   return fitLines(lines, height);
@@ -223,7 +225,8 @@ function renderTreeRow(row: MockTreeRow, width: number, color: boolean): Surface
   const status = row.status ? ` ${row.status}` : "";
   const accentDot = row.accentDot ? ` ${green("●", color, row.selected ? PALETTE.leftSelected : PALETTE.leftDefault)}` : "";
   const visibleWidth = width - stringWidth(status) - stringWidth(dot);
-  const base = pad(`${indent}${row.text}`, Math.max(0, visibleWidth));
+  const label = row.focused && !row.selected ? sectionTitle(row.text, true, color, PALETTE.leftDefault) : row.text;
+  const base = pad(`${indent}${label}`, Math.max(0, visibleWidth));
   const text = `${base}${status}${accentDot}`;
 
   if (row.selected) {
@@ -245,7 +248,13 @@ function renderRunnerRow(runner: MockRunnerRow): SurfaceLine {
 
 function renderTabLine(tabs: MockTab[], color: boolean): string {
   return tabs
-    .map((tab) => (tab.active ? green(tab.label, color, PALETTE.centerDefault) : muted(tab.label, color, PALETTE.centerDefault)))
+    .map((tab) => {
+      if (tab.active) {
+        return green(tab.label, color, PALETTE.centerDefault);
+      }
+
+      return muted(tab.label, color, PALETTE.centerDefault);
+    })
     .join("   ");
 }
 
@@ -275,6 +284,10 @@ function renderActionRow(row: MockActionRow, width: number, color: boolean): Sur
   };
 }
 
+function sectionTitle(text: string, focused: boolean, color: boolean, base: PaletteColor): string {
+  return focused ? green(text, color, base) : text;
+}
+
 function renderSurfaceSegment(
   line: SurfaceLine,
   width: number,
@@ -283,6 +296,10 @@ function renderSurfaceSegment(
 ): string {
   const palette = getPanelPalette(panel, line.tone ?? "default");
   if (panel === "left") {
+    if (line.fullBleed) {
+      return fillSurface(pad(line.text, width), color, palette);
+    }
+
     const contentWidth = width - LEFT_PANEL_INSET - LEFT_PANEL_GUTTER;
     const text = `${" ".repeat(LEFT_PANEL_INSET)}${pad(line.text, contentWidth)}${" ".repeat(LEFT_PANEL_GUTTER)}`;
     return fillSurface(text, color, palette);

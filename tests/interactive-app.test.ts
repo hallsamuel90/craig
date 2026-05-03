@@ -8,7 +8,7 @@ const tempRoots: string[] = [];
 const stdoutWriteMock = vi.fn(() => true);
 const stderrWriteMock = vi.fn(() => true);
 
-describe("cli phase 1.1 startup", () => {
+describe("cli terminal startup", () => {
   beforeEach(() => {
     vi.resetModules();
     stdoutWriteMock.mockReset();
@@ -45,6 +45,9 @@ describe("cli phase 1.1 startup", () => {
     await import("../src/cli.js");
 
     expect(startTerminalApp).toHaveBeenCalledTimes(1);
+    expect(startTerminalApp).toHaveBeenCalledWith({
+      uiStateFile: expect.stringContaining(".craig/runtime/ui-state.json"),
+    });
     expect(stdoutWriteMock).not.toHaveBeenCalled();
     expect(stderrWriteMock).not.toHaveBeenCalled();
   });
