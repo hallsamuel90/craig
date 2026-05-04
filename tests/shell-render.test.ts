@@ -72,4 +72,70 @@ describe("terminal shell renderer", () => {
     expect(frame).toContain("▸  push");
     expect(frame).toContain("Mock action: push (phase 1.2).");
   });
+
+  test("renders the PTY terminal surface and terminal-mode hint", () => {
+    const frame = renderMainShellFrame(
+      MIN_VIEWPORT,
+      getMockShellData({
+        inputMode: "terminal",
+        focusedRegion: "center",
+        activeTab: "terminal",
+        terminal: {
+          status: "running",
+          rows: [
+            { segments: [{ text: "$ pwd" }] },
+            { segments: [{ text: "/Users/samhall/conductor/workspaces/craig/boston-v2" }] },
+          ],
+          error: null,
+        },
+      }),
+      { color: false },
+    );
+
+    expect(frame).toContain("TERMINAL  task_20260430_02 · bug-fixes");
+    expect(frame).toContain("terminal ▸ terminal mode · Ctrl+] detach");
+    expect(frame).toContain("$ pwd");
+    expect(frame).toContain("/Users/samhall/conductor/workspaces/craig/");
+  });
+
+  test("renders recoverable PTY startup errors", () => {
+    const frame = renderMainShellFrame(
+      MIN_VIEWPORT,
+      getMockShellData({
+        activeTab: "terminal",
+        terminal: {
+          status: "failed",
+          rows: [],
+          error: "node-pty native module did not load",
+        },
+      }),
+      { color: false },
+    );
+
+    expect(frame).toContain("terminal ▸ PTY unavailable");
+    expect(frame).toContain("node-pty native module did not load");
+    expect(frame).toContain("Fix the native dependency setup");
+  });
+
+  test("renders styled terminal emulator rows without breaking panel output", () => {
+    const frame = renderMainShellFrame(
+      MIN_VIEWPORT,
+      getMockShellData({
+        inputMode: "terminal",
+        focusedRegion: "center",
+        activeTab: "terminal",
+        terminal: {
+          status: "running",
+          rows: [{ segments: [{ text: "green", style: { fg: "0dbc79" } }] }],
+          error: null,
+        },
+      }),
+      { color: true },
+    );
+
+    expect(frame).toContain("green");
+    expect(frame).toContain("\u001B[38;2;13;188;121");
+    expect(frame).toContain("terminal ▸ terminal mode · Ctrl+] detach");
+    expect(frame).toContain("CONTEXT");
+  });
 });

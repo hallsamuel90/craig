@@ -240,7 +240,8 @@ Required durable concerns:
 - `0.1` Remove the old interactive architecture and leave a runnable placeholder shell: `implemented and verified`
 - `1.1` Build the CRAIG overlay and three-column mock workspace shell in `terminal-kit`: `implemented and verified`
 - `1.2` Add keyboard navigation, tab state, and explicit control-mode ownership on mock data: `implemented and verified`
-- `2.1` Add PTY-backed terminal mode with explicit attach and `Ctrl + ]` detach: `pending`
+- `2.1` Add PTY-backed terminal mode with explicit attach and `Ctrl + ]` detach: `implemented and verified`
+- `2.2` Replace the PTY line buffer with a real xterm-style terminal emulator surface: `implemented and verified`
 - `3.1` Replace mock repos and tasks with real repo, branch, worktree, and persisted task state: `pending`
 - `3.2` Restore selected task, tabs, and inspector state across restarts: `pending`
 - `4.1` Add files, diff, checks, and next-action inspection on top of the real task model: `pending`
@@ -251,7 +252,8 @@ Required durable concerns:
 - `0.1` Verified by removing the Ink renderer, REPL parser, and interactive-only runtime store; shrinking persisted UI state to command-mode selection metadata; removing `ink`, `react`, `ink-testing-library`, and `node-pty` from the package graph; and replacing no-arg startup with a placeholder message. Automated verification passed via `pnpm test`, `pnpm typecheck`, `pnpm lint`, and `pnpm build`. Manual verification passed by running the built CLI with no arguments and confirming it prints the phase `0.1` placeholder instead of opening the old shell.
 - `1.1` Verified by replacing the phase `0.1` placeholder with a `terminal-kit` app entrypoint; rendering the CRAIG boot and pause overlays from the shared banner source; adding a three-column mock workspace shell with a top status rail, tab strip, and inspector sections; and keeping argv command mode intact for explicit commands. Automated verification passed via `pnpm test`, `pnpm typecheck`, `pnpm lint`, and `pnpm build`. Manual verification passed in a real TTY by running `node dist/cli.js`, confirming the boot overlay appears first, `Start` enters the shell, `Esc` opens the pause overlay, and `Exit` closes the app cleanly.
 - `1.2` Verified by adding Craig-owned control-mode key routing for focus regions, mock task/action selection, center tab state, overlay actions, and non-destructive mock action feedback; deriving mock shell rendering from explicit shell state; and persisting restorable mock orientation fields in the workspace UI runtime state. Automated verification passed via `pnpm test`, `pnpm typecheck`, `pnpm lint`, and `pnpm build`. Manual verification passed in a real TTY by running `node dist/cli.js`, confirming boot Start enters the shell, `Tab`/`[`/`]` changes focus, arrow and Vim keys move selections, tabs change visible center content, `Enter` on actions shows placeholder feedback, `Esc` pauses/resumes, and `q` exits. No second stdin owner or keybinding conflict was observed during control mode.
-- `2.1` Not yet verified.
+- `2.1` Verified by adding a UI-only `node-pty` runtime that lazily spawns one process-local shell per selected mock task, derives PTY size from the center terminal surface, keeps PTY output in a bounded sanitized line buffer, forwards keys only while `inputMode` is `terminal`, intercepts `Ctrl + ]` to detach back to Craig control mode, disposes PTYs on app exit, and renders recoverable spawn errors in the Terminal tab. Automated verification covers reducer attach/detach transitions, selected task/tab preservation, PTY key mapping, output buffering, renderer terminal-mode states, startup option plumbing, app-level Enter aliases, and a real PTY E2E that launches Craig, enters terminal mode, and runs `echo craig_e2e_terminal_ok` through the shell. `pnpm test`, `pnpm typecheck`, `pnpm lint`, and `pnpm build` passed locally. Manual built-CLI verification also passed by launching `dist/cli.js` inside a real pseudo-terminal, pressing Enter into the Terminal tab, and observing `echo craig_dist_terminal_ok` render from the PTY. Native dependency note: `node-pty@1.1.0` failed to spawn on this macOS/Node 24 workspace with `posix_spawnp failed`; pinning `node-pty@0.10.1` and approving its build script resolved real PTY spawning.
+- `2.2` Verified by adding an `@xterm/headless` emulator per process-local PTY session, feeding all PTY output into the emulator, resizing the emulator and PTY together, rendering styled emulator screen rows inside the center Terminal surface, and preserving the existing Craig control-mode versus terminal-mode ownership boundary. Follow-up hardening also makes reattach restart an exited PTY with a fresh shell and resolves each attached task shell to the recorded `worktreePath` when a task record exists, instead of always spawning in the workspace root. Automated verification covers SGR color cells, clear-screen behavior, carriage-return prompt redraw, cursor movement, wrapping, resize, styled renderer output, raw terminal-kit `unknown` Ctrl+] detach handling, detach/reattach session preservation, exited-session restart, exact task-worktree cwd resolution at spawn time, and a real PTY E2E that launches Craig, enters terminal mode, verifies the attached shell prompt is rooted in the selected task worktree, verifies color rendering, verifies `clear` removes prior visible terminal content, verifies cursor-addressed output, detaches with `Ctrl + ]`, re-enters the same live terminal surface, exits the shell process, and reattaches into a fresh shell successfully.
 - `3.1` Not yet verified.
 - `3.2` Not yet verified.
 - `4.1` Not yet verified.
@@ -259,7 +261,7 @@ Required durable concerns:
 
 ### Next resume point
 
-Resume at the first sub-phase that is not both implemented and verified. The current resume point is `2.1`, which adds PTY-backed terminal mode with explicit attach and `Ctrl + ]` detach on top of the Craig-owned control shell.
+Resume at the first sub-phase that is not both implemented and verified. The current resume point is `3.1`, which replaces mock repos and tasks with real repo, branch, worktree, and persisted task state now that control mode and the xterm-backed PTY terminal surface are proven.
 
 ### Deferred phases
 
@@ -409,6 +411,10 @@ Deliver the Craig visual identity, boot and pause overlay, three-column shell, m
 
 Deliver a real PTY in the center surface, explicit terminal-mode entry, raw keyboard forwarding while attached, and Craig-owned detach back to control mode.
 
+### Phase 2.2: Terminal emulator fidelity
+
+Replace the initial PTY line buffer with an xterm-style terminal emulator screen model so the center Terminal surface supports normal shell rendering behavior such as colors, clear-screen, prompt redraws, cursor addressing, resizing, and common TUI output.
+
 ### Phase 3: Real repo and task model
 
 Deliver repo registration, task creation, branch and worktree provisioning, persisted local state, and restart restore for selected task and workspace context.
@@ -503,6 +509,27 @@ Deliver file and diff surfaces, check summaries, next-action guidance, and PR-or
 - keep `2.1` open if Craig and the PTY compete for stdin or if detach loses workspace context
 - record native dependency setup issues around `node-pty` explicitly
 
+### 2.2 Handoff
+
+#### Implementation
+
+- add a headless terminal emulator between `node-pty` and the Craig renderer
+- feed PTY output into the emulator instead of a custom line buffer
+- render the emulator viewport as styled rows inside the center Terminal surface
+- resize the emulator and PTY together
+- preserve Craig-owned `Ctrl + ]` detach and process-local session reuse
+
+#### Verification
+
+- run `pnpm test`
+- run `pnpm typecheck`
+- run `pnpm lint`
+- manually verify shell commands, color, `clear`, cursor movement, detach, and reattach in a real terminal
+
+#### Tracking update
+
+- keep `2.2` open if terminal output is still rendered as a log buffer, if clear/color/cursor addressing is broken, or if emulator integration changes Craig's input ownership rules
+
 ### 3.1 Handoff
 
 #### Implementation
@@ -588,6 +615,7 @@ Deliver file and diff surfaces, check summaries, next-action guidance, and PR-or
 - `[1.1]` Craig renders the required logo treatment in the boot and pause overlay and presents a three-column shell with the specified panel hierarchy.
 - `[1.2]` Craig owns input in control mode with stable keyboard navigation and no competing stdin consumer.
 - `[2.1]` The selected task can enter terminal mode, interact with a live PTY, and return to control mode with `Ctrl + ]`.
+- `[2.2]` The Terminal surface renders through a real emulator screen model with color, clear-screen, cursor movement, resize, detach, and reattach behavior working in a real PTY-backed session.
 - `[3.1]` Creating a task provisions a branch and worktree and persists the task under `.craig/`.
 - `[3.2]` Restarting Craig restores the prior workspace orientation when persisted state is still valid.
 - `[4.1]` Files, diff, checks, and next-action guidance are available inside the Craig shell for real tasks.

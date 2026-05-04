@@ -46,24 +46,40 @@ describe("terminal shell control state", () => {
     expect(state.selectedActionId).toBe("commit");
   });
 
+  test("maps the old tabs focus region to the center pane", () => {
+    const state = createInitialShellState({
+      version: 1,
+      selectedRepoId: null,
+      selectedWorkspaceId: null,
+      selectedTaskId: "task_20260430_02",
+      inputMode: "control",
+      focusedRegion: "tabs",
+      activeTab: "terminal",
+      selectedActionId: "commit",
+      updatedAt: "2026-05-03T00:00:00.000Z",
+    });
+
+    expect(state.focusedRegion).toBe("center");
+  });
+
   test("cycles focus with tab-style keys and clamps at region edges", () => {
     const initial = createInitialShellState(null);
-    const tabs = reduceMainKey(initial, "TAB").state;
-    const actions = reduceMainKey(tabs, "]").state;
+    const center = reduceMainKey(initial, "TAB").state;
+    const actions = reduceMainKey(center, "]").state;
     const stillActions = reduceMainKey(actions, "]").state;
-    const backToTabs = reduceMainKey(stillActions, "[").state;
+    const backToCenter = reduceMainKey(stillActions, "[").state;
 
-    expect(tabs.focusedRegion).toBe("tabs");
+    expect(center.focusedRegion).toBe("center");
     expect(actions.focusedRegion).toBe("actions");
     expect(stillActions.focusedRegion).toBe("actions");
-    expect(backToTabs.focusedRegion).toBe("tabs");
+    expect(backToCenter.focusedRegion).toBe("center");
   });
 
   test("moves task, tab, and action selections through Craig control mode", () => {
     const tasks = createInitialShellState(null);
     const nextTask = reduceMainKey(tasks, "DOWN").state;
-    const tabs = reduceMainKey(nextTask, "TAB").state;
-    const nextTab = reduceMainKey(tabs, "RIGHT").state;
+    const center = reduceMainKey(nextTask, "TAB").state;
+    const nextTab = reduceMainKey(center, "RIGHT").state;
     const actions = reduceMainKey(reduceMainKey(nextTab, "TAB").state, "DOWN").state;
 
     expect(nextTask.selectedTaskId).toBe("task_20260430_03");
@@ -79,6 +95,88 @@ describe("terminal shell control state", () => {
     expect(result.pause).toBe(false);
     expect(result.changed).toBe(true);
     expect(result.state.actionMessage).toBe("Mock action: commit (phase 1.2).");
+  });
+
+  test("enter on the focused terminal tab attaches terminal mode", () => {
+    const center = reduceMainKey(createInitialShellState(null), "TAB").state;
+    const terminal = ["RIGHT", "RIGHT", "RIGHT"].reduce((state, key) => reduceMainKey(state, key).state, center);
+    const result = reduceMainKey(terminal, "ENTER");
+
+    expect(result.attachTerminal).toBe(true);
+    expect(result.state.inputMode).toBe("terminal");
+    expect(result.state.activeTab).toBe("terminal");
+    expect(result.state.selectedTaskId).toBe("task_20260430_02");
+  });
+
+  test("raw carriage return also attaches from the focused terminal tab", () => {
+    const center = reduceMainKey(createInitialShellState(null), "TAB").state;
+    const terminal = ["RIGHT", "RIGHT", "RIGHT"].reduce((state, key) => reduceMainKey(state, key).state, center);
+    const result = reduceMainKey(terminal, "\r");
+
+    expect(result.attachTerminal).toBe(true);
+    expect(result.state.inputMode).toBe("terminal");
+  });
+
+  test("ctrl-m style enter aliases attach from the focused terminal tab", () => {
+    const center = reduceMainKey(createInitialShellState(null), "TAB").state;
+    const terminal = ["RIGHT", "RIGHT", "RIGHT"].reduce((state, key) => reduceMainKey(state, key).state, center);
+
+    expect(reduceMainKey(terminal, "CTRL_M").attachTerminal).toBe(true);
+    expect(reduceMainKey(terminal, "RETURN").attachTerminal).toBe(true);
+  });
+
+  test("enter does not attach when the terminal tab is active outside the center region", () => {
+    const state = {
+      ...createInitialShellState(null),
+      focusedRegion: "tasks" as const,
+      activeTab: "terminal" as const,
+    };
+    const result = reduceMainKey(state, "ENTER");
+
+    expect(result.attachTerminal).toBe(false);
+    expect(result.state.inputMode).toBe("control");
+  });
+
+  test("enter still runs mock actions when actions are focused on the terminal tab", () => {
+    const state = {
+      ...createInitialShellState(null),
+      focusedRegion: "actions" as const,
+      activeTab: "terminal" as const,
+    };
+    const result = reduceMainKey(state, "ENTER");
+
+    expect(result.attachTerminal).toBe(false);
+    expect(result.state.inputMode).toBe("control");
+    expect(result.state.actionMessage).toBe("Mock action: commit (phase 1.2).");
+  });
+
+  test("ctrl+] detaches terminal mode without losing selected tab or task", () => {
+    const attached = {
+      ...createInitialShellState(null),
+      inputMode: "terminal" as const,
+      activeTab: "terminal" as const,
+      selectedTaskId: "task_20260430_04" as const,
+    };
+    const result = reduceMainKey(attached, "\u001D");
+
+    expect(result.detachTerminal).toBe(true);
+    expect(result.state.inputMode).toBe("control");
+    expect(result.state.activeTab).toBe("terminal");
+    expect(result.state.selectedTaskId).toBe("task_20260430_04");
+  });
+
+  test("non-detach terminal keys are left for the PTY owner", () => {
+    const attached = {
+      ...createInitialShellState(null),
+      inputMode: "terminal" as const,
+      activeTab: "terminal" as const,
+    };
+    const result = reduceMainKey(attached, "q");
+
+    expect(result.exit).toBe(false);
+    expect(result.changed).toBe(false);
+    expect(result.detachTerminal).toBe(false);
+    expect(result.state.inputMode).toBe("terminal");
   });
 
   test("escape always requests pause and clears transient action feedback", () => {
