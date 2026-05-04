@@ -1,11 +1,8 @@
-import { readFileSync } from "node:fs";
-import path from "node:path";
 import { createRequire } from "node:module";
 import type * as NodePty from "node-pty";
 import type { Terminal } from "@xterm/headless";
 
-import { getCraigPaths } from "../state/craig-paths.js";
-import type { MockTaskId, TerminalStatus, TerminalViewState } from "./state.js";
+import type { TerminalStatus, TerminalViewState } from "./state.js";
 import {
   createTerminalEmulator,
   renderTerminalScreenRows,
@@ -18,6 +15,11 @@ export interface PtySize {
   rows: number;
 }
 
+export interface PtySessionSpec {
+  cwd: string;
+  command: string[];
+}
+
 /* eslint-disable no-unused-vars */
 export interface PtyRuntimeOptions {
   workspaceRoot: string;
@@ -25,21 +27,30 @@ export interface PtyRuntimeOptions {
   env?: Record<string, string | undefined>;
   spawn?: typeof NodePty.spawn;
   onUpdate?: () => void;
-  resolveTaskCwd?: (...args: [MockTaskId]) => string;
+  resolveSessionSpec?: (taskId: string, tabId: string) => PtySessionSpec;
 }
 /* eslint-enable no-unused-vars */
 
 interface PtySession {
-  taskId: MockTaskId;
+  taskId: string;
+  tabId: string;
   pty: NodePty.IPty;
   terminal: Terminal;
   status: TerminalStatus;
   error: string | null;
   disposables: NodePty.IDisposable[];
+  scrollbackLines: number;
 }
 
 const require = createRequire(import.meta.url);
 const CONTROL_KEY_PATTERN = /^CTRL_([A-Z])$/;
+const DEVICE_STATUS_REPORT_QUERY = "\u001B[6n";
+const PRIMARY_DEVICE_ATTRIBUTES_QUERY = "\u001B[c";
+const KITTY_KEYBOARD_QUERY = "\u001B[?u";
+const OSC_FOREGROUND_QUERY_ST = "\u001B]10;?\u001B\\";
+const OSC_FOREGROUND_QUERY_BEL = "\u001B]10;?\u0007";
+const OSC_BACKGROUND_QUERY_ST = "\u001B]11;?\u001B\\";
+const OSC_BACKGROUND_QUERY_BEL = "\u001B]11;?\u0007";
 const SPECIAL_KEY_INPUT: Record<string, string> = {
   ENTER: "\r",
   KP_ENTER: "\r",
@@ -60,44 +71,41 @@ const SPECIAL_KEY_INPUT: Record<string, string> = {
 };
 
 export class PtyRuntime {
-  private readonly sessions = new Map<MockTaskId, PtySession>();
-  private readonly workspaceRoot: string;
+  private readonly sessions = new Map<string, PtySession>();
   private readonly shell: string;
   private readonly env: Record<string, string | undefined>;
   private readonly spawn: typeof NodePty.spawn | undefined;
   private readonly onUpdate: (() => void) | undefined;
-  /* eslint-disable no-unused-vars */
-  private readonly resolveTaskCwd: (...args: [MockTaskId]) => string;
-  /* eslint-enable no-unused-vars */
-  private attachedTaskId: MockTaskId | null = null;
+  private readonly resolveSessionSpec: NonNullable<PtyRuntimeOptions["resolveSessionSpec"]>;
+  private attachedTabId: string | null = null;
 
   constructor(options: PtyRuntimeOptions) {
-    this.workspaceRoot = options.workspaceRoot;
     this.shell = options.shell ?? process.env.SHELL ?? "/bin/zsh";
     this.env = options.env ?? process.env;
     this.spawn = options.spawn;
     this.onUpdate = options.onUpdate;
-    this.resolveTaskCwd = options.resolveTaskCwd ?? ((taskId) => resolveTaskWorktreePath(this.workspaceRoot, taskId));
+    this.resolveSessionSpec = options.resolveSessionSpec ?? (() => ({ cwd: options.workspaceRoot, command: [] }));
   }
 
-  ensureSession(taskId: MockTaskId, size: PtySize): TerminalViewState {
-    const existing = this.sessions.get(taskId);
+  ensureSession(taskId: string, tabId: string, size: PtySize): TerminalViewState {
+    const existing = this.sessions.get(tabId);
 
     if (existing) {
       if (existing.status !== "running") {
         disposeSession(existing);
-        this.sessions.delete(taskId);
+        this.sessions.delete(tabId);
       } else {
-        this.attachedTaskId = taskId;
+        this.attachedTabId = tabId;
+        existing.scrollbackLines = 0;
         resizeSession(existing, size);
-        return this.getViewState(taskId);
+        return this.getViewState(tabId);
       }
     }
 
-    const session = this.createSession(taskId, size);
-    this.sessions.set(taskId, session);
-    this.attachedTaskId = taskId;
-    return this.getViewState(taskId);
+    const session = this.createSession(taskId, tabId, size);
+    this.sessions.set(tabId, session);
+    this.attachedTabId = tabId;
+    return this.getViewState(tabId);
   }
 
   write(input: string): void {
@@ -116,6 +124,16 @@ export class PtyRuntime {
     }
   }
 
+  scrollViewport(lines: number): void {
+    const session = this.getAttachedSession();
+    if (!session || lines === 0) {
+      return;
+    }
+
+    const maxScrollback = session.terminal.buffer.active.baseY;
+    session.scrollbackLines = Math.max(0, Math.min(maxScrollback, session.scrollbackLines - lines));
+  }
+
   resize(size: PtySize): void {
     const session = this.getAttachedSession();
     if (session) {
@@ -124,7 +142,7 @@ export class PtyRuntime {
   }
 
   detach(): void {
-    this.attachedTaskId = null;
+    this.attachedTabId = null;
   }
 
   disposeAll(): void {
@@ -133,48 +151,53 @@ export class PtyRuntime {
     }
 
     this.sessions.clear();
-    this.attachedTaskId = null;
+    this.attachedTabId = null;
   }
 
-  getViewState(taskId: MockTaskId): TerminalViewState {
-    const session = this.sessions.get(taskId);
+  getViewState(tabId: string | null): TerminalViewState {
+    if (!tabId) {
+      return { status: "idle", rows: [], error: null };
+    }
+
+    const session = this.sessions.get(tabId);
 
     if (!session) {
-      return {
-        status: "idle",
-        rows: [],
-        error: null,
-      };
+      return { status: "idle", rows: [], error: null };
     }
 
     return {
       status: session.status,
-      rows: renderTerminalScreenRows(session.terminal),
+      rows: renderTerminalScreenRows(session.terminal, session.scrollbackLines),
       error: session.error,
     };
   }
 
-  private createSession(taskId: MockTaskId, size: PtySize): PtySession {
+  private createSession(taskId: string, tabId: string, size: PtySize): PtySession {
     const spawn = this.spawn ?? loadNodePty().spawn;
     const terminal = createTerminalEmulator(size);
-    const pty = spawn(this.shell, [], {
+    const spec = this.resolveSessionSpec(taskId, tabId);
+    const { executable, args } = resolveSpawnCommand(this.shell, spec.command);
+    const pty = spawn(executable, args, {
       name: "xterm-256color",
       cols: size.columns,
       rows: size.rows,
-      cwd: this.resolveTaskCwd(taskId),
+      cwd: spec.cwd,
       env: toPtyEnv(this.env),
     });
     const session: PtySession = {
       taskId,
+      tabId,
       pty,
       terminal,
       status: "running",
       error: null,
       disposables: [],
+      scrollbackLines: 0,
     };
 
     session.disposables.push(
       pty.onData((chunk) => {
+        respondToTerminalQueries(pty, chunk);
         void writeTerminalEmulator(session.terminal, chunk).then(() => {
           this.onUpdate?.();
         });
@@ -193,7 +216,7 @@ export class PtyRuntime {
   }
 
   private getAttachedSession(): PtySession | null {
-    return this.attachedTaskId ? this.sessions.get(this.attachedTaskId) ?? null : null;
+    return this.attachedTabId ? this.sessions.get(this.attachedTabId) ?? null : null;
   }
 }
 
@@ -229,21 +252,6 @@ function disposeSession(session: PtySession): void {
   session.pty.kill();
 }
 
-function resolveTaskWorktreePath(workspaceRoot: string, taskId: MockTaskId): string {
-  const taskFile = path.join(getCraigPaths(workspaceRoot).tasksDir, `${taskId}.json`);
-
-  try {
-    const parsed = JSON.parse(readFileSync(taskFile, "utf8")) as { worktreePath?: unknown };
-    if (typeof parsed.worktreePath === "string" && parsed.worktreePath.length > 0) {
-      return parsed.worktreePath;
-    }
-  } catch {
-    return workspaceRoot;
-  }
-
-  return workspaceRoot;
-}
-
 function resizePtySafely(pty: NodePty.IPty, size: PtySize): void {
   if (size.columns > 0 && size.rows > 0 && (pty.cols !== size.columns || pty.rows !== size.rows)) {
     pty.resize(size.columns, size.rows);
@@ -254,14 +262,70 @@ function loadNodePty(): typeof NodePty {
   return require("node-pty") as typeof NodePty;
 }
 
+function resolveSpawnCommand(shell: string, command: string[]): { executable: string; args: string[] } {
+  if (command.length === 0) {
+    return { executable: shell, args: [] };
+  }
+
+  const bootstrap = `${command.map(shellEscape).join(" ")}; exec ${shellEscape(shell)} -l`;
+  return { executable: shell, args: ["-lc", bootstrap] };
+}
+
+function shellEscape(value: string): string {
+  return `'${value.replaceAll("'", "'\\''")}'`;
+}
+
 function toPtyEnv(env: Record<string, string | undefined>): Record<string, string> {
   const next: Record<string, string> = {};
 
   for (const [key, value] of Object.entries(env)) {
-    if (value !== undefined) {
+    if (typeof value === "string") {
       next[key] = value;
     }
   }
 
+  next.TERM = next.TERM ?? "xterm-256color";
   return next;
+}
+
+function respondToTerminalQueries(pty: NodePty.IPty, chunk: string): void {
+  for (let index = 0; index < countSubstring(chunk, DEVICE_STATUS_REPORT_QUERY); index += 1) {
+    pty.write("\u001B[1;1R");
+  }
+
+  for (let index = 0; index < countSubstring(chunk, PRIMARY_DEVICE_ATTRIBUTES_QUERY); index += 1) {
+    pty.write("\u001B[?1;2c");
+  }
+
+  for (let index = 0; index < countSubstring(chunk, KITTY_KEYBOARD_QUERY); index += 1) {
+    pty.write("\u001B[?0u");
+  }
+
+  const foregroundQueryCount =
+    countSubstring(chunk, OSC_FOREGROUND_QUERY_ST) + countSubstring(chunk, OSC_FOREGROUND_QUERY_BEL);
+  for (let index = 0; index < foregroundQueryCount; index += 1) {
+    pty.write("\u001B]10;rgb:e6e6/e6e6/e6e6\u001B\\");
+  }
+
+  const backgroundQueryCount =
+    countSubstring(chunk, OSC_BACKGROUND_QUERY_ST) + countSubstring(chunk, OSC_BACKGROUND_QUERY_BEL);
+  for (let index = 0; index < backgroundQueryCount; index += 1) {
+    pty.write("\u001B]11;rgb:0a0a/0a0a/0a0a\u001B\\");
+  }
+}
+
+function countSubstring(value: string, needle: string): number {
+  if (needle.length === 0) {
+    return 0;
+  }
+
+  let count = 0;
+  let index = value.indexOf(needle);
+
+  while (index !== -1) {
+    count += 1;
+    index = value.indexOf(needle, index + needle.length);
+  }
+
+  return count;
 }

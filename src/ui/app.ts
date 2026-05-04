@@ -1,19 +1,33 @@
 import { createRequire } from "node:module";
+import { readdir, stat } from "node:fs/promises";
+import path from "node:path";
 import type * as TerminalKitModule from "terminal-kit";
 
-import { readUiState, writeUiState } from "../state/ui-state-store.js";
-import { getMockShellData } from "./mock-data.js";
+import { listRepos } from "../state/repo-store.js";
+import { getDefaultUiState, readUiState, writeUiState } from "../state/ui-state-store.js";
+import { writeTask } from "../state/task-store.js";
+import { getCraigPaths } from "../state/craig-paths.js";
+import { ensureCraigState } from "../state/ensure-state.js";
+import type { TaskPtyTabRecord, TaskRecord } from "../types/task.js";
+import { listTasks } from "../services/list-tasks.js";
+import { provisionTask } from "../services/task-provisioning.js";
+import { addRepo } from "../services/repo-registry.js";
+import { buildShellData, type WorkspaceShellModel } from "./shell-data.js";
 import { getViewport, SHELL_LAYOUT, type Viewport } from "./layout.js";
-import { PtyRuntime, type PtySize } from "./pty-runtime.js";
-import { renderBootOverlayFrame, renderMainShellFrame, renderPauseOverlayFrame } from "./render.js";
+import { PtyRuntime, type PtyRuntimeOptions, type PtySize } from "./pty-runtime.js";
+import { CENTER_TERMINAL_GUTTER, renderBootOverlayFrame, renderMainShellFrame, renderPauseOverlayFrame } from "./render.js";
 import {
   createInitialShellState,
   isEnterKey,
+  isPrintableKey,
+  isPtyTab,
   markTerminalAttachFailed,
   reduceMainKey,
   toPersistedUiState,
   updateTerminalViewState,
   type ControlShellState,
+  type WorkspaceBrowserEntry,
+  type WorkspaceBrowserState,
 } from "./state.js";
 
 type OverlayVariant = "boot" | "pause";
@@ -22,7 +36,7 @@ type AppState =
   | { mode: "main"; shell: ControlShellState };
 
 /* eslint-disable no-unused-vars */
-type KeyListener = (...args: [unknown]) => void;
+type TerminalEventListener = (...args: unknown[]) => void;
 
 export interface TerminalAppOptions {
   uiStateFile?: string;
@@ -41,21 +55,22 @@ export interface TerminalRuntime {
   moveTo(...args: [number, number]): void;
   eraseDisplayBelow(): void;
   noFormat(...args: [string]): void;
-  grabInput(...args: [boolean]): void;
+  grabInput(...args: [boolean | { mouse: "button" }]): void;
   hideCursor(...args: [boolean?]): void;
   fullscreen(...args: [boolean]): void;
-  on(...args: ["key" | "unknown", KeyListener]): void;
-  removeListener(...args: ["key" | "unknown", KeyListener]): void;
+  on(...args: ["key" | "unknown" | "mouse", TerminalEventListener]): void;
+  removeListener(...args: ["key" | "unknown" | "mouse", TerminalEventListener]): void;
 }
 
 export interface PtyRuntimePort {
-  ensureSession(...args: [ControlShellState["selectedTaskId"], PtySize]): ControlShellState["terminal"];
+  ensureSession(...args: [string, string, PtySize]): ControlShellState["terminal"];
   write(...args: [string]): void;
   writeKey(...args: [string]): void;
+  scrollViewport(...args: [number]): void;
   resize(...args: [PtySize]): void;
   detach(): void;
   disposeAll(): void;
-  getViewState(...args: [ControlShellState["selectedTaskId"]]): ControlShellState["terminal"];
+  getViewState(...args: [string | null]): ControlShellState["terminal"];
 }
 /* eslint-enable no-unused-vars */
 
@@ -64,8 +79,13 @@ export async function startTerminalApp(options: TerminalAppOptions = {}): Promis
     throw new Error("Craig terminal shell requires a TTY.");
   }
 
+  const workspaceRoot = options.workspaceRoot ?? process.cwd();
+  const paths = getCraigPaths(workspaceRoot);
+  await ensureCraigState(workspaceRoot);
   let runtimeState = options.uiStateFile ? await readUiState({ uiStateFile: options.uiStateFile }) : null;
   let persistQueue = Promise.resolve();
+  let model = await loadWorkspaceShellModel(workspaceRoot);
+
   const persistShellState = (shell: ControlShellState) => {
     if (!options.uiStateFile) {
       return;
@@ -87,26 +107,77 @@ export async function startTerminalApp(options: TerminalAppOptions = {}): Promis
       variant: "boot",
       menuIndex: 0,
       optionsMessage: null,
-      shell: createInitialShellState(runtimeState),
+      shell: resolveShellState(createInitialShellState(runtimeState), model),
     };
-    const ptyRuntime: PtyRuntimePort = options.ptyRuntime ?? new PtyRuntime({
-      workspaceRoot: options.workspaceRoot ?? process.cwd(),
+    let creatingTask = false;
+    let suppressTerminalEnterOnAttach = false;
+    let lastTerminalKey: { key: string; at: number } | null = null;
+    let pendingScrollLines = 0;
+    let scrollRenderTimer: ReturnType<typeof setTimeout> | null = null;
+    let ptyRenderTimer: ReturnType<typeof setTimeout> | null = null;
+    let pendingClear = true;
+    const ptyOptions: PtyRuntimeOptions = {
+      workspaceRoot,
       onUpdate: () => {
-        if (state.mode === "main") {
-          state = { mode: "main", shell: withTerminalView(state.shell) };
-          render();
+        if (state.mode !== "main") {
+          return;
+        }
+
+        state = { mode: "main", shell: withTerminalView(state.shell) };
+
+        if (!ptyRenderTimer) {
+          ptyRenderTimer = setTimeout(() => {
+            ptyRenderTimer = null;
+            if (state.mode === "main") {
+              render();
+            }
+          }, 50);
         }
       },
-    });
+      resolveSessionSpec: (_taskId, tabId) => resolvePtySessionSpec(model, tabId, workspaceRoot),
+    };
+    const ptyRuntime: PtyRuntimePort = options.ptyRuntime ?? new PtyRuntime(ptyOptions);
 
-    const withTerminalView = (shell: ControlShellState): ControlShellState =>
-      updateTerminalViewState(shell, ptyRuntime.getViewState(shell.selectedTaskId));
+    function withTerminalView(shell: ControlShellState): ControlShellState {
+      return updateTerminalViewState(shell, ptyRuntime.getViewState(shell.selectedPtyTabId));
+    }
+
+    function syncShell(nextShell: ControlShellState): ControlShellState {
+      return withTerminalView(resolveShellState(nextShell, model));
+    }
+
+    async function reloadModel(): Promise<void> {
+      model = await loadWorkspaceShellModel(workspaceRoot);
+      if (state.mode === "main") {
+        state = { mode: "main", shell: syncShell(state.shell) };
+      } else {
+        state = { ...state, shell: syncShell(state.shell) };
+      }
+    }
+
+    async function openWorkspaceBrowser(rootPath: string): Promise<void> {
+      const browser = await loadWorkspaceBrowser(rootPath);
+      if (state.mode !== "main") {
+        return;
+      }
+
+      state = {
+        mode: "main",
+        shell: syncShell({
+          ...state.shell,
+          workspaceBrowser: browser,
+          activeTab: "files",
+          actionMessage: null,
+        }),
+      };
+      render();
+    }
 
     const render = () => {
       const viewport = getViewport(activeTerminal.width, activeTerminal.height);
       const frame =
         state.mode === "main"
-          ? renderMainShellFrame(viewport, getMockShellData(withTerminalView(state.shell)))
+          ? renderMainShellFrame(viewport, buildShellData(syncShell(state.shell), model))
           : state.variant === "boot"
             ? renderBootOverlayFrame(viewport, {
                 menuIndex: state.menuIndex,
@@ -118,7 +189,10 @@ export async function startTerminalApp(options: TerminalAppOptions = {}): Promis
               });
 
       activeTerminal.moveTo(1, 1);
-      activeTerminal.eraseDisplayBelow();
+      if (pendingClear) {
+        activeTerminal.eraseDisplayBelow();
+        pendingClear = false;
+      }
       activeTerminal.noFormat(frame);
     };
 
@@ -126,6 +200,15 @@ export async function startTerminalApp(options: TerminalAppOptions = {}): Promis
       process.stdout.off("resize", handleResize);
       activeTerminal.removeListener("key", onKey);
       activeTerminal.removeListener("unknown", onUnknown);
+      activeTerminal.removeListener("mouse", onMouse);
+      if (scrollRenderTimer) {
+        clearTimeout(scrollRenderTimer);
+        scrollRenderTimer = null;
+      }
+      if (ptyRenderTimer) {
+        clearTimeout(ptyRenderTimer);
+        ptyRenderTimer = null;
+      }
       ptyRuntime.disposeAll();
       activeTerminal.grabInput(false);
       activeTerminal.hideCursor(false);
@@ -137,11 +220,271 @@ export async function startTerminalApp(options: TerminalAppOptions = {}): Promis
       resolve(code);
     };
 
+    const submitTaskPrompt = async () => {
+      if (state.mode !== "main" || creatingTask) {
+        return;
+      }
+
+      const shell = state.shell;
+      const prompt = shell.taskPromptInput?.trim() ?? "";
+
+      if (!shell.selectedRepoId) {
+        state = { mode: "main", shell: syncShell({ ...shell, taskPromptError: "Select a repo first." }) };
+        render();
+        return;
+      }
+
+      if (prompt.length === 0) {
+        state = { mode: "main", shell: syncShell({ ...shell, taskPromptError: "Task prompt cannot be empty." }) };
+        render();
+        return;
+      }
+
+      creatingTask = true;
+      state = {
+        mode: "main",
+        shell: syncShell({
+          ...shell,
+          actionMessage: `Creating task in ${shell.selectedRepoId}...`,
+        }),
+      };
+      render();
+
+      try {
+        const createdTask = await createInteractiveTask(paths, shell.selectedRepoId, prompt);
+        await reloadModel();
+        const nextShell = syncShell({
+          ...state.shell,
+          selectedRepoId: createdTask.repoId,
+          selectedTaskId: createdTask.id,
+          selectedPtyTabId: createdTask.selectedPtyTabId,
+          selectedLeftItemId: `task:${createdTask.id}`,
+          activeTab: "agent",
+          inputMode: "terminal",
+          taskPromptInput: null,
+          taskPromptError: null,
+          actionMessage: null,
+        });
+        const view = ptyRuntime.ensureSession(
+          createdTask.id,
+          nextShell.selectedPtyTabId ?? getRequiredPtyTabId(createdTask, "agent"),
+          getPtySize(getViewport(activeTerminal.width, activeTerminal.height)),
+        );
+        suppressTerminalEnterOnAttach = isAgentTabId(nextShell.selectedPtyTabId);
+        state = { mode: "main", shell: updateTerminalViewState(nextShell, view) };
+        persistShellState(state.shell);
+      } catch (error) {
+        const message = error instanceof Error ? error.message : "Failed to create task.";
+        state = {
+          mode: "main",
+          shell: syncShell({
+            ...state.shell,
+            inputMode: "control",
+            taskPromptInput: "",
+            taskPromptError: message,
+            actionMessage: null,
+          }),
+        };
+      } finally {
+        creatingTask = false;
+        render();
+      }
+    };
+
+    const handlePromptKey = (key: string) => {
+      if (state.mode !== "main") {
+        return;
+      }
+
+      const shell = state.shell;
+      if (shell.taskPromptInput === null) {
+        return;
+      }
+
+      if (key === "ESCAPE") {
+        state = {
+          mode: "main",
+          shell: syncShell({ ...shell, taskPromptInput: null, taskPromptError: null, actionMessage: null }),
+        };
+        render();
+        return;
+      }
+
+      if (isEnterKey(key)) {
+        void submitTaskPrompt();
+        return;
+      }
+
+      if (key === "BACKSPACE") {
+        state = {
+          mode: "main",
+          shell: syncShell({
+            ...shell,
+            taskPromptInput: shell.taskPromptInput.slice(0, -1),
+            taskPromptError: null,
+          }),
+        };
+        render();
+        return;
+      }
+
+      if (isPrintableKey(key)) {
+        state = {
+          mode: "main",
+          shell: syncShell({
+            ...shell,
+            taskPromptInput: `${shell.taskPromptInput}${key}`,
+            taskPromptError: null,
+          }),
+        };
+        render();
+      }
+    };
+
+    const handleWorkspaceBrowserKey = (key: string) => {
+      if (state.mode !== "main") {
+        return;
+      }
+
+      const browser = state.shell.workspaceBrowser;
+      if (!browser) {
+        return;
+      }
+
+      if (key === "ESCAPE") {
+        state = {
+          mode: "main",
+          shell: syncShell({ ...state.shell, workspaceBrowser: null, actionMessage: null }),
+        };
+        render();
+        return;
+      }
+
+      if (key === "UP" || key === "k") {
+        state = {
+          mode: "main",
+          shell: syncShell({
+            ...state.shell,
+            workspaceBrowser: {
+              ...browser,
+              selectedIndex: Math.max(0, browser.selectedIndex - 1),
+              error: null,
+            },
+          }),
+        };
+        render();
+        return;
+      }
+
+      if (key === "DOWN" || key === "j") {
+        const maxIndex = Math.max(0, browser.entries.length - 1);
+        state = {
+          mode: "main",
+          shell: syncShell({
+            ...state.shell,
+            workspaceBrowser: {
+              ...browser,
+              selectedIndex: Math.min(maxIndex, browser.selectedIndex + 1),
+              error: null,
+            },
+          }),
+        };
+        render();
+        return;
+      }
+
+      if (key === "LEFT" || key === "h") {
+        void openWorkspaceBrowser(path.dirname(browser.cwd)).catch((error: unknown) => {
+          const message = error instanceof Error ? error.message : "Failed to open parent directory.";
+          state = {
+            mode: "main",
+            shell: syncShell({
+              ...state.shell,
+              workspaceBrowser: {
+                ...browser,
+                error: message,
+              },
+            }),
+          };
+          render();
+        });
+        return;
+      }
+
+      if (key === "RIGHT" || key === "l" || isEnterKey(key)) {
+        const selectedEntry = browser.entries[browser.selectedIndex] ?? null;
+
+        if (!selectedEntry) {
+          return;
+        }
+
+        if (selectedEntry.kind === "directory" || ((key === "RIGHT" || key === "l") && selectedEntry.kind === "repo")) {
+          void openWorkspaceBrowser(selectedEntry.path).catch((error: unknown) => {
+            const message = error instanceof Error ? error.message : "Failed to open directory.";
+            state = {
+              mode: "main",
+              shell: syncShell({
+                ...state.shell,
+                workspaceBrowser: {
+                  ...browser,
+                  error: message,
+                },
+              }),
+            };
+            render();
+          });
+          return;
+        }
+
+        void addRepo(paths, selectedEntry.path)
+          .then(async (result) => {
+            await reloadModel();
+            const nextShell = syncShell({
+              ...state.shell,
+              workspaceBrowser: null,
+              selectedLeftItemId: `repo:${result.repo.id}`,
+              selectedRepoId: result.repo.id,
+              selectedTaskId: null,
+              selectedPtyTabId: null,
+              actionMessage: `Registered workspace: ${result.repo.name}`,
+            });
+            state = { mode: "main", shell: nextShell };
+            persistShellState(state.shell);
+            render();
+          })
+          .catch((error: unknown) => {
+            const message = error instanceof Error ? error.message : "Failed to add workspace.";
+            state = {
+              mode: "main",
+              shell: syncShell({
+                ...state.shell,
+                workspaceBrowser: {
+                  ...browser,
+                  error: message,
+                },
+              }),
+            };
+            render();
+          });
+      }
+    };
+
     const onKey = (name: unknown) => {
       const key = typeof name === "string" ? name : "";
 
+      if (state.mode === "main" && state.shell.taskPromptInput !== null) {
+        handlePromptKey(key);
+        return;
+      }
+
+      if (state.mode === "main" && state.shell.workspaceBrowser !== null) {
+        handleWorkspaceBrowserKey(key);
+        return;
+      }
+
       if (state.mode === "main") {
-        const result = reduceMainKey(state.shell, key);
+        const leftItemIds = getLeftItemIds(model);
+        const result = reduceMainKey(state.shell, key, { leftItemIds });
 
         if (result.exit) {
           exit(0);
@@ -150,12 +493,33 @@ export async function startTerminalApp(options: TerminalAppOptions = {}): Promis
 
         if (result.detachTerminal) {
           ptyRuntime.detach();
-          state = { mode: "main", shell: withTerminalView(result.state) };
+          state = { mode: "main", shell: syncShell(result.state) };
           render();
           return;
         }
 
         if (state.shell.inputMode === "terminal") {
+          if (suppressTerminalEnterOnAttach && isEnterKey(key)) {
+            suppressTerminalEnterOnAttach = false;
+            return;
+          }
+
+          if (suppressTerminalEnterOnAttach) {
+            suppressTerminalEnterOnAttach = false;
+          }
+
+          if (isDuplicateTerminalKey(lastTerminalKey, key)) {
+            return;
+          }
+
+          lastTerminalKey = shouldTrackTerminalKey(key) ? { key, at: Date.now() } : null;
+
+          const scrollLines = getTerminalScrollLinesForKey(key);
+          if (scrollLines !== 0) {
+            scheduleTerminalViewportScroll(scrollLines);
+            return;
+          }
+
           ptyRuntime.writeKey(key);
           return;
         }
@@ -166,19 +530,60 @@ export async function startTerminalApp(options: TerminalAppOptions = {}): Promis
         }
 
         if (result.pause) {
-          state = { mode: "overlay", variant: "pause", menuIndex: 0, optionsMessage: null, shell: result.state };
+          state = { mode: "overlay", variant: "pause", menuIndex: 0, optionsMessage: null, shell: syncShell(result.state) };
           render();
+          return;
+        }
+
+        if (result.beginTaskPrompt) {
+          state = { mode: "main", shell: syncShell(result.state) };
+          persistShellState(state.shell);
+          render();
+          return;
+        }
+
+        if (result.openWorkspaceBrowser) {
+          void openWorkspaceBrowser(workspaceRoot).catch((error: unknown) => {
+            const message = error instanceof Error ? error.message : "Failed to browse workspaces.";
+            state = {
+              mode: "main",
+              shell: syncShell({
+                ...result.state,
+                workspaceBrowser: {
+                  cwd: workspaceRoot,
+                  entries: [],
+                  selectedIndex: 0,
+                  error: message,
+                },
+              }),
+            };
+            render();
+          });
           return;
         }
 
         if (result.attachTerminal) {
           try {
-            const view = ptyRuntime.ensureSession(result.state.selectedTaskId, getPtySize(getViewport(activeTerminal.width, activeTerminal.height)));
-            state = { mode: "main", shell: updateTerminalViewState(result.state, view) };
+            const nextShell = syncShell(result.state);
+            const tabId = nextShell.selectedPtyTabId;
+            if (!nextShell.selectedTaskId || !tabId) {
+              state = { mode: "main", shell: nextShell };
+              render();
+              return;
+            }
+
+            const view = ptyRuntime.ensureSession(
+              nextShell.selectedTaskId,
+              tabId,
+              getPtySize(getViewport(activeTerminal.width, activeTerminal.height)),
+            );
+            suppressTerminalEnterOnAttach = isAgentTabId(tabId);
+            lastTerminalKey = null;
+            state = { mode: "main", shell: updateTerminalViewState(nextShell, view) };
             persistShellState(state.shell);
           } catch (error) {
             const message = error instanceof Error ? error.message : "Failed to start PTY.";
-            state = { mode: "main", shell: markTerminalAttachFailed(result.state, message) };
+            state = { mode: "main", shell: markTerminalAttachFailed(syncShell(result.state), message) };
             persistShellState(state.shell);
           }
           render();
@@ -186,8 +591,8 @@ export async function startTerminalApp(options: TerminalAppOptions = {}): Promis
         }
 
         if (result.changed) {
-          state = { mode: "main", shell: result.state };
-          persistShellState(result.state);
+          state = { mode: "main", shell: syncShell(result.state) };
+          persistShellState(state.shell);
           render();
         }
         return;
@@ -221,7 +626,7 @@ export async function startTerminalApp(options: TerminalAppOptions = {}): Promis
 
       if (key === "ESCAPE") {
         if (state.variant === "pause") {
-          state = { mode: "main", shell: state.shell };
+          state = { mode: "main", shell: syncShell(state.shell) };
           render();
         }
         return;
@@ -232,7 +637,7 @@ export async function startTerminalApp(options: TerminalAppOptions = {}): Promis
       }
 
       if (state.menuIndex === 0) {
-        state = { mode: "main", shell: state.shell };
+        state = { mode: "main", shell: syncShell(state.shell) };
         render();
         return;
       }
@@ -240,7 +645,7 @@ export async function startTerminalApp(options: TerminalAppOptions = {}): Promis
       if (state.menuIndex === 1) {
         state = {
           ...state,
-          optionsMessage: "Options are not available in phase 1.2.",
+          optionsMessage: "Options are not available in phase 3.1.",
         };
         render();
         return;
@@ -257,50 +662,408 @@ export async function startTerminalApp(options: TerminalAppOptions = {}): Promis
 
       if (raw.includes("\u001D")) {
         ptyRuntime.detach();
-        state = { mode: "main", shell: withTerminalView({ ...state.shell, inputMode: "control", actionMessage: null }) };
+        suppressTerminalEnterOnAttach = false;
+        lastTerminalKey = null;
+        state = { mode: "main", shell: syncShell({ ...state.shell, inputMode: "control", actionMessage: null }) };
         render();
+        return;
+      }
+
+      const scrollLines = getTerminalScrollLinesForRawInput(raw);
+      if (scrollLines !== 0) {
+        scheduleTerminalViewportScroll(scrollLines);
+        return;
+      }
+
+      if (suppressTerminalEnterOnAttach && raw !== "\r" && raw !== "\n" && raw !== "\r\n") {
+        suppressTerminalEnterOnAttach = false;
+      }
+
+      if (shouldSuppressRawTerminalInput(suppressTerminalEnterOnAttach, lastTerminalKey, raw)) {
+        suppressTerminalEnterOnAttach = false;
         return;
       }
 
       ptyRuntime.write(raw);
     };
 
+    const onMouse = (name: unknown) => {
+      if (state.mode !== "main" || state.shell.inputMode !== "terminal") {
+        return;
+      }
+
+      const scrollLines = getTerminalScrollLinesForMouseEvent(name);
+      if (scrollLines === 0) {
+        return;
+      }
+
+      scheduleTerminalViewportScroll(scrollLines);
+    };
+
+    function scheduleTerminalViewportScroll(lines: number): void {
+      pendingScrollLines += lines;
+
+      if (scrollRenderTimer) {
+        return;
+      }
+
+      scrollRenderTimer = setTimeout(() => {
+        scrollRenderTimer = null;
+        const linesToScroll = pendingScrollLines;
+        pendingScrollLines = 0;
+
+        if (linesToScroll === 0) {
+          return;
+        }
+
+        scrollTerminalViewport(linesToScroll);
+        render();
+      }, 16);
+    }
+
+    function scrollTerminalViewport(lines: number): void {
+      ptyRuntime.scrollViewport(lines);
+      state = { mode: "main", shell: withTerminalView(state.shell) };
+    }
+
     const handleResize = () => {
+      pendingClear = true;
+
       if (state.mode === "main" && state.shell.inputMode === "terminal") {
         ptyRuntime.resize(getPtySize(getViewport(activeTerminal.width, activeTerminal.height)));
+        state = { mode: "main", shell: withTerminalView(state.shell) };
       }
 
       render();
     };
 
+    process.stdout.on("resize", handleResize);
+    activeTerminal.grabInput({ mouse: "button" });
+    activeTerminal.hideCursor(true);
     activeTerminal.fullscreen(true);
-    activeTerminal.hideCursor();
-    activeTerminal.grabInput(true);
     activeTerminal.on("key", onKey);
     activeTerminal.on("unknown", onUnknown);
-    process.stdout.on("resize", handleResize);
+    activeTerminal.on("mouse", onMouse);
     render();
   });
 }
 
-function inputToString(input: unknown): string {
-  if (typeof input === "string") {
-    return input;
+async function loadWorkspaceShellModel(workspaceRoot: string): Promise<WorkspaceShellModel> {
+  const paths = getCraigPaths(workspaceRoot);
+  const [repos, taskResult] = await Promise.all([listRepos(paths), listTasks(paths)]);
+  return {
+    workspaceRoot,
+    repos,
+    tasks: taskResult.tasks,
+  };
+}
+
+function resolveShellState(state: ControlShellState, model: WorkspaceShellModel): ControlShellState {
+  const selectedLeftItemId = resolveLeftItemId(state, model);
+  const leftSelection = parseLeftItemId(selectedLeftItemId);
+  const selectedRepo =
+    (leftSelection?.kind === "repo"
+      ? model.repos.find((repo) => repo.id === leftSelection.id) ?? null
+      : leftSelection?.kind === "task"
+        ? model.repos.find((repo) => repo.id === model.tasks.find((task) => task.id === leftSelection.id)?.repoId) ?? null
+        : null) ??
+    model.repos.find((repo) => repo.id === state.selectedRepoId) ??
+    model.repos[0] ??
+    null;
+  const repoId = selectedRepo?.id ?? null;
+  const repoTasks = repoId ? model.tasks.filter((task) => task.repoId === repoId) : [];
+  const selectedTask =
+    (leftSelection?.kind === "task" ? repoTasks.find((task) => task.id === leftSelection.id) ?? null : null) ??
+    repoTasks.find((task) => task.id === state.selectedTaskId) ??
+    repoTasks[0] ??
+    null;
+  const selectedPtyTabId = resolvePtyTabId(selectedTask, state.activeTab, state.selectedPtyTabId);
+
+  return {
+    ...state,
+    selectedLeftItemId,
+    selectedRepoId: repoId,
+    selectedTaskId: selectedTask?.id ?? null,
+    selectedPtyTabId,
+  };
+}
+
+function getLeftItemIds(model: WorkspaceShellModel): string[] {
+  const itemIds: string[] = [];
+
+  for (const repo of model.repos) {
+    itemIds.push(`repo:${repo.id}`);
+    for (const task of model.tasks.filter((entry) => entry.repoId === repo.id)) {
+      itemIds.push(`task:${task.id}`);
+    }
   }
 
-  if (Buffer.isBuffer(input)) {
-    return input.toString();
+  itemIds.push("new-task");
+  itemIds.push("new-workspace");
+  return itemIds;
+}
+
+function resolvePtyTabId(task: TaskRecord | null, activeTab: ControlShellState["activeTab"], currentTabId: string | null): string | null {
+  if (!task) {
+    return null;
+  }
+
+  if (!isPtyTab(activeTab)) {
+    return currentTabId && task.ptyTabs.some((tab) => tab.id === currentTabId) ? currentTabId : task.selectedPtyTabId;
+  }
+
+  const kind = activeTab === "agent" ? "agent" : "terminal";
+  return task.ptyTabs.find((tab) => tab.kind === kind)?.id ?? task.selectedPtyTabId;
+}
+
+function resolvePtySessionSpec(model: WorkspaceShellModel, tabId: string, workspaceRoot: string) {
+  const task = model.tasks.find((entry) => entry.ptyTabs.some((tab) => tab.id === tabId)) ?? null;
+  const tab = task?.ptyTabs.find((entry) => entry.id === tabId) ?? null;
+
+  return {
+    cwd: task?.worktreePath ?? workspaceRoot,
+    command: tab?.kind === "agent" ? resolveAgentCommand(tab) : [],
+  };
+}
+
+function resolveAgentCommand(tab: TaskPtyTabRecord): string[] {
+  return [tab.command[0] ?? "codex"];
+}
+
+async function createInteractiveTask(paths: ReturnType<typeof getCraigPaths>, repoId: string, prompt: string): Promise<TaskRecord> {
+  const provisioned = await provisionTask(paths, repoId, prompt);
+  const agentTabId = getRequiredPtyTabId(provisioned.task, "agent");
+  const runningTask: TaskRecord = {
+    ...provisioned.task,
+    status: "running",
+    selectedPtyTabId: agentTabId,
+    runnerSession: {
+      ...provisioned.task.runnerSession,
+      startedAt: new Date().toISOString(),
+      lastKnownState: "running",
+    },
+  };
+
+  await writeTask(paths, runningTask);
+  await writeUiState(
+    { uiStateFile: paths.uiStateFile },
+    {
+      ...((await readUiState({ uiStateFile: paths.uiStateFile })) ?? getDefaultUiState()),
+      version: 1,
+      selectedRepoId: runningTask.repoId,
+      selectedWorkspaceId: runningTask.workspaceId,
+      selectedTaskId: runningTask.id,
+      selectedPtyTabId: runningTask.selectedPtyTabId,
+      inputMode: "control",
+      focusedRegion: "center",
+      activeTab: "agent",
+      selectedActionId: "commit",
+      updatedAt: new Date().toISOString(),
+    },
+  );
+
+  return runningTask;
+}
+
+function getRequiredPtyTabId(task: TaskRecord, kind: TaskPtyTabRecord["kind"]): string {
+  const tab = task.ptyTabs.find((entry) => entry.kind === kind);
+  if (!tab) {
+    throw new Error(`Task ${task.id} is missing its ${kind} PTY tab.`);
+  }
+
+  return tab.id;
+}
+
+function getPtySize(viewport: Viewport): PtySize {
+  // The center PTY surface reserves:
+  // 1. tab strip
+  // 2. active-tab underline
+  // 3. task header
+  // 4. spacer before the PTY surface
+  return {
+    columns: Math.max(
+      20,
+      viewport.width -
+        SHELL_LAYOUT.leftWidth -
+        SHELL_LAYOUT.rightWidth -
+        SHELL_LAYOUT.dividerWidth -
+        CENTER_TERMINAL_GUTTER * 2,
+    ),
+    rows: Math.max(5, viewport.height - SHELL_LAYOUT.topRailHeight - 4),
+  };
+}
+
+function inputToString(value: unknown): string {
+  if (typeof value === "string") {
+    return value;
+  }
+
+  if (Buffer.isBuffer(value)) {
+    return value.toString("utf8");
   }
 
   return "";
 }
 
-function getPtySize(viewport: Viewport): PtySize {
-  const centerWidth = viewport.width - SHELL_LAYOUT.leftWidth - SHELL_LAYOUT.rightWidth - SHELL_LAYOUT.dividerWidth;
-  const bodyHeight = viewport.height - SHELL_LAYOUT.topRailHeight;
+function shouldTrackTerminalKey(key: string): boolean {
+  return key.length === 1 || isEnterKey(key) || key === "BACKSPACE" || key === "TAB";
+}
+
+function isDuplicateTerminalKey(previous: { key: string; at: number } | null, key: string): boolean {
+  if (!previous || previous.key !== key || !shouldTrackTerminalKey(key)) {
+    return false;
+  }
+
+  return Date.now() - previous.at < 30;
+}
+
+function isAgentTabId(tabId: string | null): boolean {
+  return typeof tabId === "string" && tabId.endsWith(":agent");
+}
+
+function getTerminalScrollLinesForKey(key: string): number {
+  if (key === "PAGE_UP") {
+    return -5;
+  }
+
+  if (key === "PAGE_DOWN") {
+    return 5;
+  }
+
+  if (key === "MOUSE_WHEEL_UP") {
+    return -3;
+  }
+
+  if (key === "MOUSE_WHEEL_DOWN") {
+    return 3;
+  }
+
+  return 0;
+}
+
+function getTerminalScrollLinesForMouseEvent(name: unknown): number {
+  if (name === "MOUSE_WHEEL_UP") {
+    return -3;
+  }
+
+  if (name === "MOUSE_WHEEL_DOWN") {
+    return 3;
+  }
+
+  return 0;
+}
+
+function getTerminalScrollLinesForRawInput(raw: string): number {
+  const match = new RegExp(`${String.fromCharCode(27)}\\[<(\\d+);\\d+;\\d+[mM]`).exec(raw);
+  if (!match?.[1]) {
+    return 0;
+  }
+
+  const code = Number.parseInt(match[1], 10);
+  if (code === 64) {
+    return -3;
+  }
+
+  if (code === 65) {
+    return 3;
+  }
+
+  return 0;
+}
+
+function shouldSuppressRawTerminalInput(
+  suppressTerminalEnterOnAttach: boolean,
+  previous: { key: string; at: number } | null,
+  raw: string,
+): boolean {
+  if (raw.length === 0) {
+    return false;
+  }
+
+  if (suppressTerminalEnterOnAttach && (raw === "\r" || raw === "\n" || raw === "\r\n")) {
+    return true;
+  }
+
+  if (!previous || Date.now() - previous.at >= 30) {
+    return false;
+  }
+
+  if (raw === previous.key) {
+    return true;
+  }
+
+  return raw.length <= 4 && raw.split("").every((char) => char === previous.key);
+}
+
+function resolveLeftItemId(state: ControlShellState, model: WorkspaceShellModel): string | null {
+  const leftItemIds = getLeftItemIds(model);
+
+  if (state.selectedLeftItemId && leftItemIds.includes(state.selectedLeftItemId)) {
+    return state.selectedLeftItemId;
+  }
+
+  if (state.selectedTaskId && leftItemIds.includes(`task:${state.selectedTaskId}`)) {
+    return `task:${state.selectedTaskId}`;
+  }
+
+  if (state.selectedRepoId && leftItemIds.includes(`repo:${state.selectedRepoId}`)) {
+    return `repo:${state.selectedRepoId}`;
+  }
+
+  return leftItemIds[0] ?? null;
+}
+
+function parseLeftItemId(value: string | null): { kind: "repo" | "task"; id: string } | null {
+  if (!value) {
+    return null;
+  }
+
+  if (value.startsWith("repo:")) {
+    return { kind: "repo", id: value.slice("repo:".length) };
+  }
+
+  if (value.startsWith("task:")) {
+    return { kind: "task", id: value.slice("task:".length) };
+  }
+
+  return null;
+}
+
+async function loadWorkspaceBrowser(rootPath: string): Promise<WorkspaceBrowserState> {
+  const directoryEntries = await readdir(rootPath, { withFileTypes: true });
+  const entries: WorkspaceBrowserEntry[] = [];
+
+  for (const entry of directoryEntries) {
+    if (!entry.isDirectory()) {
+      continue;
+    }
+
+    const entryPath = path.join(rootPath, entry.name);
+    entries.push({
+      name: entry.name,
+      path: entryPath,
+      kind: (await isGitRepoDirectory(entryPath)) ? "repo" : "directory",
+    });
+  }
+
+  entries.sort((left, right) => {
+    if (left.kind !== right.kind) {
+      return left.kind === "repo" ? -1 : 1;
+    }
+
+    return left.name.localeCompare(right.name);
+  });
 
   return {
-    columns: Math.max(10, centerWidth - 2),
-    rows: Math.max(5, bodyHeight - 5),
+    cwd: rootPath,
+    entries,
+    selectedIndex: 0,
+    error: null,
   };
+}
+
+async function isGitRepoDirectory(rootPath: string): Promise<boolean> {
+  const gitPath = path.join(rootPath, ".git");
+  const stats = await stat(gitPath).catch(() => null);
+  return stats !== null;
 }

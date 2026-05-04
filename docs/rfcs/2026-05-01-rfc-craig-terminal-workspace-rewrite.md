@@ -23,7 +23,7 @@ This RFC makes the following product decisions explicit:
 - Craig will render with `terminal-kit`, not Ink
 - Craig will present one Craig-owned full-screen app from boot onward
 - Craig will support only two input modes: Craig control mode and raw PTY terminal mode
-- a task remains the primary execution unit and owns one repo, one worktree, one branch, one runner, and one session
+- a task remains the primary execution unit and owns one repo, one worktree, one branch, one runner identity, and one or more PTY-backed runtime tabs
 - the first rewrite milestone is visual and interaction fidelity, not backward compatibility with the old UI architecture
 - GitHub-backed review flows can land after the workspace shell and real task model are stable
 
@@ -80,7 +80,8 @@ Identity rules locked by this RFC:
 
 - `workspace`: the Craig root and durable local state boundary
 - `repo`: one registered source repository inside the workspace
-- `task`: one execution unit bound to one repo, one worktree, one branch, one runner, and one live session
+- `task`: one execution unit bound to one repo, one worktree, one branch, and one runner identity
+- `pty tab`: one task-scoped PTY-backed runtime surface such as an auto-booted `agent` tab or a plain `terminal` tab
 - `surface`: one center-panel view such as `agent`, `files`, `diff`, `terminal`, or `logs`
 - `overlay`: one full-screen Craig-owned modal state such as boot, pause, or resize warning
 
@@ -213,7 +214,9 @@ This rewrite removes `tmux` as an architectural requirement.
 Session decisions:
 
 - the active terminal experience is powered by `node-pty`
-- each task owns one PTY-backed session record
+- each task may own multiple PTY-backed runtime tabs
+- each PTY-backed runtime tab owns at most one live process-local PTY session at a time
+- `agent` and `terminal` are distinct PTY-backed runtime tab kinds even though both render through the same terminal surface
 - Craig stores enough session metadata to restore orientation after restart
 - Craig may later introduce a persistence substrate for background survival, but that is not a prerequisite for the rewrite foundation
 - the user model remains Craig session, never tmux session or pane
@@ -228,6 +231,7 @@ Required durable concerns:
 - task records
 - branch and worktree metadata
 - selected repo and task
+- selected PTY tab for the selected task when applicable
 - active center tab
 - open file tabs
 - inspector selection state
@@ -242,8 +246,9 @@ Required durable concerns:
 - `1.2` Add keyboard navigation, tab state, and explicit control-mode ownership on mock data: `implemented and verified`
 - `2.1` Add PTY-backed terminal mode with explicit attach and `Ctrl + ]` detach: `implemented and verified`
 - `2.2` Replace the PTY line buffer with a real xterm-style terminal emulator surface: `implemented and verified`
-- `3.1` Replace mock repos and tasks with real repo, branch, worktree, and persisted task state: `pending`
-- `3.2` Restore selected task, tabs, and inspector state across restarts: `pending`
+- `3.1` Replace mock repos and tasks with real repo, branch, worktree, persisted task state, and auto-booted Codex agent startup on create: `implemented and verified`
+- `3.2` Restore selected task, tabs, inspector state, and selected PTY tab across restarts: `pending`
+- `3.3` Add explicit multi-tab task runtime management on top of the multi-PTY task model: `pending`
 - `4.1` Add files, diff, checks, and next-action inspection on top of the real task model: `pending`
 - `4.2` Add PR-oriented review actions and GitHub CLI integration where available: `pending`
 
@@ -254,14 +259,15 @@ Required durable concerns:
 - `1.2` Verified by adding Craig-owned control-mode key routing for focus regions, mock task/action selection, center tab state, overlay actions, and non-destructive mock action feedback; deriving mock shell rendering from explicit shell state; and persisting restorable mock orientation fields in the workspace UI runtime state. Automated verification passed via `pnpm test`, `pnpm typecheck`, `pnpm lint`, and `pnpm build`. Manual verification passed in a real TTY by running `node dist/cli.js`, confirming boot Start enters the shell, `Tab`/`[`/`]` changes focus, arrow and Vim keys move selections, tabs change visible center content, `Enter` on actions shows placeholder feedback, `Esc` pauses/resumes, and `q` exits. No second stdin owner or keybinding conflict was observed during control mode.
 - `2.1` Verified by adding a UI-only `node-pty` runtime that lazily spawns one process-local shell per selected mock task, derives PTY size from the center terminal surface, keeps PTY output in a bounded sanitized line buffer, forwards keys only while `inputMode` is `terminal`, intercepts `Ctrl + ]` to detach back to Craig control mode, disposes PTYs on app exit, and renders recoverable spawn errors in the Terminal tab. Automated verification covers reducer attach/detach transitions, selected task/tab preservation, PTY key mapping, output buffering, renderer terminal-mode states, startup option plumbing, app-level Enter aliases, and a real PTY E2E that launches Craig, enters terminal mode, and runs `echo craig_e2e_terminal_ok` through the shell. `pnpm test`, `pnpm typecheck`, `pnpm lint`, and `pnpm build` passed locally. Manual built-CLI verification also passed by launching `dist/cli.js` inside a real pseudo-terminal, pressing Enter into the Terminal tab, and observing `echo craig_dist_terminal_ok` render from the PTY. Native dependency note: `node-pty@1.1.0` failed to spawn on this macOS/Node 24 workspace with `posix_spawnp failed`; pinning `node-pty@0.10.1` and approving its build script resolved real PTY spawning.
 - `2.2` Verified by adding an `@xterm/headless` emulator per process-local PTY session, feeding all PTY output into the emulator, resizing the emulator and PTY together, rendering styled emulator screen rows inside the center Terminal surface, and preserving the existing Craig control-mode versus terminal-mode ownership boundary. Follow-up hardening also makes reattach restart an exited PTY with a fresh shell and resolves each attached task shell to the recorded `worktreePath` when a task record exists, instead of always spawning in the workspace root. Automated verification covers SGR color cells, clear-screen behavior, carriage-return prompt redraw, cursor movement, wrapping, resize, styled renderer output, raw terminal-kit `unknown` Ctrl+] detach handling, detach/reattach session preservation, exited-session restart, exact task-worktree cwd resolution at spawn time, and a real PTY E2E that launches Craig, enters terminal mode, verifies the attached shell prompt is rooted in the selected task worktree, verifies color rendering, verifies `clear` removes prior visible terminal content, verifies cursor-addressed output, detaches with `Ctrl + ]`, re-enters the same live terminal surface, exits the shell process, and reattaches into a fresh shell successfully.
-- `3.1` Not yet verified.
+- `3.1` Verified by replacing mock shell repo/task fixtures with real `.craig` repo and task records at startup; reconciling shell selection against persisted repo, task, and PTY-tab ids; adding a minimal in-shell task prompt flow; provisioning new tasks through real branch and worktree creation; persisting default `agent` and `terminal` PTY tab metadata on each task; auto-selecting the created task; and immediately booting the initial Codex agent PTY tab in that task worktree. Automated verification covers control-state resolution on real ids, renderer output on real task context, PTY runtime tab-keyed session reuse, app-level terminal attach on real task selection, app-level create-task auto-bootstrap into the `agent` PTY tab, command-mode task creation compatibility, and a real PTY E2E rooted in a persisted task worktree. `pnpm test`, `pnpm typecheck`, and `pnpm lint` passed locally.
 - `3.2` Not yet verified.
+- `3.3` Not yet verified.
 - `4.1` Not yet verified.
 - `4.2` Not yet verified.
 
 ### Next resume point
 
-Resume at the first sub-phase that is not both implemented and verified. The current resume point is `3.1`, which replaces mock repos and tasks with real repo, branch, worktree, and persisted task state now that control mode and the xterm-backed PTY terminal surface are proven.
+Resume at the first sub-phase that is not both implemented and verified. The current resume point is `3.2`, which restores selected repo, task, center-tab, inspector, and PTY-tab orientation safely across restart now that the shell is running on real repo/task state and task creation auto-boots the initial Codex agent tab.
 
 ### Deferred phases
 
@@ -314,11 +320,21 @@ Representative task record:
   "branch": "craig/workspace-shell",
   "worktreePath": "/workspace/.craig/worktrees/repo_app/task_20260501_01",
   "runner": "codex",
-  "session": {
-    "kind": "pty",
-    "status": "running",
-    "pid": 48211
-  },
+  "selectedPtyTabId": "task_20260501_01:agent",
+  "ptyTabs": [
+    {
+      "id": "task_20260501_01:agent",
+      "kind": "agent",
+      "title": "Codex",
+      "command": ["codex", "rewrite the workspace shell"]
+    },
+    {
+      "id": "task_20260501_01:terminal",
+      "kind": "terminal",
+      "title": "Terminal",
+      "command": []
+    }
+  ],
   "surfaceState": {
     "activeTab": "agent",
     "openFileTabs": [],
@@ -335,6 +351,7 @@ Representative UI state record:
 {
   "selectedRepoId": "repo_app",
   "selectedTaskId": "task_20260501_01",
+  "selectedPtyTabId": "task_20260501_01:agent",
   "activeOverlay": null,
   "inputMode": "control",
   "centerTab": "agent",
@@ -344,9 +361,9 @@ Representative UI state record:
 
 State model decisions locked by this RFC:
 
-- task records no longer carry `tmux`-specific identifiers
+- task records carry PTY-tab metadata independently from any deferred substrate-specific session details
 - UI restore state is explicit and versioned
-- task session state is PTY-oriented and Craig-owned
+- task runtime state is PTY-oriented and Craig-owned
 - open file tabs and inspector selection are durable enough to restore orientation
 - all state writes must remain atomic
 
@@ -537,14 +554,15 @@ Deliver file and diff surfaces, check summaries, next-action guidance, and PR-or
 - replace mock repos and tasks with real repo records
 - implement task creation that allocates a branch and git worktree
 - persist task and repo state under `.craig/`
-- connect created tasks to the workspace shell immediately
+- persist default `agent` and `terminal` PTY tab metadata on each task
+- connect created tasks to the workspace shell immediately by selecting the new task, activating the `agent` tab, and booting Codex inside the task worktree
 
 #### Verification
 
 - run `pnpm test`
 - run `pnpm typecheck`
 - run `pnpm lint`
-- manually create a task and confirm the worktree and branch are created correctly
+- manually create a task, confirm the worktree and branch are created correctly, and confirm the initial Codex agent tab opens in the task worktree
 
 #### Tracking update
 
@@ -555,7 +573,7 @@ Deliver file and diff surfaces, check summaries, next-action guidance, and PR-or
 
 #### Implementation
 
-- restore selected repo, selected task, active tab, and inspector section after restart
+- restore selected repo, selected task, selected PTY tab, active tab, and inspector section after restart
 - restore task lists and status from persisted state
 - fall back safely when previous UI state is stale or invalid
 
@@ -569,6 +587,25 @@ Deliver file and diff surfaces, check summaries, next-action guidance, and PR-or
 #### Tracking update
 
 - keep `3.2` open if restart restore changes selection unpredictably or loses tab context
+
+### 3.3 Handoff
+
+#### Implementation
+
+- add explicit task-scoped PTY tab management on top of the multi-PTY task model
+- support creating and switching between multiple `agent` and `terminal` tabs for one task
+- add naming, closing, and restore semantics for PTY tabs without changing the task/worktree model
+
+#### Verification
+
+- run `pnpm test`
+- run `pnpm typecheck`
+- run `pnpm lint`
+- manually create at least one extra PTY tab for a task and verify selection and re-entry behavior
+
+#### Tracking update
+
+- keep `3.3` open if PTY tab creation or restore still assumes one live task session
 
 ### 4.1 Handoff
 
@@ -616,7 +653,8 @@ Deliver file and diff surfaces, check summaries, next-action guidance, and PR-or
 - `[1.2]` Craig owns input in control mode with stable keyboard navigation and no competing stdin consumer.
 - `[2.1]` The selected task can enter terminal mode, interact with a live PTY, and return to control mode with `Ctrl + ]`.
 - `[2.2]` The Terminal surface renders through a real emulator screen model with color, clear-screen, cursor movement, resize, detach, and reattach behavior working in a real PTY-backed session.
-- `[3.1]` Creating a task provisions a branch and worktree and persists the task under `.craig/`.
-- `[3.2]` Restarting Craig restores the prior workspace orientation when persisted state is still valid.
+- `[3.1]` Creating a task provisions a branch and worktree, persists PTY-tab-aware task state under `.craig/`, and auto-boots the initial Codex agent tab in that task worktree.
+- `[3.2]` Restarting Craig restores the prior workspace orientation, including selected PTY tab when persisted state is still valid.
+- `[3.3]` One task can manage multiple PTY-backed `agent` and `terminal` tabs without reshaping the task/worktree model.
 - `[4.1]` Files, diff, checks, and next-action guidance are available inside the Craig shell for real tasks.
 - `[4.2]` GitHub-backed review actions enhance the workflow when available without becoming a hard dependency for core workspace use.

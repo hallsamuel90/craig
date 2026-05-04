@@ -59,6 +59,16 @@ export interface TaskArtifacts {
 }
 
 export type RunnerSessionState = "starting" | "running" | "exited" | "failed";
+export type TaskPtyTabKind = "agent" | "terminal";
+
+export interface TaskPtyTabRecord {
+  id: string;
+  kind: TaskPtyTabKind;
+  title: string;
+  command: string[];
+  createdAt: string;
+  updatedAt: string;
+}
 
 export interface RunnerSession {
   command: string[];
@@ -92,10 +102,12 @@ export interface TaskRecord {
   repoId: string;
   workspaceId: string;
   sessionId: string | null;
+  selectedPtyTabId: string | null;
   linkedRepoIds: string[];
   repoRoot: string;
   worktreePath: string;
   branch: string;
+  ptyTabs: TaskPtyTabRecord[];
   runnerSession: RunnerSession;
   prompt: TaskPromptSource;
   checks: TaskChecks;

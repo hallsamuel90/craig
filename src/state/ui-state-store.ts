@@ -31,6 +31,7 @@ export function getDefaultUiState(): CraigUiRuntime {
     selectedRepoId: null,
     selectedWorkspaceId: null,
     selectedTaskId: null,
+    selectedPtyTabId: null,
     inputMode: "control",
     focusedRegion: "tasks",
     activeTab: "agent",
@@ -55,6 +56,11 @@ function validateUiState(value: unknown, filePath: string): CraigUiRuntime {
     !(
       (value as Partial<CraigUiRuntime>).selectedTaskId === null ||
       typeof (value as Partial<CraigUiRuntime>).selectedTaskId === "string"
+    ) ||
+    !(
+      (value as Partial<CraigUiRuntime>).selectedPtyTabId === undefined ||
+      (value as Partial<CraigUiRuntime>).selectedPtyTabId === null ||
+      typeof (value as Partial<CraigUiRuntime>).selectedPtyTabId === "string"
     ) ||
     !optionalString(value, "inputMode") ||
     !optionalString(value, "focusedRegion") ||

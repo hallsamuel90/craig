@@ -1,86 +1,26 @@
-import type { CenterTabId, ControlShellState, FocusRegion, InputMode, MockActionId, MockTaskId, TerminalViewState } from "./state.js";
-
-export interface MockTopRail {
-  workspacePath: string;
-  agent: string;
-  liveLabel: string;
-}
-
-export interface MockTreeRow {
-  text: string;
-  taskId?: MockTaskId;
-  indent?: number;
-  selected?: boolean;
-  focused?: boolean;
-  accentDot?: boolean;
-  status?: string;
-  muted?: boolean;
-}
-
-export interface MockRunnerRow {
-  name: string;
-  meter: string;
-  count: string;
-}
-
-export interface MockTab {
-  id: CenterTabId;
-  label: string;
-  active?: boolean;
-  focused?: boolean;
-}
-
-export interface MockContextRow {
-  label: string;
-  value: string;
-  mutedValue?: boolean;
-}
-
-export interface MockCheckRow {
-  status: string;
-  label: string;
-  result: string;
-  duration: string;
-  success?: boolean;
-}
-
-export interface MockActionRow {
-  id: MockActionId;
-  label: string;
-  shortcut: string;
-  selected?: boolean;
-  focused?: boolean;
-}
-
-export interface MockShellData {
-  inputMode: InputMode;
-  focusedRegion: FocusRegion;
-  actionMessage: string | null;
-  terminal: TerminalViewState;
-  topRail: MockTopRail;
-  leftTree: MockTreeRow[];
-  runners: MockRunnerRow[];
-  centerHeader: {
-    tabLabel: string;
-    taskId: string;
-    repo: string;
-    agent: string;
-  };
-  centerTranscript: string[];
-  tabs: MockTab[];
-  rightContext: MockContextRow[];
-  rightChecks: MockCheckRow[];
-  rightActions: MockActionRow[];
-  rightNextAction: string;
-}
+import type { ControlShellState } from "./state.js";
+import type { ShellData, ShellTreeRow } from "./shell-data.js";
 
 type MockShellStateInput = Partial<
-  Pick<ControlShellState, "inputMode" | "focusedRegion" | "selectedTaskId" | "activeTab" | "selectedActionId" | "actionMessage" | "terminal">
+  Pick<
+    ControlShellState,
+    | "inputMode"
+    | "focusedRegion"
+    | "selectedRepoId"
+    | "selectedTaskId"
+    | "selectedPtyTabId"
+    | "selectedLeftItemId"
+    | "activeTab"
+    | "selectedActionId"
+    | "actionMessage"
+    | "taskPromptInput"
+    | "taskPromptError"
+    | "workspaceBrowser"
+    | "terminal"
+  >
 >;
 
-export function getMockShellData(
-  state: MockShellStateInput = {},
-): MockShellData {
+export function getMockShellData(state: MockShellStateInput = {}): ShellData {
   const resolved = {
     ...DEFAULT_MOCK_SHELL_STATE,
     ...state,
@@ -89,7 +29,9 @@ export function getMockShellData(
       ...state.terminal,
     },
   };
+
   const selectedTask = TASK_FIXTURES.find((task) => task.id === resolved.selectedTaskId) ?? TASK_FIXTURES[1]!;
+  const selectedRepo = REPO_FIXTURES.find((repo) => repo.id === resolved.selectedRepoId) ?? REPO_FIXTURES[1]!;
   const activeTab = TAB_FIXTURES.find((tab) => tab.id === resolved.activeTab) ?? TAB_FIXTURES[0]!;
 
   return {
@@ -97,6 +39,12 @@ export function getMockShellData(
     focusedRegion: resolved.focusedRegion,
     actionMessage: resolved.actionMessage,
     terminal: resolved.terminal,
+    footerText:
+      resolved.taskPromptInput !== null
+        ? `NEW TASK [${selectedRepo.name}]: ${resolved.taskPromptInput}${resolved.taskPromptError ? ` · ${resolved.taskPromptError}` : ""}`
+        : resolved.inputMode === "terminal"
+        ? "TERMINAL   Ctrl+] detach   wheel/PgUp/PgDn scroll"
+        : "NORMAL   n new task   ? help   / search   : command",
     topRail: {
       workspacePath: "~/workspaces/craig/colombo",
       agent: "codex",
@@ -104,22 +52,34 @@ export function getMockShellData(
     },
     leftTree: [
       { text: "WORKSPACES", muted: true, focused: resolved.focusedRegion === "tasks" },
-      { text: "▾ craig" },
-      { text: "▾ main", indent: 2 },
-      taskTreeRow("task_20260430_01", 4, "└", resolved),
-      { text: "▾ bug-fixes", indent: 2 },
-      taskTreeRow("task_20260430_02", 1, "▸", resolved),
-      taskTreeRow("task_20260430_03", 6, "", resolved),
-      { text: "▾ what-up-dennys", indent: 2 },
-      taskTreeRow("task_20260430_06", 4, "└", resolved, true),
-      { text: "▾ testing", indent: 2 },
-      taskTreeRow("task_20260430_04", 4, "└", resolved, true),
-      { text: "▾ whats-our-test-coverage", indent: 2 },
-      taskTreeRow("task_20260430_05", 4, "└", resolved, true),
+      { text: "▾ main" },
+      taskTreeRow("task_20260430_01", 2, "└", resolved),
+      { text: "▾ bug-fixes" },
+      taskTreeRow("task_20260430_02", 2, "▸", resolved),
+      taskTreeRow("task_20260430_03", 2, "•", resolved),
+      { text: "▾ testing" },
+      taskTreeRow("task_20260430_04", 2, "└", resolved),
+      { text: "▾ whats-our-test-coverage" },
+      taskTreeRow("task_20260430_05", 2, "└", resolved),
+      { text: "▾ what-up-dennys" },
+      taskTreeRow("task_20260430_06", 2, "└", resolved),
+      { text: "" },
+      {
+        id: "new-task",
+        text: "+ New Task",
+        selected: resolved.selectedLeftItemId === "new-task",
+        focused: resolved.focusedRegion === "tasks" && resolved.selectedLeftItemId === "new-task",
+      },
+      {
+        id: "new-workspace",
+        text: "+ New Workspace",
+        selected: resolved.selectedLeftItemId === "new-workspace",
+        focused: resolved.focusedRegion === "tasks" && resolved.selectedLeftItemId === "new-workspace",
+      },
     ],
     runners: [
       { name: "codex", meter: "[##########]", count: "6" },
-      { name: "cursor", meter: "[##########]", count: "2" },
+      { name: "cursor", meter: "[##........]", count: "2" },
     ],
     centerHeader: {
       tabLabel: activeTab.label,
@@ -127,7 +87,7 @@ export function getMockShellData(
       repo: selectedTask.repo,
       agent: "codex",
     },
-    centerTranscript: getCenterTranscript(resolved.activeTab),
+    centerTranscript: getCenterTranscript(resolved.activeTab, selectedTask.id),
     tabs: TAB_FIXTURES.map((tab) => ({
       ...tab,
       active: tab.id === resolved.activeTab,
@@ -138,36 +98,50 @@ export function getMockShellData(
       { label: "Repo", value: selectedTask.repo },
       { label: "Agent", value: "codex" },
       { label: "Branch", value: selectedTask.branch },
-      { label: "Started", value: "20:18:42" },
       { label: "Status", value: selectedTask.status },
-      { label: "Changes", value: "+3    -2" },
+      { label: "Worktree", value: selectedTask.id },
     ],
     rightChecks: [
-      { status: "✓", label: "Lint", result: "OK", duration: "5s", success: true },
-      { status: "✓", label: "Typecheck", result: "OK", duration: "7s", success: true },
-      { status: "✓", label: "Tests", result: "OK", duration: "12s", success: true },
-      { status: "○", label: "Build", result: "pending", duration: "--" },
-      { status: "○", label: "Docker Build", result: "pending", duration: "--" },
+      { status: "✓", label: "Checks", result: "passed", duration: "done", success: true },
+      { status: "✓", label: "Runner", result: "running", duration: "live", success: true },
     ],
     rightActions: ACTION_FIXTURES.map((action) => ({
       ...action,
       selected: action.id === resolved.selectedActionId,
       focused: resolved.focusedRegion === "actions" && action.id === resolved.selectedActionId,
     })),
-    rightNextAction: "Run the build, then open the PR.",
+    rightNextAction: "Use Enter on AGENT or TERMINAL to attach the selected PTY tab.",
   };
 }
 
 const DEFAULT_MOCK_SHELL_STATE: Pick<
   ControlShellState,
-  "inputMode" | "focusedRegion" | "selectedTaskId" | "activeTab" | "selectedActionId" | "actionMessage" | "terminal"
+  | "inputMode"
+  | "focusedRegion"
+  | "selectedRepoId"
+  | "selectedTaskId"
+  | "selectedPtyTabId"
+  | "selectedLeftItemId"
+  | "activeTab"
+  | "selectedActionId"
+  | "actionMessage"
+  | "taskPromptInput"
+  | "taskPromptError"
+  | "workspaceBrowser"
+  | "terminal"
 > = {
   inputMode: "control",
   focusedRegion: "tasks",
+  selectedRepoId: "repo_bug_fixes",
   selectedTaskId: "task_20260430_02",
+  selectedPtyTabId: "task_20260430_02:agent",
+  selectedLeftItemId: "task:task_20260430_02",
   activeTab: "agent",
   selectedActionId: "commit",
   actionMessage: null,
+  taskPromptInput: null,
+  taskPromptError: null,
+  workspaceBrowser: null,
   terminal: {
     status: "idle",
     rows: [],
@@ -175,99 +149,79 @@ const DEFAULT_MOCK_SHELL_STATE: Pick<
   },
 };
 
-const TASK_FIXTURES: Array<{
-  id: MockTaskId;
-  repo: string;
-  branch: string;
-  status: string;
-}> = [
+const REPO_FIXTURES = [
+  { id: "repo_main", name: "main" },
+  { id: "repo_bug_fixes", name: "bug-fixes" },
+  { id: "repo_testing", name: "testing" },
+  { id: "repo_coverage", name: "whats-our-test-coverage" },
+  { id: "repo_dennys", name: "what-up-dennys" },
+] as const;
+
+const TASK_FIXTURES = [
   { id: "task_20260430_01", repo: "main", branch: "task/remove-old-shell", status: "done" },
   { id: "task_20260430_02", repo: "bug-fixes", branch: "task/interactive-shell", status: "running" },
   { id: "task_20260430_03", repo: "bug-fixes", branch: "task/panel-polish", status: "queued" },
   { id: "task_20260430_04", repo: "testing", branch: "task/test-cleanup", status: "done" },
   { id: "task_20260430_05", repo: "whats-our-test-coverage", branch: "task/coverage", status: "queued" },
   { id: "task_20260430_06", repo: "what-up-dennys", branch: "task/dennys", status: "queued" },
-];
+] as const;
 
-const TAB_FIXTURES: Array<{ id: CenterTabId; label: string }> = [
+const TAB_FIXTURES = [
   { id: "agent", label: "AGENT" },
   { id: "files", label: "FILES" },
   { id: "diff", label: "DIFF" },
   { id: "terminal", label: "TERMINAL" },
   { id: "logs", label: "LOGS" },
-];
+] as const;
 
-const ACTION_FIXTURES: Array<{ id: MockActionId; label: string; shortcut: string }> = [
+const ACTION_FIXTURES = [
   { id: "commit", label: "commit", shortcut: "c" },
   { id: "push", label: "push", shortcut: "p" },
   { id: "create-pr", label: "create pr", shortcut: "P" },
   { id: "merge", label: "merge", shortcut: "m" },
   { id: "close-task", label: "close task", shortcut: "x" },
-];
+] as const;
 
 function taskTreeRow(
-  taskId: MockTaskId,
+  taskId: string,
   indent: number,
   prefix: string,
   state: Pick<ControlShellState, "focusedRegion" | "selectedTaskId">,
-  muted = false,
-): MockTreeRow {
+) {
   const selected = taskId === state.selectedTaskId;
   const task = TASK_FIXTURES.find((fixture) => fixture.id === taskId) ?? TASK_FIXTURES[1]!;
   const rowPrefix = selected ? "▸" : prefix;
-  const text = `${rowPrefix ? `${rowPrefix} ` : ""}${taskId}`;
-  const row: MockTreeRow = {
+  const row: ShellTreeRow = {
+    id: `task:${taskId}`,
     taskId,
-    text,
+    text: `${rowPrefix} ${taskId}`,
     indent,
-    muted: muted && !selected,
     selected,
     focused: selected && state.focusedRegion === "tasks",
     accentDot: selected && task.status === "running",
   };
-
   if (selected) {
     row.status = task.status;
   }
-
   return row;
 }
 
-function getCenterTranscript(tabId: CenterTabId): string[] {
+function getCenterTranscript(tabId: ControlShellState["activeTab"], taskId: string): string[] {
   if (tabId === "agent") {
     return [
-      "codex ▸ Refactor the interactive shell renderer to remove",
-      "the native input bar and smoke test it.",
+      `Codex agent tab ready for ${taskId}.`,
       "",
-      "codex ▸ plan",
-      "  1. Remove native input bar from app.tsx              ✓",
-      "  2. Move tests to renderer/runtime path               ✓",
-      "  3. Add smoke tests for full repo gates               ○",
-      "",
-      "codex ▸ run",
-      "  ✓ Updated src/interactive/app.tsx",
-      "  ✓ Updated src/interactive/render.ts",
-      "  ○ Added src/interactive/render.test.ts",
-      "  ○ Running tests... (12s)",
-      "",
-      "codex ▸",
+      "Press Enter to attach the live PTY-backed agent session.",
     ];
   }
 
-  const labels: Record<CenterTabId, string> = {
+  const labels: Record<ControlShellState["activeTab"], string> = {
     agent: "Agent transcript",
-    files: "Files changed",
-    diff: "Diff preview",
-    terminal: "Terminal session",
+    files: "Files surface",
+    diff: "Diff surface",
+    terminal: "Plain terminal tab",
     logs: "Task logs",
   };
 
-  return [
-    `codex ▸ ${labels[tabId]} placeholder.`,
-    "",
-    "Selected by Craig control mode.",
-    "Live data arrives in later RFC phases.",
-    "",
-    "codex ▸",
-  ];
+  return [`${labels[tabId]} placeholder for ${taskId}.`];
 }
