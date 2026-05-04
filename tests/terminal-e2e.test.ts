@@ -23,7 +23,7 @@ describe("Craig terminal mode E2E", () => {
     const clearMarker = "craig_e2e_clear_ok";
     const cursorMarker = "craig_e2e_cursor_ok";
     const restartedMarker = "craig_e2e_restart_ok";
-    const cwdPromptMarker = " task_20260430_02 %";
+    const cwdMarker = "__cwd__task_20260430_02";
     const output = new PtyOutputBuffer();
     await writeInitialUiState(workspaceRoot);
 
@@ -47,7 +47,8 @@ describe("Craig terminal mode E2E", () => {
       child.write("\r");
       await output.waitFor("terminal ▸ terminal mode");
 
-      await output.waitForLatestFrame(cwdPromptMarker);
+      child.write(`basename "$PWD" | sed 's/^/${cwdMarker}:/'\r`);
+      await output.waitForLatestFrame(`${cwdMarker}:task_20260430_02`);
       child.write(`echo ${marker}\r`);
       await output.waitFor(marker);
       child.write(`printf '\\033[31m${colorMarker}\\033[0m\\n'\r`);
@@ -78,7 +79,6 @@ describe("Craig terminal mode E2E", () => {
       await output.waitForLatestFrame(restartedMarker);
 
       expect(output.value).toContain("terminal ▸ terminal mode");
-      expect(output.value).toContain(cwdPromptMarker);
       expect(output.value).toContain(restartedMarker);
     } finally {
       child.kill();
