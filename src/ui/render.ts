@@ -9,6 +9,7 @@ import type {
   MockTreeRow,
 } from "./mock-data.js";
 import { SHELL_LAYOUT, type Viewport } from "./layout.js";
+import type { TerminalCellStyle, TerminalRowSegment } from "./terminal-emulator.js";
 
 export interface RenderOptions {
   color?: boolean;
@@ -23,6 +24,7 @@ interface PaletteColor {
 
 interface SurfaceLine {
   text: string;
+  segments?: TerminalRowSegment[];
   tone?: "default" | "muted" | "selected" | "focused";
   fullBleed?: boolean;
 }
@@ -32,6 +34,7 @@ const PAUSE_MENU = ["Resume", "Options", "Exit"];
 const LEFT_PANEL_INSET = 2;
 const LEFT_PANEL_GUTTER = 2;
 const ANSI_ESCAPE_PATTERN = new RegExp(`${String.fromCharCode(27)}\\[[0-9;]*m`, "g");
+const ANSI_RESET_PATTERN = new RegExp(`${String.fromCharCode(27)}\\[(?:0)?m`, "g");
 const RESET = "\u001B[0m";
 const PALETTE = {
   rail: { bg: "0a0a0a", fg: "e6e6e6" },
@@ -178,15 +181,47 @@ function toCenterLines(data: MockShellData, width: number, height: number, color
     data.centerHeader.agent,
   ].join(" · ");
 
+  const body =
+    data.tabs.find((tab) => tab.active)?.id === "terminal"
+      ? renderTerminalSurface(data)
+      : data.centerTranscript.map((line) => ({ text: line }));
   const lines: SurfaceLine[] = [
     { text: renderTabLine(data.tabs, color) },
     { text: underline, tone: "muted" },
     { text: header },
     emptyLine(),
-    ...data.centerTranscript.map((line) => ({ text: line })),
+    ...body,
   ];
 
   return fitLines(lines, height);
+}
+
+function renderTerminalSurface(data: MockShellData): SurfaceLine[] {
+  if (data.terminal.error) {
+    return [
+      { text: "terminal ▸ PTY unavailable" },
+      emptyLine(),
+      { text: data.terminal.error },
+      emptyLine(),
+      { text: "Fix the native dependency setup, then re-enter terminal mode." },
+    ];
+  }
+
+  const status =
+    data.inputMode === "terminal"
+      ? "terminal mode · Ctrl+] detach"
+      : data.terminal.status === "idle"
+        ? "control mode · Enter attach"
+        : "control mode · Enter reattach";
+  if (data.terminal.rows.length === 0) {
+    return [
+      { text: `terminal ▸ ${status}` },
+      emptyLine(),
+      { text: "Press Enter on the TERMINAL tab to attach a PTY." },
+    ];
+  }
+
+  return [{ text: `terminal ▸ ${status}` }, emptyLine(), ...data.terminal.rows.map((row) => ({ text: segmentsToPlainText(row.segments), segments: row.segments }))];
 }
 
 function toRightLines(data: MockShellData, width: number, height: number, color: boolean): SurfaceLine[] {
@@ -295,18 +330,19 @@ function renderSurfaceSegment(
   panel: "left" | "center" | "right",
 ): string {
   const palette = getPanelPalette(panel, line.tone ?? "default");
+  const lineContent = renderLineContent(line, color, palette);
   if (panel === "left") {
     if (line.fullBleed) {
-      return fillSurface(pad(line.text, width), color, palette);
+      return fillSurface(pad(lineContent, width), color, palette);
     }
 
     const contentWidth = width - LEFT_PANEL_INSET - LEFT_PANEL_GUTTER;
-    const text = `${" ".repeat(LEFT_PANEL_INSET)}${pad(line.text, contentWidth)}${" ".repeat(LEFT_PANEL_GUTTER)}`;
+    const text = `${" ".repeat(LEFT_PANEL_INSET)}${pad(lineContent, contentWidth)}${" ".repeat(LEFT_PANEL_GUTTER)}`;
     return fillSurface(text, color, palette);
   }
 
   const inset = "  ";
-  return fillSurface(pad(`${inset}${line.text}`, width), color, palette);
+  return fillSurface(pad(`${inset}${lineContent}`, width), color, palette);
 }
 
 function getPanelPalette(panel: "left" | "center" | "right", tone: SurfaceLine["tone"]): PaletteColor {
@@ -349,6 +385,58 @@ function fitLines(lines: SurfaceLine[], height: number): SurfaceLine[] {
 
 function emptyLine(): SurfaceLine {
   return { text: "" };
+}
+
+function renderLineContent(line: SurfaceLine, color: boolean, base: PaletteColor): string {
+  if (!line.segments) {
+    return line.text;
+  }
+
+  return line.segments.map((segment) => renderTerminalSegment(segment, color, base)).join("");
+}
+
+function renderTerminalSegment(segment: TerminalRowSegment, color: boolean, base: PaletteColor): string {
+  if (!color || !segment.style) {
+    return segment.text;
+  }
+
+  return `${toAnsi(terminalStyleToPalette(segment.style, base))}${styleCodes(segment.style)}${segment.text}${RESET}${toAnsi(base)}`;
+}
+
+function terminalStyleToPalette(style: TerminalCellStyle, base: PaletteColor): PaletteColor {
+  const foreground = style.inverse ? style.bg ?? base.bg : style.fg;
+  const background = style.inverse ? style.fg ?? base.fg : style.bg;
+  const palette: PaletteColor = {};
+  const fg = foreground ?? base.fg;
+  const bg = background ?? base.bg;
+
+  if (fg) {
+    palette.fg = fg;
+  }
+  if (bg) {
+    palette.bg = bg;
+  }
+
+  return palette;
+}
+
+function styleCodes(style: TerminalCellStyle): string {
+  const codes: string[] = [];
+
+  if (style.bold) {
+    codes.push("1");
+  }
+  if (style.dim) {
+    codes.push("2");
+  }
+  if (style.italic) {
+    codes.push("3");
+  }
+  if (style.underline) {
+    codes.push("4");
+  }
+
+  return codes.length > 0 ? `\u001B[${codes.join(";")}m` : "";
 }
 
 function findTabOffset(tabs: MockTab[]): number {
@@ -398,12 +486,18 @@ function stripAnsi(value: string): string {
   return value.replace(ANSI_ESCAPE_PATTERN, "");
 }
 
+function segmentsToPlainText(segments: TerminalRowSegment[]): string {
+  return segments.map((segment) => segment.text).join("");
+}
+
 function fillSurface(value: string, color: boolean, palette: PaletteColor): string {
   if (!color) {
     return value;
   }
 
-  return `${toAnsi(palette)}${value}${RESET}`;
+  const surface = toAnsi(palette);
+  const valueWithSurfaceAfterReset = value.replace(ANSI_RESET_PATTERN, `${RESET}${surface}`);
+  return `${surface}${valueWithSurfaceAfterReset}${RESET}`;
 }
 
 function toAnsi(palette: PaletteColor): string {

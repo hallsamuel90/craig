@@ -1,4 +1,4 @@
-import type { CenterTabId, ControlShellState, FocusRegion, MockActionId, MockTaskId } from "./state.js";
+import type { CenterTabId, ControlShellState, FocusRegion, InputMode, MockActionId, MockTaskId, TerminalViewState } from "./state.js";
 
 export interface MockTopRail {
   workspacePath: string;
@@ -53,8 +53,10 @@ export interface MockActionRow {
 }
 
 export interface MockShellData {
+  inputMode: InputMode;
   focusedRegion: FocusRegion;
   actionMessage: string | null;
+  terminal: TerminalViewState;
   topRail: MockTopRail;
   leftTree: MockTreeRow[];
   runners: MockRunnerRow[];
@@ -72,40 +74,48 @@ export interface MockShellData {
   rightNextAction: string;
 }
 
+type MockShellStateInput = Partial<
+  Pick<ControlShellState, "inputMode" | "focusedRegion" | "selectedTaskId" | "activeTab" | "selectedActionId" | "actionMessage" | "terminal">
+>;
+
 export function getMockShellData(
-  state: Pick<ControlShellState, "focusedRegion" | "selectedTaskId" | "activeTab" | "selectedActionId" | "actionMessage"> = {
-    focusedRegion: "tasks",
-    selectedTaskId: "task_20260430_02",
-    activeTab: "agent",
-    selectedActionId: "commit",
-    actionMessage: null,
-  },
+  state: MockShellStateInput = {},
 ): MockShellData {
-  const selectedTask = TASK_FIXTURES.find((task) => task.id === state.selectedTaskId) ?? TASK_FIXTURES[1]!;
-  const activeTab = TAB_FIXTURES.find((tab) => tab.id === state.activeTab) ?? TAB_FIXTURES[0]!;
+  const resolved = {
+    ...DEFAULT_MOCK_SHELL_STATE,
+    ...state,
+    terminal: {
+      ...DEFAULT_MOCK_SHELL_STATE.terminal,
+      ...state.terminal,
+    },
+  };
+  const selectedTask = TASK_FIXTURES.find((task) => task.id === resolved.selectedTaskId) ?? TASK_FIXTURES[1]!;
+  const activeTab = TAB_FIXTURES.find((tab) => tab.id === resolved.activeTab) ?? TAB_FIXTURES[0]!;
 
   return {
-    focusedRegion: state.focusedRegion,
-    actionMessage: state.actionMessage,
+    inputMode: resolved.inputMode,
+    focusedRegion: resolved.focusedRegion,
+    actionMessage: resolved.actionMessage,
+    terminal: resolved.terminal,
     topRail: {
       workspacePath: "~/workspaces/craig/colombo",
       agent: "codex",
       liveLabel: "live",
     },
     leftTree: [
-      { text: "WORKSPACES", muted: true, focused: state.focusedRegion === "tasks" },
+      { text: "WORKSPACES", muted: true, focused: resolved.focusedRegion === "tasks" },
       { text: "▾ craig" },
       { text: "▾ main", indent: 2 },
-      taskTreeRow("task_20260430_01", 4, "└", state),
+      taskTreeRow("task_20260430_01", 4, "└", resolved),
       { text: "▾ bug-fixes", indent: 2 },
-      taskTreeRow("task_20260430_02", 1, "▸", state),
-      taskTreeRow("task_20260430_03", 6, "", state),
+      taskTreeRow("task_20260430_02", 1, "▸", resolved),
+      taskTreeRow("task_20260430_03", 6, "", resolved),
       { text: "▾ what-up-dennys", indent: 2 },
-      taskTreeRow("task_20260430_06", 4, "└", state, true),
+      taskTreeRow("task_20260430_06", 4, "└", resolved, true),
       { text: "▾ testing", indent: 2 },
-      taskTreeRow("task_20260430_04", 4, "└", state, true),
+      taskTreeRow("task_20260430_04", 4, "└", resolved, true),
       { text: "▾ whats-our-test-coverage", indent: 2 },
-      taskTreeRow("task_20260430_05", 4, "└", state, true),
+      taskTreeRow("task_20260430_05", 4, "└", resolved, true),
     ],
     runners: [
       { name: "codex", meter: "[##########]", count: "6" },
@@ -117,11 +127,11 @@ export function getMockShellData(
       repo: selectedTask.repo,
       agent: "codex",
     },
-    centerTranscript: getCenterTranscript(state.activeTab),
+    centerTranscript: getCenterTranscript(resolved.activeTab),
     tabs: TAB_FIXTURES.map((tab) => ({
       ...tab,
-      active: tab.id === state.activeTab,
-      focused: state.focusedRegion === "tabs" && tab.id === state.activeTab,
+      active: tab.id === resolved.activeTab,
+      focused: resolved.focusedRegion === "center" && tab.id === resolved.activeTab,
     })),
     rightContext: [
       { label: "Task", value: selectedTask.id },
@@ -141,12 +151,29 @@ export function getMockShellData(
     ],
     rightActions: ACTION_FIXTURES.map((action) => ({
       ...action,
-      selected: action.id === state.selectedActionId,
-      focused: state.focusedRegion === "actions" && action.id === state.selectedActionId,
+      selected: action.id === resolved.selectedActionId,
+      focused: resolved.focusedRegion === "actions" && action.id === resolved.selectedActionId,
     })),
     rightNextAction: "Run the build, then open the PR.",
   };
 }
+
+const DEFAULT_MOCK_SHELL_STATE: Pick<
+  ControlShellState,
+  "inputMode" | "focusedRegion" | "selectedTaskId" | "activeTab" | "selectedActionId" | "actionMessage" | "terminal"
+> = {
+  inputMode: "control",
+  focusedRegion: "tasks",
+  selectedTaskId: "task_20260430_02",
+  activeTab: "agent",
+  selectedActionId: "commit",
+  actionMessage: null,
+  terminal: {
+    status: "idle",
+    rows: [],
+    error: null,
+  },
+};
 
 const TASK_FIXTURES: Array<{
   id: MockTaskId;

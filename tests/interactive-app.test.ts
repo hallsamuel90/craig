@@ -45,9 +45,12 @@ describe("cli terminal startup", () => {
     await import("../src/cli.js");
 
     expect(startTerminalApp).toHaveBeenCalledTimes(1);
-    expect(startTerminalApp).toHaveBeenCalledWith({
-      uiStateFile: expect.stringContaining(".craig/runtime/ui-state.json"),
-    });
+    expect(startTerminalApp).toHaveBeenCalledWith(
+      expect.objectContaining({
+        uiStateFile: expect.stringContaining(".craig/runtime/ui-state.json"),
+        workspaceRoot: expect.stringContaining("craig-cli-"),
+      }),
+    );
     expect(stdoutWriteMock).not.toHaveBeenCalled();
     expect(stderrWriteMock).not.toHaveBeenCalled();
   });

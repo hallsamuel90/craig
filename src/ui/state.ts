@@ -1,7 +1,8 @@
 import { getDefaultUiState } from "../state/ui-state-store.js";
 import type { CraigUiRuntime } from "../types/workspace.js";
+import type { TerminalScreenRow } from "./terminal-emulator.js";
 
-export const FOCUS_REGIONS = ["tasks", "tabs", "actions"] as const;
+export const FOCUS_REGIONS = ["tasks", "center", "actions"] as const;
 export const MOCK_TASK_IDS = [
   "task_20260430_01",
   "task_20260430_02",
@@ -13,18 +14,27 @@ export const MOCK_TASK_IDS = [
 export const CENTER_TAB_IDS = ["agent", "files", "diff", "terminal", "logs"] as const;
 export const MOCK_ACTION_IDS = ["commit", "push", "create-pr", "merge", "close-task"] as const;
 
+export type InputMode = "control" | "terminal";
 export type FocusRegion = (typeof FOCUS_REGIONS)[number];
 export type MockTaskId = (typeof MOCK_TASK_IDS)[number];
 export type CenterTabId = (typeof CENTER_TAB_IDS)[number];
 export type MockActionId = (typeof MOCK_ACTION_IDS)[number];
+export type TerminalStatus = "idle" | "running" | "exited" | "failed";
+
+export interface TerminalViewState {
+  status: TerminalStatus;
+  rows: TerminalScreenRow[];
+  error: string | null;
+}
 
 export interface ControlShellState {
-  inputMode: "control";
+  inputMode: InputMode;
   focusedRegion: FocusRegion;
   selectedTaskId: MockTaskId;
   activeTab: CenterTabId;
   selectedActionId: MockActionId;
   actionMessage: string | null;
+  terminal: TerminalViewState;
 }
 
 export interface MainKeyResult {
@@ -32,16 +42,27 @@ export interface MainKeyResult {
   changed: boolean;
   exit: boolean;
   pause: boolean;
+  attachTerminal: boolean;
+  detachTerminal: boolean;
 }
 
 export function createInitialShellState(runtime: CraigUiRuntime | null): ControlShellState {
   return {
     inputMode: "control",
-    focusedRegion: getValidValue(runtime?.focusedRegion, FOCUS_REGIONS, "tasks"),
+    focusedRegion: getValidFocusRegion(runtime?.focusedRegion),
     selectedTaskId: getValidValue(runtime?.selectedTaskId, MOCK_TASK_IDS, "task_20260430_02"),
     activeTab: getValidValue(runtime?.activeTab, CENTER_TAB_IDS, "agent"),
     selectedActionId: getValidValue(runtime?.selectedActionId, MOCK_ACTION_IDS, "commit"),
     actionMessage: null,
+    terminal: createDefaultTerminalViewState(),
+  };
+}
+
+export function createDefaultTerminalViewState(): TerminalViewState {
+  return {
+    status: "idle",
+    rows: [],
+    error: null,
   };
 }
 
@@ -49,7 +70,7 @@ export function toPersistedUiState(runtime: CraigUiRuntime | null, state: Contro
   return {
     ...(runtime ?? getDefaultUiState()),
     selectedTaskId: state.selectedTaskId,
-    inputMode: state.inputMode,
+    inputMode: "control",
     focusedRegion: state.focusedRegion,
     activeTab: state.activeTab,
     selectedActionId: state.selectedActionId,
@@ -57,12 +78,24 @@ export function toPersistedUiState(runtime: CraigUiRuntime | null, state: Contro
 }
 
 export function reduceMainKey(state: ControlShellState, key: string): MainKeyResult {
+  if (state.inputMode === "terminal") {
+    if (isTerminalDetachKey(key)) {
+      return result({
+        state: { ...state, inputMode: "control", actionMessage: null },
+        changed: true,
+        detachTerminal: true,
+      });
+    }
+
+    return result({ state });
+  }
+
   if (key === "q" || key === "Q") {
-    return { state, changed: false, exit: true, pause: false };
+    return result({ state, exit: true });
   }
 
   if (key === "ESCAPE") {
-    return { state: { ...state, actionMessage: null }, changed: state.actionMessage !== null, exit: false, pause: true };
+    return result({ state: { ...state, actionMessage: null }, changed: state.actionMessage !== null, pause: true });
   }
 
   if (key === "TAB" || key === "]") {
@@ -82,7 +115,7 @@ export function reduceMainKey(state: ControlShellState, key: string): MainKeyRes
   }
 
   if (key === "LEFT" || key === "h") {
-    if (state.focusedRegion === "tabs") {
+    if (state.focusedRegion === "center") {
       return moveTab(state, -1);
     }
 
@@ -90,30 +123,64 @@ export function reduceMainKey(state: ControlShellState, key: string): MainKeyRes
   }
 
   if (key === "RIGHT" || key === "l") {
-    if (state.focusedRegion === "tabs") {
+    if (state.focusedRegion === "center") {
       return moveTab(state, 1);
     }
 
     return updateFocus(state, 1);
   }
 
-  if (key === "ENTER" || key === "KP_ENTER") {
-    if (state.focusedRegion !== "actions") {
-      return { state, changed: false, exit: false, pause: false };
+  if (isEnterKey(key)) {
+    if (state.focusedRegion === "center" && state.activeTab === "terminal") {
+      return result({
+        state: { ...state, inputMode: "terminal", actionMessage: null },
+        changed: true,
+        attachTerminal: true,
+      });
     }
 
-    return {
+    if (state.focusedRegion !== "actions") {
+      return result({ state });
+    }
+
+    return result({
       state: {
         ...state,
         actionMessage: `Mock action: ${state.selectedActionId} (phase 1.2).`,
       },
       changed: true,
-      exit: false,
-      pause: false,
-    };
+    });
   }
 
-  return { state, changed: false, exit: false, pause: false };
+  return result({ state });
+}
+
+export function updateTerminalViewState(state: ControlShellState, terminal: TerminalViewState): ControlShellState {
+  return {
+    ...state,
+    terminal,
+  };
+}
+
+export function markTerminalAttachFailed(state: ControlShellState, message: string): ControlShellState {
+  return {
+    ...state,
+    inputMode: "control",
+    activeTab: "terminal",
+    terminal: {
+      status: "failed",
+      rows: [],
+      error: message,
+    },
+  };
+}
+
+export function isTerminalDetachKey(key: string): boolean {
+  return key === "\u001D" || key === "CTRL_]" || key === "CTRL_RIGHT_BRACKET";
+}
+
+export function isEnterKey(key: string): boolean {
+  return key === "ENTER" || key === "KP_ENTER" || key === "RETURN" || key === "CTRL_M" || key === "\r" || key === "\n";
 }
 
 function updateFocus(state: ControlShellState, direction: -1 | 1): MainKeyResult {
@@ -129,7 +196,7 @@ function moveSelection(state: ControlShellState, direction: -1 | 1): MainKeyResu
     return updateIndexedValue(state, "selectedTaskId", MOCK_TASK_IDS, direction);
   }
 
-  if (state.focusedRegion === "tabs") {
+  if (state.focusedRegion === "center") {
     return moveTab(state, direction);
   }
 
@@ -147,14 +214,30 @@ function updateIndexedValue<Key extends "focusedRegion" | "selectedTaskId" | "ac
   const nextValue = values[nextIndex];
 
   if (!nextValue || nextValue === state[key]) {
-    return { state, changed: false, exit: false, pause: false };
+    return result({ state });
   }
 
-  return {
+  return result({
     state: { ...state, [key]: nextValue, actionMessage: null },
     changed: true,
-    exit: false,
-    pause: false,
+  });
+}
+
+function result(input: {
+  state: ControlShellState;
+  changed?: boolean;
+  exit?: boolean;
+  pause?: boolean;
+  attachTerminal?: boolean;
+  detachTerminal?: boolean;
+}): MainKeyResult {
+  return {
+    state: input.state,
+    changed: input.changed ?? false,
+    exit: input.exit ?? false,
+    pause: input.pause ?? false,
+    attachTerminal: input.attachTerminal ?? false,
+    detachTerminal: input.detachTerminal ?? false,
   };
 }
 
@@ -164,6 +247,14 @@ function getValidValue<const Values extends readonly string[]>(
   fallback: Values[number],
 ): Values[number] {
   return values.includes(value ?? "") ? (value as Values[number]) : fallback;
+}
+
+function getValidFocusRegion(value: string | null | undefined): FocusRegion {
+  if (value === "tabs") {
+    return "center";
+  }
+
+  return getValidValue(value, FOCUS_REGIONS, "tasks");
 }
 
 function clamp(value: number, min: number, max: number): number {

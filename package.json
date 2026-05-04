@@ -21,6 +21,8 @@
     "start": "node dist/cli.js"
   },
   "dependencies": {
+    "@xterm/headless": "^6.0.0",
+    "node-pty": "^0.10.1",
     "picocolors": "^1.1.1",
     "terminal-kit": "^3.1.2"
   },

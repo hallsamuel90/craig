@@ -26,7 +26,7 @@ export interface CraigUiRuntime {
   selectedWorkspaceId: string | null;
   selectedTaskId: string | null;
   inputMode?: "control";
-  focusedRegion?: "tasks" | "tabs" | "actions";
+  focusedRegion?: "tasks" | "center" | "actions" | "tabs";
   activeTab?: "agent" | "files" | "diff" | "terminal" | "logs";
   selectedActionId?: "commit" | "push" | "create-pr" | "merge" | "close-task";
   updatedAt: string;
