@@ -1,6 +1,6 @@
 import { readFile } from "node:fs/promises";
 
-import type { RunnerSession, TaskRecord } from "../types/task.js";
+import type { RunnerSession, TaskPtyTabRecord, TaskRecord } from "../types/task.js";
 import type { CraigPaths } from "./craig-paths.js";
 import { atomicWriteJson } from "./atomic-write.js";
 import { readCraigIndex, writeCraigIndex } from "./state-store.js";
@@ -68,9 +68,14 @@ function normalizeLegacyTaskRecord(value: unknown): unknown {
     workspaceId: typeof candidate.workspaceId === "string" ? candidate.workspaceId : "legacy_workspace",
     sessionId:
       typeof candidate.sessionId === "string" || candidate.sessionId === null ? candidate.sessionId : null,
+    selectedPtyTabId:
+      typeof candidate.selectedPtyTabId === "string" || candidate.selectedPtyTabId === null
+        ? candidate.selectedPtyTabId
+        : null,
     linkedRepoIds: Array.isArray(candidate.linkedRepoIds)
       ? candidate.linkedRepoIds.filter((entry): entry is string => typeof entry === "string")
       : [],
+    ptyTabs: normalizeTaskPtyTabs(candidate),
     runnerSession: candidate.runnerSession ?? buildLegacyRunnerSession(candidate),
     checks: normalizeLegacyChecks(candidate),
     lastCommit: candidate.lastCommit ?? null,
@@ -112,11 +117,13 @@ function isTaskRecord(value: unknown): value is TaskRecord {
     typeof candidate.repoId === "string" &&
     typeof candidate.workspaceId === "string" &&
     (typeof candidate.sessionId === "string" || candidate.sessionId === null) &&
+    (typeof candidate.selectedPtyTabId === "string" || candidate.selectedPtyTabId === null) &&
     Array.isArray(candidate.linkedRepoIds) &&
     candidate.linkedRepoIds.every((entry) => typeof entry === "string") &&
     typeof candidate.repoRoot === "string" &&
     typeof candidate.worktreePath === "string" &&
     typeof candidate.branch === "string" &&
+    isTaskPtyTabs(candidate.ptyTabs) &&
     isRunnerSession(candidate.runnerSession) &&
     isPromptSource(candidate.prompt) &&
     isChecks(candidate.checks) &&
@@ -129,6 +136,58 @@ function isTaskRecord(value: unknown): value is TaskRecord {
       typeof candidate.lastFailureReason === "string") &&
     typeof candidate.createdAt === "string" &&
     typeof candidate.updatedAt === "string"
+  );
+}
+
+function normalizeTaskPtyTabs(candidate: Partial<TaskRecord>): TaskPtyTabRecord[] {
+  if (isTaskPtyTabs(candidate.ptyTabs)) {
+    return candidate.ptyTabs;
+  }
+
+  if (typeof candidate.id !== "string" || typeof candidate.title !== "string") {
+    return [];
+  }
+
+  const timestamp = typeof candidate.updatedAt === "string" ? candidate.updatedAt : new Date().toISOString();
+  return buildDefaultTaskPtyTabs(candidate.id, candidate.title, timestamp);
+}
+
+function buildDefaultTaskPtyTabs(taskId: string, _prompt: string, timestamp: string): TaskPtyTabRecord[] {
+  return [
+    {
+      id: `${taskId}:agent`,
+      kind: "agent",
+      title: "Codex",
+      command: ["codex"],
+      createdAt: timestamp,
+      updatedAt: timestamp,
+    },
+    {
+      id: `${taskId}:terminal`,
+      kind: "terminal",
+      title: "Terminal",
+      command: [],
+      createdAt: timestamp,
+      updatedAt: timestamp,
+    },
+  ];
+}
+
+function isTaskPtyTabs(value: TaskRecord["ptyTabs"] | undefined): value is TaskPtyTabRecord[] {
+  return (
+    Array.isArray(value) &&
+    value.every(
+      (tab) =>
+        typeof tab === "object" &&
+        tab !== null &&
+        typeof tab.id === "string" &&
+        (tab.kind === "agent" || tab.kind === "terminal") &&
+        typeof tab.title === "string" &&
+        Array.isArray(tab.command) &&
+        tab.command.every((entry) => typeof entry === "string") &&
+        typeof tab.createdAt === "string" &&
+        typeof tab.updatedAt === "string",
+    )
   );
 }
 

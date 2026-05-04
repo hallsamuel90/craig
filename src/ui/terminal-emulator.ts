@@ -71,14 +71,15 @@ export function writeTerminalEmulator(terminal: Terminal, chunk: string): Promis
   });
 }
 
-export function renderTerminalScreenRows(terminal: Terminal): TerminalScreenRow[] {
+export function renderTerminalScreenRows(terminal: Terminal, scrollbackLines = 0): TerminalScreenRow[] {
   const buffer = terminal.buffer.active;
   const rows: TerminalScreenRow[] = [];
   const reusableCell = buffer.getNullCell();
   const cursorY = buffer.baseY + buffer.cursorY;
+  const startY = Math.max(0, buffer.baseY - scrollbackLines);
 
   for (let rowIndex = 0; rowIndex < terminal.rows; rowIndex += 1) {
-    const line = buffer.getLine(buffer.viewportY + rowIndex);
+    const line = buffer.getLine(startY + rowIndex);
 
     if (!line) {
       rows.push({ segments: [] });
@@ -95,7 +96,7 @@ export function renderTerminalScreenRows(terminal: Terminal): TerminalScreenRow[
 
       cells.push({
         text: cell.getChars() || " ",
-        style: getCellStyle(cell, buffer.viewportY + rowIndex === cursorY && column === buffer.cursorX),
+        style: getCellStyle(cell, startY + rowIndex === cursorY && column === buffer.cursorX),
       });
     }
 

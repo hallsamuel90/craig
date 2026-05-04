@@ -1,15 +1,16 @@
 import { getBannerArtLines } from "../banner.js";
 import type {
-  MockActionRow,
-  MockCheckRow,
-  MockContextRow,
-  MockRunnerRow,
-  MockShellData,
-  MockTab,
-  MockTreeRow,
-} from "./mock-data.js";
+  ShellActionRow,
+  ShellCheckRow,
+  ShellContextRow,
+  ShellData,
+  ShellRunnerRow,
+  ShellTab,
+  ShellTreeRow,
+} from "./shell-data.js";
 import { SHELL_LAYOUT, type Viewport } from "./layout.js";
 import type { TerminalCellStyle, TerminalRowSegment } from "./terminal-emulator.js";
+import { isPtyTab } from "./state.js";
 
 export interface RenderOptions {
   color?: boolean;
@@ -33,6 +34,7 @@ const BOOT_MENU = ["Start", "Options", "Exit"];
 const PAUSE_MENU = ["Resume", "Options", "Exit"];
 const LEFT_PANEL_INSET = 2;
 const LEFT_PANEL_GUTTER = 2;
+export const CENTER_TERMINAL_GUTTER = 2;
 const ANSI_ESCAPE_PATTERN = new RegExp(`${String.fromCharCode(27)}\\[[0-9;]*m`, "g");
 const ANSI_RESET_PATTERN = new RegExp(`${String.fromCharCode(27)}\\[(?:0)?m`, "g");
 const RESET = "\u001B[0m";
@@ -81,7 +83,7 @@ export function renderPauseOverlayFrame(viewport: Viewport, options: RenderOptio
 
 export function renderMainShellFrame(
   viewport: Viewport,
-  data: MockShellData,
+  data: ShellData,
   options: Pick<RenderOptions, "color"> = {},
 ): string {
   const color = options.color ?? true;
@@ -154,11 +156,9 @@ function renderOverlayFrame(
   return lines.join("\n");
 }
 
-function toLeftLines(data: MockShellData, width: number, height: number, color: boolean): SurfaceLine[] {
+function toLeftLines(data: ShellData, width: number, height: number, color: boolean): SurfaceLine[] {
   const lines: SurfaceLine[] = [
     ...data.leftTree.map((row) => renderTreeRow(row, width, color)),
-    emptyLine(),
-    { text: "+ New Task" },
     emptyLine(),
     { text: "RUNNERS", tone: "muted" },
     emptyLine(),
@@ -167,11 +167,11 @@ function toLeftLines(data: MockShellData, width: number, height: number, color: 
   ];
 
   const fitted = fitLines(lines, height);
-  fitted[height - 1] = { text: "NORMAL   ? help   / search   : command", tone: "muted", fullBleed: true };
+  fitted[height - 1] = { text: data.footerText, tone: "muted", fullBleed: true };
   return fitted;
 }
 
-function toCenterLines(data: MockShellData, width: number, height: number, color: boolean): SurfaceLine[] {
+function toCenterLines(data: ShellData, width: number, height: number, color: boolean): SurfaceLine[] {
   const activeTab = data.tabs.find((tab) => tab.active)?.label ?? "AGENT";
   const tabOffset = findTabOffset(data.tabs);
   const underline = `${" ".repeat(tabOffset)}${green("─".repeat(activeTab.length + 1), color, PALETTE.centerMuted)}`;
@@ -181,10 +181,8 @@ function toCenterLines(data: MockShellData, width: number, height: number, color
     data.centerHeader.agent,
   ].join(" · ");
 
-  const body =
-    data.tabs.find((tab) => tab.active)?.id === "terminal"
-      ? renderTerminalSurface(data)
-      : data.centerTranscript.map((line) => ({ text: line }));
+  const activeTabId = data.tabs.find((tab) => tab.active)?.id ?? "agent";
+  const body = isPtyTab(activeTabId) ? renderTerminalSurface(data) : data.centerTranscript.map((line) => ({ text: line }));
   const lines: SurfaceLine[] = [
     { text: renderTabLine(data.tabs, color) },
     { text: underline, tone: "muted" },
@@ -196,7 +194,7 @@ function toCenterLines(data: MockShellData, width: number, height: number, color
   return fitLines(lines, height);
 }
 
-function renderTerminalSurface(data: MockShellData): SurfaceLine[] {
+function renderTerminalSurface(data: ShellData): SurfaceLine[] {
   if (data.terminal.error) {
     return [
       { text: "terminal ▸ PTY unavailable" },
@@ -207,24 +205,21 @@ function renderTerminalSurface(data: MockShellData): SurfaceLine[] {
     ];
   }
 
-  const status =
-    data.inputMode === "terminal"
-      ? "terminal mode · Ctrl+] detach"
-      : data.terminal.status === "idle"
-        ? "control mode · Enter attach"
-        : "control mode · Enter reattach";
+  const surfaceLabel = data.tabs.find((tab) => tab.active)?.id === "agent" ? "agent" : "terminal";
   if (data.terminal.rows.length === 0) {
     return [
-      { text: `terminal ▸ ${status}` },
-      emptyLine(),
-      { text: "Press Enter on the TERMINAL tab to attach a PTY." },
+      { text: `Press Enter on the ${surfaceLabel.toUpperCase()} tab to attach a PTY.` },
     ];
   }
 
-  return [{ text: `terminal ▸ ${status}` }, emptyLine(), ...data.terminal.rows.map((row) => ({ text: segmentsToPlainText(row.segments), segments: row.segments }))];
+  return data.terminal.rows.map((row) => ({
+    text: segmentsToPlainText(row.segments),
+    segments: row.segments,
+    fullBleed: true,
+  }));
 }
 
-function toRightLines(data: MockShellData, width: number, height: number, color: boolean): SurfaceLine[] {
+function toRightLines(data: ShellData, width: number, height: number, color: boolean): SurfaceLine[] {
   const divider = muted("─".repeat(Math.max(0, width - 4)), color, PALETTE.rightMuted);
   const nextAction = data.actionMessage ?? data.rightNextAction;
   const lines: SurfaceLine[] = [
@@ -254,7 +249,7 @@ function toRightLines(data: MockShellData, width: number, height: number, color:
   return fitLines(lines, height);
 }
 
-function renderTreeRow(row: MockTreeRow, width: number, color: boolean): SurfaceLine {
+function renderTreeRow(row: ShellTreeRow, width: number, color: boolean): SurfaceLine {
   const indent = " ".repeat(row.indent ?? 0);
   const dot = row.accentDot ? " ●" : "";
   const status = row.status ? ` ${row.status}` : "";
@@ -275,13 +270,13 @@ function renderTreeRow(row: MockTreeRow, width: number, color: boolean): Surface
   return { text };
 }
 
-function renderRunnerRow(runner: MockRunnerRow): SurfaceLine {
+function renderRunnerRow(runner: ShellRunnerRow): SurfaceLine {
   return {
     text: `${runner.name.padEnd(8, " ")} ${runner.meter} ${runner.count}`,
   };
 }
 
-function renderTabLine(tabs: MockTab[], color: boolean): string {
+function renderTabLine(tabs: ShellTab[], color: boolean): string {
   return tabs
     .map((tab) => {
       if (tab.active) {
@@ -293,13 +288,13 @@ function renderTabLine(tabs: MockTab[], color: boolean): string {
     .join("   ");
 }
 
-function renderContextRow(row: MockContextRow, color: boolean): SurfaceLine {
+function renderContextRow(row: ShellContextRow, color: boolean): SurfaceLine {
   return {
     text: `${row.label.padEnd(8, " ")}  ${row.mutedValue ? muted(row.value, color, PALETTE.rightDefault) : row.value}`,
   };
 }
 
-function renderCheckRow(row: MockCheckRow, color: boolean): SurfaceLine {
+function renderCheckRow(row: ShellCheckRow, color: boolean): SurfaceLine {
   const status = row.success ? green(row.status, color, PALETTE.rightDefault) : muted(row.status, color, PALETTE.rightDefault);
   const result = row.success ? row.result.padEnd(8, " ") : muted(row.result.padEnd(8, " "), color, PALETTE.rightDefault);
   const duration = row.success ? row.duration : muted(row.duration, color, PALETTE.rightDefault);
@@ -309,7 +304,7 @@ function renderCheckRow(row: MockCheckRow, color: boolean): SurfaceLine {
   };
 }
 
-function renderActionRow(row: MockActionRow, width: number, color: boolean): SurfaceLine {
+function renderActionRow(row: ShellActionRow, width: number, color: boolean): SurfaceLine {
   const prefix = row.selected ? green("▸", color, PALETTE.rightSelected) : " ";
   const shortcutWidth = Math.max(0, width - 6);
   const content = `${prefix}  ${row.label.padEnd(shortcutWidth, " ")}${row.shortcut}`;
@@ -339,6 +334,10 @@ function renderSurfaceSegment(
     const contentWidth = width - LEFT_PANEL_INSET - LEFT_PANEL_GUTTER;
     const text = `${" ".repeat(LEFT_PANEL_INSET)}${pad(lineContent, contentWidth)}${" ".repeat(LEFT_PANEL_GUTTER)}`;
     return fillSurface(text, color, palette);
+  }
+
+  if (panel === "center" && line.fullBleed) {
+    return renderFullBleedCenterLine(line, width, color, palette);
   }
 
   const inset = "  ";
@@ -395,12 +394,70 @@ function renderLineContent(line: SurfaceLine, color: boolean, base: PaletteColor
   return line.segments.map((segment) => renderTerminalSegment(segment, color, base)).join("");
 }
 
+function renderFullBleedCenterLine(line: SurfaceLine, width: number, color: boolean, base: PaletteColor): string {
+  const gutter = " ".repeat(CENTER_TERMINAL_GUTTER);
+  const contentWidth = Math.max(0, width - CENTER_TERMINAL_GUTTER * 2);
+
+  if (!line.segments) {
+    return fillSurface(`${gutter}${pad(line.text, contentWidth)}${gutter}`, color, base);
+  }
+
+  const paddedSegments = fitTerminalSegmentsToWidth(line.segments, contentWidth);
+  const content = `${gutter}${paddedSegments.map((segment) => renderTerminalSegment(segment, color, base)).join("")}${gutter}`;
+  return fillSurface(content, color, base);
+}
+
 function renderTerminalSegment(segment: TerminalRowSegment, color: boolean, base: PaletteColor): string {
   if (!color || !segment.style) {
     return segment.text;
   }
 
   return `${toAnsi(terminalStyleToPalette(segment.style, base))}${styleCodes(segment.style)}${segment.text}${RESET}${toAnsi(base)}`;
+}
+
+function fitTerminalSegmentsToWidth(segments: TerminalRowSegment[], width: number): TerminalRowSegment[] {
+  const clipped = clipTerminalSegmentsToWidth(segments, width);
+  return padTerminalSegmentsToWidth(clipped, width);
+}
+
+function clipTerminalSegmentsToWidth(segments: TerminalRowSegment[], width: number): TerminalRowSegment[] {
+  const clipped: TerminalRowSegment[] = [];
+  let remaining = width;
+
+  for (const segment of segments) {
+    if (remaining <= 0) {
+      break;
+    }
+
+    const visibleWidth = stringWidth(segment.text);
+    if (visibleWidth <= remaining) {
+      clipped.push(segment);
+      remaining -= visibleWidth;
+      continue;
+    }
+
+    clipped.push({
+      ...segment,
+      text: segment.text.slice(0, remaining),
+    });
+    remaining = 0;
+  }
+
+  return clipped;
+}
+
+function padTerminalSegmentsToWidth(segments: TerminalRowSegment[], width: number): TerminalRowSegment[] {
+  const visibleWidth = stringWidth(segmentsToPlainText(segments));
+  if (visibleWidth >= width) {
+    return segments;
+  }
+
+  const trailingStyle = segments.at(-1)?.style;
+  if (trailingStyle?.bg) {
+    return [...segments, { text: " ".repeat(width - visibleWidth), style: trailingStyle }];
+  }
+
+  return [...segments, { text: " ".repeat(width - visibleWidth) }];
 }
 
 function terminalStyleToPalette(style: TerminalCellStyle, base: PaletteColor): PaletteColor {
@@ -439,7 +496,7 @@ function styleCodes(style: TerminalCellStyle): string {
   return codes.length > 0 ? `\u001B[${codes.join(";")}m` : "";
 }
 
-function findTabOffset(tabs: MockTab[]): number {
+function findTabOffset(tabs: ShellTab[]): number {
   let offset = 0;
 
   for (const tab of tabs) {

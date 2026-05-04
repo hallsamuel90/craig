@@ -1,13 +1,8 @@
-import { mkdtemp, mkdir } from "node:fs/promises";
-import path from "node:path";
-import { tmpdir } from "node:os";
-
 import { describe, expect, test, vi } from "vitest";
 
 import { isTerminalDetachKey } from "../src/ui/state.js";
 import { mapKeyToPtyInput, PtyRuntime } from "../src/ui/pty-runtime.js";
 import { createTerminalEmulator, renderTerminalScreenRows, writeTerminalEmulator } from "../src/ui/terminal-emulator.js";
-import { createCraigState, writeTaskRecord } from "./test-helpers.js";
 
 describe("PTY runtime", () => {
   test("maps Craig terminal-mode keys to PTY input and reserves ctrl+]", () => {
@@ -61,16 +56,37 @@ describe("PTY runtime", () => {
       spawn: vi.fn(() => fakePty),
     });
 
-    const initial = runtime.ensureSession("task_20260430_02", { columns: 80, rows: 24 });
+    const initial = runtime.ensureSession("task_20260430_02", "task_20260430_02:terminal", { columns: 80, rows: 24 });
     runtime.writeKey("a");
     runtime.writeKey("ENTER");
     fakePty.emitData("ok\r\n");
-    await vi.waitFor(() => expect(runtime.getViewState("task_20260430_02").rows[0]?.segments[0]?.text).toContain("ok"));
-    const updated = runtime.getViewState("task_20260430_02");
+    await vi.waitFor(() => expect(runtime.getViewState("task_20260430_02:terminal").rows[0]?.segments[0]?.text).toContain("ok"));
+    const updated = runtime.getViewState("task_20260430_02:terminal");
 
     expect(initial.status).toBe("running");
     expect(fakePty.writes).toEqual(["a", "\r"]);
     expect(updated.rows[0]?.segments[0]?.text).toContain("ok");
+  });
+
+  test("answers terminal capability probes so runner CLIs can finish bootstrapping", () => {
+    const fakePty = createFakePty();
+    const runtime = new PtyRuntime({
+      workspaceRoot: "/tmp/craig",
+      shell: "/bin/zsh",
+      env: { TERM: "xterm-256color" },
+      spawn: vi.fn(() => fakePty),
+    });
+
+    runtime.ensureSession("task_20260430_02", "task_20260430_02:agent", { columns: 80, rows: 24 });
+    fakePty.emitData("\u001B[6n\u001B[c\u001B[?u\u001B]10;?\u001B\\\u001B]11;?\u001B\\");
+
+    expect(fakePty.writes).toEqual([
+      "\u001B[1;1R",
+      "\u001B[?1;2c",
+      "\u001B[?0u",
+      "\u001B]10;rgb:e6e6/e6e6/e6e6\u001B\\",
+      "\u001B]11;rgb:0a0a/0a0a/0a0a\u001B\\",
+    ]);
   });
 
   test("restarts an exited PTY session when the task is reattached", async () => {
@@ -86,38 +102,34 @@ describe("PTY runtime", () => {
       spawn,
     });
 
-    runtime.ensureSession("task_20260430_02", { columns: 80, rows: 24 });
+    runtime.ensureSession("task_20260430_02", "task_20260430_02:terminal", { columns: 80, rows: 24 });
     firstPty.emitExit(0);
-    await vi.waitFor(() => expect(runtime.getViewState("task_20260430_02").status).toBe("exited"));
+    await vi.waitFor(() => expect(runtime.getViewState("task_20260430_02:terminal").status).toBe("exited"));
 
-    runtime.ensureSession("task_20260430_02", { columns: 90, rows: 30 });
+    runtime.ensureSession("task_20260430_02", "task_20260430_02:terminal", { columns: 90, rows: 30 });
     runtime.writeKey("b");
 
     expect(spawn).toHaveBeenCalledTimes(2);
     expect(firstPty.kill).toHaveBeenCalledTimes(1);
     expect(secondPty.writes).toEqual(["b"]);
-    expect(runtime.getViewState("task_20260430_02").status).toBe("running");
+    expect(runtime.getViewState("task_20260430_02:terminal").status).toBe("running");
   });
 
-  test("spawns the PTY inside the selected task worktree when a task record exists", async () => {
-    const workspaceRoot = await mkdtemp(path.join(tmpdir(), "craig-pty-runtime-"));
-    await createCraigState(workspaceRoot, ["task_20260430_02"]);
-    const worktreePath = path.join(workspaceRoot, "repo-a", "task-worktree");
-    await mkdir(worktreePath, { recursive: true });
-    await writeTaskRecord(workspaceRoot, {
-      id: "task_20260430_02",
-      worktreePath,
-    });
-
+  test("spawns the PTY inside the selected task worktree when the session spec resolves one", async () => {
+    const worktreePath = "/tmp/craig/task-worktree";
     const spawn = vi.fn(() => createFakePty());
     const runtime = new PtyRuntime({
-      workspaceRoot,
+      workspaceRoot: "/tmp/craig",
       shell: "/bin/zsh",
       env: { TERM: "xterm-256color" },
       spawn,
+      resolveSessionSpec: () => ({
+        cwd: worktreePath,
+        command: [],
+      }),
     });
 
-    runtime.ensureSession("task_20260430_02", { columns: 80, rows: 24 });
+    runtime.ensureSession("task_20260430_02", "task_20260430_02:terminal", { columns: 80, rows: 24 });
 
     expect(spawn).toHaveBeenCalledWith(
       "/bin/zsh",
@@ -126,6 +138,68 @@ describe("PTY runtime", () => {
         cwd: worktreePath,
       }),
     );
+  });
+
+  test("boots command tabs through the shell so they fall back to the same terminal", () => {
+    const spawn = vi.fn(() => createFakePty());
+    const runtime = new PtyRuntime({
+      workspaceRoot: "/tmp/craig",
+      shell: "/bin/zsh",
+      env: { TERM: "xterm-256color" },
+      spawn,
+      resolveSessionSpec: () => ({
+        cwd: "/tmp/craig/task-worktree",
+        command: ["codex"],
+      }),
+    });
+
+    runtime.ensureSession("task_20260430_02", "task_20260430_02:agent", { columns: 80, rows: 24 });
+
+    expect(spawn).toHaveBeenCalledWith(
+      "/bin/zsh",
+      ["-lc", "'codex'; exec '/bin/zsh' -l"],
+      expect.objectContaining({
+        cwd: "/tmp/craig/task-worktree",
+      }),
+    );
+  });
+
+  test("scrolls the attached terminal viewport through scrollback", async () => {
+    const fakePty = createFakePty();
+    const runtime = new PtyRuntime({
+      workspaceRoot: "/tmp/craig",
+      shell: "/bin/zsh",
+      env: { TERM: "xterm-256color" },
+      spawn: vi.fn(() => fakePty),
+    });
+
+    runtime.ensureSession("task_20260430_02", "task_20260430_02:terminal", { columns: 12, rows: 4 });
+    fakePty.emitData("line1\r\nline2\r\nline3\r\nline4\r\nline5\r\nline6\r\n");
+    await vi.waitFor(() => expect(runtime.getViewState("task_20260430_02:terminal").rows.some((row) => row.segments.some((segment) => segment.text.includes("line6")))).toBe(true));
+
+    runtime.scrollViewport(-2);
+    const scrolled = runtime.getViewState("task_20260430_02:terminal").rows.map((row) => row.segments.map((segment) => segment.text).join(""));
+
+    expect(scrolled.join("\n")).toContain("line3");
+    expect(scrolled.join("\n")).toContain("line4");
+  });
+
+  test("scrolling the viewport does not emit a runtime update by itself", async () => {
+    const fakePty = createFakePty();
+    const onUpdate = vi.fn();
+    const runtime = new PtyRuntime({
+      workspaceRoot: "/tmp/craig",
+      shell: "/bin/zsh",
+      env: { TERM: "xterm-256color" },
+      spawn: vi.fn(() => fakePty),
+      onUpdate,
+    });
+
+    runtime.ensureSession("task_20260430_02", "task_20260430_02:terminal", { columns: 12, rows: 4 });
+    onUpdate.mockClear();
+    runtime.scrollViewport(-2);
+
+    expect(onUpdate).not.toHaveBeenCalled();
   });
 });
 

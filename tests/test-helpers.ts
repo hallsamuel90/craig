@@ -6,6 +6,7 @@ import { getCraigPaths } from "../src/state/craig-paths.js";
 import type { SessionRecord } from "../src/types/session.js";
 import type { TaskRecord } from "../src/types/task.js";
 import type { RepoRecord, WorkspaceRecord } from "../src/types/workspace.js";
+import { createDefaultTaskPtyTabs } from "../src/services/task-provisioning.js";
 import { runCommand } from "../src/utils/exec.js";
 
 export async function createRepoRoot(prefix: string): Promise<string> {
@@ -103,6 +104,7 @@ export function buildTaskRecord(
 ): TaskRecord {
   const paths = getCraigPaths(repoRoot);
   const now = "2026-04-21T00:00:00.000Z";
+  const ptyTabs = task.ptyTabs ?? createDefaultTaskPtyTabs(task.id, task.title ?? "test task", now);
 
   return {
     id: task.id,
@@ -114,10 +116,12 @@ export function buildTaskRecord(
     repoId: task.repoId ?? "repo_test",
     workspaceId: task.workspaceId ?? "workspace_repo_test",
     sessionId: task.sessionId ?? `session_${task.id}`,
+    selectedPtyTabId: task.selectedPtyTabId ?? ptyTabs[0]?.id ?? null,
     linkedRepoIds: task.linkedRepoIds ?? [],
     repoRoot,
     worktreePath: task.worktreePath ?? path.join(paths.worktreesDir, task.id),
     branch: task.branch ?? `craig/${task.id}`,
+    ptyTabs,
     runnerSession: task.runnerSession ?? {
       command: ["codex", task.title ?? "test task"],
       pid: null,
