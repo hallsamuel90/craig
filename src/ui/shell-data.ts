@@ -1,7 +1,8 @@
 import path from "node:path";
 
-import type { TaskRecord } from "../types/task.js";
+import type { TaskPtyTabRecord, TaskRecord } from "../types/task.js";
 import type { RepoRecord } from "../types/workspace.js";
+import { FIXED_CENTER_TAB_IDS } from "./state.js";
 import type {
   ActionId,
   CenterTabId,
@@ -94,13 +95,11 @@ export interface WorkspaceShellModel {
   workspaceRoot: string;
 }
 
-const TAB_FIXTURES: Array<{ id: CenterTabId; label: string }> = [
-  { id: "agent", label: "AGENT" },
-  { id: "files", label: "FILES" },
-  { id: "diff", label: "DIFF" },
-  { id: "terminal", label: "TERMINAL" },
-  { id: "logs", label: "LOGS" },
-];
+const FIXED_TAB_LABELS: Record<(typeof FIXED_CENTER_TAB_IDS)[number], string> = {
+  files: "FILES",
+  diff: "DIFF",
+  logs: "LOGS",
+};
 
 const ACTION_FIXTURES: Array<{ id: ActionId; label: string; shortcut: string }> = [
   { id: "commit", label: "commit", shortcut: "c" },
@@ -115,7 +114,9 @@ export function buildShellData(state: ControlShellState, model: WorkspaceShellMo
   const repoTasks = selectedRepo ? model.tasks.filter((task) => task.repoId === selectedRepo.id) : [];
   const selectedTask = repoTasks.find((task) => task.id === state.selectedTaskId) ?? repoTasks[0] ?? null;
   const runnerCounts = countRunners(model.tasks);
-  const activeTab = TAB_FIXTURES.find((tab) => tab.id === state.activeTab) ?? TAB_FIXTURES[0]!;
+  const activeTabId = resolveDisplayActiveTab(state, selectedTask);
+  const tabs = buildCenterTabs(state, selectedTask, activeTabId);
+  const activeTab = tabs.find((tab) => tab.id === activeTabId) ?? tabs[0] ?? { id: "files", label: "FILES" };
   const repoLabel = selectedRepo?.name ?? "no repo";
   const agentLabel = selectedTask?.runner ?? "codex";
 
@@ -131,7 +132,9 @@ export function buildShellData(state: ControlShellState, model: WorkspaceShellMo
         ? `NEW TASK ${selectedRepo ? `[${selectedRepo.name}]` : "[no repo]"}: ${state.taskPromptInput}${state.taskPromptError ? ` · ${state.taskPromptError}` : ""}`
         : state.inputMode === "terminal"
         ? "TERMINAL   Ctrl+] detach   wheel/PgUp/PgDn scroll"
-        : "NORMAL   n new task   ? help   / search   : command",
+        : state.focusedRegion === "center"
+          ? "NORMAL   + new tab   x close tab   Enter attach   ←/→ switch"
+          : "NORMAL   n new task   ? help   / search   : command",
     topRail: {
       workspacePath: path.relative(process.env.HOME ?? "", model.workspaceRoot).length > 0
         ? `~/${path.relative(process.env.HOME ?? "", model.workspaceRoot)}`
@@ -150,12 +153,8 @@ export function buildShellData(state: ControlShellState, model: WorkspaceShellMo
       repo: repoLabel,
       agent: agentLabel,
     },
-    centerTranscript: buildCenterTranscript(state.activeTab, selectedRepo, selectedTask, state.workspaceBrowser),
-    tabs: TAB_FIXTURES.map((tab) => ({
-      ...tab,
-      active: tab.id === state.activeTab,
-      focused: state.focusedRegion === "center" && tab.id === state.activeTab,
-    })),
+    centerTranscript: buildCenterTranscript(activeTabId, selectedRepo, selectedTask, state.workspaceBrowser),
+    tabs,
     rightContext: buildContextRows(selectedRepo, selectedTask),
     rightChecks: buildCheckRows(selectedTask),
     rightActions: ACTION_FIXTURES.map((action) => ({
@@ -166,7 +165,7 @@ export function buildShellData(state: ControlShellState, model: WorkspaceShellMo
     rightNextAction: selectedTask
       ? state.workspaceBrowser
         ? "Press Enter on a [git repo] entry to register it as a Craig workspace."
-        : "Use Enter on AGENT or TERMINAL to attach the selected PTY tab."
+        : "Use Enter on a PTY tab to attach it. Use + and x from the center strip to manage tabs."
       : selectedRepo
         ? state.workspaceBrowser
           ? "Press Enter on a [git repo] entry to register it as a Craig workspace."
@@ -279,30 +278,79 @@ function buildCenterTranscript(
     ];
   }
 
-  if (tabId === "agent") {
-    return [
-      `Codex agent tab ready for ${task.id}.`,
-      "",
-      "Press Enter to attach the live PTY-backed agent session.",
-      "The initial phase keeps files, diff, and checks as placeholders.",
-    ];
+  const ptyTab = task.ptyTabs.find((tab) => tab.id === tabId) ?? null;
+  if (ptyTab) {
+    return ptyTab.kind === "agent"
+      ? [
+          `${ptyTab.title} tab ready for ${task.id}.`,
+          "",
+          "Press Enter to attach this PTY-backed agent session.",
+          "Use + to create another task tab or x to close this tab.",
+        ]
+      : [
+          `${ptyTab.title} tab ready for ${task.id}.`,
+          "",
+          "Press Enter to attach this plain task shell.",
+          "Use + to create another task tab or x to close this tab.",
+        ];
   }
 
-  const labels: Record<CenterTabId, string> = {
-    agent: "Agent transcript",
+  const fixedTabId = isFixedCenterTabId(tabId) ? tabId : "files";
+  const labels: Record<(typeof FIXED_CENTER_TAB_IDS)[number], string> = {
     files: "Files surface",
     diff: "Diff surface",
-    terminal: "Plain terminal tab",
     logs: "Task logs",
   };
 
   return [
-    `${labels[tabId]} placeholder for ${task.id}.`,
+    `${labels[fixedTabId]} placeholder for ${task.id}.`,
     "",
-    tabId === "terminal"
-      ? "Press Enter to attach the plain task shell."
-      : "Real inspection surfaces land in later RFC phases.",
+    "Real inspection surfaces land in later RFC phases.",
   ];
+}
+
+function buildCenterTabs(state: ControlShellState, task: TaskRecord | null, activeTabId: string): ShellTab[] {
+  const ptyTabs =
+    task?.ptyTabs.map((tab) => ({
+      id: tab.id,
+      label: formatPtyTabLabel(tab),
+    })) ?? [];
+  const fixedTabs = FIXED_CENTER_TAB_IDS.map((id) => ({
+    id,
+    label: FIXED_TAB_LABELS[id],
+  }));
+
+  return [...ptyTabs, ...fixedTabs].map((tab) => ({
+    ...tab,
+    active: tab.id === activeTabId,
+    focused: state.focusedRegion === "center" && tab.id === activeTabId,
+  }));
+}
+
+function resolveDisplayActiveTab(state: ControlShellState, task: TaskRecord | null): string {
+  if (!task) {
+    return isFixedCenterTabId(state.activeTab) ? state.activeTab : "files";
+  }
+
+  if (task.ptyTabs.some((tab) => tab.id === state.activeTab) || isFixedCenterTabId(state.activeTab)) {
+    return state.activeTab;
+  }
+
+  if (state.activeTab === "agent" || state.activeTab === "terminal") {
+    return task.ptyTabs.find((tab) => tab.kind === state.activeTab)?.id ?? task.ptyTabs[0]?.id ?? "files";
+  }
+
+  return state.selectedPtyTabId && task.ptyTabs.some((tab) => tab.id === state.selectedPtyTabId)
+    ? state.selectedPtyTabId
+    : task.ptyTabs[0]?.id ?? "files";
+}
+
+function formatPtyTabLabel(tab: TaskPtyTabRecord): string {
+  return tab.title.toUpperCase();
+}
+
+function isFixedCenterTabId(tabId: string): tabId is (typeof FIXED_CENTER_TAB_IDS)[number] {
+  return (FIXED_CENTER_TAB_IDS as readonly string[]).includes(tabId);
 }
 
 function buildContextRows(repo: RepoRecord | null, task: TaskRecord | null): ShellContextRow[] {

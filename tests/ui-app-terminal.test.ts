@@ -8,7 +8,7 @@ import { startTerminalApp, type PtyRuntimePort, type TerminalRuntime } from "../
 import type { TerminalViewState } from "../src/ui/state.js";
 import { listRepos } from "../src/state/repo-store.js";
 import { runCommand } from "../src/utils/exec.js";
-import { readTask } from "../src/state/task-store.js";
+import { readTask, writeTask } from "../src/state/task-store.js";
 import { createCraigState, createGitRepo, writeRepoRecord, writeTaskRecord } from "./test-helpers.js";
 
 /* eslint-disable no-unused-vars */
@@ -88,6 +88,8 @@ describe("terminal app PTY attach flow", () => {
       await vi.waitFor(() => expect(terminal.hasKeyListener()).toBe(true));
 
       terminal.emitKey(enterKey);
+      expect(stripAnsi(terminal.frames.at(-1) ?? "")).toContain("TERMINAL  task_20260430_02 · repo-a · codex");
+      expect(ptyRuntime.ensureSession).not.toHaveBeenCalled();
       terminal.emitKey(enterKey);
       terminal.emitKey("p");
       terminal.emitKey("\u001D");
@@ -164,7 +166,7 @@ describe("terminal app PTY attach flow", () => {
 
     await expect(app).resolves.toBe(0);
     expect(ptyRuntime.detach).toHaveBeenCalledTimes(1);
-    expect(terminal.frames.join("\n")).toContain("NORMAL   n new task");
+    expect(terminal.frames.join("\n")).toContain("NORMAL   + new tab");
     expect(terminal.frames.join("\n")).not.toContain("terminal ▸ terminal mode");
   });
 
@@ -218,6 +220,7 @@ describe("terminal app PTY attach flow", () => {
     await vi.waitFor(() => expect(terminal.hasKeyListener()).toBe(true));
 
     terminal.emitKey("\r"); // boot start
+    expect(stripAnsi(terminal.frames.at(-1) ?? "")).toContain("TERMINAL  task_20260430_02 · repo-a · codex");
     terminal.emitKey("ENTER");
     terminal.emitKey("n");
     terminal.emitUnknown("n");
@@ -239,6 +242,7 @@ describe("terminal app PTY attach flow", () => {
     await vi.waitFor(() => expect(terminal.hasKeyListener()).toBe(true));
 
     terminal.emitKey("\r"); // boot start
+    expect(stripAnsi(terminal.frames.at(-1) ?? "")).toContain("TERMINAL  task_20260430_02 · repo-a · codex");
     terminal.emitKey("ENTER");
     terminal.emitMouse("MOUSE_WHEEL_UP");
     terminal.emitMouse("MOUSE_WHEEL_DOWN");
@@ -263,6 +267,7 @@ describe("terminal app PTY attach flow", () => {
     await vi.waitFor(() => expect(terminal.hasKeyListener()).toBe(true));
 
     terminal.emitKey("\r"); // boot start
+    expect(stripAnsi(terminal.frames.at(-1) ?? "")).toContain("TERMINAL  task_20260430_02 · repo-a · codex");
     terminal.emitKey("ENTER");
     terminal.emitUnknown("\u001B[<64;20;10M");
     terminal.emitUnknown("\u001B[<65;20;10M");
@@ -355,6 +360,215 @@ describe("terminal app PTY attach flow", () => {
     );
   });
 
+  test("center + creates a second terminal tab and enter attaches that concrete tab", async () => {
+    const root = await mkdtemp(join(tmpdir(), "craig-ui-app-"));
+    tempRoots.push(root);
+    const paths = await setupWorkspace(root);
+    const terminal = new FakeTerminal();
+    const ptyRuntime = new FakePtyRuntime();
+    const app = startTerminalApp({ terminal, ptyRuntime, uiStateFile: paths.uiStateFile, workspaceRoot: root });
+    await vi.waitFor(() => expect(terminal.hasKeyListener()).toBe(true));
+
+    terminal.emitKey("\r"); // boot start
+    terminal.emitKey("+");
+    await vi.waitFor(() => expect(stripAnsi(terminal.frames.at(-1) ?? "")).toContain("TERMINAL 2"));
+    terminal.emitKey("ENTER");
+    await vi.waitFor(() => expect(ptyRuntime.ensureSession).toHaveBeenCalledWith(
+      "task_20260430_02",
+      "task_20260430_02:terminal-2",
+      expect.objectContaining({ columns: expect.any(Number) }),
+    ));
+    terminal.emitKey("\u001D");
+    terminal.emitKey("q");
+
+    await expect(app).resolves.toBe(0);
+    const task = await readTask(paths, "task_20260430_02");
+    expect(task.selectedPtyTabId).toBe("task_20260430_02:terminal-2");
+    expect(task.ptyTabs.map((tab) => tab.title)).toContain("Terminal 2");
+  });
+
+  test("center + from a Codex tab creates Codex 2 and attaches it in the task worktree", async () => {
+    const root = await mkdtemp(join(tmpdir(), "craig-ui-app-"));
+    tempRoots.push(root);
+    const paths = await setupWorkspace(root);
+    await writeFile(
+      paths.uiStateFile,
+      JSON.stringify({
+        version: 1,
+        selectedRepoId: "repo_a",
+        selectedWorkspaceId: "workspace_repo_a",
+        selectedTaskId: "task_20260430_02",
+        selectedPtyTabId: "task_20260430_02:agent",
+        inputMode: "control",
+        focusedRegion: "center",
+        activeTab: "task_20260430_02:agent",
+        selectedActionId: "commit",
+        updatedAt: "2026-05-04T00:00:00.000Z",
+      }),
+    );
+    const terminal = new FakeTerminal();
+    const ptyRuntime = new FakePtyRuntime();
+    const app = startTerminalApp({ terminal, ptyRuntime, uiStateFile: paths.uiStateFile, workspaceRoot: root });
+    await vi.waitFor(() => expect(terminal.hasKeyListener()).toBe(true));
+
+    terminal.emitKey("\r"); // boot start
+    terminal.emitKey("+");
+    await vi.waitFor(() => expect(stripAnsi(terminal.frames.at(-1) ?? "")).toContain("CODEX 2"));
+    terminal.emitKey("ENTER");
+    await vi.waitFor(() => expect(ptyRuntime.ensureSession).toHaveBeenCalledWith(
+      "task_20260430_02",
+      "task_20260430_02:agent-2",
+      expect.objectContaining({ columns: expect.any(Number) }),
+    ));
+    terminal.emitKey("\u001D");
+    terminal.emitKey("q");
+
+    await expect(app).resolves.toBe(0);
+    const task = await readTask(paths, "task_20260430_02");
+    expect(task.ptyTabs.find((tab) => tab.id === "task_20260430_02:agent-2")).toMatchObject({
+      kind: "agent",
+      title: "Codex 2",
+      command: ["codex"],
+    });
+  });
+
+  test("switching PTY tabs before creating another tab does not overwrite the new tab", async () => {
+    const root = await mkdtemp(join(tmpdir(), "craig-ui-app-"));
+    tempRoots.push(root);
+    const paths = await setupWorkspace(root);
+    const terminal = new FakeTerminal();
+    const ptyRuntime = new FakePtyRuntime();
+    const app = startTerminalApp({ terminal, ptyRuntime, uiStateFile: paths.uiStateFile, workspaceRoot: root });
+    await vi.waitFor(() => expect(terminal.hasKeyListener()).toBe(true));
+
+    terminal.emitKey("\r"); // boot start
+    terminal.emitKey("RIGHT"); // select terminal tab and trigger async selectedPtyTabId persistence
+    terminal.emitKey("+"); // immediately create another terminal tab from that selection
+    await vi.waitFor(() => expect(stripAnsi(terminal.frames.at(-1) ?? "")).toContain("TERMINAL 2"));
+    terminal.emitKey("q");
+
+    await expect(app).resolves.toBe(0);
+    const task = await readTask(paths, "task_20260430_02");
+    expect(task.ptyTabs.map((tab) => tab.id)).toContain("task_20260430_02:terminal-2");
+    expect(task.selectedPtyTabId).toBe("task_20260430_02:terminal-2");
+  });
+
+  test("x closes the active concrete PTY tab and disposes its runtime session", async () => {
+    const root = await mkdtemp(join(tmpdir(), "craig-ui-app-"));
+    tempRoots.push(root);
+    const paths = await setupWorkspace(root);
+    const task = await readTask(paths, "task_20260430_02");
+    await writeTask(paths, {
+      ...task,
+      selectedPtyTabId: "task_20260430_02:terminal-2",
+      ptyTabs: [
+        ...task.ptyTabs,
+        {
+          id: "task_20260430_02:terminal-2",
+          kind: "terminal",
+          title: "Terminal 2",
+          command: [],
+          createdAt: "2026-05-04T00:00:00.000Z",
+          updatedAt: "2026-05-04T00:00:00.000Z",
+        },
+      ],
+    });
+    await writeFile(
+      paths.uiStateFile,
+      JSON.stringify({
+        version: 1,
+        selectedRepoId: "repo_a",
+        selectedWorkspaceId: "workspace_repo_a",
+        selectedTaskId: "task_20260430_02",
+        selectedPtyTabId: "task_20260430_02:terminal-2",
+        inputMode: "control",
+        focusedRegion: "center",
+        activeTab: "task_20260430_02:terminal-2",
+        selectedActionId: "commit",
+        updatedAt: "2026-05-04T00:00:00.000Z",
+      }),
+    );
+    const terminal = new FakeTerminal();
+    const ptyRuntime = new FakePtyRuntime();
+    const app = startTerminalApp({ terminal, ptyRuntime, uiStateFile: paths.uiStateFile, workspaceRoot: root });
+    await vi.waitFor(() => expect(terminal.hasKeyListener()).toBe(true));
+
+    terminal.emitKey("\r"); // boot start
+    terminal.emitKey("ENTER");
+    await vi.waitFor(() => expect(ptyRuntime.ensureSession).toHaveBeenCalledWith(
+      "task_20260430_02",
+      "task_20260430_02:terminal-2",
+      expect.anything(),
+    ));
+    terminal.emitKey("\u001D");
+    terminal.emitKey("x");
+    await vi.waitFor(() => expect(ptyRuntime.disposeSession).toHaveBeenCalledWith("task_20260430_02:terminal-2"));
+    await vi.waitFor(async () => {
+      const updatedTask = await readTask(paths, "task_20260430_02");
+      expect(updatedTask.ptyTabs.map((tab) => tab.id)).not.toContain("task_20260430_02:terminal-2");
+    });
+    terminal.emitKey("q");
+
+    await expect(app).resolves.toBe(0);
+    const updatedTask = await readTask(paths, "task_20260430_02");
+    expect(updatedTask.ptyTabs.map((tab) => tab.id)).not.toContain("task_20260430_02:terminal-2");
+    expect(updatedTask.selectedPtyTabId).toBe("task_20260430_02:terminal");
+  });
+
+  test("restart restores a concrete selected PTY tab", async () => {
+    const root = await mkdtemp(join(tmpdir(), "craig-ui-app-"));
+    tempRoots.push(root);
+    const paths = await setupWorkspace(root);
+    const task = await readTask(paths, "task_20260430_02");
+    await writeTask(paths, {
+      ...task,
+      selectedPtyTabId: "task_20260430_02:terminal-2",
+      ptyTabs: [
+        ...task.ptyTabs,
+        {
+          id: "task_20260430_02:terminal-2",
+          kind: "terminal",
+          title: "Terminal 2",
+          command: [],
+          createdAt: "2026-05-04T00:00:00.000Z",
+          updatedAt: "2026-05-04T00:00:00.000Z",
+        },
+      ],
+    });
+    await writeFile(
+      paths.uiStateFile,
+      JSON.stringify({
+        version: 1,
+        selectedRepoId: "repo_a",
+        selectedWorkspaceId: "workspace_repo_a",
+        selectedTaskId: "task_20260430_02",
+        selectedPtyTabId: "task_20260430_02:terminal-2",
+        inputMode: "control",
+        focusedRegion: "center",
+        activeTab: "task_20260430_02:terminal-2",
+        selectedActionId: "commit",
+        updatedAt: "2026-05-04T00:00:00.000Z",
+      }),
+    );
+    const terminal = new FakeTerminal();
+    const ptyRuntime = new FakePtyRuntime();
+    const app = startTerminalApp({ terminal, ptyRuntime, uiStateFile: paths.uiStateFile, workspaceRoot: root });
+    await vi.waitFor(() => expect(terminal.hasKeyListener()).toBe(true));
+
+    terminal.emitKey("\r"); // boot start
+    await vi.waitFor(() => expect(stripAnsi(terminal.frames.at(-1) ?? "")).toContain("TERMINAL 2"));
+    terminal.emitKey("ENTER");
+    await vi.waitFor(() => expect(ptyRuntime.ensureSession).toHaveBeenCalledWith(
+      "task_20260430_02",
+      "task_20260430_02:terminal-2",
+      expect.objectContaining({ columns: expect.any(Number) }),
+    ));
+    terminal.emitKey("\u001D");
+    terminal.emitKey("q");
+
+    await expect(app).resolves.toBe(0);
+  });
+
   test("ctrl-c from an attached agent stays in the same agent PTY", async () => {
     const root = await mkdtemp(join(tmpdir(), "craig-ui-app-"));
     tempRoots.push(root);
@@ -397,6 +611,89 @@ describe("terminal app PTY attach flow", () => {
       "task_20260430_02:terminal",
       expect.anything(),
     );
+  });
+
+  test("stale persisted shell orientation falls back to a usable repo task selection", async () => {
+    const root = await mkdtemp(join(tmpdir(), "craig-ui-app-"));
+    tempRoots.push(root);
+    const paths = await setupWorkspace(root);
+    await writeFile(
+      paths.uiStateFile,
+      JSON.stringify({
+        version: 1,
+        selectedRepoId: "repo_deleted",
+        selectedWorkspaceId: "workspace_repo_deleted",
+        selectedTaskId: "task_deleted",
+        selectedPtyTabId: "task_deleted:terminal",
+        inputMode: "control",
+        focusedRegion: "center",
+        activeTab: "terminal",
+        inspectorSection: "next-action",
+        selectedActionId: "commit",
+        updatedAt: "2026-05-04T00:00:00.000Z",
+      }),
+    );
+    const terminal = new FakeTerminal();
+    const ptyRuntime = new FakePtyRuntime();
+    const app = startTerminalApp({ terminal, ptyRuntime, uiStateFile: paths.uiStateFile, workspaceRoot: root });
+    await vi.waitFor(() => expect(terminal.hasKeyListener()).toBe(true));
+
+    terminal.emitKey("\r"); // boot start
+    expect(stripAnsi(terminal.frames.at(-1) ?? "")).toContain("TERMINAL  task_20260430_02 · repo-a · codex");
+    terminal.emitKey("q");
+
+    await expect(app).resolves.toBe(0);
+    expect(ptyRuntime.ensureSession).not.toHaveBeenCalled();
+  });
+
+  test("left-pane attach recreates a missing agent tab instead of attaching a terminal tab", async () => {
+    const root = await mkdtemp(join(tmpdir(), "craig-ui-app-"));
+    tempRoots.push(root);
+    const paths = await setupWorkspace(root);
+    const task = await readTask(paths, "task_20260430_02");
+    await writeTask(paths, {
+      ...task,
+      selectedPtyTabId: "task_20260430_02:terminal",
+      ptyTabs: task.ptyTabs.filter((tab) => tab.kind === "terminal"),
+    });
+    await writeFile(
+      paths.uiStateFile,
+      JSON.stringify({
+        version: 1,
+        selectedRepoId: "repo_a",
+        selectedWorkspaceId: "workspace_repo_a",
+        selectedTaskId: "task_20260430_02",
+        selectedPtyTabId: "task_20260430_02:terminal",
+        inputMode: "control",
+        focusedRegion: "tasks",
+        activeTab: "task_20260430_02:terminal",
+        selectedActionId: "commit",
+        updatedAt: "2026-05-04T00:00:00.000Z",
+      }),
+    );
+    const terminal = new FakeTerminal();
+    const ptyRuntime = new FakePtyRuntime();
+    const app = startTerminalApp({ terminal, ptyRuntime, uiStateFile: paths.uiStateFile, workspaceRoot: root });
+    await vi.waitFor(() => expect(terminal.hasKeyListener()).toBe(true));
+
+    terminal.emitKey("\r"); // boot start
+    terminal.emitKey("ENTER");
+    await vi.waitFor(() => expect(ptyRuntime.ensureSession).toHaveBeenCalledWith(
+      "task_20260430_02",
+      "task_20260430_02:agent",
+      expect.anything(),
+    ));
+    terminal.emitKey("\u001D");
+    terminal.emitKey("q");
+
+    await expect(app).resolves.toBe(0);
+    const updatedTask = await readTask(paths, "task_20260430_02");
+    expect(updatedTask.ptyTabs.find((tab) => tab.id === "task_20260430_02:agent")).toMatchObject({
+      kind: "agent",
+      title: "Codex",
+      command: ["codex"],
+    });
+    expect(updatedTask.selectedPtyTabId).toBe("task_20260430_02:agent");
   });
 
   test("the attach enter key is not forwarded into a freshly opened task PTY", async () => {
@@ -555,6 +852,7 @@ class FakePtyRuntime implements PtyRuntimePort {
   scrollViewport = vi.fn();
   resize = vi.fn();
   detach = vi.fn();
+  disposeSession = vi.fn();
   disposeAll = vi.fn();
 
   getViewState(tabId: string | null): TerminalViewState {
@@ -585,6 +883,10 @@ function restoreProperty(target: object, key: "isTTY", descriptor: PropertyDescr
   }
 
   Reflect.deleteProperty(target, key);
+}
+
+function stripAnsi(value: string): string {
+  return value.replace(new RegExp(`${String.fromCharCode(27)}\\[[0-?]*[ -/]*[@-~]`, "g"), "");
 }
 
 async function setupWorkspace(root: string) {
