@@ -28,7 +28,8 @@ export interface CraigUiRuntime {
   selectedPtyTabId?: string | null;
   inputMode?: "control";
   focusedRegion?: "tasks" | "center" | "actions" | "tabs";
-  activeTab?: "agent" | "files" | "diff" | "terminal" | "logs";
+  activeTab?: string;
+  inspectorSection?: "task" | "checks" | "pr" | "setup-run" | "actions" | "next-action";
   selectedActionId?: "commit" | "push" | "create-pr" | "merge" | "close-task";
   updatedAt: string;
 }

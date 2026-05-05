@@ -5,7 +5,7 @@ import type * as TerminalKitModule from "terminal-kit";
 
 import { listRepos } from "../state/repo-store.js";
 import { getDefaultUiState, readUiState, writeUiState } from "../state/ui-state-store.js";
-import { writeTask } from "../state/task-store.js";
+import { readTask, writeTask } from "../state/task-store.js";
 import { getCraigPaths } from "../state/craig-paths.js";
 import { ensureCraigState } from "../state/ensure-state.js";
 import type { TaskPtyTabRecord, TaskRecord } from "../types/task.js";
@@ -18,11 +18,12 @@ import { PtyRuntime, type PtyRuntimeOptions, type PtySize } from "./pty-runtime.
 import { CENTER_TERMINAL_GUTTER, renderBootOverlayFrame, renderMainShellFrame, renderPauseOverlayFrame } from "./render.js";
 import {
   createInitialShellState,
+  buildCenterTabIds,
   isEnterKey,
   isPrintableKey,
-  isPtyTab,
   markTerminalAttachFailed,
   reduceMainKey,
+  restoreShellState,
   toPersistedUiState,
   updateTerminalViewState,
   type ControlShellState,
@@ -69,6 +70,7 @@ export interface PtyRuntimePort {
   scrollViewport(...args: [number]): void;
   resize(...args: [PtySize]): void;
   detach(): void;
+  disposeSession(...args: [string]): void;
   disposeAll(): void;
   getViewState(...args: [string | null]): ControlShellState["terminal"];
 }
@@ -84,6 +86,7 @@ export async function startTerminalApp(options: TerminalAppOptions = {}): Promis
   await ensureCraigState(workspaceRoot);
   let runtimeState = options.uiStateFile ? await readUiState({ uiStateFile: options.uiStateFile }) : null;
   let persistQueue = Promise.resolve();
+  let taskMutationQueue = Promise.resolve();
   let model = await loadWorkspaceShellModel(workspaceRoot);
 
   const persistShellState = (shell: ControlShellState) => {
@@ -107,7 +110,7 @@ export async function startTerminalApp(options: TerminalAppOptions = {}): Promis
       variant: "boot",
       menuIndex: 0,
       optionsMessage: null,
-      shell: resolveShellState(createInitialShellState(runtimeState), model),
+      shell: restoreShellState(createInitialShellState(runtimeState), model, { resetInputMode: true }),
     };
     let creatingTask = false;
     let suppressTerminalEnterOnAttach = false;
@@ -146,6 +149,50 @@ export async function startTerminalApp(options: TerminalAppOptions = {}): Promis
       return withTerminalView(resolveShellState(nextShell, model));
     }
 
+    function getSelectedTask(shell: ControlShellState): TaskRecord | null {
+      return model.tasks.find((task) => task.id === shell.selectedTaskId) ?? null;
+    }
+
+    function queueTaskMutation<T>(mutation: () => Promise<T>): Promise<T> {
+      const next = taskMutationQueue.then(mutation, mutation);
+      taskMutationQueue = next.then(
+        () => undefined,
+        () => undefined,
+      );
+      return next;
+    }
+
+    function getShellKeyOptions(shell: ControlShellState) {
+      const selectedTask = getSelectedTask(shell);
+      return {
+        leftItemIds: getLeftItemIds(model),
+        centerTabIds: buildCenterTabIds(selectedTask),
+        ptyTabIds: selectedTask?.ptyTabs.map((tab) => tab.id) ?? [],
+      };
+    }
+
+    async function persistTaskPtySelection(shell: ControlShellState): Promise<void> {
+      const taskId = shell.selectedTaskId;
+      if (!taskId) {
+        return;
+      }
+
+      await queueTaskMutation(async () => {
+        const latestTask = await readTask(paths, taskId);
+        if (
+          !latestTask.ptyTabs.some((tab) => tab.id === shell.activeTab) ||
+          latestTask.selectedPtyTabId === shell.activeTab
+        ) {
+          return;
+        }
+
+        await writeTask(paths, {
+          ...latestTask,
+          selectedPtyTabId: shell.activeTab,
+        });
+      });
+    }
+
     async function reloadModel(): Promise<void> {
       model = await loadWorkspaceShellModel(workspaceRoot);
       if (state.mode === "main") {
@@ -171,6 +218,171 @@ export async function startTerminalApp(options: TerminalAppOptions = {}): Promis
         }),
       };
       render();
+    }
+
+    async function attachPtyFromShell(shell: ControlShellState): Promise<void> {
+      try {
+        const syncedShell = syncShell(shell);
+        let selectedTask = getSelectedTask(syncedShell);
+        let tabId = syncedShell.selectedPtyTabId;
+
+        if (selectedTask && syncedShell.focusedRegion === "tasks") {
+          const agentTab = selectedTask.ptyTabs.find((tab) => tab.kind === "agent") ?? null;
+          if (agentTab) {
+            tabId = agentTab.id;
+          } else {
+            selectedTask = await ensureDefaultAgentTab(selectedTask);
+            await reloadModel();
+            tabId = selectedTask.selectedPtyTabId;
+          }
+        }
+
+        if (selectedTask && !tabId) {
+          selectedTask = await ensureDefaultAgentTab(selectedTask);
+          await reloadModel();
+          tabId = selectedTask.selectedPtyTabId;
+        }
+
+        const nextShell = syncShell({
+          ...syncedShell,
+          activeTab: tabId ?? syncedShell.activeTab,
+          selectedPtyTabId: tabId,
+        });
+
+        if (!nextShell.selectedTaskId || !tabId) {
+          state = { mode: "main", shell: nextShell };
+          render();
+          return;
+        }
+
+        const view = ptyRuntime.ensureSession(
+          nextShell.selectedTaskId,
+          tabId,
+          getPtySize(getViewport(activeTerminal.width, activeTerminal.height)),
+        );
+        suppressTerminalEnterOnAttach = isAgentTabId(tabId);
+        lastTerminalKey = null;
+        state = { mode: "main", shell: updateTerminalViewState({ ...nextShell, inputMode: "terminal" }, view) };
+        persistShellState(state.shell);
+      } catch (error) {
+        const message = error instanceof Error ? error.message : "Failed to start PTY.";
+        state = { mode: "main", shell: markTerminalAttachFailed(syncShell(shell), message) };
+        persistShellState(state.shell);
+      }
+      render();
+    }
+
+    async function createPtyTabFromShell(shell: ControlShellState): Promise<ControlShellState> {
+      const syncedShell = syncShell(shell);
+      if (!syncedShell.selectedTaskId) {
+        throw new Error("Select a task before creating a tab.");
+      }
+
+      const updatedTask = await queueTaskMutation(async () => {
+        const task = await readTask(paths, syncedShell.selectedTaskId!);
+        const kind = resolveNewPtyTabKind(task, syncedShell.activeTab);
+        const tab = createNextPtyTab(task, kind);
+        const nextTask: TaskRecord = {
+          ...task,
+          ptyTabs: [...task.ptyTabs, tab],
+          selectedPtyTabId: tab.id,
+        };
+        await writeTask(paths, nextTask);
+        return nextTask;
+      });
+      await reloadModel();
+
+      return syncShell({
+        ...syncedShell,
+        activeTab: updatedTask.selectedPtyTabId ?? syncedShell.activeTab,
+        selectedPtyTabId: updatedTask.selectedPtyTabId,
+        focusedRegion: "center",
+        actionMessage: `Created tab: ${updatedTask.ptyTabs.at(-1)?.title ?? "tab"}`,
+      });
+    }
+
+    async function closePtyTabFromShell(shell: ControlShellState): Promise<ControlShellState> {
+      const syncedShell = syncShell(shell);
+      if (!syncedShell.selectedTaskId) {
+        throw new Error("Select a task before closing a tab.");
+      }
+
+      const { closedTab, nextSelectedTab } = await queueTaskMutation(async () => {
+        const task = await readTask(paths, syncedShell.selectedTaskId!);
+        const closedIndex = task.ptyTabs.findIndex((tab) => tab.id === syncedShell.activeTab);
+        if (closedIndex === -1) {
+          throw new Error("Only PTY tabs can be closed.");
+        }
+
+        const closedTab = task.ptyTabs[closedIndex]!;
+        const remainingTabs = task.ptyTabs.filter((tab) => tab.id !== closedTab.id);
+        const nextSelectedTab =
+          remainingTabs[Math.min(closedIndex, remainingTabs.length - 1)] ?? remainingTabs[closedIndex - 1] ?? null;
+        await writeTask(paths, {
+          ...task,
+          ptyTabs: remainingTabs,
+          selectedPtyTabId: nextSelectedTab?.id ?? null,
+        });
+        return { closedTab, nextSelectedTab };
+      });
+      ptyRuntime.disposeSession(closedTab.id);
+      await reloadModel();
+
+      return syncShell({
+        ...syncedShell,
+        activeTab: nextSelectedTab?.id ?? "files",
+        selectedPtyTabId: nextSelectedTab?.id ?? null,
+        focusedRegion: "center",
+        actionMessage: `Closed tab: ${closedTab.title}`,
+      });
+    }
+
+    async function ensureDefaultAgentTab(task: TaskRecord): Promise<TaskRecord> {
+      const agentTab = task.ptyTabs.find((tab) => tab.kind === "agent") ?? null;
+      if (agentTab) {
+        const updatedTask = {
+          ...task,
+          selectedPtyTabId: agentTab.id,
+        };
+        await queueTaskMutation(async () => {
+          const latestTask = await readTask(paths, task.id);
+          const latestAgentTab = latestTask.ptyTabs.find((tab) => tab.kind === "agent") ?? null;
+          if (!latestAgentTab) {
+            return;
+          }
+
+          await writeTask(paths, {
+            ...latestTask,
+            selectedPtyTabId: latestAgentTab.id,
+          });
+        });
+        return updatedTask;
+      }
+
+      const tab = createNextPtyTab(task, "agent");
+      const updatedTask = {
+        ...task,
+        ptyTabs: [...task.ptyTabs, tab],
+        selectedPtyTabId: tab.id,
+      };
+      await queueTaskMutation(async () => {
+        const latestTask = await readTask(paths, task.id);
+        const latestAgentTab = latestTask.ptyTabs.find((entry) => entry.kind === "agent") ?? null;
+        if (latestAgentTab) {
+          await writeTask(paths, {
+            ...latestTask,
+            selectedPtyTabId: latestAgentTab.id,
+          });
+          return;
+        }
+
+        await writeTask(paths, {
+          ...latestTask,
+          ptyTabs: [...latestTask.ptyTabs, tab],
+          selectedPtyTabId: tab.id,
+        });
+      });
+      return updatedTask;
     }
 
     const render = () => {
@@ -259,7 +471,7 @@ export async function startTerminalApp(options: TerminalAppOptions = {}): Promis
           selectedTaskId: createdTask.id,
           selectedPtyTabId: createdTask.selectedPtyTabId,
           selectedLeftItemId: `task:${createdTask.id}`,
-          activeTab: "agent",
+          activeTab: createdTask.selectedPtyTabId ?? "files",
           inputMode: "terminal",
           taskPromptInput: null,
           taskPromptError: null,
@@ -483,8 +695,7 @@ export async function startTerminalApp(options: TerminalAppOptions = {}): Promis
       }
 
       if (state.mode === "main") {
-        const leftItemIds = getLeftItemIds(model);
-        const result = reduceMainKey(state.shell, key, { leftItemIds });
+        const result = reduceMainKey(state.shell, key, getShellKeyOptions(state.shell));
 
         if (result.exit) {
           exit(0);
@@ -562,36 +773,44 @@ export async function startTerminalApp(options: TerminalAppOptions = {}): Promis
           return;
         }
 
-        if (result.attachTerminal) {
-          try {
-            const nextShell = syncShell(result.state);
-            const tabId = nextShell.selectedPtyTabId;
-            if (!nextShell.selectedTaskId || !tabId) {
+        if (result.createPtyTab) {
+          void createPtyTabFromShell(result.state)
+            .then((nextShell) => {
               state = { mode: "main", shell: nextShell };
+              persistShellState(state.shell);
               render();
-              return;
-            }
+            })
+            .catch((error: unknown) => {
+              const message = error instanceof Error ? error.message : "Failed to create tab.";
+              state = { mode: "main", shell: syncShell({ ...result.state, actionMessage: message }) };
+              render();
+            });
+          return;
+        }
 
-            const view = ptyRuntime.ensureSession(
-              nextShell.selectedTaskId,
-              tabId,
-              getPtySize(getViewport(activeTerminal.width, activeTerminal.height)),
-            );
-            suppressTerminalEnterOnAttach = isAgentTabId(tabId);
-            lastTerminalKey = null;
-            state = { mode: "main", shell: updateTerminalViewState(nextShell, view) };
-            persistShellState(state.shell);
-          } catch (error) {
-            const message = error instanceof Error ? error.message : "Failed to start PTY.";
-            state = { mode: "main", shell: markTerminalAttachFailed(syncShell(result.state), message) };
-            persistShellState(state.shell);
-          }
-          render();
+        if (result.closePtyTab) {
+          void closePtyTabFromShell(result.state)
+            .then((nextShell) => {
+              state = { mode: "main", shell: nextShell };
+              persistShellState(state.shell);
+              render();
+            })
+            .catch((error: unknown) => {
+              const message = error instanceof Error ? error.message : "Failed to close tab.";
+              state = { mode: "main", shell: syncShell({ ...result.state, actionMessage: message }) };
+              render();
+            });
+          return;
+        }
+
+        if (result.attachTerminal) {
+          void attachPtyFromShell(result.state);
           return;
         }
 
         if (result.changed) {
           state = { mode: "main", shell: syncShell(result.state) };
+          void persistTaskPtySelection(state.shell).catch(() => undefined);
           persistShellState(state.shell);
           render();
         }
@@ -759,33 +978,7 @@ async function loadWorkspaceShellModel(workspaceRoot: string): Promise<Workspace
 }
 
 function resolveShellState(state: ControlShellState, model: WorkspaceShellModel): ControlShellState {
-  const selectedLeftItemId = resolveLeftItemId(state, model);
-  const leftSelection = parseLeftItemId(selectedLeftItemId);
-  const selectedRepo =
-    (leftSelection?.kind === "repo"
-      ? model.repos.find((repo) => repo.id === leftSelection.id) ?? null
-      : leftSelection?.kind === "task"
-        ? model.repos.find((repo) => repo.id === model.tasks.find((task) => task.id === leftSelection.id)?.repoId) ?? null
-        : null) ??
-    model.repos.find((repo) => repo.id === state.selectedRepoId) ??
-    model.repos[0] ??
-    null;
-  const repoId = selectedRepo?.id ?? null;
-  const repoTasks = repoId ? model.tasks.filter((task) => task.repoId === repoId) : [];
-  const selectedTask =
-    (leftSelection?.kind === "task" ? repoTasks.find((task) => task.id === leftSelection.id) ?? null : null) ??
-    repoTasks.find((task) => task.id === state.selectedTaskId) ??
-    repoTasks[0] ??
-    null;
-  const selectedPtyTabId = resolvePtyTabId(selectedTask, state.activeTab, state.selectedPtyTabId);
-
-  return {
-    ...state,
-    selectedLeftItemId,
-    selectedRepoId: repoId,
-    selectedTaskId: selectedTask?.id ?? null,
-    selectedPtyTabId,
-  };
+  return restoreShellState(state, model);
 }
 
 function getLeftItemIds(model: WorkspaceShellModel): string[] {
@@ -803,19 +996,6 @@ function getLeftItemIds(model: WorkspaceShellModel): string[] {
   return itemIds;
 }
 
-function resolvePtyTabId(task: TaskRecord | null, activeTab: ControlShellState["activeTab"], currentTabId: string | null): string | null {
-  if (!task) {
-    return null;
-  }
-
-  if (!isPtyTab(activeTab)) {
-    return currentTabId && task.ptyTabs.some((tab) => tab.id === currentTabId) ? currentTabId : task.selectedPtyTabId;
-  }
-
-  const kind = activeTab === "agent" ? "agent" : "terminal";
-  return task.ptyTabs.find((tab) => tab.kind === kind)?.id ?? task.selectedPtyTabId;
-}
-
 function resolvePtySessionSpec(model: WorkspaceShellModel, tabId: string, workspaceRoot: string) {
   const task = model.tasks.find((entry) => entry.ptyTabs.some((tab) => tab.id === tabId)) ?? null;
   const tab = task?.ptyTabs.find((entry) => entry.id === tabId) ?? null;
@@ -828,6 +1008,33 @@ function resolvePtySessionSpec(model: WorkspaceShellModel, tabId: string, worksp
 
 function resolveAgentCommand(tab: TaskPtyTabRecord): string[] {
   return [tab.command[0] ?? "codex"];
+}
+
+function resolveNewPtyTabKind(task: TaskRecord, activeTab: string): TaskPtyTabRecord["kind"] {
+  return task.ptyTabs.find((tab) => tab.id === activeTab)?.kind ?? "terminal";
+}
+
+function createNextPtyTab(task: TaskRecord, kind: TaskPtyTabRecord["kind"]): TaskPtyTabRecord {
+  const baseTitle = kind === "agent" ? "Codex" : "Terminal";
+  const baseId = `${task.id}:${kind}`;
+  const existingIds = new Set(task.ptyTabs.map((tab) => tab.id));
+  let ordinal = 1;
+  let id = baseId;
+
+  while (existingIds.has(id)) {
+    ordinal += 1;
+    id = `${baseId}-${ordinal}`;
+  }
+
+  const timestamp = new Date().toISOString();
+  return {
+    id,
+    kind,
+    title: ordinal === 1 ? baseTitle : `${baseTitle} ${ordinal}`,
+    command: kind === "agent" ? ["codex"] : [],
+    createdAt: timestamp,
+    updatedAt: timestamp,
+  };
 }
 
 async function createInteractiveTask(paths: ReturnType<typeof getCraigPaths>, repoId: string, prompt: string): Promise<TaskRecord> {
@@ -856,7 +1063,7 @@ async function createInteractiveTask(paths: ReturnType<typeof getCraigPaths>, re
       selectedPtyTabId: runningTask.selectedPtyTabId,
       inputMode: "control",
       focusedRegion: "center",
-      activeTab: "agent",
+      activeTab: runningTask.selectedPtyTabId ?? "files",
       selectedActionId: "commit",
       updatedAt: new Date().toISOString(),
     },
@@ -918,7 +1125,7 @@ function isDuplicateTerminalKey(previous: { key: string; at: number } | null, ke
 }
 
 function isAgentTabId(tabId: string | null): boolean {
-  return typeof tabId === "string" && tabId.endsWith(":agent");
+  return typeof tabId === "string" && /:agent(?:-\d+)?$/.test(tabId);
 }
 
 function getTerminalScrollLinesForKey(key: string): number {
@@ -993,40 +1200,6 @@ function shouldSuppressRawTerminalInput(
   }
 
   return raw.length <= 4 && raw.split("").every((char) => char === previous.key);
-}
-
-function resolveLeftItemId(state: ControlShellState, model: WorkspaceShellModel): string | null {
-  const leftItemIds = getLeftItemIds(model);
-
-  if (state.selectedLeftItemId && leftItemIds.includes(state.selectedLeftItemId)) {
-    return state.selectedLeftItemId;
-  }
-
-  if (state.selectedTaskId && leftItemIds.includes(`task:${state.selectedTaskId}`)) {
-    return `task:${state.selectedTaskId}`;
-  }
-
-  if (state.selectedRepoId && leftItemIds.includes(`repo:${state.selectedRepoId}`)) {
-    return `repo:${state.selectedRepoId}`;
-  }
-
-  return leftItemIds[0] ?? null;
-}
-
-function parseLeftItemId(value: string | null): { kind: "repo" | "task"; id: string } | null {
-  if (!value) {
-    return null;
-  }
-
-  if (value.startsWith("repo:")) {
-    return { kind: "repo", id: value.slice("repo:".length) };
-  }
-
-  if (value.startsWith("task:")) {
-    return { kind: "task", id: value.slice("task:".length) };
-  }
-
-  return null;
 }
 
 async function loadWorkspaceBrowser(rootPath: string): Promise<WorkspaceBrowserState> {

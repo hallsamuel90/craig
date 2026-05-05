@@ -35,6 +35,7 @@ export function getDefaultUiState(): CraigUiRuntime {
     inputMode: "control",
     focusedRegion: "tasks",
     activeTab: "agent",
+    inspectorSection: "task",
     selectedActionId: "commit",
     updatedAt: new Date().toISOString(),
   };
@@ -65,6 +66,7 @@ function validateUiState(value: unknown, filePath: string): CraigUiRuntime {
     !optionalString(value, "inputMode") ||
     !optionalString(value, "focusedRegion") ||
     !optionalString(value, "activeTab") ||
+    !optionalString(value, "inspectorSection") ||
     !optionalString(value, "selectedActionId") ||
     typeof (value as Partial<CraigUiRuntime>).updatedAt !== "string"
   ) {

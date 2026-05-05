@@ -64,14 +64,14 @@ describe("Craig terminal mode E2E", () => {
     try {
       await output.waitFor("> Start");
       child.write("\r");
-      await output.waitFor("Use Enter on AGENT or TERMINAL");
+      await output.waitFor("Use Enter on a PTY tab");
       child.write("\r");
       await output.waitFor("TERMINAL   Ctrl+] detach");
 
       child.write(`printf '\\033[3;12H${cursorMarker}'\r`);
       await output.waitForLatestFrame(cursorMarker);
       child.write("\u001D");
-      await output.waitForLatestFrame("NORMAL   n new task");
+      await output.waitForLatestFrame("NORMAL   + new tab");
       child.write("\r");
       await output.waitForLatestFrame("TERMINAL   Ctrl+] detach");
       await output.waitForLatestFrame(cursorMarker);
@@ -145,7 +145,7 @@ describe("Craig terminal mode E2E", () => {
     try {
       await output.waitFor("> Start");
       child.write("\r");
-      await output.waitFor("Use Enter on AGENT or TERMINAL");
+      await output.waitFor("Use Enter on a PTY tab");
       child.write("\r");
       await output.waitFor("codex_stub_started");
       await output.waitForLatestFrame("codex_stub_bottom_bar");
