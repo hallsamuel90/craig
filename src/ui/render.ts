@@ -1,9 +1,8 @@
 import { getBannerArtLines } from "../banner.js";
 import type {
-  ShellActionRow,
-  ShellCheckRow,
   ShellContextRow,
   ShellData,
+  ShellInspectionRow,
   ShellRunnerRow,
   ShellTab,
   ShellTreeRow,
@@ -182,7 +181,9 @@ function toCenterLines(data: ShellData, width: number, height: number, color: bo
   ].join(" · ");
 
   const activeTabId = data.tabs.find((tab) => tab.active)?.id ?? "agent";
-  const body = isPtyTab(activeTabId) ? renderTerminalSurface(data) : data.centerTranscript.map((line) => ({ text: line }));
+  const body = data.centerHeader.tabLabel === "BROWSER" || !isPtyTab(activeTabId)
+    ? data.centerTranscript.map((line) => ({ ...line }))
+    : renderTerminalSurface(data);
   const lines: SurfaceLine[] = [
     { text: renderTabLine(data.tabs, color) },
     { text: underline, tone: "muted" },
@@ -205,7 +206,8 @@ function renderTerminalSurface(data: ShellData): SurfaceLine[] {
     ];
   }
 
-  const surfaceLabel = data.tabs.find((tab) => tab.active)?.id === "agent" ? "agent" : "terminal";
+  const activeTabId = data.tabs.find((tab) => tab.active)?.id ?? "";
+  const surfaceLabel = activeTabId === "agent" || /:agent(?:-\d+)?$/.test(activeTabId) ? "agent" : "terminal";
   if (data.terminal.rows.length === 0) {
     return [
       { text: `Press Enter on the ${surfaceLabel.toUpperCase()} tab to attach a PTY.` },
@@ -220,33 +222,46 @@ function renderTerminalSurface(data: ShellData): SurfaceLine[] {
 }
 
 function toRightLines(data: ShellData, width: number, height: number, color: boolean): SurfaceLine[] {
-  const divider = muted("─".repeat(Math.max(0, width - 4)), color, PALETTE.rightMuted);
-  const nextAction = data.actionMessage ?? data.rightNextAction;
-  const lines: SurfaceLine[] = [
-    { text: sectionTitle("CONTEXT", data.focusedRegion === "tasks", color, PALETTE.rightDefault) },
-    emptyLine(),
-    ...data.rightContext.map((row) => renderContextRow(row, color)),
-    emptyLine(),
-    { text: divider, tone: "muted" },
-    emptyLine(),
-    { text: "CHECKS" },
-    emptyLine(),
-    ...data.rightChecks.map((row) => renderCheckRow(row, color)),
-    emptyLine(),
-    { text: divider, tone: "muted" },
-    emptyLine(),
-    { text: sectionTitle("ACTIONS", data.focusedRegion === "actions", color, PALETTE.rightDefault) },
-    emptyLine(),
-    ...data.rightActions.map((row) => renderActionRow(row, width, color)),
-    emptyLine(),
-    { text: divider, tone: "muted" },
-    emptyLine(),
-    { text: "NEXT" },
-    emptyLine(),
-    { text: nextAction },
-  ];
+  const topSection = data.rightInspection
+    ? renderInspectionSection(
+        data.actionMessage
+          ? [
+              ...data.rightInspection.rows.slice(0, 2),
+              { id: "action-message", text: data.actionMessage },
+              { id: "action-message-spacer", text: "" },
+              ...data.rightInspection.rows.slice(2),
+            ]
+          : data.rightInspection.rows,
+        height,
+      )
+    : fitLines([
+        { text: sectionTitle("CONTEXT", data.focusedRegion === "tasks", color, PALETTE.rightDefault) },
+        emptyLine(),
+        ...data.rightContext.map((row) => renderContextRow(row, color)),
+        ...(data.actionMessage ? [emptyLine(), { text: data.actionMessage }] : []),
+      ], height);
 
-  return fitLines(lines, height);
+  return fitLines(topSection, height);
+}
+
+function renderInspectionSection(rows: ShellInspectionRow[], height: number): SurfaceLine[] {
+  const modeRows = rows.slice(0, 2);
+  const itemRows = rows.slice(2);
+  const itemHeight = Math.max(0, height - modeRows.length);
+  const selectedIndex = itemRows.findIndex((row) => row.focused || row.selected);
+  const start = selectedIndex === -1 ? 0 : clamp(selectedIndex - Math.floor(itemHeight / 2), 0, Math.max(0, itemRows.length - itemHeight));
+  return [
+    ...modeRows.map((row) => renderInspectionRow(row)),
+    ...itemRows.slice(start, start + itemHeight).map((row) => renderInspectionRow(row)),
+  ];
+}
+
+function renderInspectionRow(row: ShellInspectionRow): SurfaceLine {
+  const prefix = row.focused ? "▸ " : row.selected ? "• " : "  ";
+  return {
+    text: `${prefix}${row.text}`,
+    tone: row.focused || row.selected ? "selected" : row.muted ? "muted" : "default",
+  };
 }
 
 function renderTreeRow(row: ShellTreeRow, width: number, color: boolean): SurfaceLine {
@@ -291,26 +306,6 @@ function renderTabLine(tabs: ShellTab[], color: boolean): string {
 function renderContextRow(row: ShellContextRow, color: boolean): SurfaceLine {
   return {
     text: `${row.label.padEnd(8, " ")}  ${row.mutedValue ? muted(row.value, color, PALETTE.rightDefault) : row.value}`,
-  };
-}
-
-function renderCheckRow(row: ShellCheckRow, color: boolean): SurfaceLine {
-  const status = row.success ? green(row.status, color, PALETTE.rightDefault) : muted(row.status, color, PALETTE.rightDefault);
-  const result = row.success ? row.result.padEnd(8, " ") : muted(row.result.padEnd(8, " "), color, PALETTE.rightDefault);
-  const duration = row.success ? row.duration : muted(row.duration, color, PALETTE.rightDefault);
-
-  return {
-    text: `${status} ${row.label.padEnd(14, " ")}  ${result} ${duration}`,
-  };
-}
-
-function renderActionRow(row: ShellActionRow, width: number, color: boolean): SurfaceLine {
-  const prefix = row.selected ? green("▸", color, PALETTE.rightSelected) : " ";
-  const shortcutWidth = Math.max(0, width - 6);
-  const content = `${prefix}  ${row.label.padEnd(shortcutWidth, " ")}${row.shortcut}`;
-  return {
-    text: content,
-    tone: row.selected ? "selected" : "default",
   };
 }
 
@@ -537,6 +532,10 @@ function truncate(value: string, width: number): string {
 
 function stringWidth(value: string): number {
   return stripAnsi(value).length;
+}
+
+function clamp(value: number, min: number, max: number): number {
+  return Math.min(Math.max(value, min), max);
 }
 
 function stripAnsi(value: string): string {

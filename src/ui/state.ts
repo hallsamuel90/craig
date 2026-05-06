@@ -1,20 +1,24 @@
 import { getDefaultUiState } from "../state/ui-state-store.js";
-import type { TaskRecord } from "../types/task.js";
+import type { TaskPtyTabKind, TaskRecord } from "../types/task.js";
 import type { RepoRecord } from "../types/workspace.js";
 import type { CraigUiRuntime } from "../types/workspace.js";
 import type { TerminalScreenRow } from "./terminal-emulator.js";
 
-export const FOCUS_REGIONS = ["tasks", "center", "actions"] as const;
+export const FOCUS_REGIONS = ["tasks", "center", "inspector", "actions"] as const;
 export const LEGACY_PTY_SURFACE_IDS = ["agent", "terminal"] as const;
-export const FIXED_CENTER_TAB_IDS = ["files", "diff", "logs"] as const;
+export const FIXED_CENTER_TAB_IDS = [] as const;
+export const INSPECTION_TAB_ID = "inspection";
 export const CENTER_TAB_IDS = [...LEGACY_PTY_SURFACE_IDS, ...FIXED_CENTER_TAB_IDS] as const;
 export const ACTION_IDS = ["commit", "push", "create-pr", "merge", "close-task"] as const;
 export const INSPECTOR_SECTION_IDS = ["task", "checks", "pr", "setup-run", "actions", "next-action"] as const;
+export const INSPECTION_MODE_IDS = ["diff", "files", "checks", "actions"] as const;
 
 export type InputMode = "control" | "terminal";
 export type FocusRegion = (typeof FOCUS_REGIONS)[number];
 export type CenterTabId = string;
 export type FixedCenterTabId = (typeof FIXED_CENTER_TAB_IDS)[number];
+export type InspectionMode = (typeof INSPECTION_MODE_IDS)[number];
+export type OpenInspectionKind = "file" | "diff";
 export type ActionId = (typeof ACTION_IDS)[number];
 export type InspectorSectionId = (typeof INSPECTOR_SECTION_IDS)[number];
 export type TerminalStatus = "idle" | "running" | "exited" | "failed";
@@ -47,7 +51,16 @@ export interface ControlShellState {
   selectedPtyTabId: string | null;
   selectedLeftItemId: LeftNavItemId | null;
   activeTab: CenterTabId;
+  preferredPtyTabKind: TaskPtyTabKind;
   inspectorSection: InspectorSectionId;
+  inspectionMode: InspectionMode;
+  openInspectionKind: OpenInspectionKind | null;
+  selectedFileTreePath: string | null;
+  selectedFilePath: string | null;
+  selectedDiffPath: string | null;
+  collapsedFileTreePaths: string[];
+  fileScrollOffset: number;
+  diffScrollOffset: number;
   selectedActionId: ActionId;
   actionMessage: string | null;
   taskPromptInput: string | null;
@@ -60,6 +73,14 @@ export interface ReduceMainKeyOptions {
   leftItemIds: LeftNavItemId[];
   centerTabIds?: CenterTabId[];
   ptyTabIds?: string[];
+  filePathIds?: string[];
+  fileTreeRowIds?: string[];
+  fileTreeFileIds?: string[];
+  fileTreeDirectoryIds?: string[];
+  diffPathIds?: string[];
+  fileLineCount?: number;
+  diffLineCount?: number;
+  pageRows?: number;
 }
 
 export interface MainKeyResult {
@@ -72,12 +93,20 @@ export interface MainKeyResult {
   beginTaskPrompt: boolean;
   openWorkspaceBrowser: boolean;
   createPtyTab: boolean;
+  createPtyTabKind: TaskPtyTabKind | null;
   closePtyTab: boolean;
+  refreshInspection: boolean;
 }
 
 export interface RestoreShellModel {
   repos: RepoRecord[];
   tasks: TaskRecord[];
+  inspection?: {
+    taskId: string;
+    selectedFilePath: string | null;
+    selectedDiffPath: string | null;
+    fileRows?: Array<{ kind: string; path: string }>;
+  } | null;
 }
 
 export interface RestoreShellStateOptions {
@@ -85,6 +114,8 @@ export interface RestoreShellStateOptions {
 }
 
 export function createInitialShellState(runtime: CraigUiRuntime | null): ControlShellState {
+  const legacyInspectionKind = runtime?.activeTab === "files" ? "file" : runtime?.activeTab === "diff" ? "diff" : null;
+  const openInspectionKind = getValidOpenInspectionKind(runtime?.openInspectionKind) ?? legacyInspectionKind;
   return {
     inputMode: "control",
     focusedRegion: getValidFocusRegion(runtime?.focusedRegion),
@@ -92,8 +123,17 @@ export function createInitialShellState(runtime: CraigUiRuntime | null): Control
     selectedTaskId: optionalString(runtime?.selectedTaskId),
     selectedPtyTabId: optionalString(runtime?.selectedPtyTabId),
     selectedLeftItemId: buildSelectedTaskLeftItemId(optionalString(runtime?.selectedTaskId)),
-    activeTab: optionalString(runtime?.activeTab) ?? "agent",
+    activeTab: legacyInspectionKind ? INSPECTION_TAB_ID : optionalString(runtime?.activeTab) ?? "agent",
+    preferredPtyTabKind: getValidPtyTabKind(runtime?.preferredPtyTabKind),
     inspectorSection: getValidValue(runtime?.inspectorSection, INSPECTOR_SECTION_IDS, "task"),
+    inspectionMode: getValidValue(runtime?.inspectionMode, INSPECTION_MODE_IDS, legacyInspectionKind === "diff" ? "diff" : "files"),
+    openInspectionKind,
+    selectedFileTreePath: optionalString(runtime?.selectedFileTreePath),
+    selectedFilePath: optionalString(runtime?.selectedFilePath),
+    selectedDiffPath: optionalString(runtime?.selectedDiffPath),
+    collapsedFileTreePaths: Array.isArray(runtime?.collapsedFileTreePaths) ? runtime.collapsedFileTreePaths : [],
+    fileScrollOffset: 0,
+    diffScrollOffset: 0,
     selectedActionId: getValidValue(runtime?.selectedActionId, ACTION_IDS, "commit"),
     actionMessage: null,
     taskPromptInput: null,
@@ -120,7 +160,14 @@ export function toPersistedUiState(runtime: CraigUiRuntime | null, state: Contro
     inputMode: "control",
     focusedRegion: state.focusedRegion,
     activeTab: state.activeTab,
+    preferredPtyTabKind: state.preferredPtyTabKind,
     inspectorSection: state.inspectorSection,
+    inspectionMode: state.inspectionMode,
+    openInspectionKind: state.openInspectionKind,
+    selectedFileTreePath: state.selectedFileTreePath,
+    selectedFilePath: state.selectedFilePath,
+    selectedDiffPath: state.selectedDiffPath,
+    collapsedFileTreePaths: state.collapsedFileTreePaths,
     selectedActionId: state.selectedActionId,
   };
 }
@@ -156,6 +203,11 @@ export function restoreShellState(
     selectedRepoId: repoId,
     selectedTaskId: selectedTask?.id ?? null,
     ...resolveTaskTabs(selectedTask, state.activeTab, state.selectedPtyTabId),
+    selectedFilePath:
+      model.inspection && model.inspection.taskId === selectedTask?.id ? model.inspection.selectedFilePath : state.selectedFilePath,
+    ...resolveFileTreeState(state, model, selectedTask?.id ?? null),
+    selectedDiffPath:
+      model.inspection && model.inspection.taskId === selectedTask?.id ? model.inspection.selectedDiffPath : state.selectedDiffPath,
     inspectorSection: getValidValue(state.inspectorSection, INSPECTOR_SECTION_IDS, "task"),
   };
 }
@@ -204,15 +256,45 @@ export function reduceMainKey(state: ControlShellState, key: string, options: Re
   }
 
   if (key === "UP" || key === "k") {
-    return moveSelection(state, -1, options.leftItemIds, options.centerTabIds);
+    if (state.focusedRegion === "center" && state.activeTab === INSPECTION_TAB_ID) {
+      return scrollInspectionContent(state, -1, options);
+    }
+
+    return moveSelection(state, -1, options);
   }
 
   if (key === "DOWN" || key === "j") {
-    return moveSelection(state, 1, options.leftItemIds, options.centerTabIds);
+    if (state.focusedRegion === "center" && state.activeTab === INSPECTION_TAB_ID) {
+      return scrollInspectionContent(state, 1, options);
+    }
+
+    return moveSelection(state, 1, options);
   }
 
-  if (key === "+" && state.focusedRegion === "center" && state.selectedTaskId) {
-    return result({ state: { ...state, actionMessage: null }, changed: true, createPtyTab: true });
+  if (key === "PAGE_UP") {
+    return scrollInspectionContent(state, -(options.pageRows ?? 10), options);
+  }
+
+  if (key === "PAGE_DOWN") {
+    return scrollInspectionContent(state, options.pageRows ?? 10, options);
+  }
+
+  if (key === "MOUSE_WHEEL_UP") {
+    return scrollInspectionContent(state, -3, options);
+  }
+
+  if (key === "MOUSE_WHEEL_DOWN") {
+    return scrollInspectionContent(state, 3, options);
+  }
+
+  if ((key === "+" || key === "a" || key === "A" || key === "t" || key === "T") && state.focusedRegion === "center" && state.selectedTaskId) {
+    const kind = getCreatePtyTabKind(state, key);
+    return result({
+      state: { ...state, preferredPtyTabKind: kind, actionMessage: null },
+      changed: true,
+      createPtyTab: true,
+      createPtyTabKind: kind,
+    });
   }
 
   if (key === "x" && state.focusedRegion === "center" && isConcretePtyTab(state.activeTab, options.ptyTabIds ?? [])) {
@@ -223,6 +305,9 @@ export function reduceMainKey(state: ControlShellState, key: string, options: Re
     if (state.focusedRegion === "center") {
       return moveTab(state, -1, options.centerTabIds);
     }
+    if (state.focusedRegion === "inspector") {
+      return moveInspectionMode(state, -1);
+    }
 
     return updateFocus(state, -1);
   }
@@ -230,6 +315,9 @@ export function reduceMainKey(state: ControlShellState, key: string, options: Re
   if (key === "RIGHT" || key === "l") {
     if (state.focusedRegion === "center") {
       return moveTab(state, 1, options.centerTabIds);
+    }
+    if (state.focusedRegion === "inspector") {
+      return moveInspectionMode(state, 1);
     }
 
     return updateFocus(state, 1);
@@ -275,9 +363,78 @@ export function reduceMainKey(state: ControlShellState, key: string, options: Re
 
     if (state.focusedRegion === "center" && isConcretePtyTab(state.activeTab, options.ptyTabIds ?? []) && state.selectedTaskId) {
       return result({
-        state: { ...state, inputMode: "terminal", selectedPtyTabId: state.activeTab, actionMessage: null },
+        state: {
+          ...state,
+          inputMode: "terminal",
+          selectedPtyTabId: state.activeTab,
+          preferredPtyTabKind: getPtyTabKindFromId(state.activeTab) ?? state.preferredPtyTabKind,
+          actionMessage: null,
+        },
         changed: true,
         attachTerminal: true,
+      });
+    }
+
+    if (state.focusedRegion === "center" && state.activeTab === INSPECTION_TAB_ID) {
+      return result({
+        state: { ...state, actionMessage: null },
+        changed: true,
+        refreshInspection: true,
+      });
+    }
+
+    if (state.focusedRegion === "inspector" && state.selectedTaskId && state.inspectionMode === "files") {
+      const selectedTreePath = state.selectedFileTreePath ?? state.selectedFilePath;
+      if (selectedTreePath && (options.fileTreeDirectoryIds ?? []).includes(selectedTreePath)) {
+        return result({
+          state: toggleCollapsedFileTreePath({ ...state, selectedFileTreePath: selectedTreePath }),
+          changed: true,
+        });
+      }
+
+      const selectedFilePath = selectedTreePath && (options.fileTreeFileIds ?? []).includes(selectedTreePath)
+        ? selectedTreePath
+        : state.selectedFilePath;
+      return result({
+        state: {
+          ...state,
+          selectedFileTreePath: selectedFilePath,
+          selectedFilePath,
+          activeTab: INSPECTION_TAB_ID,
+          openInspectionKind: "file",
+          fileScrollOffset: 0,
+          actionMessage: null,
+        },
+        changed: true,
+        refreshInspection: true,
+      });
+    }
+
+    if (state.focusedRegion === "inspector" && state.selectedTaskId && state.inspectionMode === "diff") {
+      return result({
+        state: {
+          ...state,
+          activeTab: INSPECTION_TAB_ID,
+          openInspectionKind: "diff",
+          diffScrollOffset: 0,
+          actionMessage: null,
+        },
+        changed: true,
+        refreshInspection: true,
+      });
+    }
+
+    if (state.focusedRegion === "inspector" && state.inspectionMode === "checks") {
+      return result({ state });
+    }
+
+    if (state.focusedRegion === "inspector" && state.inspectionMode === "actions") {
+      return result({
+        state: {
+          ...state,
+          actionMessage: `Action queued: ${state.selectedActionId} (inspection surfaces land in phase 4.1).`,
+        },
+        changed: true,
       });
     }
 
@@ -329,7 +486,7 @@ export function isPrintableKey(key: string): boolean {
 }
 
 export function isPtyTab(tabId: CenterTabId): boolean {
-  return !isFixedCenterTab(tabId);
+  return tabId !== INSPECTION_TAB_ID && !isFixedCenterTab(tabId);
 }
 
 export function isFixedCenterTab(tabId: string): tabId is FixedCenterTabId {
@@ -340,8 +497,11 @@ export function isLegacyPtySurface(tabId: string): tabId is (typeof LEGACY_PTY_S
   return (LEGACY_PTY_SURFACE_IDS as readonly string[]).includes(tabId);
 }
 
-export function buildCenterTabIds(task: TaskRecord | null): CenterTabId[] {
-  return [...(task?.ptyTabs.map((tab) => tab.id) ?? []), ...FIXED_CENTER_TAB_IDS];
+export function buildCenterTabIds(task: TaskRecord | null, state?: Pick<ControlShellState, "openInspectionKind">): CenterTabId[] {
+  return [
+    ...(task?.ptyTabs.map((tab) => tab.id) ?? []),
+    ...(state?.openInspectionKind ? [INSPECTION_TAB_ID] : []),
+  ];
 }
 
 function updateFocus(state: ControlShellState, direction: -1 | 1): MainKeyResult {
@@ -366,7 +526,11 @@ function moveTab(state: ControlShellState, direction: -1 | 1, centerTabIds: Cent
     centerTabIds && centerTabIds.length > 0 ? centerTabIds : buildCenterTabIdsFromState(state),
     direction,
   );
-  if (!next.changed || isFixedCenterTab(next.state.activeTab)) {
+  if (!next.changed) {
+    return next;
+  }
+
+  if (isFixedCenterTab(next.state.activeTab)) {
     return next;
   }
 
@@ -375,32 +539,177 @@ function moveTab(state: ControlShellState, direction: -1 | 1, centerTabIds: Cent
     state: {
       ...next.state,
       selectedPtyTabId: next.state.activeTab,
+      preferredPtyTabKind: getPtyTabKindFromId(next.state.activeTab) ?? next.state.preferredPtyTabKind,
     },
   };
 }
 
-function moveSelection(
-  state: ControlShellState,
-  direction: -1 | 1,
-  taskIds: string[],
-  centerTabIds: CenterTabId[] | undefined,
-): MainKeyResult {
+function moveSelection(state: ControlShellState, direction: -1 | 1, options: ReduceMainKeyOptions): MainKeyResult {
   if (state.focusedRegion === "tasks") {
-    return updateDynamicValue(state, "selectedLeftItemId", taskIds, direction);
+    return updateDynamicValue(state, "selectedLeftItemId", options.leftItemIds, direction);
   }
 
   if (state.focusedRegion === "center") {
-    return moveTab(state, direction, centerTabIds);
+    return moveTab(state, direction, options.centerTabIds);
+  }
+
+  if (state.focusedRegion === "inspector") {
+    if (state.inspectionMode === "actions") {
+      return updateIndexedValue(state, "selectedActionId", ACTION_IDS, direction);
+    }
+
+    if (state.inspectionMode === "files") {
+      return moveFileTreeSelection(state, direction, options);
+    }
+
+    if (state.inspectionMode === "diff") {
+      const next = updateDynamicValue(state, "selectedDiffPath", options.diffPathIds ?? [], direction, true);
+      return next.changed ? { ...next, state: { ...next.state, diffScrollOffset: 0 } } : next;
+    }
+
+    return result({ state });
   }
 
   return updateIndexedValue(state, "selectedActionId", ACTION_IDS, direction);
+}
+
+export function scrollInspectionContent(state: ControlShellState, delta: number, options: ReduceMainKeyOptions): MainKeyResult {
+  if (delta === 0) {
+    return result({ state });
+  }
+
+  if (state.focusedRegion === "inspector") {
+    if (state.inspectionMode === "files") {
+      return moveFileTreeSelection(state, delta, options);
+    }
+
+    if (state.inspectionMode === "diff") {
+      const next = updateDynamicValue(state, "selectedDiffPath", options.diffPathIds ?? [], delta, true);
+      return next.changed ? { ...next, state: { ...next.state, diffScrollOffset: 0 } } : next;
+    }
+
+    if (state.inspectionMode === "actions") {
+      return updateIndexedValue(state, "selectedActionId", ACTION_IDS, delta);
+    }
+
+    return result({ state });
+  }
+
+  if (state.focusedRegion === "center" && state.activeTab === INSPECTION_TAB_ID) {
+    if (state.openInspectionKind === "file") {
+      return updateScrollOffset(state, "fileScrollOffset", delta, options.fileLineCount ?? 0, options.pageRows);
+    }
+
+    if (state.openInspectionKind === "diff") {
+      return updateScrollOffset(state, "diffScrollOffset", delta, options.diffLineCount ?? 0, options.pageRows);
+    }
+  }
+
+  return result({ state });
+}
+
+function setInspectionMode(state: ControlShellState, mode: InspectionMode): MainKeyResult {
+  if (state.inspectionMode === mode) {
+    return result({ state });
+  }
+
+  const openInspectionKind = mode === "diff" ? "diff" : mode === "files" ? "file" : state.openInspectionKind;
+  const activeTab = mode === "diff" || mode === "files" ? INSPECTION_TAB_ID : state.activeTab;
+
+  return result({
+    state: {
+      ...state,
+      inspectionMode: mode,
+      activeTab,
+      openInspectionKind,
+      fileScrollOffset: mode === "files" ? 0 : state.fileScrollOffset,
+      diffScrollOffset: mode === "diff" ? 0 : state.diffScrollOffset,
+      actionMessage: null,
+    },
+    changed: true,
+    refreshInspection: true,
+  });
+}
+
+function moveInspectionMode(state: ControlShellState, direction: -1 | 1): MainKeyResult {
+  return setInspectionMode(
+    state,
+    updateValueInList(state.inspectionMode, INSPECTION_MODE_IDS, direction),
+  );
+}
+
+function moveFileTreeSelection(state: ControlShellState, delta: number, options: ReduceMainKeyOptions): MainKeyResult {
+  const rowIds = options.fileTreeRowIds && options.fileTreeRowIds.length > 0 ? options.fileTreeRowIds : options.filePathIds ?? [];
+  if (rowIds.length === 0) {
+    return result({ state });
+  }
+
+  const currentPath = state.selectedFileTreePath ?? state.selectedFilePath ?? rowIds[0] ?? null;
+  const currentIndex = rowIds.indexOf(currentPath ?? "");
+  const nextIndex = clamp(currentIndex === -1 ? 0 : currentIndex + delta, 0, rowIds.length - 1);
+  const nextPath = rowIds[nextIndex] ?? null;
+  if (nextPath === state.selectedFileTreePath) {
+    return result({ state });
+  }
+
+  const isFile = nextPath !== null && (options.fileTreeFileIds ?? options.filePathIds ?? []).includes(nextPath);
+  return result({
+    state: {
+      ...state,
+      selectedFileTreePath: nextPath,
+      selectedFilePath: isFile ? nextPath : state.selectedFilePath,
+      fileScrollOffset: isFile ? 0 : state.fileScrollOffset,
+      actionMessage: null,
+    },
+    changed: true,
+    refreshInspection: isFile,
+  });
+}
+
+function toggleCollapsedFileTreePath(state: ControlShellState): ControlShellState {
+  if (!state.selectedFileTreePath) {
+    return state;
+  }
+
+  const collapsed = new Set(state.collapsedFileTreePaths);
+  if (collapsed.has(state.selectedFileTreePath)) {
+    collapsed.delete(state.selectedFileTreePath);
+  } else {
+    collapsed.add(state.selectedFileTreePath);
+  }
+
+  return {
+    ...state,
+    collapsedFileTreePaths: [...collapsed].sort((left, right) => left.localeCompare(right)),
+    actionMessage: null,
+  };
+}
+
+function updateScrollOffset(
+  state: ControlShellState,
+  key: "fileScrollOffset" | "diffScrollOffset",
+  delta: number,
+  lineCount: number,
+  visibleRows = 10,
+): MainKeyResult {
+  const maxOffset = Math.max(0, lineCount - Math.max(1, visibleRows));
+  const nextOffset = clamp(state[key] + delta, 0, maxOffset);
+
+  if (nextOffset === state[key]) {
+    return result({ state });
+  }
+
+  return result({
+    state: { ...state, [key]: nextOffset, actionMessage: null },
+    changed: true,
+  });
 }
 
 function updateIndexedValue<Key extends "focusedRegion" | "activeTab" | "selectedActionId">(
   state: ControlShellState,
   key: Key,
   values: readonly ControlShellState[Key][],
-  direction: -1 | 1,
+  direction: number,
 ): MainKeyResult {
   const index = values.indexOf(state[key]);
   const nextIndex = clamp(index + direction, 0, values.length - 1);
@@ -416,11 +725,12 @@ function updateIndexedValue<Key extends "focusedRegion" | "activeTab" | "selecte
   });
 }
 
-function updateDynamicValue<Key extends "selectedTaskId" | "selectedLeftItemId">(
+function updateDynamicValue<Key extends "selectedTaskId" | "selectedLeftItemId" | "selectedFilePath" | "selectedDiffPath">(
   state: ControlShellState,
   key: Key,
   values: string[],
-  direction: -1 | 1,
+  direction: number,
+  refreshInspection = false,
 ): MainKeyResult {
   if (values.length === 0) {
     return result({ state });
@@ -437,7 +747,17 @@ function updateDynamicValue<Key extends "selectedTaskId" | "selectedLeftItemId">
   return result({
     state: { ...state, [key]: nextValue, actionMessage: null },
     changed: true,
+    refreshInspection,
   });
+}
+
+function updateValueInList<const Values extends readonly string[]>(
+  value: Values[number],
+  values: Values,
+  direction: -1 | 1,
+): Values[number] {
+  const index = values.indexOf(value);
+  return values[clamp(index + direction, 0, values.length - 1)] ?? value;
 }
 
 function result(input: {
@@ -450,7 +770,9 @@ function result(input: {
   beginTaskPrompt?: boolean;
   openWorkspaceBrowser?: boolean;
   createPtyTab?: boolean;
+  createPtyTabKind?: TaskPtyTabKind | null;
   closePtyTab?: boolean;
+  refreshInspection?: boolean;
 }): MainKeyResult {
   return {
     state: input.state,
@@ -462,7 +784,9 @@ function result(input: {
     beginTaskPrompt: input.beginTaskPrompt ?? false,
     openWorkspaceBrowser: input.openWorkspaceBrowser ?? false,
     createPtyTab: input.createPtyTab ?? false,
+    createPtyTabKind: input.createPtyTabKind ?? null,
     closePtyTab: input.closePtyTab ?? false,
+    refreshInspection: input.refreshInspection ?? false,
   };
 }
 
@@ -482,6 +806,42 @@ function getValidFocusRegion(value: string | null | undefined): FocusRegion {
   return getValidValue(value, FOCUS_REGIONS, "tasks");
 }
 
+function getValidOpenInspectionKind(value: string | null | undefined): OpenInspectionKind | null {
+  if (value === "file" || value === "diff") {
+    return value;
+  }
+
+  return null;
+}
+
+function getValidPtyTabKind(value: string | null | undefined): TaskPtyTabKind {
+  return value === "terminal" ? "terminal" : "agent";
+}
+
+function getPtyTabKindFromId(tabId: string): TaskPtyTabKind | null {
+  if (/:agent(?:-\d+)?$/.test(tabId)) {
+    return "agent";
+  }
+
+  if (/:terminal(?:-\d+)?$/.test(tabId)) {
+    return "terminal";
+  }
+
+  return null;
+}
+
+function getCreatePtyTabKind(state: ControlShellState, key: string): TaskPtyTabKind {
+  if (key === "a" || key === "A") {
+    return "agent";
+  }
+
+  if (key === "t" || key === "T") {
+    return "terminal";
+  }
+
+  return getPtyTabKindFromId(state.activeTab) ?? state.preferredPtyTabKind;
+}
+
 function resolveTaskTabs(
   task: TaskRecord | null,
   activeTab: ControlShellState["activeTab"],
@@ -489,7 +849,7 @@ function resolveTaskTabs(
 ): Pick<ControlShellState, "activeTab" | "selectedPtyTabId"> {
   if (!task) {
     return {
-      activeTab: isFixedCenterTab(activeTab) ? activeTab : "files",
+      activeTab: activeTab === INSPECTION_TAB_ID ? activeTab : "agent",
       selectedPtyTabId: null,
     };
   }
@@ -508,27 +868,69 @@ function resolveTaskTabs(
     const matchingLegacyTab = task.ptyTabs.find((tab) => tab.kind === activeTab) ?? null;
     const selected = matchingLegacyTab ?? taskSelectedTab ?? currentTab ?? task.ptyTabs[0] ?? null;
     return {
-      activeTab: selected?.id ?? "files",
+      activeTab: selected?.id ?? INSPECTION_TAB_ID,
       selectedPtyTabId: selected?.id ?? null,
     };
   }
 
-  if (isFixedCenterTab(activeTab)) {
+  if (activeTab === INSPECTION_TAB_ID) {
     return {
-      activeTab,
+      activeTab: INSPECTION_TAB_ID,
       selectedPtyTabId: currentTab?.id ?? taskSelectedTab?.id ?? task.ptyTabs[0]?.id ?? null,
     };
   }
 
   const fallbackTab = taskSelectedTab ?? currentTab ?? task.ptyTabs[0] ?? null;
   return {
-    activeTab: fallbackTab?.id ?? "files",
+    activeTab: fallbackTab?.id ?? INSPECTION_TAB_ID,
     selectedPtyTabId: fallbackTab?.id ?? null,
   };
 }
 
+function resolveFileTreeState(
+  state: ControlShellState,
+  model: RestoreShellModel,
+  selectedTaskId: string | null,
+): Pick<ControlShellState, "selectedFileTreePath" | "collapsedFileTreePaths"> {
+  if (!model.inspection || model.inspection.taskId !== selectedTaskId) {
+    return {
+      selectedFileTreePath: state.selectedFileTreePath,
+      collapsedFileTreePaths: state.collapsedFileTreePaths,
+    };
+  }
+
+  const selectedFileTreePath = state.selectedFileTreePath ?? model.inspection.selectedFilePath;
+  const collapsedFileTreePaths =
+    state.selectedFileTreePath === null && state.collapsedFileTreePaths.length === 0
+      ? getDefaultCollapsedFileTreePaths(model.inspection.fileRows ?? [], model.inspection.selectedFilePath)
+      : state.collapsedFileTreePaths;
+
+  return {
+    selectedFileTreePath,
+    collapsedFileTreePaths,
+  };
+}
+
+function getDefaultCollapsedFileTreePaths(rows: Array<{ kind: string; path: string }>, selectedFilePath: string | null): string[] {
+  const selectedAncestors = new Set<string>();
+  if (selectedFilePath) {
+    const parts = selectedFilePath.split("/");
+    for (let index = 1; index < parts.length; index += 1) {
+      selectedAncestors.add(parts.slice(0, index).join("/"));
+    }
+  }
+
+  return rows
+    .filter((row) => row.kind === "directory" && !row.path.includes("/") && !selectedAncestors.has(row.path))
+    .map((row) => row.path)
+    .sort((left, right) => left.localeCompare(right));
+}
+
 function buildCenterTabIdsFromState(state: ControlShellState): CenterTabId[] {
-  return [state.selectedPtyTabId, ...FIXED_CENTER_TAB_IDS].filter((entry): entry is string => typeof entry === "string");
+  return [
+    state.selectedPtyTabId,
+    state.openInspectionKind ? INSPECTION_TAB_ID : null,
+  ].filter((entry): entry is string => typeof entry === "string");
 }
 
 function isConcretePtyTab(tabId: string, ptyTabIds: string[]): boolean {

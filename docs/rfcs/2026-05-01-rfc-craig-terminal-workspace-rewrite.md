@@ -257,8 +257,8 @@ Required durable concerns:
 - `3.1` Replace mock repos and tasks with real repo, branch, worktree, persisted task state, and auto-booted Codex agent startup on create: `implemented and verified`
 - `3.2` Restore selected task, tabs, inspector state, and selected PTY tab across restarts: `implemented and verified`
 - `3.3` Add explicit multi-tab task runtime management on top of the multi-PTY task model: `implemented and verified`
-- `3.4` Add a background daemon that preserves live PTY sessions across Craig UI exits and restarts: `deferred`
-- `4.1` Add local files and diff inspection with right-panel navigation and center-panel detail views: `pending`
+- `3.4` Add a background daemon that preserves live PTY sessions across Craig UI exits and restarts: `pending; parallelizable with 4.2`
+- `4.1` Add local files and diff inspection with right-panel navigation and center-panel detail views: `implemented and verified`
 - `4.2` Add PR creation and sync for task branches, including persisted PR metadata: `pending`
 - `4.3` Add checks and CI status reading for tracked PRs and head commits: `pending`
 - `4.4` Add guarded PR merge and task close flow from Craig: `pending`
@@ -277,8 +277,8 @@ Required durable concerns:
 - `3.1` Verified by replacing mock shell repo/task fixtures with real `.craig` repo and task records at startup; reconciling shell selection against persisted repo, task, and PTY-tab ids; adding a minimal in-shell task prompt flow; provisioning new tasks through real branch and worktree creation; persisting default `agent` and `terminal` PTY tab metadata on each task; auto-selecting the created task; and immediately booting the initial Codex agent PTY tab in that task worktree. Automated verification covers control-state resolution on real ids, renderer output on real task context, PTY runtime tab-keyed session reuse, app-level terminal attach on real task selection, app-level create-task auto-bootstrap into the `agent` PTY tab, command-mode task creation compatibility, and a real PTY E2E rooted in a persisted task worktree. `pnpm test`, `pnpm typecheck`, and `pnpm lint` passed locally.
 - `3.2` Verified by adding an explicit persisted `inspectorSection`, extracting a pure restore reconciliation path for real repo/task state, restoring valid selected repo, task, center tab, selected PTY tab, focus region, action row, and inspector orientation from `.craig/runtime/ui-state.json`, and falling back deterministically when persisted repo, task, or PTY-tab ids are stale. Startup restore now normalizes stale terminal-mode input ownership back to Craig control mode while ongoing in-app reconciliation preserves live terminal-mode attach state. Automated verification covers exact restore, stale fallback, missing inspector defaults, terminal-mode normalization on startup restore, restored terminal tab attach after boot Start, restored agent tab attach, and stale persisted app state rendering a usable shell. `pnpm test`, `pnpm typecheck`, `pnpm lint`, and `pnpm build` passed locally.
 - `3.3` Verified by replacing the fixed `Agent`/`Terminal` center-tab assumption with concrete task-scoped PTY tabs rendered alongside fixed `Files`, `Diff`, and `Logs` surfaces; adding `+` tab creation and `x` tab close while the center pane is focused; generating stable task-scoped ids and automatic titles such as `Codex 2` and `Terminal 2`; persisting concrete active PTY tab ids through task records and UI runtime state; migrating legacy persisted `agent` and `terminal` surfaces to the selected task's concrete tabs; disposing process-local PTY sessions when their tab closes; and keeping task-row Enter attach semantics pointed at the selected or default agent tab. Automated verification covers mixed center tab construction, create/close reducer intents, exact concrete-tab attach, second terminal and agent tab launch, runtime session disposal on close, stale/closed tab restore fallback, concrete tab restart restore, and the real terminal E2E attach contracts updated for the concrete-tab UX. `pnpm test`, `pnpm typecheck`, `pnpm lint`, and `pnpm build` passed locally.
-- `3.4` Not yet verified; deferred as the future daemon-backed live session persistence phase now that the concrete task-scoped PTY tab model from `3.3` exists.
-- `4.1` Not yet verified.
+- `3.4` Not yet verified; now a parallelizable pending phase after `3.3` landed the concrete task-scoped PTY tab model. It may proceed beside `4.2` as long as it stays scoped to daemon-owned PTY/session survival and does not alter PR, checks, merge, or task-review semantics.
+- `4.1` Verified by adding a local inspection service that indexes Git-visible files, excludes ignored files, splits local changes into staged, unstaged, and untracked groups, and guards binary or oversized file/diff previews. The Craig shell now has four focus regions (`tasks`, `center`, `inspector`, `actions`), persists selected file and diff paths, restores stale inspection paths to valid rows, and renders `Files`/`Diff` as stable center tabs with right-panel navigation and center-panel detail content. Automated coverage includes file indexing, grouped diff summaries, guarded binary previews, reducer inspector navigation, renderer file/diff layouts, app-level file/diff selection without PTY attach, and existing terminal E2E attach contracts. `pnpm test`, `pnpm typecheck`, `pnpm lint`, and `pnpm build` passed locally.
 - `4.2` Not yet verified.
 - `4.3` Not yet verified.
 - `4.4` Not yet verified.
@@ -289,11 +289,12 @@ Required durable concerns:
 
 ### Next resume point
 
-Resume at the first sub-phase that is not both implemented and verified. The current resume point is `4.1`, which adds local file-tree and diff-summary inspection on top of the real task and concrete PTY tab model. Phase `3.4` remains deferred for daemon-backed live session persistence across Craig UI exits.
+Resume at the first sub-phase that is not both implemented and verified on the primary review-workflow track. The current primary resume point is `4.2`, which adds PR creation and sync for task branches, including persisted PR metadata. Phase `3.4` is also pending and may be implemented in parallel on a separate daemon/session-survival track.
 
-### Deferred phases
+### Parallelizable phases
 
-- background session persistence beyond the local Craig process is tracked as deferred phase `3.4`; it should keep in-progress agent conversations alive across Craig UI exits by moving PTY ownership into a Craig daemon
+- background session persistence beyond the local Craig process is tracked as parallelizable phase `3.4`; it should keep in-progress agent conversations alive across Craig UI exits by moving PTY ownership into a Craig daemon
+- `3.4` must preserve the task-scoped PTY tab semantics from `3.3` and avoid changing PR creation, check reading, merge behavior, or review-workflow state owned by phases `4.2` through `4.4`
 
 ### Phase execution and verification policy
 
@@ -665,7 +666,7 @@ Deliver a dedicated polish pass after the core workflow is useful end to end. Th
 
 #### Tracking update
 
-- keep `3.4` deferred until `3.3` has landed explicit multi-tab runtime semantics
+- keep `3.4` scoped to daemon-backed live PTY/session survival; it can run in parallel with `4.2` as long as PR/check/merge semantics are untouched
 - keep `3.4` open if process survival requires reintroducing user-visible `tmux` concepts
 
 ### 4.1 Handoff

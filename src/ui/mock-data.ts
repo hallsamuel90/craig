@@ -11,6 +11,8 @@ type MockShellStateInput = Partial<
     | "selectedPtyTabId"
     | "selectedLeftItemId"
     | "activeTab"
+    | "inspectionMode"
+    | "openInspectionKind"
     | "selectedActionId"
     | "actionMessage"
     | "taskPromptInput"
@@ -101,6 +103,7 @@ export function getMockShellData(state: MockShellStateInput = {}): ShellData {
       { label: "Status", value: selectedTask.status },
       { label: "Worktree", value: selectedTask.id },
     ],
+    rightInspection: null,
     rightChecks: [
       { status: "✓", label: "Checks", result: "passed", duration: "done", success: true },
       { status: "✓", label: "Runner", result: "running", duration: "live", success: true },
@@ -110,7 +113,6 @@ export function getMockShellData(state: MockShellStateInput = {}): ShellData {
       selected: action.id === resolved.selectedActionId,
       focused: resolved.focusedRegion === "actions" && action.id === resolved.selectedActionId,
     })),
-    rightNextAction: "Use Enter on AGENT or TERMINAL to attach the selected PTY tab.",
   };
 }
 
@@ -123,6 +125,8 @@ const DEFAULT_MOCK_SHELL_STATE: Pick<
   | "selectedPtyTabId"
   | "selectedLeftItemId"
   | "activeTab"
+  | "inspectionMode"
+  | "openInspectionKind"
   | "selectedActionId"
   | "actionMessage"
   | "taskPromptInput"
@@ -137,6 +141,8 @@ const DEFAULT_MOCK_SHELL_STATE: Pick<
   selectedPtyTabId: "task_20260430_02:agent",
   selectedLeftItemId: "task:task_20260430_02",
   activeTab: "agent",
+  inspectionMode: "files",
+  openInspectionKind: null,
   selectedActionId: "commit",
   actionMessage: null,
   taskPromptInput: null,
@@ -168,10 +174,7 @@ const TASK_FIXTURES = [
 
 const TAB_FIXTURES = [
   { id: "agent", label: "AGENT" },
-  { id: "files", label: "FILES" },
-  { id: "diff", label: "DIFF" },
   { id: "terminal", label: "TERMINAL" },
-  { id: "logs", label: "LOGS" },
 ] as const;
 
 const ACTION_FIXTURES = [
@@ -206,22 +209,14 @@ function taskTreeRow(
   return row;
 }
 
-function getCenterTranscript(tabId: ControlShellState["activeTab"], taskId: string): string[] {
+function getCenterTranscript(tabId: ControlShellState["activeTab"], taskId: string) {
   if (tabId === "agent") {
     return [
       `Codex agent tab ready for ${taskId}.`,
       "",
       "Press Enter to attach the live PTY-backed agent session.",
-    ];
+    ].map((line) => ({ text: line }));
   }
 
-  const labels: Record<ControlShellState["activeTab"], string> = {
-    agent: "Agent transcript",
-    files: "Files surface",
-    diff: "Diff surface",
-    terminal: "Plain terminal tab",
-    logs: "Task logs",
-  };
-
-  return [`${labels[tabId]} placeholder for ${taskId}.`];
+  return [{ text: `${tabId === "terminal" ? "Plain terminal tab" : "Center tab"} placeholder for ${taskId}.` }];
 }

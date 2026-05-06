@@ -27,9 +27,16 @@ export interface CraigUiRuntime {
   selectedTaskId: string | null;
   selectedPtyTabId?: string | null;
   inputMode?: "control";
-  focusedRegion?: "tasks" | "center" | "actions" | "tabs";
+  focusedRegion?: "tasks" | "center" | "inspector" | "actions" | "tabs";
   activeTab?: string;
+  preferredPtyTabKind?: "agent" | "terminal";
   inspectorSection?: "task" | "checks" | "pr" | "setup-run" | "actions" | "next-action";
+  inspectionMode?: "diff" | "files" | "checks" | "actions";
+  openInspectionKind?: "file" | "diff" | null;
+  selectedFileTreePath?: string | null;
+  selectedFilePath?: string | null;
+  selectedDiffPath?: string | null;
+  collapsedFileTreePaths?: string[];
   selectedActionId?: "commit" | "push" | "create-pr" | "merge" | "close-task";
   updatedAt: string;
 }

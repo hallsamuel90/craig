@@ -13,9 +13,15 @@ const LEFT_ITEM_IDS = [
   "new-task",
   "new-workspace",
 ];
-const CENTER_TAB_IDS = ["task_20260430_02:agent", "task_20260430_02:terminal", "files", "diff", "logs"];
+const CENTER_TAB_IDS = ["task_20260430_02:agent", "task_20260430_02:terminal", "inspection"];
 const PTY_TAB_IDS = ["task_20260430_02:agent", "task_20260430_02:terminal"];
-const KEY_OPTIONS = { leftItemIds: LEFT_ITEM_IDS, centerTabIds: CENTER_TAB_IDS, ptyTabIds: PTY_TAB_IDS };
+const KEY_OPTIONS = {
+  leftItemIds: LEFT_ITEM_IDS,
+  centerTabIds: CENTER_TAB_IDS,
+  ptyTabIds: PTY_TAB_IDS,
+  filePathIds: ["README.md", "src/app.ts"],
+  diffPathIds: ["README.md", "src/app.ts"],
+};
 
 describe("terminal shell control state", () => {
   test("initializes from valid runtime state", () => {
@@ -27,7 +33,8 @@ describe("terminal shell control state", () => {
       selectedPtyTabId: "task_20260430_04:agent",
       inputMode: "control",
       focusedRegion: "actions",
-      activeTab: "logs",
+      activeTab: "agent",
+      preferredPtyTabKind: "terminal",
       inspectorSection: "checks",
       selectedActionId: "merge",
       updatedAt: "2026-05-03T00:00:00.000Z",
@@ -40,7 +47,8 @@ describe("terminal shell control state", () => {
       selectedTaskId: "task_20260430_04",
       selectedPtyTabId: "task_20260430_04:agent",
       selectedLeftItemId: "task:task_20260430_04",
-      activeTab: "logs",
+      activeTab: "agent",
+      preferredPtyTabKind: "terminal",
       inspectorSection: "checks",
       selectedActionId: "merge",
       actionMessage: null,
@@ -91,15 +99,17 @@ describe("terminal shell control state", () => {
   test("cycles focus with tab-style keys and clamps at region edges", () => {
     const initial = seededState();
     const center = reduceMainKey(initial, "TAB", KEY_OPTIONS).state;
-    const actions = reduceMainKey(center, "]", KEY_OPTIONS).state;
+    const inspector = reduceMainKey(center, "]", KEY_OPTIONS).state;
+    const actions = reduceMainKey(inspector, "]", KEY_OPTIONS).state;
     const stillActions = reduceMainKey(actions, "]", KEY_OPTIONS).state;
-    const backToCenter = reduceMainKey(stillActions, "[", KEY_OPTIONS).state;
+    const backToInspector = reduceMainKey(stillActions, "[", KEY_OPTIONS).state;
 
     expect(center.focusedRegion).toBe("center");
+    expect(inspector.focusedRegion).toBe("inspector");
     expect(actions.focusedRegion).toBe("actions");
     expect(actions.inspectorSection).toBe("actions");
     expect(stillActions.focusedRegion).toBe("actions");
-    expect(backToCenter.focusedRegion).toBe("center");
+    expect(backToInspector.focusedRegion).toBe("inspector");
   });
 
   test("restores valid persisted repo, task, terminal tab, and inspector orientation", () => {
@@ -111,13 +121,24 @@ describe("terminal shell control state", () => {
         selectedTaskId: "task_a_2",
         selectedPtyTabId: "task_a_2:terminal",
         inputMode: "control",
-        focusedRegion: "center",
-        activeTab: "terminal",
-        inspectorSection: "next-action",
+      focusedRegion: "center",
+      activeTab: "terminal",
+      inspectorSection: "next-action",
+      inspectionMode: "diff",
+      openInspectionKind: "diff",
+      selectedFilePath: "src/app.ts",
+      selectedDiffPath: "src/app.ts",
         selectedActionId: "merge",
         updatedAt: "2026-05-03T00:00:00.000Z",
       }),
-      restoreModel(),
+      {
+        ...restoreModel(),
+        inspection: {
+          taskId: "task_a_2",
+          selectedFilePath: "README.md",
+          selectedDiffPath: "README.md",
+        },
+      },
     );
 
     expect(state).toMatchObject({
@@ -129,6 +150,10 @@ describe("terminal shell control state", () => {
       selectedLeftItemId: "task:task_a_2",
       activeTab: "task_a_2:terminal",
       inspectorSection: "next-action",
+      inspectionMode: "diff",
+      openInspectionKind: "diff",
+      selectedFilePath: "README.md",
+      selectedDiffPath: "README.md",
       selectedActionId: "merge",
     });
   });
@@ -188,7 +213,7 @@ describe("terminal shell control state", () => {
     const nextTask = reduceMainKey(tasks, "DOWN", KEY_OPTIONS).state;
     const center = reduceMainKey(nextTask, "TAB", KEY_OPTIONS).state;
     const nextTab = reduceMainKey(center, "RIGHT", KEY_OPTIONS).state;
-    const actions = reduceMainKey(reduceMainKey(nextTab, "TAB", KEY_OPTIONS).state, "DOWN", KEY_OPTIONS).state;
+    const actions = reduceMainKey(reduceMainKey(reduceMainKey(nextTab, "TAB", KEY_OPTIONS).state, "TAB", KEY_OPTIONS).state, "DOWN", KEY_OPTIONS).state;
 
     expect(nextTask.selectedLeftItemId).toBe("task:task_20260430_03");
     expect(nextTab.activeTab).toBe("task_20260430_02:terminal");
@@ -220,13 +245,236 @@ describe("terminal shell control state", () => {
   });
 
   test("enter on actions emits the current placeholder action message", () => {
-    const focusedAction = reduceMainKey(reduceMainKey(seededState(), "TAB", KEY_OPTIONS).state, "TAB", KEY_OPTIONS).state;
+    const focusedAction = reduceMainKey(
+      reduceMainKey(reduceMainKey(seededState(), "TAB", KEY_OPTIONS).state, "TAB", KEY_OPTIONS).state,
+      "TAB",
+      KEY_OPTIONS,
+    ).state;
     const result = reduceMainKey(focusedAction, "ENTER", KEY_OPTIONS);
 
     expect(result.exit).toBe(false);
     expect(result.pause).toBe(false);
     expect(result.changed).toBe(true);
     expect(result.state.actionMessage).toBe("Action queued: commit (inspection surfaces land in phase 4.1).");
+  });
+
+  test("moves file and diff selections while inspector is focused", () => {
+    const files = {
+      ...seededState(),
+      focusedRegion: "inspector" as const,
+      inspectionMode: "files" as const,
+      selectedFilePath: "README.md",
+    };
+    const nextFile = reduceMainKey(files, "DOWN", KEY_OPTIONS);
+    const diff = {
+      ...seededState(),
+      focusedRegion: "inspector" as const,
+      inspectionMode: "diff" as const,
+      selectedDiffPath: "README.md",
+    };
+    const nextDiff = reduceMainKey(diff, "DOWN", KEY_OPTIONS);
+
+    expect(nextFile.state.selectedFilePath).toBe("src/app.ts");
+    expect(nextFile.refreshInspection).toBe(true);
+    expect(nextDiff.state.selectedDiffPath).toBe("src/app.ts");
+    expect(nextDiff.refreshInspection).toBe(true);
+  });
+
+  test("enter on a selected file directory toggles collapse instead of opening the center", () => {
+    const directory = {
+      ...seededState(),
+      focusedRegion: "inspector" as const,
+      inspectionMode: "files" as const,
+      selectedFileTreePath: "src",
+    };
+    const collapsed = reduceMainKey(directory, "ENTER", {
+      ...KEY_OPTIONS,
+      fileTreeDirectoryIds: ["src"],
+      fileTreeRowIds: ["README.md", "src", "src/app.ts"],
+      fileTreeFileIds: ["README.md", "src/app.ts"],
+    });
+    const expanded = reduceMainKey(collapsed.state, "ENTER", {
+      ...KEY_OPTIONS,
+      fileTreeDirectoryIds: ["src"],
+      fileTreeRowIds: ["README.md", "src"],
+      fileTreeFileIds: ["README.md"],
+    });
+
+    expect(collapsed.state.collapsedFileTreePaths).toEqual(["src"]);
+    expect(collapsed.state.activeTab).toBe("task_20260430_02:agent");
+    expect(collapsed.refreshInspection).toBe(false);
+    expect(expanded.state.collapsedFileTreePaths).toEqual([]);
+  });
+
+  test("switching right-panel inspection modes requests fresh local inspection", () => {
+    const inspector = {
+      ...seededState(),
+      focusedRegion: "inspector" as const,
+      inspectionMode: "files" as const,
+    };
+    const diff = reduceMainKey(inspector, "LEFT", KEY_OPTIONS);
+    const files = reduceMainKey(diff.state, "RIGHT", KEY_OPTIONS);
+
+    expect(diff.state.inspectionMode).toBe("diff");
+    expect(diff.state.activeTab).toBe("inspection");
+    expect(diff.state.openInspectionKind).toBe("diff");
+    expect(diff.refreshInspection).toBe(true);
+    expect(files.state.inspectionMode).toBe("files");
+    expect(files.state.activeTab).toBe("inspection");
+    expect(files.state.openInspectionKind).toBe("file");
+    expect(files.refreshInspection).toBe(true);
+  });
+
+  test("switching from an opened file to changes replaces the center with a diff", () => {
+    const fileOpen = {
+      ...seededState(),
+      focusedRegion: "inspector" as const,
+      inspectionMode: "files" as const,
+      activeTab: "inspection",
+      openInspectionKind: "file" as const,
+      selectedFilePath: "README.md",
+      selectedDiffPath: "README.md",
+      fileScrollOffset: 12,
+      diffScrollOffset: 8,
+    };
+
+    const diff = reduceMainKey(fileOpen, "LEFT", KEY_OPTIONS);
+
+    expect(diff.state.inspectionMode).toBe("diff");
+    expect(diff.state.activeTab).toBe("inspection");
+    expect(diff.state.openInspectionKind).toBe("diff");
+    expect(diff.state.fileScrollOffset).toBe(12);
+    expect(diff.state.diffScrollOffset).toBe(0);
+  });
+
+  test("right-panel inspection modes include checks next to changes and files", () => {
+    const files = {
+      ...seededState(),
+      focusedRegion: "inspector" as const,
+      inspectionMode: "files" as const,
+    };
+    const checks = reduceMainKey(files, "RIGHT", KEY_OPTIONS);
+    const backToFiles = reduceMainKey(checks.state, "LEFT", KEY_OPTIONS);
+
+    expect(checks.state.inspectionMode).toBe("checks");
+    expect(checks.refreshInspection).toBe(true);
+    expect(backToFiles.state.inspectionMode).toBe("files");
+  });
+
+  test("enter on inspector opens the selected inspection mode without attaching a PTY", () => {
+    const files = {
+      ...seededState(),
+      focusedRegion: "inspector" as const,
+      inspectionMode: "files" as const,
+    };
+    const diff = {
+      ...files,
+      inspectionMode: "diff" as const,
+    };
+
+    expect(reduceMainKey(files, "ENTER", KEY_OPTIONS)).toMatchObject({
+      state: { activeTab: "inspection", openInspectionKind: "file" },
+      attachTerminal: false,
+      refreshInspection: true,
+      changed: true,
+    });
+    expect(reduceMainKey(diff, "ENTER", KEY_OPTIONS)).toMatchObject({
+      state: { activeTab: "inspection", openInspectionKind: "diff" },
+      attachTerminal: false,
+      refreshInspection: true,
+      changed: true,
+    });
+  });
+
+  test("scrolls selected file and diff content while center is focused", () => {
+    const files = {
+      ...reduceMainKey(seededState(), "TAB", KEY_OPTIONS).state,
+      activeTab: "inspection",
+      openInspectionKind: "file" as const,
+      fileScrollOffset: 0,
+    };
+    const diff = {
+      ...files,
+      openInspectionKind: "diff" as const,
+      diffScrollOffset: 5,
+    };
+
+    const nextFile = reduceMainKey(files, "PAGE_DOWN", { ...KEY_OPTIONS, fileLineCount: 40, pageRows: 12 });
+    const nextDiff = reduceMainKey(diff, "MOUSE_WHEEL_UP", { ...KEY_OPTIONS, diffLineCount: 40 });
+
+    expect(nextFile.changed).toBe(true);
+    expect(nextFile.state.fileScrollOffset).toBe(12);
+    expect(nextDiff.changed).toBe(true);
+    expect(nextDiff.state.diffScrollOffset).toBe(2);
+  });
+
+  test("scrolls file tree and diff rows while inspector is focused", () => {
+    const files = {
+      ...seededState(),
+      focusedRegion: "inspector" as const,
+      inspectionMode: "files" as const,
+      selectedFileTreePath: "README.md",
+      selectedFilePath: "README.md",
+    };
+    const diff = {
+      ...seededState(),
+      focusedRegion: "inspector" as const,
+      inspectionMode: "diff" as const,
+      selectedDiffPath: "README.md",
+    };
+
+    const nextFile = reduceMainKey(files, "MOUSE_WHEEL_DOWN", {
+      ...KEY_OPTIONS,
+      fileTreeRowIds: ["README.md", "src", "src/app.ts", "tests", "tests/app.test.ts"],
+      fileTreeFileIds: ["README.md", "src/app.ts", "tests/app.test.ts"],
+      fileTreeDirectoryIds: ["src", "tests"],
+    });
+    const nextDiff = reduceMainKey(diff, "PAGE_DOWN", {
+      ...KEY_OPTIONS,
+      diffPathIds: ["README.md", "src/app.ts", "tests/app.test.ts", "package.json"],
+      pageRows: 2,
+    });
+
+    expect(nextFile.changed).toBe(true);
+    expect(nextFile.state.selectedFileTreePath).toBe("tests");
+    expect(nextFile.state.selectedFilePath).toBe("README.md");
+    expect(nextFile.refreshInspection).toBe(false);
+    expect(nextDiff.changed).toBe(true);
+    expect(nextDiff.state.selectedDiffPath).toBe("tests/app.test.ts");
+    expect(nextDiff.refreshInspection).toBe(true);
+  });
+
+  test("scroll offset clamps to the last full page instead of the final line", () => {
+    const files = {
+      ...reduceMainKey(seededState(), "TAB", KEY_OPTIONS).state,
+      activeTab: "inspection",
+      openInspectionKind: "file" as const,
+      fileScrollOffset: 0,
+    };
+
+    const nextFile = reduceMainKey(files, "PAGE_DOWN", { ...KEY_OPTIONS, fileLineCount: 15, pageRows: 12 });
+
+    expect(nextFile.state.fileScrollOffset).toBe(3);
+  });
+
+  test("changing inspector file or diff selection resets content scroll", () => {
+    const files = {
+      ...seededState(),
+      focusedRegion: "inspector" as const,
+      inspectionMode: "files" as const,
+      selectedFilePath: "README.md",
+      fileScrollOffset: 20,
+    };
+    const diff = {
+      ...seededState(),
+      focusedRegion: "inspector" as const,
+      inspectionMode: "diff" as const,
+      selectedDiffPath: "README.md",
+      diffScrollOffset: 20,
+    };
+
+    expect(reduceMainKey(files, "DOWN", KEY_OPTIONS).state.fileScrollOffset).toBe(0);
+    expect(reduceMainKey(diff, "DOWN", KEY_OPTIONS).state.diffScrollOffset).toBe(0);
   });
 
   test("enter on the focused terminal tab attaches terminal mode when a task is selected", () => {
@@ -248,8 +496,37 @@ describe("terminal shell control state", () => {
     const result = reduceMainKey(center, "+", KEY_OPTIONS);
 
     expect(result.createPtyTab).toBe(true);
+    expect(result.createPtyTabKind).toBe("agent");
     expect(result.changed).toBe(true);
     expect(result.state.inputMode).toBe("control");
+    expect(result.state.preferredPtyTabKind).toBe("agent");
+  });
+
+  test("a and t request explicit PTY tab kinds from the focused center pane", () => {
+    const center = reduceMainKey(seededState(), "TAB", KEY_OPTIONS).state;
+    const agent = reduceMainKey({ ...center, activeTab: "inspection", preferredPtyTabKind: "terminal" }, "a", KEY_OPTIONS);
+    const terminal = reduceMainKey({ ...center, activeTab: "inspection", preferredPtyTabKind: "agent" }, "t", KEY_OPTIONS);
+
+    expect(agent.createPtyTab).toBe(true);
+    expect(agent.createPtyTabKind).toBe("agent");
+    expect(agent.state.preferredPtyTabKind).toBe("agent");
+    expect(terminal.createPtyTab).toBe(true);
+    expect(terminal.createPtyTabKind).toBe("terminal");
+    expect(terminal.state.preferredPtyTabKind).toBe("terminal");
+  });
+
+  test("+ falls back to the remembered PTY kind when no concrete tab is active", () => {
+    const center = {
+      ...reduceMainKey(seededState(), "TAB", KEY_OPTIONS).state,
+      activeTab: "inspection",
+      selectedPtyTabId: null,
+      preferredPtyTabKind: "terminal" as const,
+    };
+    const result = reduceMainKey(center, "+", { ...KEY_OPTIONS, ptyTabIds: [] });
+
+    expect(result.createPtyTab).toBe(true);
+    expect(result.createPtyTabKind).toBe("terminal");
+    expect(result.state.preferredPtyTabKind).toBe("terminal");
   });
 
   test("x on a focused concrete PTY tab requests tab close", () => {
@@ -265,16 +542,16 @@ describe("terminal shell control state", () => {
     expect(result.state.inputMode).toBe("control");
   });
 
-  test("x on a focused fixed center surface does not close anything", () => {
-    const files = {
+  test("x on a focused inspection center surface does not close anything", () => {
+    const inspection = {
       ...reduceMainKey(seededState(), "TAB", KEY_OPTIONS).state,
-      activeTab: "files",
+      activeTab: "inspection",
     };
-    const result = reduceMainKey(files, "x", KEY_OPTIONS);
+    const result = reduceMainKey(inspection, "x", KEY_OPTIONS);
 
     expect(result.closePtyTab).toBe(false);
     expect(result.changed).toBe(false);
-    expect(result.state.activeTab).toBe("files");
+    expect(result.state.activeTab).toBe("inspection");
   });
 
   test("enter on a task row in the left pane opens the agent PTY immediately", () => {
@@ -375,8 +652,10 @@ describe("terminal shell control state", () => {
     const state = {
       ...seededState(),
       focusedRegion: "actions" as const,
-      activeTab: "logs" as const,
+      activeTab: "task_20260430_02:agent" as const,
       inspectorSection: "actions" as const,
+      inspectionMode: "diff" as const,
+      openInspectionKind: "diff" as const,
       selectedActionId: "merge" as const,
       actionMessage: "transient",
     };
@@ -389,8 +668,11 @@ describe("terminal shell control state", () => {
       selectedPtyTabId: "task_20260430_02:agent",
       inputMode: "control",
       focusedRegion: "actions",
-      activeTab: "logs",
+      activeTab: "task_20260430_02:agent",
+      preferredPtyTabKind: "agent",
       inspectorSection: "actions",
+      inspectionMode: "diff",
+      openInspectionKind: "diff",
       selectedActionId: "merge",
     });
     expect(persisted).not.toHaveProperty("actionMessage");

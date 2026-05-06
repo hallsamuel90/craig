@@ -1,8 +1,12 @@
 import { describe, expect, test } from "vitest";
 
+import type { TaskLocalInspection } from "../src/services/task-local-inspection.js";
 import { getMockShellData } from "../src/ui/mock-data.js";
 import { MIN_VIEWPORT } from "../src/ui/layout.js";
 import { renderBootOverlayFrame, renderMainShellFrame, renderPauseOverlayFrame } from "../src/ui/render.js";
+import { createInitialShellState } from "../src/ui/state.js";
+import { buildShellData } from "../src/ui/shell-data.js";
+import { buildTaskRecord } from "./test-helpers.js";
 
 describe("terminal shell renderer", () => {
   test("renders the boot overlay with the CRAIG logo and menu", () => {
@@ -41,14 +45,8 @@ describe("terminal shell renderer", () => {
     expect(frame).toContain("▸ task_20260430_02");
     expect(frame).toContain("running ●");
     expect(frame).toContain("AGENT");
-    expect(frame).toContain("FILES");
-    expect(frame).toContain("DIFF");
     expect(frame).toContain("TERMINAL");
-    expect(frame).toContain("LOGS");
     expect(frame).toContain("CONTEXT");
-    expect(frame).toContain("CHECKS");
-    expect(frame).toContain("ACTIONS");
-    expect(frame).toContain("NEXT");
     expect(frame).toContain("AGENT  task_20260430_02 · bug-fixes · codex");
     expect(frame).toContain("Press Enter on the AGENT");
     expect(frame).toContain("─────");
@@ -61,7 +59,7 @@ describe("terminal shell renderer", () => {
       getMockShellData({
         focusedRegion: "actions",
         selectedTaskId: "task_20260430_04",
-        activeTab: "diff",
+        activeTab: "terminal",
         selectedActionId: "push",
         actionMessage: "Mock action: push (phase 1.2).",
       }),
@@ -69,10 +67,178 @@ describe("terminal shell renderer", () => {
     );
 
     expect(frame).toContain("▸ task_20260430_04");
-    expect(frame).toContain("DIFF  task_20260430_04 · testing · codex");
-    expect(frame).toContain("Diff surface placeholder for task_20260430");
-    expect(frame).toContain("▸  push");
+    expect(frame).toContain("TERMINAL  task_20260430_04");
+    expect(frame).toContain("Press Enter on the TERMINAL");
     expect(frame).toContain("Mock action: push (phase 1.2).");
+  });
+
+  test("renders files tab with right-panel file tree and selected file content", () => {
+    const task = buildTaskRecord("/tmp/craig", {
+      id: "task_20260430_02",
+      repoId: "repo_bug_fixes",
+      workspaceId: "workspace_bug_fixes",
+    });
+    const data = buildShellData(
+      {
+        ...createInitialShellState(null),
+        selectedRepoId: "repo_bug_fixes",
+        selectedTaskId: task.id,
+        selectedLeftItemId: `task:${task.id}`,
+        activeTab: "inspection",
+        inspectionMode: "files",
+        openInspectionKind: "file",
+        focusedRegion: "inspector",
+        selectedFilePath: "src/app.ts",
+      },
+      {
+        workspaceRoot: "/tmp/craig",
+        repos: [{ id: "repo_bug_fixes", name: "bug-fixes", rootPath: "/tmp/craig", defaultBranch: "main", createdAt: "", updatedAt: "" }],
+        tasks: [task],
+        inspection: inspectionFixture({ selectedFilePath: "src/app.ts" }),
+      },
+    );
+
+    const frame = renderMainShellFrame(MIN_VIEWPORT, data, { color: false });
+
+    expect(frame).toContain("FILES");
+    expect(frame).toContain("src/app.ts");
+    expect(frame).toContain("export const app = true;");
+    expect(frame).toContain("  1 │ export const app = true;");
+    expect(frame).toContain("▸     app.ts");
+  });
+
+  test("renders file content from the current scroll offset", () => {
+    const task = buildTaskRecord("/tmp/craig", {
+      id: "task_20260430_02",
+      repoId: "repo_bug_fixes",
+      workspaceId: "workspace_bug_fixes",
+    });
+    const data = buildShellData(
+      {
+        ...createInitialShellState(null),
+        selectedRepoId: "repo_bug_fixes",
+        selectedTaskId: task.id,
+        selectedLeftItemId: `task:${task.id}`,
+        activeTab: "inspection",
+        inspectionMode: "files",
+        openInspectionKind: "file",
+        focusedRegion: "center",
+        selectedFilePath: "src/app.ts",
+        fileScrollOffset: 2,
+      },
+      {
+        workspaceRoot: "/tmp/craig",
+        repos: [{ id: "repo_bug_fixes", name: "bug-fixes", rootPath: "/tmp/craig", defaultBranch: "main", createdAt: "", updatedAt: "" }],
+        tasks: [task],
+        inspection: inspectionFixture({ selectedFilePath: "src/app.ts" }),
+      },
+    );
+
+    const frame = renderMainShellFrame(MIN_VIEWPORT, data, { color: false });
+
+    expect(frame).not.toContain("  1 │ export const app = true;");
+    expect(frame).toContain("  3 │ export function run()");
+  });
+
+  test("applies syntax color segments to file content", () => {
+    const task = buildTaskRecord("/tmp/craig", {
+      id: "task_20260430_02",
+      repoId: "repo_bug_fixes",
+      workspaceId: "workspace_bug_fixes",
+    });
+    const data = buildShellData(
+      {
+        ...createInitialShellState(null),
+        selectedRepoId: "repo_bug_fixes",
+        selectedTaskId: task.id,
+        selectedLeftItemId: `task:${task.id}`,
+        activeTab: "inspection",
+        inspectionMode: "files",
+        openInspectionKind: "file",
+        selectedFilePath: "src/app.ts",
+      },
+      {
+        workspaceRoot: "/tmp/craig",
+        repos: [{ id: "repo_bug_fixes", name: "bug-fixes", rootPath: "/tmp/craig", defaultBranch: "main", createdAt: "", updatedAt: "" }],
+        tasks: [task],
+        inspection: inspectionFixture({ selectedFilePath: "src/app.ts" }),
+      },
+    );
+
+    const frame = renderMainShellFrame(MIN_VIEWPORT, data, { color: true });
+
+    expect(frame).toContain("\u001B[38;2;86;156;214;48;2;10;10;10mexport");
+    expect(frame).toContain("\u001B[38;2;133;133;133;48;2;10;10;10m  1");
+  });
+
+  test("renders diff tab with grouped changed files and selected patch", () => {
+    const task = buildTaskRecord("/tmp/craig", {
+      id: "task_20260430_02",
+      repoId: "repo_bug_fixes",
+      workspaceId: "workspace_bug_fixes",
+    });
+    const data = buildShellData(
+      {
+        ...createInitialShellState(null),
+        selectedRepoId: "repo_bug_fixes",
+        selectedTaskId: task.id,
+        selectedLeftItemId: `task:${task.id}`,
+        activeTab: "inspection",
+        inspectionMode: "diff",
+        openInspectionKind: "diff",
+        focusedRegion: "inspector",
+        selectedDiffPath: "src/app.ts",
+      },
+      {
+        workspaceRoot: "/tmp/craig",
+        repos: [{ id: "repo_bug_fixes", name: "bug-fixes", rootPath: "/tmp/craig", defaultBranch: "main", createdAt: "", updatedAt: "" }],
+        tasks: [task],
+        inspection: inspectionFixture({ selectedDiffPath: "src/app.ts" }),
+      },
+    );
+
+    const frame = renderMainShellFrame(MIN_VIEWPORT, data, { color: false });
+
+    expect(frame).toContain("[CHANGES] FILES");
+    expect(frame).toContain("STAGED");
+    expect(frame).toContain("UNSTAGED");
+    expect(frame).toContain("  1 │ export const app = false;");
+    expect(frame).toContain("  1 │ export const app = true;");
+    expect(frame).not.toContain("@@ -1,2 +1,2 @@");
+    expect(frame).not.toContain("diff --git a/src/app.ts b/src/app.ts");
+    expect(frame).toContain("  4 │   return app;");
+    expect(frame).toContain("▸   M  src/app.ts");
+  });
+
+  test("renders unified diff rows with deletion and addition colors", () => {
+    const task = buildTaskRecord("/tmp/craig", {
+      id: "task_20260430_02",
+      repoId: "repo_bug_fixes",
+      workspaceId: "workspace_bug_fixes",
+    });
+    const data = buildShellData(
+      {
+        ...createInitialShellState(null),
+        selectedRepoId: "repo_bug_fixes",
+        selectedTaskId: task.id,
+        selectedLeftItemId: `task:${task.id}`,
+        activeTab: "inspection",
+        inspectionMode: "diff",
+        openInspectionKind: "diff",
+        selectedDiffPath: "src/app.ts",
+      },
+      {
+        workspaceRoot: "/tmp/craig",
+        repos: [{ id: "repo_bug_fixes", name: "bug-fixes", rootPath: "/tmp/craig", defaultBranch: "main", createdAt: "", updatedAt: "" }],
+        tasks: [task],
+        inspection: inspectionFixture({ selectedDiffPath: "src/app.ts" }),
+      },
+    );
+
+    const frame = renderMainShellFrame(MIN_VIEWPORT, data, { color: true });
+
+    expect(frame).toContain("\u001B[38;2;86;156;214;48;2;42;17;17mexport");
+    expect(frame).toContain("\u001B[38;2;86;156;214;48;2;16;33;15mexport");
   });
 
   test("renders the PTY terminal surface and terminal-mode hint", () => {
@@ -99,6 +265,36 @@ describe("terminal shell renderer", () => {
     expect(frame).toContain("$ pwd");
     expect(frame).toContain("/Users/samhall/conductor/workspaces/crai");
     expect(frame).not.toContain("terminal ▸ terminal mode");
+  });
+
+  test("renders the attach hint using concrete agent tab ids", () => {
+    const task = buildTaskRecord("/tmp/craig", {
+      id: "task_20260430_02",
+      repoId: "repo_bug_fixes",
+      workspaceId: "workspace_bug_fixes",
+    });
+    const data = buildShellData(
+      {
+        ...createInitialShellState(null),
+        selectedRepoId: "repo_bug_fixes",
+        selectedTaskId: task.id,
+        selectedLeftItemId: `task:${task.id}`,
+        selectedPtyTabId: "task_20260430_02:agent",
+        activeTab: "task_20260430_02:agent",
+        focusedRegion: "center",
+      },
+      {
+        workspaceRoot: "/tmp/craig",
+        repos: [{ id: "repo_bug_fixes", name: "bug-fixes", rootPath: "/tmp/craig", defaultBranch: "main", createdAt: "", updatedAt: "" }],
+        tasks: [task],
+        inspection: null,
+      },
+    );
+
+    const frame = renderMainShellFrame(MIN_VIEWPORT, data, { color: false });
+
+    expect(frame).toContain("Press Enter on the AGENT tab");
+    expect(frame).not.toContain("Press Enter on the TERMINAL tab");
   });
 
   test("renders recoverable PTY startup errors", () => {
@@ -231,3 +427,52 @@ describe("terminal shell renderer", () => {
     );
   });
 });
+
+function inspectionFixture(input: { selectedFilePath?: string | null; selectedDiffPath?: string | null }): TaskLocalInspection {
+  return {
+    taskId: "task_20260430_02",
+    fileRows: [
+      { kind: "directory", path: "src", depth: 0, label: "src" },
+      { kind: "file", path: "src/app.ts", depth: 1, label: "app.ts" },
+    ],
+    filePaths: ["src/app.ts"],
+    diffRows: [
+      { group: "staged", path: "README.md", status: "M", additions: 1, deletions: 0 },
+      { group: "unstaged", path: "src/app.ts", status: "M", additions: 2, deletions: 1 },
+    ],
+    diffPaths: ["README.md", "src/app.ts"],
+    selectedFilePath: input.selectedFilePath ?? null,
+    selectedDiffPath: input.selectedDiffPath ?? null,
+    selectedFile: {
+      path: input.selectedFilePath ?? null,
+      status: "ready",
+      title: input.selectedFilePath ?? "No file selected",
+      lines: [
+        "export const app = true;",
+        "const label = \"Craig\";",
+        "export function run() {",
+        "  return label;",
+        "}",
+      ],
+      byteLength: 24,
+    },
+    selectedDiff: {
+      path: input.selectedDiffPath ?? null,
+      status: "ready",
+      title: input.selectedDiffPath ?? "No diff selected",
+      lines: [
+        "unstaged",
+        "diff --git a/src/app.ts b/src/app.ts",
+        "@@ -1,2 +1,2 @@",
+        "-export const app = false;",
+        "+export const app = true;",
+        " // after unstaged",
+        " export function run() {",
+        "   return app;",
+        " }",
+      ],
+      byteLength: 80,
+    },
+    error: null,
+  };
+}
