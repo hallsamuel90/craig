@@ -36,6 +36,12 @@ export function getDefaultUiState(): CraigUiRuntime {
     focusedRegion: "tasks",
     activeTab: "agent",
     inspectorSection: "task",
+    inspectionMode: "files",
+    openInspectionKind: null,
+    selectedFileTreePath: null,
+    selectedFilePath: null,
+    selectedDiffPath: null,
+    collapsedFileTreePaths: [],
     selectedActionId: "commit",
     updatedAt: new Date().toISOString(),
   };
@@ -67,6 +73,12 @@ function validateUiState(value: unknown, filePath: string): CraigUiRuntime {
     !optionalString(value, "focusedRegion") ||
     !optionalString(value, "activeTab") ||
     !optionalString(value, "inspectorSection") ||
+    !optionalString(value, "inspectionMode") ||
+    !optionalNullableString(value, "openInspectionKind") ||
+    !optionalNullableString(value, "selectedFileTreePath") ||
+    !optionalNullableString(value, "selectedFilePath") ||
+    !optionalNullableString(value, "selectedDiffPath") ||
+    !optionalStringArray(value, "collapsedFileTreePaths") ||
     !optionalString(value, "selectedActionId") ||
     typeof (value as Partial<CraigUiRuntime>).updatedAt !== "string"
   ) {
@@ -81,6 +93,26 @@ function optionalString(value: unknown, key: keyof CraigUiRuntime): boolean {
     typeof value === "object" &&
     value !== null &&
     (!(key in value) || typeof (value as Record<string, unknown>)[key] === "string")
+  );
+}
+
+function optionalNullableString(value: unknown, key: keyof CraigUiRuntime): boolean {
+  return (
+    typeof value === "object" &&
+    value !== null &&
+    (!(key in value) ||
+      (value as Record<string, unknown>)[key] === null ||
+      typeof (value as Record<string, unknown>)[key] === "string")
+  );
+}
+
+function optionalStringArray(value: unknown, key: keyof CraigUiRuntime): boolean {
+  return (
+    typeof value === "object" &&
+    value !== null &&
+    (!(key in value) ||
+      (Array.isArray((value as Record<string, unknown>)[key]) &&
+        ((value as Record<string, unknown>)[key] as unknown[]).every((entry) => typeof entry === "string")))
   );
 }
 

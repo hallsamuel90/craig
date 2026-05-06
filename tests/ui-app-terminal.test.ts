@@ -432,6 +432,105 @@ describe("terminal app PTY attach flow", () => {
     });
   });
 
+  test("center a creates a Codex tab when all task tabs are closed", async () => {
+    const root = await mkdtemp(join(tmpdir(), "craig-ui-app-"));
+    tempRoots.push(root);
+    const paths = await setupWorkspace(root);
+    const task = await readTask(paths, "task_20260430_02");
+    await writeTask(paths, {
+      ...task,
+      selectedPtyTabId: null,
+      ptyTabs: [],
+    });
+    await writeFile(
+      paths.uiStateFile,
+      JSON.stringify({
+        version: 1,
+        selectedRepoId: "repo_a",
+        selectedWorkspaceId: "workspace_repo_a",
+        selectedTaskId: "task_20260430_02",
+        selectedPtyTabId: null,
+        inputMode: "control",
+        focusedRegion: "center",
+        activeTab: "inspection",
+        preferredPtyTabKind: "terminal",
+        selectedActionId: "commit",
+        updatedAt: "2026-05-04T00:00:00.000Z",
+      }),
+    );
+    const terminal = new FakeTerminal();
+    const ptyRuntime = new FakePtyRuntime();
+    const app = startTerminalApp({ terminal, ptyRuntime, uiStateFile: paths.uiStateFile, workspaceRoot: root });
+    await vi.waitFor(() => expect(terminal.hasKeyListener()).toBe(true));
+
+    terminal.emitKey("\r"); // boot start
+    terminal.emitKey("a");
+    await vi.waitFor(() => expect(stripAnsi(terminal.frames.at(-1) ?? "")).toContain("Created tab: Codex"));
+    terminal.emitKey("ENTER");
+    await vi.waitFor(() => expect(ptyRuntime.ensureSession).toHaveBeenCalledWith(
+      "task_20260430_02",
+      "task_20260430_02:agent",
+      expect.objectContaining({ columns: expect.any(Number) }),
+    ));
+    terminal.emitKey("\u001D");
+    terminal.emitKey("q");
+
+    await expect(app).resolves.toBe(0);
+    const updatedTask = await readTask(paths, "task_20260430_02");
+    expect(updatedTask.ptyTabs).toHaveLength(1);
+    expect(updatedTask.ptyTabs[0]).toMatchObject({
+      id: "task_20260430_02:agent",
+      kind: "agent",
+      title: "Codex",
+    });
+    expect(updatedTask.selectedPtyTabId).toBe("task_20260430_02:agent");
+  });
+
+  test("center + creates Codex by default when all task tabs are closed", async () => {
+    const root = await mkdtemp(join(tmpdir(), "craig-ui-app-"));
+    tempRoots.push(root);
+    const paths = await setupWorkspace(root);
+    const task = await readTask(paths, "task_20260430_02");
+    await writeTask(paths, {
+      ...task,
+      selectedPtyTabId: null,
+      ptyTabs: [],
+    });
+    await writeFile(
+      paths.uiStateFile,
+      JSON.stringify({
+        version: 1,
+        selectedRepoId: "repo_a",
+        selectedWorkspaceId: "workspace_repo_a",
+        selectedTaskId: "task_20260430_02",
+        selectedPtyTabId: null,
+        inputMode: "control",
+        focusedRegion: "center",
+        activeTab: "inspection",
+        selectedActionId: "commit",
+        updatedAt: "2026-05-04T00:00:00.000Z",
+      }),
+    );
+    const terminal = new FakeTerminal();
+    const ptyRuntime = new FakePtyRuntime();
+    const app = startTerminalApp({ terminal, ptyRuntime, uiStateFile: paths.uiStateFile, workspaceRoot: root });
+    await vi.waitFor(() => expect(terminal.hasKeyListener()).toBe(true));
+
+    terminal.emitKey("\r"); // boot start
+    terminal.emitKey("+");
+    await vi.waitFor(() => expect(stripAnsi(terminal.frames.at(-1) ?? "")).toContain("Created tab: Codex"));
+    terminal.emitKey("q");
+
+    await expect(app).resolves.toBe(0);
+    const updatedTask = await readTask(paths, "task_20260430_02");
+    expect(updatedTask.ptyTabs[0]).toMatchObject({
+      id: "task_20260430_02:agent",
+      kind: "agent",
+      title: "Codex",
+    });
+    expect(ptyRuntime.ensureSession).not.toHaveBeenCalled();
+  });
+
   test("switching PTY tabs before creating another tab does not overwrite the new tab", async () => {
     const root = await mkdtemp(join(tmpdir(), "craig-ui-app-"));
     tempRoots.push(root);
@@ -567,6 +666,124 @@ describe("terminal app PTY attach flow", () => {
     terminal.emitKey("q");
 
     await expect(app).resolves.toBe(0);
+  });
+
+  test("files inspector selection opens file content without attaching a PTY", async () => {
+    const root = await mkdtemp(join(tmpdir(), "craig-ui-app-"));
+    tempRoots.push(root);
+    const paths = await setupWorkspace(root);
+    const task = await prepareInspectableTask(paths);
+    await writeFile(
+      paths.uiStateFile,
+      JSON.stringify({
+        version: 1,
+        selectedRepoId: "repo_a",
+        selectedWorkspaceId: "workspace_repo_a",
+        selectedTaskId: task.id,
+        selectedPtyTabId: "task_20260430_02:terminal",
+        inputMode: "control",
+        focusedRegion: "center",
+        activeTab: "task_20260430_02:terminal",
+        inspectionMode: "files",
+        openInspectionKind: null,
+        selectedFilePath: "README.md",
+        selectedActionId: "commit",
+        updatedAt: "2026-05-04T00:00:00.000Z",
+      }),
+    );
+    const terminal = new FakeTerminal();
+    const ptyRuntime = new FakePtyRuntime();
+    const app = startTerminalApp({ terminal, ptyRuntime, uiStateFile: paths.uiStateFile, workspaceRoot: root });
+    await vi.waitFor(() => expect(terminal.hasKeyListener()).toBe(true));
+
+    terminal.emitKey("\r"); // boot start
+    await vi.waitFor(() => expect(stripAnsi(terminal.frames.at(-1) ?? "")).toContain("FILES"));
+    terminal.emitKey("[");
+    terminal.emitKey("[");
+    terminal.emitKey("[");
+    terminal.emitKey("TAB");
+    terminal.emitKey("TAB"); // inspector
+    terminal.emitKey("ENTER"); // open selected file in the center inspection tab
+    await vi.waitFor(() => expect(stripAnsi(terminal.frames.at(-1) ?? "")).toContain("after staged"));
+    terminal.emitKey("DOWN"); // src directory
+    terminal.emitKey("ENTER"); // expand src
+    terminal.emitKey("DOWN"); // src/app.ts
+    await vi.waitFor(() => expect(stripAnsi(terminal.frames.at(-1) ?? "")).toContain("export const app = true;"));
+    terminal.emitKey("q");
+
+    await expect(app).resolves.toBe(0);
+    expect(ptyRuntime.ensureSession).not.toHaveBeenCalled();
+  });
+
+  test("diff inspector selection opens a grouped file diff without attaching a PTY", async () => {
+    const root = await mkdtemp(join(tmpdir(), "craig-ui-app-"));
+    tempRoots.push(root);
+    const paths = await setupWorkspace(root);
+    const task = await prepareInspectableTask(paths);
+    await writeFile(
+      paths.uiStateFile,
+      JSON.stringify({
+        version: 1,
+        selectedRepoId: "repo_a",
+        selectedWorkspaceId: "workspace_repo_a",
+        selectedTaskId: task.id,
+        selectedPtyTabId: "task_20260430_02:terminal",
+        inputMode: "control",
+        focusedRegion: "inspector",
+        activeTab: "task_20260430_02:terminal",
+        inspectionMode: "diff",
+        openInspectionKind: null,
+        selectedDiffPath: "README.md",
+        selectedActionId: "commit",
+        updatedAt: "2026-05-04T00:00:00.000Z",
+      }),
+    );
+    const terminal = new FakeTerminal();
+    const ptyRuntime = new FakePtyRuntime();
+    const app = startTerminalApp({ terminal, ptyRuntime, uiStateFile: paths.uiStateFile, workspaceRoot: root });
+    await vi.waitFor(() => expect(terminal.hasKeyListener()).toBe(true));
+
+    terminal.emitKey("\r"); // boot start
+    expect(stripAnsi(terminal.frames.at(-1) ?? "")).toContain("[CHANGES] FILES");
+    terminal.emitKey("[");
+    terminal.emitKey("[");
+    terminal.emitKey("[");
+    terminal.emitKey("TAB");
+    terminal.emitKey("TAB"); // inspector
+    terminal.emitKey("ENTER"); // open selected diff in the center inspection tab
+    await vi.waitFor(() => expect(stripAnsi(terminal.frames.at(-1) ?? "")).toContain("after staged"));
+    terminal.emitKey("DOWN"); // src/app.ts
+    await vi.waitFor(() => expect(stripAnsi(terminal.frames.at(-1) ?? "")).toContain("after"));
+    terminal.emitKey("q");
+
+    await expect(app).resolves.toBe(0);
+    expect(ptyRuntime.ensureSession).not.toHaveBeenCalled();
+  });
+
+  test("switching to diff refreshes task changes made after startup", async () => {
+    const root = await mkdtemp(join(tmpdir(), "craig-ui-app-"));
+    tempRoots.push(root);
+    const paths = await setupWorkspace(root);
+    const task = await prepareCleanInspectableTask(paths);
+    const terminal = new FakeTerminal();
+    const ptyRuntime = new FakePtyRuntime();
+    const app = startTerminalApp({ terminal, ptyRuntime, uiStateFile: paths.uiStateFile, workspaceRoot: root });
+    await vi.waitFor(() => expect(terminal.hasKeyListener()).toBe(true));
+
+    await writeFile(join(task.worktreePath, "README.md"), "changed after craig started\n", "utf8");
+    terminal.emitKey("\r"); // boot start
+    terminal.emitKey("[");
+    terminal.emitKey("[");
+    terminal.emitKey("[");
+    terminal.emitKey("TAB"); // center
+    terminal.emitKey("TAB"); // inspector
+    terminal.emitKey("LEFT"); // changes
+    await vi.waitFor(() => expect(stripAnsi(terminal.frames.at(-1) ?? "")).toContain("[CHANGES] FILES"));
+    await vi.waitFor(() => expect(stripAnsi(terminal.frames.at(-1) ?? "")).toContain("changed"));
+    terminal.emitKey("q");
+
+    await expect(app).resolves.toBe(0);
+    expect(ptyRuntime.ensureSession).not.toHaveBeenCalled();
   });
 
   test("ctrl-c from an attached agent stays in the same agent PTY", async () => {
@@ -887,6 +1104,29 @@ function restoreProperty(target: object, key: "isTTY", descriptor: PropertyDescr
 
 function stripAnsi(value: string): string {
   return value.replace(new RegExp(`${String.fromCharCode(27)}\\[[0-?]*[ -/]*[@-~]`, "g"), "");
+}
+
+async function prepareInspectableTask(paths: Awaited<ReturnType<typeof setupWorkspace>>) {
+  const task = await prepareCleanInspectableTask(paths);
+  await writeFile(join(task.worktreePath, "README.md"), "after staged\n", "utf8");
+  await runCommand("git", ["add", "README.md"], { cwd: task.worktreePath });
+  await writeFile(join(task.worktreePath, "src", "app.ts"), "export const app = true;\n// after unstaged\n", "utf8");
+  await writeFile(join(task.worktreePath, "new.txt"), "brand new\n", "utf8");
+  await writeFile(join(task.worktreePath, "ignored.txt"), "ignored\n", "utf8");
+  return task;
+}
+
+async function prepareCleanInspectableTask(paths: Awaited<ReturnType<typeof setupWorkspace>>) {
+  const task = await readTask(paths, "task_20260430_02");
+  await mkdir(task.worktreePath, { recursive: true });
+  await createGitRepo(task.worktreePath);
+  await mkdir(join(task.worktreePath, "src"), { recursive: true });
+  await writeFile(join(task.worktreePath, ".gitignore"), "ignored.txt\n", "utf8");
+  await writeFile(join(task.worktreePath, "README.md"), "before\n", "utf8");
+  await writeFile(join(task.worktreePath, "src", "app.ts"), "export const app = false;\n", "utf8");
+  await runCommand("git", ["add", ".gitignore", "README.md", "src/app.ts"], { cwd: task.worktreePath });
+  await runCommand("git", ["commit", "-m", "initial"], { cwd: task.worktreePath });
+  return task;
 }
 
 async function setupWorkspace(root: string) {

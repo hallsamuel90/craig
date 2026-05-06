@@ -64,7 +64,7 @@ describe("Craig terminal mode E2E", () => {
     try {
       await output.waitFor("> Start");
       child.write("\r");
-      await output.waitFor("Use Enter on a PTY tab");
+      await output.waitFor("NORMAL   + new tab");
       child.write("\r");
       await output.waitFor("TERMINAL   Ctrl+] detach");
 
@@ -145,7 +145,7 @@ describe("Craig terminal mode E2E", () => {
     try {
       await output.waitFor("> Start");
       child.write("\r");
-      await output.waitFor("Use Enter on a PTY tab");
+      await output.waitFor("NORMAL   + new tab");
       child.write("\r");
       await output.waitFor("codex_stub_started");
       await output.waitForLatestFrame("codex_stub_bottom_bar");
@@ -155,8 +155,7 @@ describe("Craig terminal mode E2E", () => {
       expect(frame).toContain("codex_stub_prompt:");
       expect(frame).toContain("codex_stub_bottom_bar");
       expect(frame).toContain("48;2;42;42;42");
-      const cwdMatch = frame.match(/codex_stub_cwd:(.+)/);
-      expect(cwdMatch?.[1] ?? "").toContain("task_20260430_02");
+      expect(frame).toContain("codex_stub_task_dir:task_20260430_02");
     } finally {
       child.kill();
       await rm(workspaceRoot, { recursive: true, force: true });
@@ -244,15 +243,15 @@ async function writeInitialUiState(workspaceRoot: string): Promise<void> {
   await mkdir(runtimeDir, { recursive: true });
   await writeFile(
     join(runtimeDir, "ui-state.json"),
-      JSON.stringify({
-        version: 1,
-        selectedRepoId: "repo_a",
-        selectedWorkspaceId: "workspace_repo_a",
-        selectedTaskId: "task_20260430_02",
-        selectedPtyTabId: "task_20260430_02:terminal",
-        inputMode: "control",
-        focusedRegion: "center",
-        activeTab: "terminal",
+    JSON.stringify({
+      version: 1,
+      selectedRepoId: "repo_a",
+      selectedWorkspaceId: "workspace_repo_a",
+      selectedTaskId: "task_20260430_02",
+      selectedPtyTabId: "task_20260430_02:terminal",
+      inputMode: "control",
+      focusedRegion: "center",
+      activeTab: "terminal",
       selectedActionId: "commit",
       updatedAt: "2026-05-04T00:00:00.000Z",
     }),
@@ -340,6 +339,7 @@ const maybeAdvance = () => {
   if (index === expected.length) {
     process.stdout.write("codex_stub_started\\n");
     process.stdout.write(\`codex_stub_cwd:\${process.cwd()}\\n\`);
+    process.stdout.write(\`codex_stub_task_dir:\${process.cwd().split("/").pop()}\\n\`);
     process.stdout.write(\`codex_stub_prompt:\${process.argv.slice(2).join(" ")}\\n\`);
     const rows = Number(process.stdout.rows || 0);
     if (rows > 0) {
