@@ -260,7 +260,7 @@ Required durable concerns:
 - `3.4` Add a background daemon that preserves live PTY sessions across Craig UI exits and restarts: `implemented and verified`
 - `4.1` Add local files and diff inspection with right-panel navigation and center-panel detail views: `implemented and verified`
 - `4.2` Add PR creation and sync for task branches, including persisted PR metadata: `implemented and verified`
-- `4.3` Add checks and CI status reading for tracked PRs and head commits: `pending`
+- `4.3` Add checks and CI status reading for tracked PRs and head commits: `implemented and verified`
 - `4.4` Add guarded PR merge and task close flow from Craig: `pending`
 - `5.1` Add Cursor and Claude runner support alongside Codex: `pending`
 - `5.2` Add multi-root workspace support across registered repos and linked task roots: `pending`
@@ -280,7 +280,7 @@ Required durable concerns:
 - `3.4` Verified by adding a workspace-local Craig PTY daemon with hidden serve/shutdown CLI paths, short hashed Unix-socket IPC, `.craig/runtime` pid/log metadata, stale endpoint recovery, and a daemon-backed PTY client that preserves the existing app PTY port while moving live `node-pty` and xterm emulator ownership out of the foreground UI process. Foreground Craig startup now connects to the daemon before accepting shell input; foreground exit detaches from daemon sessions instead of killing them; explicit PTY tab close still terminates only the closed daemon session; and task-scoped `agent`/`terminal` tab ids continue to drive session identity and worktree/command resolution. Automated verification covers daemon reconnect without respawn, explicit per-tab disposal, stale pid recovery, app attach/close behavior, and real terminal restart reattach with a stub Codex process proving the agent was not relaunched. `pnpm test`, `pnpm typecheck`, `pnpm lint`, and `pnpm build` passed locally.
 - `4.1` Verified by adding a local inspection service that indexes Git-visible files, excludes ignored files, splits local changes into staged, unstaged, and untracked groups, and guards binary or oversized file/diff previews. The Craig shell now has four focus regions (`tasks`, `center`, `inspector`, `actions`), persists selected file and diff paths, restores stale inspection paths to valid rows, and renders `Files`/`Diff` as stable center tabs with right-panel navigation and center-panel detail content. Automated coverage includes file indexing, grouped diff summaries, guarded binary previews, reducer inspector navigation, renderer file/diff layouts, app-level file/diff selection without PTY attach, and existing terminal E2E attach contracts. `pnpm test`, `pnpm typecheck`, `pnpm lint`, and `pnpm build` passed locally.
 - `4.2` Verified by consolidating the right operational sidebar into `CHANGES FILES REVIEW`; mapping legacy `checks` and `actions` inspection modes to `review`; rendering tracked PR metadata, persisted check summary rows, synced timestamp, and synced head SHA in Review; wiring Review `Enter`/`P` to create or sync PRs through the existing Git/GitHub service path; and persisting `TaskPullRequest.lastSyncedHeadSha` after PR refresh. Automated coverage includes PR metadata normalization, PR create and sync service behavior, Review reducer intents, Review renderer output, app-level PR create, app-level PR sync after a newer local commit, GitHub auth failure display, and unchanged file/diff/PTY attach behavior. `pnpm test`, `pnpm typecheck`, `pnpm lint`, and `pnpm build` passed locally.
-- `4.3` Not yet verified.
+- `4.3` Verified by extending persisted PR check state to distinguish passing, pending, failing, skipped, and unknown GitHub check results; treating skipped as non-blocking while keeping it visually distinct; adding an explicit Review `R` refresh action beside the existing `P` create/sync PR action; rendering tracked PR check rows and next-action guidance from persisted PR metadata; and keeping refresh in Craig control mode without attaching PTYs or changing file/diff orientation. Automated coverage includes GitHub check normalization, skipped/non-blocking readiness, failed and unknown states, refresh-without-PR failure, Review reducer intents for `P`/`R`/`Enter`, Review renderer guidance, and app-level check refresh/error behavior. `pnpm test`, `pnpm typecheck`, `pnpm lint`, and `pnpm build` passed locally.
 - `4.4` Not yet verified.
 - `5.1` Not yet verified.
 - `5.2` Not yet verified.
@@ -289,7 +289,7 @@ Required durable concerns:
 
 ### Next resume point
 
-Resume at the first sub-phase that is not both implemented and verified on the primary review-workflow track. The current primary resume point is `4.3`, which adds checks and CI status reading for tracked PRs and head commits.
+Resume at the first sub-phase that is not both implemented and verified on the primary review-workflow track. The current primary resume point is `4.4`, which adds guarded PR merge and task close flow from Craig.
 
 ### Parallelizable phases
 

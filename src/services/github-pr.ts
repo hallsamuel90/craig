@@ -155,7 +155,10 @@ export function summarizeRequiredChecks(pullRequest: TaskPullRequest): string {
 }
 
 export function isMergeReady(pullRequest: TaskPullRequest): boolean {
-  return pullRequest.mergeable && pullRequest.requiredChecks.every((check) => check.status === "success");
+  return (
+    pullRequest.mergeable &&
+    pullRequest.requiredChecks.every((check) => check.status === "success" || check.status === "skipped")
+  );
 }
 
 function hasFailedRequiredChecks(pullRequest: TaskPullRequest): boolean {
@@ -239,29 +242,28 @@ function normalizeRequiredCheck(entry: unknown): TaskPullRequestCheck | null {
   };
 
   const name = candidate.name ?? candidate.context;
-  const rawState = candidate.state ?? candidate.status;
+  const rawState = candidate.state ?? candidate.status ?? candidate.conclusion;
 
-  if (!name || !rawState) {
+  if (!name) {
     return null;
   }
 
   return {
     name,
-    status: normalizeCheckState(rawState, candidate.conclusion ?? null),
+    status: normalizeCheckState(rawState ?? null, candidate.conclusion ?? null),
     conclusion: candidate.conclusion ?? null,
   };
 }
 
-function normalizeCheckState(state: string, conclusion: string | null): TaskPullRequestCheck["status"] {
-  const normalizedState = state.toUpperCase();
+function normalizeCheckState(state: string | null, conclusion: string | null): TaskPullRequestCheck["status"] {
+  const normalizedState = state?.toUpperCase() ?? null;
   const normalizedConclusion = conclusion?.toUpperCase() ?? null;
 
-  if (
-    normalizedState === "SUCCESS" ||
-    normalizedConclusion === "SUCCESS" ||
-    normalizedConclusion === "NEUTRAL" ||
-    normalizedConclusion === "SKIPPED"
-  ) {
+  if (normalizedConclusion === "SKIPPED" || normalizedState === "SKIPPED") {
+    return "skipped";
+  }
+
+  if (normalizedState === "SUCCESS" || normalizedConclusion === "SUCCESS" || normalizedConclusion === "NEUTRAL") {
     return "success";
   }
 
@@ -276,5 +278,36 @@ function normalizeCheckState(state: string, conclusion: string | null): TaskPull
     return "pending";
   }
 
-  return "failed";
+  if (
+    normalizedState === "FAILURE" ||
+    normalizedState === "FAILED" ||
+    normalizedState === "ERROR" ||
+    normalizedState === "TIMED_OUT" ||
+    normalizedState === "CANCELLED" ||
+    normalizedState === "ACTION_REQUIRED" ||
+    normalizedState === "STARTUP_FAILURE" ||
+    normalizedConclusion === "FAILURE" ||
+    normalizedConclusion === "FAILED" ||
+    normalizedConclusion === "ERROR" ||
+    normalizedConclusion === "TIMED_OUT" ||
+    normalizedConclusion === "CANCELLED" ||
+    normalizedConclusion === "ACTION_REQUIRED" ||
+    normalizedConclusion === "STARTUP_FAILURE"
+  ) {
+    return "failed";
+  }
+
+  if (normalizedState === "COMPLETED" && normalizedConclusion === null) {
+    return "unknown";
+  }
+
+  if (normalizedState === "COMPLETED" && normalizedConclusion !== null) {
+    return normalizeCheckState(normalizedConclusion, normalizedConclusion);
+  }
+
+  if (normalizedState === null && normalizedConclusion === null) {
+    return "unknown";
+  }
+
+  return "unknown";
 }

@@ -277,7 +277,11 @@ function isPullRequest(value: TaskRecord["pullRequest"] | undefined): boolean {
         typeof check === "object" &&
         check !== null &&
         typeof check.name === "string" &&
-        (check.status === "pending" || check.status === "success" || check.status === "failed") &&
+        (check.status === "pending" ||
+          check.status === "success" ||
+          check.status === "failed" ||
+          check.status === "skipped" ||
+          check.status === "unknown") &&
         (typeof check.conclusion === "string" || check.conclusion === null),
     ) &&
     (typeof value.lastSyncedAt === "string" || value.lastSyncedAt === null) &&
@@ -349,8 +353,30 @@ function normalizeLegacyPullRequest(candidate: Partial<TaskRecord>): TaskRecord[
   return {
     ...current,
     mergeStateStatus: current.mergeStateStatus ?? null,
+    requiredChecks: normalizeLegacyPullRequestChecks(current.requiredChecks),
     lastSyncedHeadSha: current.lastSyncedHeadSha ?? null,
   };
+}
+
+function normalizeLegacyPullRequestChecks(
+  checks: TaskRecord["pullRequest"]["requiredChecks"] | undefined,
+): TaskRecord["pullRequest"]["requiredChecks"] {
+  if (!Array.isArray(checks)) {
+    return [];
+  }
+
+  return checks.map((check) => ({
+    ...check,
+    status:
+      check.status === "pending" ||
+      check.status === "success" ||
+      check.status === "failed" ||
+      check.status === "skipped" ||
+      check.status === "unknown"
+        ? check.status
+        : "unknown",
+    conclusion: check.conclusion ?? null,
+  }));
 }
 
 function normalizeLegacyArtifacts(candidate: Partial<TaskRecord>): TaskRecord["artifacts"] {

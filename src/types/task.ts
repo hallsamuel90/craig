@@ -34,7 +34,7 @@ export interface TaskChecks {
 
 export interface TaskPullRequestCheck {
   name: string;
-  status: "pending" | "success" | "failed";
+  status: "pending" | "success" | "failed" | "skipped" | "unknown";
   conclusion: string | null;
 }
 

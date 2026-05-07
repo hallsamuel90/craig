@@ -973,6 +973,93 @@ describe("terminal app PTY attach flow", () => {
     expect(ptyRuntime.ensureSession).not.toHaveBeenCalled();
   });
 
+  test("review refresh checks action updates tracked PR checks without attaching a PTY", async () => {
+    const root = await mkdtemp(join(tmpdir(), "craig-ui-app-"));
+    tempRoots.push(root);
+    const paths = await setupWorkspace(root);
+    const { task, stubDir } = await preparePrTask(paths, tempRoots);
+    process.env.PATH = `${stubDir}:${originalPath}`;
+    await writeTask(paths, {
+      ...task,
+      status: "pr_open",
+      pullRequest: {
+        provider: "github",
+        number: 17,
+        url: "https://github.com/example/repo/pull/17",
+        baseBranch: "main",
+        headBranch: task.branch,
+        status: "open",
+        mergeable: false,
+        mergeStateStatus: "UNKNOWN",
+        requiredChecks: [{ name: "ci", status: "pending", conclusion: null }],
+        lastSyncedAt: "2026-05-04T00:00:00.000Z",
+        lastSyncedHeadSha: task.lastCommit?.sha ?? null,
+      },
+    });
+    const viewFile = join(root, "gh-view.json");
+    await writeFile(
+      viewFile,
+      JSON.stringify({
+        number: 17,
+        url: "https://github.com/example/repo/pull/17",
+        baseRefName: "main",
+        headRefName: task.branch,
+        headRefOid: task.lastCommit?.sha,
+        state: "OPEN",
+        mergeable: "MERGEABLE",
+        mergeStateStatus: "CLEAN",
+        statusCheckRollup: [
+          { context: "ci", state: "SUCCESS", conclusion: "SUCCESS" },
+          { context: "docs", state: "COMPLETED", conclusion: "SKIPPED" },
+        ],
+      }),
+      "utf8",
+    );
+    process.env.CRAIG_TEST_GH_VIEW_FILE = viewFile;
+    const terminal = new FakeTerminal();
+    const ptyRuntime = new FakePtyRuntime();
+    const app = startTerminalApp({ terminal, ptyRuntime, uiStateFile: paths.uiStateFile, workspaceRoot: root });
+    await vi.waitFor(() => expect(terminal.hasKeyListener()).toBe(true));
+
+    terminal.emitKey("\r"); // boot start
+    terminal.emitKey("TAB"); // inspector
+    terminal.emitKey("RIGHT"); // review
+    await vi.waitFor(() => expect(stripAnsi(terminal.frames.at(-1) ?? "")).toContain("[REVIEW]"));
+    terminal.emitKey("R");
+    await vi.waitFor(() => expect(stripAnsi(terminal.frames.at(-1) ?? "")).toContain("Refreshed checks: 2 reported"));
+    terminal.emitKey("q");
+
+    await expect(app).resolves.toBe(0);
+    const updatedTask = await readTask(paths, task.id);
+    expect(updatedTask.pullRequest.requiredChecks.map((check) => `${check.name}:${check.status}`)).toEqual([
+      "ci:success",
+      "docs:skipped",
+    ]);
+    expect(updatedTask.status).toBe("merge_ready");
+    expect(ptyRuntime.ensureSession).not.toHaveBeenCalled();
+  });
+
+  test("review refresh checks action shows missing PR errors and keeps Craig usable", async () => {
+    const root = await mkdtemp(join(tmpdir(), "craig-ui-app-"));
+    tempRoots.push(root);
+    const paths = await setupWorkspace(root);
+    const terminal = new FakeTerminal();
+    const ptyRuntime = new FakePtyRuntime();
+    const app = startTerminalApp({ terminal, ptyRuntime, uiStateFile: paths.uiStateFile, workspaceRoot: root });
+    await vi.waitFor(() => expect(terminal.hasKeyListener()).toBe(true));
+
+    terminal.emitKey("\r"); // boot start
+    terminal.emitKey("TAB"); // inspector
+    terminal.emitKey("RIGHT"); // review
+    await vi.waitFor(() => expect(stripAnsi(terminal.frames.at(-1) ?? "")).toContain("[REVIEW]"));
+    terminal.emitKey("R");
+    await vi.waitFor(() => expect(stripAnsi(terminal.frames.at(-1) ?? "")).toContain("no tracked PR"));
+    terminal.emitKey("q");
+
+    await expect(app).resolves.toBe(0);
+    expect(ptyRuntime.ensureSession).not.toHaveBeenCalled();
+  });
+
   test("ctrl-c from an attached agent stays in the same agent PTY", async () => {
     const root = await mkdtemp(join(tmpdir(), "craig-ui-app-"));
     tempRoots.push(root);

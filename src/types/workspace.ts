@@ -37,6 +37,6 @@ export interface CraigUiRuntime {
   selectedFilePath?: string | null;
   selectedDiffPath?: string | null;
   collapsedFileTreePaths?: string[];
-  selectedActionId?: "commit" | "push" | "create-pr" | "merge" | "close-task";
+  selectedActionId?: "commit" | "push" | "create-pr" | "refresh-checks" | "merge" | "close-task";
   updatedAt: string;
 }

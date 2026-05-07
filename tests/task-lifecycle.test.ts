@@ -6,7 +6,7 @@ import { afterEach, describe, expect, test } from "vitest";
 
 import { commitTask } from "../src/services/commit-task.js";
 import { mergeTask } from "../src/services/merge-task.js";
-import { openPullRequest } from "../src/services/open-pull-request.js";
+import { openPullRequest, refreshPullRequestChecks } from "../src/services/open-pull-request.js";
 import { runChecks } from "../src/services/run-checks.js";
 import { showTask } from "../src/services/show-task.js";
 import { readTask } from "../src/state/task-store.js";
@@ -155,7 +155,7 @@ describe("task lifecycle services", () => {
     expect(task.pullRequest.lastSyncedHeadSha).toBe(headSha);
   });
 
-  test("openPullRequest treats skipped required checks as successful", async () => {
+  test("openPullRequest treats skipped required checks as non-blocking but distinct", async () => {
     const repoRoot = await createRepoRoot("craig-pr-skipped-checks-");
     tempRoots.push(repoRoot);
     const { paths, worktreePath, stubDir } = await createTrackedTaskRepo(repoRoot);
@@ -195,7 +195,7 @@ describe("task lifecycle services", () => {
 
     expect(result.status).toBe("merge_ready");
     expect(task.status).toBe("merge_ready");
-    expect(task.pullRequest.requiredChecks[0]?.status).toBe("success");
+    expect(task.pullRequest.requiredChecks[0]?.status).toBe("skipped");
   });
 
   test("openPullRequest treats GitHub check runs with in-progress status as pending", async () => {
@@ -240,6 +240,126 @@ describe("task lifecycle services", () => {
     expect(task.status).toBe("pr_open");
     expect(task.pullRequest.requiredChecks[0]?.name).toBe("ci");
     expect(task.pullRequest.requiredChecks[0]?.status).toBe("pending");
+  });
+
+  test("openPullRequest preserves failed and unknown GitHub check states distinctly", async () => {
+    const repoRoot = await createRepoRoot("craig-pr-check-states-");
+    tempRoots.push(repoRoot);
+    const { paths, worktreePath, stubDir } = await createTrackedTaskRepo(repoRoot);
+    process.env.PATH = `${stubDir}:${originalPath}`;
+
+    const viewFile = path.join(repoRoot, "gh-view.json");
+    await writeFile(
+      viewFile,
+      JSON.stringify({
+        number: 17,
+        url: "https://github.com/example/repo/pull/17",
+        baseRefName: "main",
+        headRefName: "craig/task_1",
+        state: "OPEN",
+        mergeable: "MERGEABLE",
+        mergeStateStatus: "UNSTABLE",
+        statusCheckRollup: [
+          { context: "ci", state: "FAILURE", conclusion: "FAILURE" },
+          { context: "build", state: "COMPLETED", conclusion: "STARTUP_FAILURE" },
+          { context: "coverage", state: "MYSTERY", conclusion: null },
+        ],
+      }),
+      "utf8",
+    );
+    process.env.CRAIG_TEST_GH_VIEW_FILE = viewFile;
+
+    await writeTaskRecord(paths.repoRoot, {
+      id: "task_1",
+      status: "checked",
+      branch: "craig/task_1",
+      worktreePath,
+      lastCommit: {
+        sha: "abc1234",
+        message: "ship task",
+        committedAt: "2026-04-21T00:00:00.000Z",
+      },
+    });
+
+    const result = await openPullRequest(paths, "task_1", { watch: false });
+    const task = await readTask(paths, "task_1");
+
+    expect(result.status).toBe("pr_open");
+    expect(task.status).toBe("pr_open");
+    expect(task.pullRequest.requiredChecks.map((check) => check.status)).toEqual(["failed", "failed", "unknown"]);
+  });
+
+  test("refreshPullRequestChecks refreshes existing PR checks without pushing or creating", async () => {
+    const repoRoot = await createRepoRoot("craig-pr-refresh-checks-");
+    tempRoots.push(repoRoot);
+    const { paths, worktreePath, stubDir } = await createTrackedTaskRepo(repoRoot);
+    process.env.PATH = `${stubDir}:${originalPath}`;
+
+    const viewFile = path.join(repoRoot, "gh-view.json");
+    await writeFile(
+      viewFile,
+      JSON.stringify({
+        number: 17,
+        url: "https://github.com/example/repo/pull/17",
+        baseRefName: "main",
+        headRefName: "craig/task_1",
+        headRefOid: "remote123",
+        state: "OPEN",
+        mergeable: "MERGEABLE",
+        mergeStateStatus: "CLEAN",
+        statusCheckRollup: [
+          { context: "ci", state: "SUCCESS", conclusion: "SUCCESS" },
+          { context: "docs", state: "COMPLETED", conclusion: "SKIPPED" },
+        ],
+      }),
+      "utf8",
+    );
+    process.env.CRAIG_TEST_GH_VIEW_FILE = viewFile;
+
+    await writeTaskRecord(paths.repoRoot, {
+      id: "task_1",
+      status: "pr_open",
+      branch: "craig/task_1",
+      worktreePath,
+      pullRequest: {
+        provider: "github",
+        number: 17,
+        url: "https://github.com/example/repo/pull/17",
+        baseBranch: "main",
+        headBranch: "craig/task_1",
+        status: "open",
+        mergeable: false,
+        mergeStateStatus: "UNKNOWN",
+        requiredChecks: [{ name: "ci", status: "pending", conclusion: null }],
+        lastSyncedAt: "2026-04-21T00:00:00.000Z",
+        lastSyncedHeadSha: "abc1234",
+      },
+    });
+
+    await refreshPullRequestChecks(paths, "task_1");
+    const task = await readTask(paths, "task_1");
+
+    expect(task.status).toBe("merge_ready");
+    expect(task.pullRequest.requiredChecks.map((check) => `${check.name}:${check.status}`)).toEqual([
+      "ci:success",
+      "docs:skipped",
+    ]);
+    expect(task.pullRequest.lastSyncedHeadSha).toBe("remote123");
+  });
+
+  test("refreshPullRequestChecks fails clearly when no PR is tracked", async () => {
+    const repoRoot = await createRepoRoot("craig-pr-refresh-no-pr-");
+    tempRoots.push(repoRoot);
+    const paths = await createCraigState(repoRoot);
+    await mkdir(path.join(repoRoot, "worktree"), { recursive: true });
+    await writeTaskRecord(paths.repoRoot, {
+      id: "task_1",
+      status: "checked",
+      worktreePath: path.join(repoRoot, "worktree"),
+    });
+
+    await expect(refreshPullRequestChecks(paths, "task_1")).rejects.toThrow(/no tracked PR/);
+    expect((await readTask(paths, "task_1")).pullRequest.number).toBeNull();
   });
 
   test("openPullRequest pushes new commits when refreshing an existing PR", async () => {

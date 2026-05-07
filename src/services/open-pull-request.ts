@@ -77,3 +77,17 @@ export async function refreshTrackedPullRequest(paths: CraigPaths, taskId: strin
   await refreshPullRequestState(paths, task);
   return task;
 }
+
+export async function refreshPullRequestChecks(paths: CraigPaths, taskId: string) {
+  const task = await getTaskOrThrow(paths, taskId);
+
+  if (!task.pullRequest.number) {
+    throw new Error("no tracked PR.");
+  }
+
+  await assertTaskWorktreeExists(task);
+  await ensureGhAuthenticated(task.worktreePath);
+  await refreshPullRequestState(paths, task);
+  await writePrStatusArtifact(paths, task);
+  return task;
+}

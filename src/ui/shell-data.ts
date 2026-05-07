@@ -1,7 +1,7 @@
 import path from "node:path";
 
 import type { InspectionDiffGroup, InspectionDiffRow, TaskLocalInspection } from "../services/task-local-inspection.js";
-import type { TaskPtyTabRecord, TaskRecord } from "../types/task.js";
+import type { TaskPullRequestCheck, TaskPtyTabRecord, TaskRecord } from "../types/task.js";
 import type { RepoRecord } from "../types/workspace.js";
 import { INSPECTION_TAB_ID } from "./state.js";
 import type { TerminalCellStyle, TerminalRowSegment } from "./terminal-emulator.js";
@@ -122,6 +122,7 @@ const ACTION_FIXTURES: Array<{ id: ActionId; label: string; shortcut: string }> 
   { id: "commit", label: "commit", shortcut: "c" },
   { id: "push", label: "push", shortcut: "p" },
   { id: "create-pr", label: "create pr", shortcut: "P" },
+  { id: "refresh-checks", label: "refresh checks", shortcut: "R" },
   { id: "merge", label: "merge", shortcut: "m" },
   { id: "close-task", label: "close task", shortcut: "x" },
 ];
@@ -189,7 +190,7 @@ export function buildShellData(state: ControlShellState, model: WorkspaceShellMo
     centerTranscript: buildCenterTranscript(activeTabId, state, selectedRepo, selectedTask, state.workspaceBrowser, model.inspection),
     tabs,
     rightContext: buildContextRows(selectedRepo, selectedTask),
-    rightInspection: buildInspectionSection(state, selectedTask, model.inspection, checkRows, buildActionRows(state)),
+    rightInspection: buildInspectionSection(state, selectedTask, model.inspection, buildActionRows(state)),
     rightChecks: checkRows,
     rightActions: buildActionRows(state),
   };
@@ -672,14 +673,13 @@ function buildInspectionSection(
   state: ControlShellState,
   task: TaskRecord | null,
   inspection: TaskLocalInspection | null,
-  checks: ShellCheckRow[],
   actions: ShellActionRow[],
 ): ShellInspectionSection | null {
   const modeRows = [renderInspectionModeRow(state), { id: "mode-spacer", text: "", muted: true }];
   if (state.inspectionMode === "review") {
     return {
       title: "",
-      rows: [...modeRows, ...buildReviewInspectionRows(state, task, checks, actions)],
+      rows: [...modeRows, ...buildReviewInspectionRows(state, task, actions)],
     };
   }
 
@@ -719,18 +719,9 @@ function buildActionRows(state: ControlShellState): ShellActionRow[] {
   }));
 }
 
-function renderCheckInspectionRow(row: ShellCheckRow): ShellInspectionRow {
-  return {
-    id: row.label,
-    text: `${row.status} ${row.label.padEnd(14, " ")} ${row.result.padEnd(8, " ")} ${row.duration}`,
-    muted: !row.success,
-  };
-}
-
 function buildReviewInspectionRows(
   state: ControlShellState,
   task: TaskRecord | null,
-  checks: ShellCheckRow[],
   actions: ShellActionRow[],
 ): ShellInspectionRow[] {
   if (!task) {
@@ -739,7 +730,12 @@ function buildReviewInspectionRows(
 
   const pr = task.pullRequest;
   const createPrAction = actions.find((action) => action.id === "create-pr");
+  const refreshChecksAction = actions.find((action) => action.id === "refresh-checks");
   const actionLabel = pr.number ? "sync pr" : "create pr";
+  const reviewActionRows = [
+    renderReviewActionRow("create-pr", actionLabel, createPrAction?.shortcut ?? "P", state),
+    renderReviewActionRow("refresh-checks", "refresh checks", refreshChecksAction?.shortcut ?? "R", state, !pr.number),
+  ];
   const rows: ShellInspectionRow[] = [
     { id: "review-title", text: "PR", muted: true },
     pr.number
@@ -753,17 +749,107 @@ function buildReviewInspectionRows(
     { id: "pr-sha", text: `sha ${formatNullableSha(pr.lastSyncedHeadSha)}`, muted: pr.lastSyncedHeadSha === null },
     { id: "review-spacer", text: "" },
     { id: "review-checks", text: "Checks", muted: true },
-    ...checks.map(renderCheckInspectionRow),
+    ...buildPullRequestCheckRows(task),
+    { id: "review-guidance-spacer", text: "" },
+    renderReviewGuidance(task),
     { id: "review-action-spacer", text: "" },
-    {
-      id: "create-pr",
-      text: `${actionLabel.padEnd(18, " ")} ${createPrAction?.shortcut ?? "P"}`,
-      selected: true,
-      focused: state.focusedRegion === "inspector" && state.inspectionMode === "review",
-    },
+    ...reviewActionRows,
   ];
 
   return rows;
+}
+
+function renderReviewActionRow(
+  id: ActionId,
+  label: string,
+  shortcut: string,
+  state: ControlShellState,
+  muted = false,
+): ShellInspectionRow {
+  return {
+    id,
+    text: `${label.padEnd(18, " ")} ${shortcut}`,
+    selected: id === state.selectedActionId || (id === "create-pr" && state.selectedActionId !== "refresh-checks"),
+    focused:
+      state.focusedRegion === "inspector" &&
+      state.inspectionMode === "review" &&
+      (id === state.selectedActionId || (id === "create-pr" && state.selectedActionId !== "refresh-checks")),
+    muted,
+  };
+}
+
+function buildPullRequestCheckRows(task: TaskRecord): ShellInspectionRow[] {
+  if (!task.pullRequest.number) {
+    return [{ id: "pr-checks-none", text: "Create a PR to start remote checks.", muted: true }];
+  }
+
+  if (task.pullRequest.requiredChecks.length === 0) {
+    return [{ id: "pr-checks-empty", text: "No GitHub checks reported.", muted: true }];
+  }
+
+  return task.pullRequest.requiredChecks.map(renderPullRequestCheckRow);
+}
+
+function renderPullRequestCheckRow(check: TaskPullRequestCheck): ShellInspectionRow {
+  const symbol = formatPullRequestCheckSymbol(check.status);
+  const label = check.name.length > 16 ? `${check.name.slice(0, 15)}…` : check.name;
+  return {
+    id: `pr-check:${check.name}`,
+    text: `${symbol} ${label.padEnd(16, " ")} ${formatPullRequestCheckStatus(check.status)}`,
+    muted: check.status !== "success" && check.status !== "skipped",
+  };
+}
+
+function formatPullRequestCheckSymbol(status: TaskPullRequestCheck["status"]): string {
+  if (status === "success") {
+    return "✓";
+  }
+  if (status === "skipped") {
+    return "-";
+  }
+  if (status === "failed") {
+    return "!";
+  }
+  if (status === "unknown") {
+    return "?";
+  }
+  return "○";
+}
+
+function formatPullRequestCheckStatus(status: TaskPullRequestCheck["status"]): string {
+  if (status === "success") {
+    return "passing";
+  }
+  if (status === "failed") {
+    return "failing";
+  }
+  return status;
+}
+
+function renderReviewGuidance(task: TaskRecord): ShellInspectionRow {
+  const pr = task.pullRequest;
+
+  if (!pr.number) {
+    return { id: "review-guidance", text: "Next: create PR.", muted: true };
+  }
+
+  if (pr.requiredChecks.some((check) => check.status === "failed")) {
+    return { id: "review-guidance", text: "Next: fix failing checks." };
+  }
+
+  if (pr.requiredChecks.some((check) => check.status === "unknown")) {
+    return { id: "review-guidance", text: "Next: refresh unknown checks." };
+  }
+
+  if (pr.requiredChecks.some((check) => check.status === "pending")) {
+    return { id: "review-guidance", text: "Next: waiting on CI.", muted: true };
+  }
+
+  if (pr.mergeable && pr.status === "open") {
+    return { id: "review-guidance", text: "Next: ready for merge in 4.4." };
+  }
+
+  return { id: "review-guidance", text: "Next: review PR state.", muted: true };
 }
 
 function formatNullableValue(value: string | null): string {

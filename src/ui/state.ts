@@ -9,7 +9,8 @@ export const LEGACY_PTY_SURFACE_IDS = ["agent", "terminal"] as const;
 export const FIXED_CENTER_TAB_IDS = [] as const;
 export const INSPECTION_TAB_ID = "inspection";
 export const CENTER_TAB_IDS = [...LEGACY_PTY_SURFACE_IDS, ...FIXED_CENTER_TAB_IDS] as const;
-export const ACTION_IDS = ["commit", "push", "create-pr", "merge", "close-task"] as const;
+export const ACTION_IDS = ["commit", "push", "create-pr", "refresh-checks", "merge", "close-task"] as const;
+const REVIEW_ACTION_IDS = ["create-pr", "refresh-checks"] as const;
 export const INSPECTOR_SECTION_IDS = ["task", "checks", "pr", "setup-run", "actions", "next-action"] as const;
 export const INSPECTION_MODE_IDS = ["diff", "files", "review"] as const;
 
@@ -96,6 +97,7 @@ export interface MainKeyResult {
   createPtyTabKind: TaskPtyTabKind | null;
   closePtyTab: boolean;
   syncPullRequest: boolean;
+  refreshPullRequestChecks: boolean;
   refreshInspection: boolean;
 }
 
@@ -300,9 +302,17 @@ export function reduceMainKey(state: ControlShellState, key: string, options: Re
 
   if ((key === "P" || key === "p") && state.focusedRegion === "inspector" && state.inspectionMode === "review") {
     return result({
-      state: { ...state, actionMessage: null },
+      state: { ...state, selectedActionId: "create-pr", actionMessage: null },
       changed: true,
       syncPullRequest: true,
+    });
+  }
+
+  if ((key === "R" || key === "r") && state.focusedRegion === "inspector" && state.inspectionMode === "review") {
+    return result({
+      state: { ...state, selectedActionId: "refresh-checks", actionMessage: null },
+      changed: true,
+      refreshPullRequestChecks: true,
     });
   }
 
@@ -434,9 +444,21 @@ export function reduceMainKey(state: ControlShellState, key: string, options: Re
     }
 
     if (state.focusedRegion === "inspector" && state.inspectionMode === "review") {
+      if (state.selectedActionId === "refresh-checks") {
+        return result({
+          state: {
+            ...state,
+            actionMessage: null,
+          },
+          changed: true,
+          refreshPullRequestChecks: true,
+        });
+      }
+
       return result({
         state: {
           ...state,
+          selectedActionId: "create-pr",
           actionMessage: null,
         },
         changed: true,
@@ -569,7 +591,7 @@ function moveSelection(state: ControlShellState, direction: -1 | 1, options: Red
       return next.changed ? { ...next, state: { ...next.state, diffScrollOffset: 0 } } : next;
     }
 
-    return result({ state });
+    return updateIndexedValue(state, "selectedActionId", REVIEW_ACTION_IDS, direction);
   }
 
   return updateIndexedValue(state, "selectedActionId", ACTION_IDS, direction);
@@ -771,6 +793,7 @@ function result(input: {
   createPtyTabKind?: TaskPtyTabKind | null;
   closePtyTab?: boolean;
   syncPullRequest?: boolean;
+  refreshPullRequestChecks?: boolean;
   refreshInspection?: boolean;
 }): MainKeyResult {
   return {
@@ -786,6 +809,7 @@ function result(input: {
     createPtyTabKind: input.createPtyTabKind ?? null,
     closePtyTab: input.closePtyTab ?? false,
     syncPullRequest: input.syncPullRequest ?? false,
+    refreshPullRequestChecks: input.refreshPullRequestChecks ?? false,
     refreshInspection: input.refreshInspection ?? false,
   };
 }

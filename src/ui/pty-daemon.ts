@@ -131,19 +131,17 @@ export class DaemonPtyRuntimeClient {
   }
 
   async hydrateSessions(tabIds: string[]): Promise<void> {
-    await Promise.all(
-      tabIds.map(async (tabId) => {
-        try {
-          const response = await this.send({ type: "hydrateSession", tabId });
-          if (response.view) {
-            this.viewCache.set(tabId, response.view);
-          }
-        } catch (error) {
-          const message = error instanceof Error ? error.message : String(error);
-          this.viewCache.set(tabId, { status: "failed", rows: [], error: message });
+    for (const tabId of tabIds) {
+      try {
+        const response = await this.send({ type: "hydrateSession", tabId });
+        if (response.view) {
+          this.viewCache.set(tabId, response.view);
         }
-      }),
-    );
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        this.viewCache.set(tabId, { status: "failed", rows: [], error: message });
+      }
+    }
   }
 
   write(input: string): void {

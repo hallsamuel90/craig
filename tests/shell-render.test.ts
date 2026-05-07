@@ -241,7 +241,7 @@ describe("terminal shell renderer", () => {
     expect(frame).toContain("\u001B[38;2;86;156;214;48;2;16;33;15mexport");
   });
 
-  test("renders review panel with tracked PR metadata and create sync action", () => {
+  test("renders review panel with tracked PR metadata, GitHub checks, guidance, and actions", () => {
     const task = buildTaskRecord("/tmp/craig", {
       id: "task_20260430_02",
       repoId: "repo_bug_fixes",
@@ -255,7 +255,10 @@ describe("terminal shell renderer", () => {
         status: "open",
         mergeable: true,
         mergeStateStatus: "CLEAN",
-        requiredChecks: [{ name: "ci", status: "success", conclusion: "SUCCESS" }],
+        requiredChecks: [
+          { name: "ci", status: "success", conclusion: "SUCCESS" },
+          { name: "docs", status: "skipped", conclusion: "SKIPPED" },
+        ],
         lastSyncedAt: "2026-05-06T00:00:00.000Z",
         lastSyncedHeadSha: "abcdef123456",
       },
@@ -282,7 +285,65 @@ describe("terminal shell renderer", () => {
     expect(frame).toContain("CHANGES FILES [REVIEW]");
     expect(frame).toContain("#17 open");
     expect(frame).toContain("sha abcdef1");
+    expect(frame).toContain("✓ ci");
+    expect(frame).toContain("- docs");
+    expect(frame).toContain("Next: ready for merge in 4.4.");
     expect(frame).toContain("sync pr");
+    expect(frame).toContain("refresh checks");
+  });
+
+  test("renders review guidance for failed and unknown checks", () => {
+    const baseTask = buildTaskRecord("/tmp/craig", {
+      id: "task_20260430_02",
+      repoId: "repo_bug_fixes",
+      workspaceId: "workspace_bug_fixes",
+      pullRequest: {
+        provider: "github",
+        number: 17,
+        url: "https://github.com/example/repo/pull/17",
+        baseBranch: "main",
+        headBranch: "craig/task_20260430_02",
+        status: "open",
+        mergeable: true,
+        mergeStateStatus: "CLEAN",
+        requiredChecks: [{ name: "ci", status: "failed", conclusion: "FAILURE" }],
+        lastSyncedAt: "2026-05-06T00:00:00.000Z",
+        lastSyncedHeadSha: "abcdef123456",
+      },
+    });
+    const model = {
+      workspaceRoot: "/tmp/craig",
+      repos: [{ id: "repo_bug_fixes", name: "bug-fixes", rootPath: "/tmp/craig", defaultBranch: "main", createdAt: "", updatedAt: "" }],
+      tasks: [baseTask],
+      inspection: null,
+    };
+    const state = {
+      ...createInitialShellState(null),
+      selectedRepoId: "repo_bug_fixes",
+      selectedTaskId: baseTask.id,
+      selectedLeftItemId: `task:${baseTask.id}`,
+      focusedRegion: "inspector" as const,
+      inspectionMode: "review" as const,
+    };
+
+    const failed = renderMainShellFrame(MIN_VIEWPORT, buildShellData(state, model), { color: false });
+    const unknownTask = {
+      ...baseTask,
+      pullRequest: {
+        ...baseTask.pullRequest,
+        requiredChecks: [{ name: "coverage", status: "unknown" as const, conclusion: null }],
+      },
+    };
+    const unknown = renderMainShellFrame(
+      MIN_VIEWPORT,
+      buildShellData(state, { ...model, tasks: [unknownTask] }),
+      { color: false },
+    );
+
+    expect(failed).toContain("! ci");
+    expect(failed).toContain("Next: fix failing checks.");
+    expect(unknown).toContain("? coverage");
+    expect(unknown).toContain("Next: refresh unknown checks.");
   });
 
   test("renders the PTY terminal surface and terminal-mode hint", () => {
