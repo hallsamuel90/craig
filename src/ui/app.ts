@@ -13,6 +13,7 @@ import { listTasks } from "../services/list-tasks.js";
 import { provisionTask } from "../services/task-provisioning.js";
 import { addRepo } from "../services/repo-registry.js";
 import { loadTaskLocalInspection, type InspectionTreeRow } from "../services/task-local-inspection.js";
+import { openPullRequest } from "../services/open-pull-request.js";
 import { buildShellData, type WorkspaceShellModel } from "./shell-data.js";
 import { getViewport, SHELL_LAYOUT, type Viewport } from "./layout.js";
 import { PtyRuntime, type PtyRuntimeOptions, type PtySize } from "./pty-runtime.js";
@@ -362,6 +363,25 @@ export async function startTerminalApp(options: TerminalAppOptions = {}): Promis
         selectedPtyTabId: nextSelectedTab?.id ?? null,
         focusedRegion: "center",
         actionMessage: `Closed tab: ${closedTab.title}`,
+      });
+    }
+
+    async function syncPullRequestFromShell(shell: ControlShellState): Promise<ControlShellState> {
+      const syncedShell = syncShell(shell);
+      if (!syncedShell.selectedTaskId) {
+        throw new Error("Select a task before creating or syncing a PR.");
+      }
+
+      const beforeTask = await readTask(paths, syncedShell.selectedTaskId);
+      const result = await openPullRequest(paths, syncedShell.selectedTaskId, { watch: false });
+      await reloadModel();
+
+      const action = beforeTask.pullRequest.number ? "Synced PR" : "Created PR";
+      return syncShell({
+        ...syncedShell,
+        focusedRegion: "inspector",
+        inspectionMode: "review",
+        actionMessage: `${action}: #${result.prNumber} ${result.url}`,
       });
     }
 
@@ -829,6 +849,21 @@ export async function startTerminalApp(options: TerminalAppOptions = {}): Promis
             })
             .catch((error: unknown) => {
               const message = error instanceof Error ? error.message : "Failed to close tab.";
+              state = { mode: "main", shell: syncShell({ ...result.state, actionMessage: message }) };
+              render();
+            });
+          return;
+        }
+
+        if (result.syncPullRequest) {
+          void syncPullRequestFromShell(result.state)
+            .then((nextShell) => {
+              state = { mode: "main", shell: nextShell };
+              persistShellState(state.shell);
+              render();
+            })
+            .catch((error: unknown) => {
+              const message = error instanceof Error ? error.message : "Failed to create or sync PR.";
               state = { mode: "main", shell: syncShell({ ...result.state, actionMessage: message }) };
               render();
             });

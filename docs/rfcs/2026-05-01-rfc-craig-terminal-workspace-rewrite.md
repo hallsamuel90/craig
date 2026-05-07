@@ -259,7 +259,7 @@ Required durable concerns:
 - `3.3` Add explicit multi-tab task runtime management on top of the multi-PTY task model: `implemented and verified`
 - `3.4` Add a background daemon that preserves live PTY sessions across Craig UI exits and restarts: `pending; parallelizable with 4.2`
 - `4.1` Add local files and diff inspection with right-panel navigation and center-panel detail views: `implemented and verified`
-- `4.2` Add PR creation and sync for task branches, including persisted PR metadata: `pending`
+- `4.2` Add PR creation and sync for task branches, including persisted PR metadata: `implemented and verified`
 - `4.3` Add checks and CI status reading for tracked PRs and head commits: `pending`
 - `4.4` Add guarded PR merge and task close flow from Craig: `pending`
 - `5.1` Add Cursor and Claude runner support alongside Codex: `pending`
@@ -279,7 +279,7 @@ Required durable concerns:
 - `3.3` Verified by replacing the fixed `Agent`/`Terminal` center-tab assumption with concrete task-scoped PTY tabs rendered alongside fixed `Files`, `Diff`, and `Logs` surfaces; adding `+` tab creation and `x` tab close while the center pane is focused; generating stable task-scoped ids and automatic titles such as `Codex 2` and `Terminal 2`; persisting concrete active PTY tab ids through task records and UI runtime state; migrating legacy persisted `agent` and `terminal` surfaces to the selected task's concrete tabs; disposing process-local PTY sessions when their tab closes; and keeping task-row Enter attach semantics pointed at the selected or default agent tab. Automated verification covers mixed center tab construction, create/close reducer intents, exact concrete-tab attach, second terminal and agent tab launch, runtime session disposal on close, stale/closed tab restore fallback, concrete tab restart restore, and the real terminal E2E attach contracts updated for the concrete-tab UX. `pnpm test`, `pnpm typecheck`, `pnpm lint`, and `pnpm build` passed locally.
 - `3.4` Not yet verified; now a parallelizable pending phase after `3.3` landed the concrete task-scoped PTY tab model. It may proceed beside `4.2` as long as it stays scoped to daemon-owned PTY/session survival and does not alter PR, checks, merge, or task-review semantics.
 - `4.1` Verified by adding a local inspection service that indexes Git-visible files, excludes ignored files, splits local changes into staged, unstaged, and untracked groups, and guards binary or oversized file/diff previews. The Craig shell now has four focus regions (`tasks`, `center`, `inspector`, `actions`), persists selected file and diff paths, restores stale inspection paths to valid rows, and renders `Files`/`Diff` as stable center tabs with right-panel navigation and center-panel detail content. Automated coverage includes file indexing, grouped diff summaries, guarded binary previews, reducer inspector navigation, renderer file/diff layouts, app-level file/diff selection without PTY attach, and existing terminal E2E attach contracts. `pnpm test`, `pnpm typecheck`, `pnpm lint`, and `pnpm build` passed locally.
-- `4.2` Not yet verified.
+- `4.2` Verified by consolidating the right operational sidebar into `CHANGES FILES REVIEW`; mapping legacy `checks` and `actions` inspection modes to `review`; rendering tracked PR metadata, persisted check summary rows, synced timestamp, and synced head SHA in Review; wiring Review `Enter`/`P` to create or sync PRs through the existing Git/GitHub service path; and persisting `TaskPullRequest.lastSyncedHeadSha` after PR refresh. Automated coverage includes PR metadata normalization, PR create and sync service behavior, Review reducer intents, Review renderer output, app-level PR create, app-level PR sync after a newer local commit, GitHub auth failure display, and unchanged file/diff/PTY attach behavior. `pnpm test`, `pnpm typecheck`, `pnpm lint`, and `pnpm build` passed locally.
 - `4.3` Not yet verified.
 - `4.4` Not yet verified.
 - `5.1` Not yet verified.
@@ -289,7 +289,7 @@ Required durable concerns:
 
 ### Next resume point
 
-Resume at the first sub-phase that is not both implemented and verified on the primary review-workflow track. The current primary resume point is `4.2`, which adds PR creation and sync for task branches, including persisted PR metadata. Phase `3.4` is also pending and may be implemented in parallel on a separate daemon/session-survival track.
+Resume at the first sub-phase that is not both implemented and verified on the primary review-workflow track. The current primary resume point is `4.3`, which adds checks and CI status reading for tracked PRs and head commits. Phase `3.4` is also pending and may be implemented in parallel on a separate daemon/session-survival track.
 
 ### Parallelizable phases
 

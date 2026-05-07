@@ -14,6 +14,7 @@ interface GhPrView {
   url: string;
   baseRefName: string;
   headRefName: string;
+  headRefOid?: string | null;
   state: string;
   mergeable: string;
   mergeStateStatus: string | null;
@@ -96,7 +97,7 @@ export async function refreshPullRequestState(
       "view",
       task.pullRequest.number ? String(task.pullRequest.number) : task.branch,
       "--json",
-      "number,url,baseRefName,headRefName,state,mergeable,mergeStateStatus,statusCheckRollup",
+      "number,url,baseRefName,headRefName,headRefOid,state,mergeable,mergeStateStatus,statusCheckRollup",
     ],
     { cwd: task.worktreePath },
   );
@@ -198,6 +199,7 @@ function normalizePullRequest(view: GhPrView): TaskPullRequest {
     mergeStateStatus: view.mergeStateStatus,
     requiredChecks: normalizeRequiredChecks(view.statusCheckRollup),
     lastSyncedAt: new Date().toISOString(),
+    lastSyncedHeadSha: view.headRefOid ?? null,
   };
 }
 

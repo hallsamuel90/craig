@@ -347,18 +347,40 @@ describe("terminal shell control state", () => {
     expect(diff.state.diffScrollOffset).toBe(0);
   });
 
-  test("right-panel inspection modes include checks next to changes and files", () => {
+  test("right-panel inspection modes include review next to changes and files", () => {
     const files = {
       ...seededState(),
       focusedRegion: "inspector" as const,
       inspectionMode: "files" as const,
     };
-    const checks = reduceMainKey(files, "RIGHT", KEY_OPTIONS);
-    const backToFiles = reduceMainKey(checks.state, "LEFT", KEY_OPTIONS);
+    const review = reduceMainKey(files, "RIGHT", KEY_OPTIONS);
+    const backToFiles = reduceMainKey(review.state, "LEFT", KEY_OPTIONS);
 
-    expect(checks.state.inspectionMode).toBe("checks");
-    expect(checks.refreshInspection).toBe(true);
+    expect(review.state.inspectionMode).toBe("review");
+    expect(review.refreshInspection).toBe(true);
     expect(backToFiles.state.inspectionMode).toBe("files");
+  });
+
+  test("legacy checks and actions inspection modes restore to review", () => {
+    const checks = createInitialShellState({
+      version: 1,
+      selectedRepoId: "repo_bug_fixes",
+      selectedWorkspaceId: null,
+      selectedTaskId: "task_20260430_02",
+      inspectionMode: "checks",
+      updatedAt: "2026-05-03T00:00:00.000Z",
+    });
+    const actions = createInitialShellState({
+      version: 1,
+      selectedRepoId: "repo_bug_fixes",
+      selectedWorkspaceId: null,
+      selectedTaskId: "task_20260430_02",
+      inspectionMode: "actions",
+      updatedAt: "2026-05-03T00:00:00.000Z",
+    });
+
+    expect(checks.inspectionMode).toBe("review");
+    expect(actions.inspectionMode).toBe("review");
   });
 
   test("enter on inspector opens the selected inspection mode without attaching a PTY", () => {
@@ -382,6 +404,25 @@ describe("terminal shell control state", () => {
       state: { activeTab: "inspection", openInspectionKind: "diff" },
       attachTerminal: false,
       refreshInspection: true,
+      changed: true,
+    });
+  });
+
+  test("enter and P on review request PR create or sync without attaching a PTY", () => {
+    const review = {
+      ...seededState(),
+      focusedRegion: "inspector" as const,
+      inspectionMode: "review" as const,
+    };
+
+    expect(reduceMainKey(review, "ENTER", KEY_OPTIONS)).toMatchObject({
+      attachTerminal: false,
+      syncPullRequest: true,
+      changed: true,
+    });
+    expect(reduceMainKey(review, "P", KEY_OPTIONS)).toMatchObject({
+      attachTerminal: false,
+      syncPullRequest: true,
       changed: true,
     });
   });

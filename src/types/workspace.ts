@@ -31,7 +31,7 @@ export interface CraigUiRuntime {
   activeTab?: string;
   preferredPtyTabKind?: "agent" | "terminal";
   inspectorSection?: "task" | "checks" | "pr" | "setup-run" | "actions" | "next-action";
-  inspectionMode?: "diff" | "files" | "checks" | "actions";
+  inspectionMode?: "diff" | "files" | "review" | "checks" | "actions";
   openInspectionKind?: "file" | "diff" | null;
   selectedFileTreePath?: string | null;
   selectedFilePath?: string | null;

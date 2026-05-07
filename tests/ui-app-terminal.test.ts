@@ -1,4 +1,4 @@
-import { mkdtemp, mkdir, rm, writeFile } from "node:fs/promises";
+import { mkdtemp, mkdir, rm, symlink, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 
@@ -9,7 +9,7 @@ import type { TerminalViewState } from "../src/ui/state.js";
 import { listRepos } from "../src/state/repo-store.js";
 import { runCommand } from "../src/utils/exec.js";
 import { readTask, writeTask } from "../src/state/task-store.js";
-import { createCraigState, createGitRepo, writeRepoRecord, writeTaskRecord } from "./test-helpers.js";
+import { createCraigState, createGitRepo, createStubCommands, writeRepoRecord, writeTaskRecord } from "./test-helpers.js";
 
 /* eslint-disable no-unused-vars */
 type TerminalEventListener = (...args: unknown[]) => void;
@@ -17,6 +17,9 @@ type TerminalEventListener = (...args: unknown[]) => void;
 
 describe("terminal app PTY attach flow", () => {
   const tempRoots: string[] = [];
+  const originalPath = process.env.PATH ?? "";
+  const originalGhMode = process.env.CRAIG_TEST_GH_MODE;
+  const originalGhViewFile = process.env.CRAIG_TEST_GH_VIEW_FILE;
   let stdinDescriptor: PropertyDescriptor | undefined;
   let stdoutDescriptor: PropertyDescriptor | undefined;
 
@@ -30,6 +33,9 @@ describe("terminal app PTY attach flow", () => {
   afterEach(async () => {
     restoreProperty(process.stdin, "isTTY", stdinDescriptor);
     restoreProperty(process.stdout, "isTTY", stdoutDescriptor);
+    process.env.PATH = originalPath;
+    process.env.CRAIG_TEST_GH_MODE = originalGhMode;
+    process.env.CRAIG_TEST_GH_VIEW_FILE = originalGhViewFile;
     await Promise.all(
       tempRoots.splice(0).map(async (root) => rm(root, { recursive: true, force: true, maxRetries: 3, retryDelay: 50 })),
     );
@@ -786,6 +792,146 @@ describe("terminal app PTY attach flow", () => {
     expect(ptyRuntime.ensureSession).not.toHaveBeenCalled();
   });
 
+  test("review create pr action records tracked PR metadata without attaching a PTY", async () => {
+    const root = await mkdtemp(join(tmpdir(), "craig-ui-app-"));
+    tempRoots.push(root);
+    const paths = await setupWorkspace(root);
+    const { task, stubDir } = await preparePrTask(paths, tempRoots);
+    process.env.PATH = `${stubDir}:${originalPath}`;
+    const viewFile = join(root, "gh-view.json");
+    await writeFile(
+      viewFile,
+      JSON.stringify({
+        number: 17,
+        url: "https://github.com/example/repo/pull/17",
+        baseRefName: "main",
+        headRefName: task.branch,
+        headRefOid: task.lastCommit?.sha,
+        state: "OPEN",
+        mergeable: "MERGEABLE",
+        mergeStateStatus: "CLEAN",
+        statusCheckRollup: [{ context: "ci", state: "SUCCESS", conclusion: "SUCCESS" }],
+      }),
+      "utf8",
+    );
+    process.env.CRAIG_TEST_GH_VIEW_FILE = viewFile;
+    const terminal = new FakeTerminal();
+    const ptyRuntime = new FakePtyRuntime();
+    const app = startTerminalApp({ terminal, ptyRuntime, uiStateFile: paths.uiStateFile, workspaceRoot: root });
+    await vi.waitFor(() => expect(terminal.hasKeyListener()).toBe(true));
+
+    terminal.emitKey("\r"); // boot start
+    terminal.emitKey("TAB"); // inspector
+    terminal.emitKey("RIGHT"); // review
+    await vi.waitFor(() => expect(stripAnsi(terminal.frames.at(-1) ?? "")).toContain("[REVIEW]"));
+    terminal.emitKey("P");
+    await vi.waitFor(() => expect(stripAnsi(terminal.frames.at(-1) ?? "")).toContain("Created PR: #17"));
+    terminal.emitKey("q");
+
+    await expect(app).resolves.toBe(0);
+    const updatedTask = await readTask(paths, task.id);
+    expect(updatedTask.pullRequest.number).toBe(17);
+    expect(updatedTask.pullRequest.url).toBe("https://github.com/example/repo/pull/17");
+    expect(updatedTask.pullRequest.lastSyncedHeadSha).toBe(task.lastCommit?.sha);
+    expect(ptyRuntime.ensureSession).not.toHaveBeenCalled();
+  });
+
+  test("review pr action shows GitHub errors and keeps Craig usable", async () => {
+    const root = await mkdtemp(join(tmpdir(), "craig-ui-app-"));
+    tempRoots.push(root);
+    const paths = await setupWorkspace(root);
+    const { task, stubDir } = await preparePrTask(paths, tempRoots);
+    process.env.PATH = `${stubDir}:${originalPath}`;
+    process.env.CRAIG_TEST_GH_MODE = "auth-fail";
+    const terminal = new FakeTerminal();
+    const ptyRuntime = new FakePtyRuntime();
+    const app = startTerminalApp({ terminal, ptyRuntime, uiStateFile: paths.uiStateFile, workspaceRoot: root });
+    await vi.waitFor(() => expect(terminal.hasKeyListener()).toBe(true));
+
+    terminal.emitKey("\r"); // boot start
+    terminal.emitKey("TAB"); // inspector
+    terminal.emitKey("RIGHT"); // review
+    await vi.waitFor(() => expect(stripAnsi(terminal.frames.at(-1) ?? "")).toContain("[REVIEW]"));
+    terminal.emitKey("P");
+    await vi.waitFor(() => expect(stripAnsi(terminal.frames.at(-1) ?? "")).toContain("gh auth failed"));
+    terminal.emitKey("q");
+
+    await expect(app).resolves.toBe(0);
+    const updatedTask = await readTask(paths, task.id);
+    expect(updatedTask.pullRequest.number).toBeNull();
+    expect(ptyRuntime.ensureSession).not.toHaveBeenCalled();
+  });
+
+  test("review sync pr action pushes a newer commit and refreshes metadata", async () => {
+    const root = await mkdtemp(join(tmpdir(), "craig-ui-app-"));
+    tempRoots.push(root);
+    const paths = await setupWorkspace(root);
+    const { task, stubDir, remoteRepo } = await preparePrTask(paths, tempRoots);
+    process.env.PATH = `${stubDir}:${originalPath}`;
+    const initialSha = task.lastCommit!.sha;
+    await writeFile(join(task.worktreePath, "README.md"), "synced again\n", "utf8");
+    await runCommand("git", ["add", "-A"], { cwd: task.worktreePath });
+    await runCommand("git", ["commit", "-m", "sync task"], { cwd: task.worktreePath });
+    const nextSha = (await runCommand("git", ["rev-parse", "HEAD"], { cwd: task.worktreePath })).stdout.trim();
+    await writeTask(paths, {
+      ...task,
+      pullRequest: {
+        provider: "github",
+        number: 17,
+        url: "https://github.com/example/repo/pull/17",
+        baseBranch: "main",
+        headBranch: task.branch,
+        status: "open",
+        mergeable: false,
+        mergeStateStatus: "UNKNOWN",
+        requiredChecks: [],
+        lastSyncedAt: "2026-05-04T00:00:00.000Z",
+        lastSyncedHeadSha: initialSha,
+      },
+      lastCommit: {
+        sha: nextSha,
+        message: "sync task",
+        committedAt: "2026-05-04T00:00:00.000Z",
+      },
+    });
+    const viewFile = join(root, "gh-view.json");
+    await writeFile(
+      viewFile,
+      JSON.stringify({
+        number: 17,
+        url: "https://github.com/example/repo/pull/17",
+        baseRefName: "main",
+        headRefName: task.branch,
+        headRefOid: nextSha,
+        state: "OPEN",
+        mergeable: "MERGEABLE",
+        mergeStateStatus: "CLEAN",
+        statusCheckRollup: [],
+      }),
+      "utf8",
+    );
+    process.env.CRAIG_TEST_GH_VIEW_FILE = viewFile;
+    const terminal = new FakeTerminal();
+    const ptyRuntime = new FakePtyRuntime();
+    const app = startTerminalApp({ terminal, ptyRuntime, uiStateFile: paths.uiStateFile, workspaceRoot: root });
+    await vi.waitFor(() => expect(terminal.hasKeyListener()).toBe(true));
+
+    terminal.emitKey("\r"); // boot start
+    terminal.emitKey("TAB"); // inspector
+    terminal.emitKey("RIGHT"); // review
+    await vi.waitFor(() => expect(stripAnsi(terminal.frames.at(-1) ?? "")).toContain("[REVIEW]"));
+    terminal.emitKey("P");
+    await vi.waitFor(() => expect(stripAnsi(terminal.frames.at(-1) ?? "")).toContain("Synced PR: #17"));
+    terminal.emitKey("q");
+
+    await expect(app).resolves.toBe(0);
+    const updatedTask = await readTask(paths, task.id);
+    const remoteSha = (await runCommand("git", ["rev-parse", `refs/heads/${task.branch}`], { cwd: remoteRepo })).stdout.trim();
+    expect(updatedTask.pullRequest.lastSyncedHeadSha).toBe(nextSha);
+    expect(remoteSha).toBe(nextSha);
+    expect(ptyRuntime.ensureSession).not.toHaveBeenCalled();
+  });
+
   test("ctrl-c from an attached agent stays in the same agent PTY", async () => {
     const root = await mkdtemp(join(tmpdir(), "craig-ui-app-"));
     tempRoots.push(root);
@@ -1127,6 +1273,36 @@ async function prepareCleanInspectableTask(paths: Awaited<ReturnType<typeof setu
   await runCommand("git", ["add", ".gitignore", "README.md", "src/app.ts"], { cwd: task.worktreePath });
   await runCommand("git", ["commit", "-m", "initial"], { cwd: task.worktreePath });
   return task;
+}
+
+async function preparePrTask(paths: Awaited<ReturnType<typeof setupWorkspace>>, tempRoots: string[]) {
+  const task = await readTask(paths, "task_20260430_02");
+  const repoRoot = join(paths.workspaceRoot, "repo-a");
+  const remoteRepo = await mkdtemp(join(tmpdir(), "craig-ui-remote-"));
+  tempRoots.push(remoteRepo);
+  await runCommand("git", ["init", "--bare", remoteRepo], { cwd: paths.workspaceRoot });
+  await runCommand("git", ["remote", "add", "origin", remoteRepo], { cwd: repoRoot });
+  await runCommand("git", ["push", "-u", "origin", "main"], { cwd: repoRoot });
+  await runCommand("git", ["worktree", "add", "-b", task.branch, task.worktreePath, "main"], { cwd: repoRoot });
+  await writeFile(join(task.worktreePath, "README.md"), "ready for pr\n", "utf8");
+  await runCommand("git", ["add", "-A"], { cwd: task.worktreePath });
+  await runCommand("git", ["commit", "-m", "ship task"], { cwd: task.worktreePath });
+  const sha = (await runCommand("git", ["rev-parse", "HEAD"], { cwd: task.worktreePath })).stdout.trim();
+  const fullStubDir = await createStubCommands(paths.workspaceRoot);
+  const stubDir = await mkdtemp(join(tmpdir(), "craig-ui-gh-"));
+  tempRoots.push(stubDir);
+  await symlink(join(fullStubDir, "gh"), join(stubDir, "gh"));
+  const updatedTask = {
+    ...task,
+    status: "checked" as const,
+    lastCommit: {
+      sha,
+      message: "ship task",
+      committedAt: "2026-05-04T00:00:00.000Z",
+    },
+  };
+  await writeTask(paths, updatedTask);
+  return { task: updatedTask, stubDir, remoteRepo };
 }
 
 async function setupWorkspace(root: string) {

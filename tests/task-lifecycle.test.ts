@@ -113,6 +113,7 @@ describe("task lifecycle services", () => {
     tempRoots.push(repoRoot);
     const { paths, worktreePath, stubDir } = await createTrackedTaskRepo(repoRoot);
     process.env.PATH = `${stubDir}:${originalPath}`;
+    const headSha = (await runCommand("git", ["rev-parse", "HEAD"], { cwd: worktreePath })).stdout.trim();
 
     const viewFile = path.join(repoRoot, "gh-view.json");
     await writeFile(
@@ -122,6 +123,7 @@ describe("task lifecycle services", () => {
         url: "https://github.com/example/repo/pull/17",
         baseRefName: "main",
         headRefName: "craig/task_1",
+        headRefOid: headSha,
         state: "OPEN",
         mergeable: "MERGEABLE",
         mergeStateStatus: "CLEAN",
@@ -150,6 +152,7 @@ describe("task lifecycle services", () => {
     expect(task.pullRequest.number).toBe(17);
     expect(task.status).toBe("merge_ready");
     expect(task.pullRequest.requiredChecks[0]?.status).toBe("success");
+    expect(task.pullRequest.lastSyncedHeadSha).toBe(headSha);
   });
 
   test("openPullRequest treats skipped required checks as successful", async () => {
@@ -270,6 +273,21 @@ describe("task lifecycle services", () => {
     await runCommand("git", ["add", "-A"], { cwd: worktreePath });
     await runCommand("git", ["commit", "-m", "refresh task"], { cwd: worktreePath });
     const refreshedSha = (await runCommand("git", ["rev-parse", "HEAD"], { cwd: worktreePath })).stdout.trim();
+    await writeFile(
+      viewFile,
+      JSON.stringify({
+        number: 17,
+        url: "https://github.com/example/repo/pull/17",
+        baseRefName: "main",
+        headRefName: "craig/task_1",
+        headRefOid: refreshedSha,
+        state: "OPEN",
+        mergeable: "MERGEABLE",
+        mergeStateStatus: "CLEAN",
+        statusCheckRollup: [{ context: "ci", state: "SUCCESS", conclusion: "SUCCESS" }],
+      }),
+      "utf8",
+    );
 
     await writeTaskRecord(paths.repoRoot, {
       id: "task_1",
@@ -287,6 +305,7 @@ describe("task lifecycle services", () => {
         mergeStateStatus: "CLEAN",
         requiredChecks: [],
         lastSyncedAt: "2026-04-21T00:00:00.000Z",
+        lastSyncedHeadSha: initialRemoteSha,
       },
       lastCommit: {
         sha: refreshedSha,
@@ -303,6 +322,71 @@ describe("task lifecycle services", () => {
 
     expect(finalRemoteSha).not.toBe(initialRemoteSha);
     expect(finalRemoteSha).toBe(refreshedSha);
+    expect((await readTask(paths, "task_1")).pullRequest.lastSyncedHeadSha).toBe(refreshedSha);
+  });
+
+  test("showTask refresh preserves PR head SHA when local worktree has unpushed commits", async () => {
+    const repoRoot = await createRepoRoot("craig-pr-passive-refresh-");
+    tempRoots.push(repoRoot);
+    const { paths, worktreePath, stubDir, remoteRepo } = await createTrackedTaskRepo(repoRoot);
+    process.env.PATH = `${stubDir}:${originalPath}`;
+    const remoteHeadSha = (
+      await runCommand("git", ["rev-parse", "refs/heads/craig/task_1"], { cwd: remoteRepo })
+    ).stdout.trim();
+
+    await writeFile(path.join(worktreePath, "index.ts"), "export const value = 4;\n", "utf8");
+    await runCommand("git", ["add", "-A"], { cwd: worktreePath });
+    await runCommand("git", ["commit", "-m", "local only"], { cwd: worktreePath });
+    const localHeadSha = (await runCommand("git", ["rev-parse", "HEAD"], { cwd: worktreePath })).stdout.trim();
+
+    const viewFile = path.join(repoRoot, "gh-view.json");
+    await writeFile(
+      viewFile,
+      JSON.stringify({
+        number: 17,
+        url: "https://github.com/example/repo/pull/17",
+        baseRefName: "main",
+        headRefName: "craig/task_1",
+        headRefOid: remoteHeadSha,
+        state: "OPEN",
+        mergeable: "MERGEABLE",
+        mergeStateStatus: "CLEAN",
+        statusCheckRollup: [],
+      }),
+      "utf8",
+    );
+    process.env.CRAIG_TEST_GH_VIEW_FILE = viewFile;
+
+    await writeTaskRecord(paths.repoRoot, {
+      id: "task_1",
+      status: "pr_open",
+      branch: "craig/task_1",
+      worktreePath,
+      pullRequest: {
+        provider: "github",
+        number: 17,
+        url: "https://github.com/example/repo/pull/17",
+        baseBranch: "main",
+        headBranch: "craig/task_1",
+        status: "open",
+        mergeable: true,
+        mergeStateStatus: "CLEAN",
+        requiredChecks: [],
+        lastSyncedAt: "2026-04-21T00:00:00.000Z",
+        lastSyncedHeadSha: remoteHeadSha,
+      },
+      lastCommit: {
+        sha: localHeadSha,
+        message: "local only",
+        committedAt: "2026-04-21T00:00:00.000Z",
+      },
+    });
+
+    await showTask(paths, "task_1");
+
+    const task = await readTask(paths, "task_1");
+    expect(localHeadSha).not.toBe(remoteHeadSha);
+    expect(task.pullRequest.lastSyncedHeadSha).toBe(remoteHeadSha);
   });
 
   test("mergeTask marks the task merged and preserves the worktree when requested", async () => {
@@ -345,6 +429,7 @@ describe("task lifecycle services", () => {
         mergeStateStatus: "CLEAN",
         requiredChecks: [{ name: "ci", status: "success", conclusion: "SUCCESS" }],
         lastSyncedAt: "2026-04-21T00:00:00.000Z",
+        lastSyncedHeadSha: "abc1234",
       },
       lastCommit: {
         sha: "abc1234",
@@ -401,6 +486,7 @@ describe("task lifecycle services", () => {
         mergeStateStatus: "CLEAN",
         requiredChecks: [{ name: "ci", status: "success", conclusion: "SUCCESS" }],
         lastSyncedAt: "2026-04-21T00:00:00.000Z",
+        lastSyncedHeadSha: "abc1234",
       },
       lastCommit: {
         sha: "abc1234",
@@ -458,6 +544,7 @@ describe("task lifecycle services", () => {
         mergeStateStatus: "CLEAN",
         requiredChecks: [],
         lastSyncedAt: "2026-04-21T00:00:00.000Z",
+        lastSyncedHeadSha: "abc1234",
       },
     });
 
@@ -512,6 +599,7 @@ describe("task lifecycle services", () => {
         mergeStateStatus: "CLEAN",
         requiredChecks: [],
         lastSyncedAt: "2026-04-21T00:00:00.000Z",
+        lastSyncedHeadSha: "abc1234",
       },
       lastCommit: {
         sha: "abc1234",

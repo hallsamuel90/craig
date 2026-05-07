@@ -280,7 +280,8 @@ function isPullRequest(value: TaskRecord["pullRequest"] | undefined): boolean {
         (check.status === "pending" || check.status === "success" || check.status === "failed") &&
         (typeof check.conclusion === "string" || check.conclusion === null),
     ) &&
-    (typeof value.lastSyncedAt === "string" || value.lastSyncedAt === null)
+    (typeof value.lastSyncedAt === "string" || value.lastSyncedAt === null) &&
+    (typeof value.lastSyncedHeadSha === "string" || value.lastSyncedHeadSha === null || value.lastSyncedHeadSha === undefined)
   );
 }
 
@@ -341,12 +342,14 @@ function normalizeLegacyPullRequest(candidate: Partial<TaskRecord>): TaskRecord[
       mergeStateStatus: null,
       requiredChecks: [],
       lastSyncedAt: null,
+      lastSyncedHeadSha: null,
     };
   }
 
   return {
     ...current,
     mergeStateStatus: current.mergeStateStatus ?? null,
+    lastSyncedHeadSha: current.lastSyncedHeadSha ?? null,
   };
 }
 

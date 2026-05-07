@@ -49,6 +49,7 @@ export interface TaskPullRequest {
   mergeStateStatus: string | null;
   requiredChecks: TaskPullRequestCheck[];
   lastSyncedAt: string | null;
+  lastSyncedHeadSha: string | null;
 }
 
 export interface TaskArtifacts {
