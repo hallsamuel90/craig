@@ -16,7 +16,8 @@ import { loadTaskLocalInspection, type InspectionTreeRow } from "../services/tas
 import { openPullRequest } from "../services/open-pull-request.js";
 import { buildShellData, type WorkspaceShellModel } from "./shell-data.js";
 import { getViewport, SHELL_LAYOUT, type Viewport } from "./layout.js";
-import { PtyRuntime, type PtyRuntimeOptions, type PtySize } from "./pty-runtime.js";
+import type { PtyRuntimeOptions, PtySize } from "./pty-runtime.js";
+import { createDaemonPtyRuntime } from "./pty-daemon.js";
 import { CENTER_TERMINAL_GUTTER, renderBootOverlayFrame, renderMainShellFrame, renderPauseOverlayFrame } from "./render.js";
 import {
   createInitialShellState,
@@ -67,7 +68,8 @@ export interface TerminalRuntime {
 }
 
 export interface PtyRuntimePort {
-  ensureSession(...args: [string, string, PtySize]): ControlShellState["terminal"];
+  ensureSession(...args: [string, string, PtySize]): ControlShellState["terminal"] | Promise<ControlShellState["terminal"]>;
+  hydrateSessions?(...args: [string[]]): void | Promise<void>;
   write(...args: [string]): void;
   writeKey(...args: [string]): void;
   scrollViewport(...args: [number]): void;
@@ -91,8 +93,20 @@ export async function startTerminalApp(options: TerminalAppOptions = {}): Promis
   let persistQueue = Promise.resolve();
   let taskMutationQueue = Promise.resolve();
   let model = await loadWorkspaceShellModel(workspaceRoot);
-  const initialShell = restoreShellState(createInitialShellState(runtimeState), model, { resetInputMode: true });
+  const initialShell = restoreShellState(createInitialShellState(runtimeState), model);
   model = await loadWorkspaceShellModel(workspaceRoot, initialShell);
+  let handlePtyUpdate: () => void = () => undefined;
+  const ptyOptions: PtyRuntimeOptions = {
+    workspaceRoot,
+    onUpdate: () => handlePtyUpdate(),
+    resolveSessionSpec: (_taskId, tabId) => resolvePtySessionSpec(model, tabId, workspaceRoot),
+  };
+  const initialPtyRuntime: PtyRuntimePort =
+    options.ptyRuntime ??
+    (await createDaemonPtyRuntime({
+      ...ptyOptions,
+      paths,
+    }));
 
   const persistShellState = (shell: ControlShellState) => {
     if (!options.uiStateFile) {
@@ -115,7 +129,7 @@ export async function startTerminalApp(options: TerminalAppOptions = {}): Promis
       variant: "boot",
       menuIndex: 0,
       optionsMessage: null,
-      shell: restoreShellState(initialShell, model, { resetInputMode: true }),
+      shell: restoreShellState(initialShell, model),
     };
     let creatingTask = false;
     let suppressTerminalEnterOnAttach = false;
@@ -126,27 +140,24 @@ export async function startTerminalApp(options: TerminalAppOptions = {}): Promis
     let inspectionScrollRenderTimer: ReturnType<typeof setTimeout> | null = null;
     let ptyRenderTimer: ReturnType<typeof setTimeout> | null = null;
     let pendingClear = true;
-    const ptyOptions: PtyRuntimeOptions = {
-      workspaceRoot,
-      onUpdate: () => {
-        if (state.mode !== "main") {
-          return;
-        }
+    let render: () => void = () => undefined;
+    const ptyRuntime = initialPtyRuntime;
+    handlePtyUpdate = () => {
+      if (state.mode !== "main") {
+        return;
+      }
 
-        state = { mode: "main", shell: withTerminalView(state.shell) };
+      state = { mode: "main", shell: withTerminalView(state.shell) };
 
-        if (!ptyRenderTimer) {
-          ptyRenderTimer = setTimeout(() => {
-            ptyRenderTimer = null;
-            if (state.mode === "main") {
-              render();
-            }
-          }, 50);
-        }
-      },
-      resolveSessionSpec: (_taskId, tabId) => resolvePtySessionSpec(model, tabId, workspaceRoot),
+      if (!ptyRenderTimer) {
+        ptyRenderTimer = setTimeout(() => {
+          ptyRenderTimer = null;
+          if (state.mode === "main") {
+            render();
+          }
+        }, 50);
+      }
     };
-    const ptyRuntime: PtyRuntimePort = options.ptyRuntime ?? new PtyRuntime(ptyOptions);
 
     function withTerminalView(shell: ControlShellState): ControlShellState {
       return updateTerminalViewState(shell, ptyRuntime.getViewState(shell.selectedPtyTabId));
@@ -158,6 +169,23 @@ export async function startTerminalApp(options: TerminalAppOptions = {}): Promis
 
     function getSelectedTask(shell: ControlShellState): TaskRecord | null {
       return model.tasks.find((task) => task.id === shell.selectedTaskId) ?? null;
+    }
+
+    async function hydrateOpenPtyTabs(): Promise<void> {
+      await ptyRuntime.hydrateSessions?.(model.tasks.flatMap((task) => task.ptyTabs.map((tab) => tab.id)));
+    }
+
+    function hydrateAndRenderOpenPtyTabs(): void {
+      void hydrateOpenPtyTabs()
+        .catch(() => undefined)
+        .then(() => {
+          if (state.mode !== "main") {
+            return;
+          }
+
+          state = { mode: "main", shell: withTerminalView(state.shell) };
+          render();
+        });
     }
 
     function queueTaskMutation<T>(mutation: () => Promise<T>): Promise<T> {
@@ -283,7 +311,12 @@ export async function startTerminalApp(options: TerminalAppOptions = {}): Promis
           return;
         }
 
-        const view = ptyRuntime.ensureSession(
+        state = {
+          mode: "main",
+          shell: updateTerminalViewState({ ...nextShell, inputMode: "terminal" }, ptyRuntime.getViewState(tabId)),
+        };
+        persistShellState(state.shell);
+        const view = await ptyRuntime.ensureSession(
           nextShell.selectedTaskId,
           tabId,
           getPtySize(getViewport(activeTerminal.width, activeTerminal.height)),
@@ -433,7 +466,7 @@ export async function startTerminalApp(options: TerminalAppOptions = {}): Promis
       return updatedTask;
     }
 
-    const render = () => {
+    render = () => {
       const viewport = getViewport(activeTerminal.width, activeTerminal.height);
       const frame =
         state.mode === "main"
@@ -529,7 +562,7 @@ export async function startTerminalApp(options: TerminalAppOptions = {}): Promis
           taskPromptError: null,
           actionMessage: null,
         });
-        const view = ptyRuntime.ensureSession(
+        const view = await ptyRuntime.ensureSession(
           createdTask.id,
           nextShell.selectedPtyTabId ?? getRequiredPtyTabId(createdTask, "agent"),
           getPtySize(getViewport(activeTerminal.width, activeTerminal.height)),
@@ -757,6 +790,7 @@ export async function startTerminalApp(options: TerminalAppOptions = {}): Promis
         if (result.detachTerminal) {
           ptyRuntime.detach();
           state = { mode: "main", shell: syncShell(result.state) };
+          persistShellState(state.shell);
           render();
           return;
         }
@@ -932,8 +966,9 @@ export async function startTerminalApp(options: TerminalAppOptions = {}): Promis
       }
 
       if (state.menuIndex === 0) {
-        state = { mode: "main", shell: syncShell(state.shell) };
+        state = { mode: "main", shell: syncShell({ ...state.shell, inputMode: "control" }) };
         render();
+        hydrateAndRenderOpenPtyTabs();
         return;
       }
 
@@ -960,6 +995,7 @@ export async function startTerminalApp(options: TerminalAppOptions = {}): Promis
         suppressTerminalEnterOnAttach = false;
         lastTerminalKey = null;
         state = { mode: "main", shell: syncShell({ ...state.shell, inputMode: "control", actionMessage: null }) };
+        persistShellState(state.shell);
         render();
         return;
       }
