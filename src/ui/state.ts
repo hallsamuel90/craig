@@ -118,7 +118,7 @@ export function createInitialShellState(runtime: CraigUiRuntime | null): Control
   const legacyInspectionKind = runtime?.activeTab === "files" ? "file" : runtime?.activeTab === "diff" ? "diff" : null;
   const openInspectionKind = getValidOpenInspectionKind(runtime?.openInspectionKind) ?? legacyInspectionKind;
   return {
-    inputMode: "control",
+    inputMode: getValidInputMode(runtime?.inputMode),
     focusedRegion: getValidFocusRegion(runtime?.focusedRegion),
     selectedRepoId: optionalString(runtime?.selectedRepoId),
     selectedTaskId: optionalString(runtime?.selectedTaskId),
@@ -158,7 +158,7 @@ export function toPersistedUiState(runtime: CraigUiRuntime | null, state: Contro
     selectedRepoId: state.selectedRepoId,
     selectedTaskId: state.selectedTaskId,
     selectedPtyTabId: state.selectedPtyTabId,
-    inputMode: "control",
+    inputMode: state.inputMode,
     focusedRegion: state.focusedRegion,
     activeTab: state.activeTab,
     preferredPtyTabKind: state.preferredPtyTabKind,
@@ -824,6 +824,10 @@ function getValidOpenInspectionKind(value: string | null | undefined): OpenInspe
 
 function getValidPtyTabKind(value: string | null | undefined): TaskPtyTabKind {
   return value === "terminal" ? "terminal" : "agent";
+}
+
+function getValidInputMode(value: string | null | undefined): InputMode {
+  return value === "terminal" ? "terminal" : "control";
 }
 
 function getPtyTabKindFromId(tabId: string): TaskPtyTabKind | null {

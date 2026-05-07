@@ -1,4 +1,4 @@
-import { chmod, mkdir, mkdtemp, realpath, rm, writeFile } from "node:fs/promises";
+import { chmod, mkdir, mkdtemp, readFile, realpath, rm, writeFile } from "node:fs/promises";
 import { join, resolve } from "node:path";
 import { tmpdir } from "node:os";
 
@@ -7,6 +7,8 @@ import { spawn } from "node-pty";
 
 import { createCraigState, createGitRepo, writeRepoRecord, writeTaskRecord } from "./test-helpers.js";
 import { runCommand } from "../src/utils/exec.js";
+import { getCraigPaths } from "../src/state/craig-paths.js";
+import { requestDaemonShutdown } from "../src/ui/pty-daemon.js";
 
 describe("Craig terminal mode E2E", () => {
   test("enters terminal mode and supports detach and reattach", async () => {
@@ -236,6 +238,103 @@ describe("Craig terminal mode E2E", () => {
       await rm(workspaceRoot, { recursive: true, force: true });
     }
   }, 15000);
+
+  test("restarting Craig reattaches to a live daemon-owned agent tab without relaunching Codex", async () => {
+    const repoRoot = process.cwd();
+    const workspaceRoot = await mkdtemp(join(tmpdir(), "craig-terminal-daemon-e2e-")).then((value) => realpath(value));
+    await createCraigState(workspaceRoot, ["task_20260430_02"]);
+    const sourceRepo = join(workspaceRoot, "repo-a");
+    await mkdir(sourceRepo, { recursive: true });
+    await createGitRepo(sourceRepo);
+    await writeFile(join(sourceRepo, "README.md"), "# repo-a\n", "utf8");
+    await runCommand("git", ["add", "README.md"], { cwd: sourceRepo });
+    await runCommand("git", ["commit", "-m", "init"], { cwd: sourceRepo });
+    await writeRepoRecord(
+      workspaceRoot,
+      {
+        id: "repo_a",
+        name: "repo-a",
+        rootPath: sourceRepo,
+        defaultBranch: "main",
+        createdAt: "2026-05-04T00:00:00.000Z",
+        updatedAt: "2026-05-04T00:00:00.000Z",
+      },
+      {
+        id: "workspace_repo_a",
+        primaryRepoId: "repo_a",
+        branch: "main",
+        status: "active",
+        linkedRepoIds: [],
+        archivedAt: null,
+        createdAt: "2026-05-04T00:00:00.000Z",
+        updatedAt: "2026-05-04T00:00:00.000Z",
+      },
+    );
+    const taskWorktree = join(workspaceRoot, "worktrees", "repo-a", "task_20260430_02");
+    await mkdir(taskWorktree, { recursive: true });
+    await writeTaskRecord(workspaceRoot, {
+      id: "task_20260430_02",
+      repoId: "repo_a",
+      workspaceId: "workspace_repo_a",
+      worktreePath: taskWorktree,
+      selectedPtyTabId: "task_20260430_02:agent",
+    });
+    const codexStubDir = await createCodexHarnessStub(workspaceRoot);
+    const launchFile = join(workspaceRoot, "codex-harness", "launch-count.txt");
+    await writeAgentUiState(workspaceRoot);
+
+    try {
+      const firstOutput = new PtyOutputBuffer();
+      const first = spawn(resolve(repoRoot, "node_modules/.bin/tsx"), [resolve(repoRoot, "src/cli.ts")], {
+        cwd: workspaceRoot,
+        cols: 120,
+        rows: 36,
+        env: {
+          ...process.env,
+          CODEX_STUB_LAUNCH_FILE: launchFile,
+          PATH: `${codexStubDir}:${process.env.PATH ?? ""}`,
+          SHELL: process.env.SHELL ?? "/bin/zsh",
+          TERM: "xterm-256color",
+        },
+      });
+      first.onData((chunk) => firstOutput.append(chunk));
+      await firstOutput.waitFor("> Start");
+      first.write("\r");
+      await firstOutput.waitFor("NORMAL   + new tab");
+      first.write("\r");
+      await firstOutput.waitForLatestFrame("codex_stub_started");
+      first.kill();
+      await delay(500);
+
+      const secondOutput = new PtyOutputBuffer();
+      const second = spawn(resolve(repoRoot, "node_modules/.bin/tsx"), [resolve(repoRoot, "src/cli.ts")], {
+        cwd: workspaceRoot,
+        cols: 120,
+        rows: 36,
+        env: {
+          ...process.env,
+          CODEX_STUB_LAUNCH_FILE: launchFile,
+          PATH: `${codexStubDir}:${process.env.PATH ?? ""}`,
+          SHELL: process.env.SHELL ?? "/bin/zsh",
+          TERM: "xterm-256color",
+        },
+      });
+      second.onData((chunk) => secondOutput.append(chunk));
+      await secondOutput.waitFor("> Start");
+      second.write("\r");
+      await secondOutput.waitForLatestFrame("codex_stub_started");
+      second.write("\u001D");
+      second.write("q");
+      await delay(500);
+
+      const launchCount = await readFile(launchFile, "utf8");
+      expect(launchCount.trim()).toBe("1");
+      expect(secondOutput.latestFrame()).toContain("codex_stub_bottom_bar");
+    } finally {
+      await requestDaemonShutdown(getCraigPaths(workspaceRoot));
+      await rm(workspaceRoot, { recursive: true, force: true });
+    }
+  }, 20000);
 });
 
 async function writeInitialUiState(workspaceRoot: string): Promise<void> {
@@ -321,6 +420,7 @@ process.stdin.resume();
 
 let buffer = "";
 let index = 0;
+let launched = false;
 
 const maybeAdvance = () => {
   while (index < expected.length) {
@@ -336,7 +436,13 @@ const maybeAdvance = () => {
     }
   }
 
-  if (index === expected.length) {
+  if (index === expected.length && !launched) {
+    launched = true;
+    if (process.env.CODEX_STUB_LAUNCH_FILE) {
+      const fs = require("node:fs");
+      const current = Number(fs.existsSync(process.env.CODEX_STUB_LAUNCH_FILE) ? fs.readFileSync(process.env.CODEX_STUB_LAUNCH_FILE, "utf8") : "0");
+      fs.writeFileSync(process.env.CODEX_STUB_LAUNCH_FILE, String(current + 1));
+    }
     process.stdout.write("codex_stub_started\\n");
     process.stdout.write(\`codex_stub_cwd:\${process.cwd()}\\n\`);
     process.stdout.write(\`codex_stub_task_dir:\${process.cwd().split("/").pop()}\\n\`);
@@ -415,4 +521,8 @@ class PtyOutputBuffer {
 
     throw new Error(`Timed out waiting for ${JSON.stringify(needle)} in latest frame.\n\nLatest frame:\n${this.latestFrame().slice(-5000)}`);
   }
+}
+
+function delay(ms: number): Promise<void> {
+  return new Promise((resolveDelay) => setTimeout(resolveDelay, ms));
 }

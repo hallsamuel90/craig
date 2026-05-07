@@ -1,4 +1,4 @@
-import { mkdtemp, mkdir, rm, symlink, writeFile } from "node:fs/promises";
+import { mkdtemp, mkdir, readFile, rm, symlink, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 
@@ -115,6 +115,43 @@ describe("terminal app PTY attach flow", () => {
     },
   );
 
+  test("boot start hydrates and renders the restored selected PTY tab without attaching input", async () => {
+    const root = await mkdtemp(join(tmpdir(), "craig-ui-app-"));
+    tempRoots.push(root);
+    const paths = await setupWorkspace(root);
+    await writeFile(
+      paths.uiStateFile,
+      JSON.stringify({
+        version: 1,
+        selectedRepoId: "repo_a",
+        selectedWorkspaceId: "workspace_repo_a",
+        selectedTaskId: "task_20260430_02",
+        selectedPtyTabId: "task_20260430_02:terminal",
+        inputMode: "control",
+        focusedRegion: "center",
+        activeTab: "task_20260430_02:terminal",
+        selectedActionId: "commit",
+        updatedAt: "2026-05-04T00:00:00.000Z",
+      }),
+    );
+    const terminal = new FakeTerminal();
+    const ptyRuntime = new FakePtyRuntime();
+    const app = startTerminalApp({ terminal, ptyRuntime, uiStateFile: paths.uiStateFile, workspaceRoot: root });
+    await vi.waitFor(() => expect(terminal.hasKeyListener()).toBe(true));
+
+    terminal.emitKey("ENTER");
+    await vi.waitFor(() => expect(ptyRuntime.hydrateSessions).toHaveBeenCalledWith([
+      "task_20260430_02:agent",
+      "task_20260430_02:terminal",
+    ]));
+    await vi.waitFor(() => expect(stripAnsi(terminal.frames.at(-1) ?? "")).toContain("task_20260430_02:termina"));
+    terminal.emitKey("q");
+
+    await expect(app).resolves.toBe(0);
+    expect(ptyRuntime.ensureSession).not.toHaveBeenCalled();
+    expect(terminal.frames.join("\n")).toContain("NORMAL   + new tab");
+  });
+
   test("raw terminal-kit unknown ctrl+] detaches from terminal mode", async () => {
     const root = await mkdtemp(join(tmpdir(), "craig-ui-app-"));
     tempRoots.push(root);
@@ -172,6 +209,7 @@ describe("terminal app PTY attach flow", () => {
 
     await expect(app).resolves.toBe(0);
     expect(ptyRuntime.detach).toHaveBeenCalledTimes(1);
+    await vi.waitFor(async () => expect(JSON.parse(await readFile(paths.uiStateFile, "utf8")).inputMode).toBe("control"));
     expect(terminal.frames.join("\n")).toContain("NORMAL   + new tab");
     expect(terminal.frames.join("\n")).not.toContain("terminal ▸ terminal mode");
   });
@@ -418,6 +456,7 @@ describe("terminal app PTY attach flow", () => {
     await vi.waitFor(() => expect(terminal.hasKeyListener()).toBe(true));
 
     terminal.emitKey("\r"); // boot start
+    await vi.waitFor(() => expect(ptyRuntime.hydrateSessions).toHaveBeenCalled());
     terminal.emitKey("+");
     await vi.waitFor(() => expect(stripAnsi(terminal.frames.at(-1) ?? "")).toContain("CODEX 2"));
     terminal.emitKey("ENTER");
@@ -703,6 +742,7 @@ describe("terminal app PTY attach flow", () => {
     await vi.waitFor(() => expect(terminal.hasKeyListener()).toBe(true));
 
     terminal.emitKey("\r"); // boot start
+    await vi.waitFor(() => expect(ptyRuntime.hydrateSessions).toHaveBeenCalled());
     await vi.waitFor(() => expect(stripAnsi(terminal.frames.at(-1) ?? "")).toContain("FILES"));
     terminal.emitKey("[");
     terminal.emitKey("[");
@@ -750,7 +790,8 @@ describe("terminal app PTY attach flow", () => {
     await vi.waitFor(() => expect(terminal.hasKeyListener()).toBe(true));
 
     terminal.emitKey("\r"); // boot start
-    expect(stripAnsi(terminal.frames.at(-1) ?? "")).toContain("[CHANGES] FILES");
+    await vi.waitFor(() => expect(ptyRuntime.hydrateSessions).toHaveBeenCalled());
+    await vi.waitFor(() => expect(stripAnsi(terminal.frames.at(-1) ?? "")).toContain("[CHANGES] FILES"));
     terminal.emitKey("[");
     terminal.emitKey("[");
     terminal.emitKey("[");
@@ -1209,7 +1250,13 @@ class FakeTerminal implements TerminalRuntime {
 }
 
 class FakePtyRuntime implements PtyRuntimePort {
+  private readonly hydratedTabIds = new Set<string>();
   ensureSession = vi.fn((taskId: string, tabId: string): TerminalViewState => this.getRunningView(taskId, tabId));
+  hydrateSessions = vi.fn((tabIds: string[]) => {
+    for (const tabId of tabIds) {
+      this.hydratedTabIds.add(tabId);
+    }
+  });
   write = vi.fn();
   writeKey = vi.fn();
   scrollViewport = vi.fn();
@@ -1219,7 +1266,7 @@ class FakePtyRuntime implements PtyRuntimePort {
   disposeAll = vi.fn();
 
   getViewState(tabId: string | null): TerminalViewState {
-    if (tabId && this.ensureSession.mock.calls.some(([, attachedTabId]) => attachedTabId === tabId)) {
+    if (tabId && (this.hydratedTabIds.has(tabId) || this.ensureSession.mock.calls.some(([, attachedTabId]) => attachedTabId === tabId))) {
       return this.getRunningView("task_20260430_02", tabId);
     }
 

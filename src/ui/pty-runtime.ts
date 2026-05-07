@@ -26,7 +26,7 @@ export interface PtyRuntimeOptions {
   shell?: string;
   env?: Record<string, string | undefined>;
   spawn?: typeof NodePty.spawn;
-  onUpdate?: () => void;
+  onUpdate?: (tabId: string) => void;
   resolveSessionSpec?: (taskId: string, tabId: string) => PtySessionSpec;
 }
 /* eslint-enable no-unused-vars */
@@ -75,7 +75,7 @@ export class PtyRuntime {
   private readonly shell: string;
   private readonly env: Record<string, string | undefined>;
   private readonly spawn: typeof NodePty.spawn | undefined;
-  private readonly onUpdate: (() => void) | undefined;
+  private readonly onUpdate: PtyRuntimeOptions["onUpdate"];
   private readonly resolveSessionSpec: NonNullable<PtyRuntimeOptions["resolveSessionSpec"]>;
   private attachedTabId: string | null = null;
 
@@ -87,7 +87,7 @@ export class PtyRuntime {
     this.resolveSessionSpec = options.resolveSessionSpec ?? (() => ({ cwd: options.workspaceRoot, command: [] }));
   }
 
-  ensureSession(taskId: string, tabId: string, size: PtySize): TerminalViewState {
+  ensureSession(taskId: string, tabId: string, size: PtySize, specOverride?: PtySessionSpec): TerminalViewState {
     const existing = this.sessions.get(tabId);
 
     if (existing) {
@@ -102,7 +102,7 @@ export class PtyRuntime {
       }
     }
 
-    const session = this.createSession(taskId, tabId, size);
+    const session = this.createSession(taskId, tabId, size, specOverride);
     this.sessions.set(tabId, session);
     this.attachedTabId = tabId;
     return this.getViewState(tabId);
@@ -185,10 +185,10 @@ export class PtyRuntime {
     };
   }
 
-  private createSession(taskId: string, tabId: string, size: PtySize): PtySession {
+  private createSession(taskId: string, tabId: string, size: PtySize, specOverride?: PtySessionSpec): PtySession {
     const spawn = this.spawn ?? loadNodePty().spawn;
     const terminal = createTerminalEmulator(size);
-    const spec = this.resolveSessionSpec(taskId, tabId);
+    const spec = specOverride ?? this.resolveSessionSpec(taskId, tabId);
     const { executable, args } = resolveSpawnCommand(this.shell, spec.command);
     const pty = spawn(executable, args, {
       name: "xterm-256color",
@@ -212,7 +212,7 @@ export class PtyRuntime {
       pty.onData((chunk) => {
         respondToTerminalQueries(pty, chunk);
         void writeTerminalEmulator(session.terminal, chunk).then(() => {
-          this.onUpdate?.();
+          this.onUpdate?.(session.tabId);
         });
       }),
     );
@@ -220,7 +220,7 @@ export class PtyRuntime {
       pty.onExit((event) => {
         session.status = "exited";
         void writeTerminalEmulator(session.terminal, `\r\n[process exited ${event.exitCode}]`).then(() => {
-          this.onUpdate?.();
+          this.onUpdate?.(session.tabId);
         });
       }),
     );

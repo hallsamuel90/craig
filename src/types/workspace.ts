@@ -26,7 +26,7 @@ export interface CraigUiRuntime {
   selectedWorkspaceId: string | null;
   selectedTaskId: string | null;
   selectedPtyTabId?: string | null;
-  inputMode?: "control";
+  inputMode?: "control" | "terminal";
   focusedRegion?: "tasks" | "center" | "inspector" | "actions" | "tabs";
   activeTab?: string;
   preferredPtyTabKind?: "agent" | "terminal";

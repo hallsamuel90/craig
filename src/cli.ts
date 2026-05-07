@@ -6,10 +6,27 @@ import { ensureCraigState } from "./state/ensure-state.js";
 import { getCraigPaths } from "./state/craig-paths.js";
 import { formatCommandResult } from "./main.js";
 import { startTerminalApp } from "./ui/app.js";
+import { requestDaemonShutdown, servePtyDaemon } from "./ui/pty-daemon.js";
 import { getCurrentWorkingDirectory } from "./utils/cwd.js";
 
 async function main(): Promise<number> {
   try {
+    if (process.argv[2] === "__craig-daemon") {
+      const workspaceRoot = process.argv[3] ?? getCurrentWorkingDirectory();
+      const paths = getCraigPaths(workspaceRoot);
+      await ensureCraigState(workspaceRoot);
+      await servePtyDaemon(paths);
+      return 0;
+    }
+
+    if (process.argv[2] === "__craig-daemon-shutdown") {
+      const workspaceRoot = process.argv[3] ?? getCurrentWorkingDirectory();
+      const paths = getCraigPaths(workspaceRoot);
+      await ensureCraigState(workspaceRoot);
+      await requestDaemonShutdown(paths);
+      return 0;
+    }
+
     const parsed = parseArgv(process.argv.slice(2));
     const cwd = getCurrentWorkingDirectory();
     const paths = getCraigPaths(cwd);
