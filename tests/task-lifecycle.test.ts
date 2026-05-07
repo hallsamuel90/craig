@@ -5,6 +5,7 @@ import path from "node:path";
 import { afterEach, describe, expect, test } from "vitest";
 
 import { commitTask } from "../src/services/commit-task.js";
+import { closeTask } from "../src/services/close-task.js";
 import { mergeTask } from "../src/services/merge-task.js";
 import { openPullRequest, refreshPullRequestChecks } from "../src/services/open-pull-request.js";
 import { runChecks } from "../src/services/run-checks.js";
@@ -515,6 +516,7 @@ describe("task lifecycle services", () => {
     const { paths, worktreePath, stubDir } = await createTrackedTaskRepo(repoRoot);
     process.env.PATH = `${stubDir}:${originalPath}`;
     process.env.CRAIG_TEST_TMUX_STATE_FILE = path.join(repoRoot, "tmux-state");
+    const headSha = (await runCommand("git", ["rev-parse", "HEAD"], { cwd: worktreePath })).stdout.trim();
 
     const viewFile = path.join(repoRoot, "gh-view.json");
     await writeFile(
@@ -524,6 +526,7 @@ describe("task lifecycle services", () => {
         url: "https://github.com/example/repo/pull/17",
         baseRefName: "main",
         headRefName: "craig/task_1",
+        headRefOid: headSha,
         state: "OPEN",
         mergeable: "MERGEABLE",
         mergeStateStatus: "CLEAN",
@@ -549,10 +552,10 @@ describe("task lifecycle services", () => {
         mergeStateStatus: "CLEAN",
         requiredChecks: [{ name: "ci", status: "success", conclusion: "SUCCESS" }],
         lastSyncedAt: "2026-04-21T00:00:00.000Z",
-        lastSyncedHeadSha: "abc1234",
+        lastSyncedHeadSha: headSha,
       },
       lastCommit: {
-        sha: "abc1234",
+        sha: headSha,
         message: "ship task",
         committedAt: "2026-04-21T00:00:00.000Z",
       },
@@ -567,11 +570,12 @@ describe("task lifecycle services", () => {
     await expect(readFile(path.join(worktreePath, "index.ts"), "utf8")).resolves.toContain("value");
   });
 
-  test("mergeTask blocks when GitHub reports an in-progress check run", async () => {
-    const repoRoot = await createRepoRoot("craig-merge-pending-checkrun-");
+  test("mergeTask blocks stale PR head before merging", async () => {
+    const repoRoot = await createRepoRoot("craig-merge-stale-head-");
     tempRoots.push(repoRoot);
     const { paths, worktreePath, stubDir } = await createTrackedTaskRepo(repoRoot);
     process.env.PATH = `${stubDir}:${originalPath}`;
+    const headSha = (await runCommand("git", ["rev-parse", "HEAD"], { cwd: worktreePath })).stdout.trim();
 
     const viewFile = path.join(repoRoot, "gh-view.json");
     await writeFile(
@@ -581,6 +585,210 @@ describe("task lifecycle services", () => {
         url: "https://github.com/example/repo/pull/17",
         baseRefName: "main",
         headRefName: "craig/task_1",
+        headRefOid: "remote-old",
+        state: "OPEN",
+        mergeable: "MERGEABLE",
+        mergeStateStatus: "CLEAN",
+        statusCheckRollup: [{ context: "ci", state: "SUCCESS", conclusion: "SUCCESS" }],
+      }),
+      "utf8",
+    );
+    process.env.CRAIG_TEST_GH_VIEW_FILE = viewFile;
+
+    await writeTaskRecord(paths.repoRoot, {
+      id: "task_1",
+      status: "merge_ready",
+      branch: "craig/task_1",
+      worktreePath,
+      pullRequest: {
+        provider: "github",
+        number: 17,
+        url: "https://github.com/example/repo/pull/17",
+        baseBranch: "main",
+        headBranch: "craig/task_1",
+        status: "open",
+        mergeable: true,
+        mergeStateStatus: "CLEAN",
+        requiredChecks: [{ name: "ci", status: "success", conclusion: "SUCCESS" }],
+        lastSyncedAt: "2026-04-21T00:00:00.000Z",
+        lastSyncedHeadSha: headSha,
+      },
+      lastCommit: {
+        sha: headSha,
+        message: "ship task",
+        committedAt: "2026-04-21T00:00:00.000Z",
+      },
+    });
+
+    await expect(mergeTask(paths, "task_1", { preserveWorktree: true })).rejects.toThrow(/not synced/);
+  });
+
+  test("mergeTask blocks when GitHub reports no checks", async () => {
+    const repoRoot = await createRepoRoot("craig-merge-no-checks-");
+    tempRoots.push(repoRoot);
+    const { paths, worktreePath, stubDir } = await createTrackedTaskRepo(repoRoot);
+    process.env.PATH = `${stubDir}:${originalPath}`;
+    const headSha = (await runCommand("git", ["rev-parse", "HEAD"], { cwd: worktreePath })).stdout.trim();
+
+    const viewFile = path.join(repoRoot, "gh-view.json");
+    await writeFile(
+      viewFile,
+      JSON.stringify({
+        number: 17,
+        url: "https://github.com/example/repo/pull/17",
+        baseRefName: "main",
+        headRefName: "craig/task_1",
+        headRefOid: headSha,
+        state: "OPEN",
+        mergeable: "MERGEABLE",
+        mergeStateStatus: "CLEAN",
+        statusCheckRollup: [],
+      }),
+      "utf8",
+    );
+    process.env.CRAIG_TEST_GH_VIEW_FILE = viewFile;
+
+    await writeTaskRecord(paths.repoRoot, {
+      id: "task_1",
+      status: "merge_ready",
+      branch: "craig/task_1",
+      worktreePath,
+      pullRequest: {
+        provider: "github",
+        number: 17,
+        url: "https://github.com/example/repo/pull/17",
+        baseBranch: "main",
+        headBranch: "craig/task_1",
+        status: "open",
+        mergeable: true,
+        mergeStateStatus: "CLEAN",
+        requiredChecks: [{ name: "ci", status: "success", conclusion: "SUCCESS" }],
+        lastSyncedAt: "2026-04-21T00:00:00.000Z",
+        lastSyncedHeadSha: headSha,
+      },
+      lastCommit: {
+        sha: headSha,
+        message: "ship task",
+        committedAt: "2026-04-21T00:00:00.000Z",
+      },
+    });
+
+    await expect(mergeTask(paths, "task_1", { preserveWorktree: true })).rejects.toThrow(/no GitHub checks/);
+  });
+
+  test("closeTask marks merged tasks closed and preserves recovery metadata", async () => {
+    const repoRoot = await createRepoRoot("craig-close-task-");
+    tempRoots.push(repoRoot);
+    const paths = await createCraigState(repoRoot);
+    const worktreePath = path.join(repoRoot, "worktree");
+    await mkdir(worktreePath, { recursive: true });
+    await writeFile(path.join(worktreePath, "README.md"), "kept\n", "utf8");
+    await writeTaskRecord(paths.repoRoot, {
+      id: "task_1",
+      status: "merged",
+      worktreePath,
+      cleanup: {
+        paneClosedAt: null,
+        worktreeRemovedAt: null,
+        preservedWorktree: false,
+        warning: "previous warning",
+      },
+      pullRequest: {
+        provider: "github",
+        number: 17,
+        url: "https://github.com/example/repo/pull/17",
+        baseBranch: "main",
+        headBranch: "craig/task_1",
+        status: "merged",
+        mergeable: true,
+        mergeStateStatus: "CLEAN",
+        requiredChecks: [{ name: "ci", status: "success", conclusion: "SUCCESS" }],
+        lastSyncedAt: "2026-04-21T00:00:00.000Z",
+        lastSyncedHeadSha: "abc1234",
+      },
+    });
+
+    await closeTask(paths, "task_1");
+    const task = await readTask(paths, "task_1");
+
+    expect(task.status).toBe("closed");
+    expect(task.pullRequest.number).toBe(17);
+    expect(task.cleanup.preservedWorktree).toBe(true);
+    expect(task.cleanup.worktreeRemovedAt).toBeNull();
+    await expect(readFile(path.join(worktreePath, "README.md"), "utf8")).resolves.toContain("kept");
+  });
+
+  test("closeTask allows already-cleaned merged tasks", async () => {
+    const repoRoot = await createRepoRoot("craig-close-cleaned-task-");
+    tempRoots.push(repoRoot);
+    const paths = await createCraigState(repoRoot);
+    const worktreePath = path.join(repoRoot, "worktree");
+    await mkdir(worktreePath, { recursive: true });
+    await rm(worktreePath, { recursive: true, force: true });
+    await writeTaskRecord(paths.repoRoot, {
+      id: "task_1",
+      status: "merged",
+      worktreePath,
+      cleanup: {
+        paneClosedAt: "2026-04-21T00:00:00.000Z",
+        worktreeRemovedAt: "2026-04-21T00:00:01.000Z",
+        preservedWorktree: false,
+        warning: null,
+      },
+      pullRequest: {
+        provider: "github",
+        number: 17,
+        url: "https://github.com/example/repo/pull/17",
+        baseBranch: "main",
+        headBranch: "craig/task_1",
+        status: "merged",
+        mergeable: true,
+        mergeStateStatus: "CLEAN",
+        requiredChecks: [{ name: "ci", status: "success", conclusion: "SUCCESS" }],
+        lastSyncedAt: "2026-04-21T00:00:00.000Z",
+        lastSyncedHeadSha: "abc1234",
+      },
+    });
+
+    await closeTask(paths, "task_1");
+    const task = await readTask(paths, "task_1");
+
+    expect(task.status).toBe("closed");
+    expect(task.cleanup.preservedWorktree).toBe(false);
+    expect(task.cleanup.worktreeRemovedAt).toBe("2026-04-21T00:00:01.000Z");
+  });
+
+  test("closeTask blocks before merge", async () => {
+    const repoRoot = await createRepoRoot("craig-close-task-blocked-");
+    tempRoots.push(repoRoot);
+    const paths = await createCraigState(repoRoot);
+    const worktreePath = path.join(repoRoot, "worktree");
+    await mkdir(worktreePath, { recursive: true });
+    await writeTaskRecord(paths.repoRoot, {
+      id: "task_1",
+      status: "merge_ready",
+      worktreePath,
+    });
+
+    await expect(closeTask(paths, "task_1")).rejects.toThrow(/cannot close/);
+  });
+
+  test("mergeTask blocks when GitHub reports an in-progress check run", async () => {
+    const repoRoot = await createRepoRoot("craig-merge-pending-checkrun-");
+    tempRoots.push(repoRoot);
+    const { paths, worktreePath, stubDir } = await createTrackedTaskRepo(repoRoot);
+    process.env.PATH = `${stubDir}:${originalPath}`;
+    const headSha = (await runCommand("git", ["rev-parse", "HEAD"], { cwd: worktreePath })).stdout.trim();
+
+    const viewFile = path.join(repoRoot, "gh-view.json");
+    await writeFile(
+      viewFile,
+      JSON.stringify({
+        number: 17,
+        url: "https://github.com/example/repo/pull/17",
+        baseRefName: "main",
+        headRefName: "craig/task_1",
+        headRefOid: headSha,
         state: "OPEN",
         mergeable: "MERGEABLE",
         mergeStateStatus: "UNSTABLE",
@@ -606,10 +814,10 @@ describe("task lifecycle services", () => {
         mergeStateStatus: "CLEAN",
         requiredChecks: [{ name: "ci", status: "success", conclusion: "SUCCESS" }],
         lastSyncedAt: "2026-04-21T00:00:00.000Z",
-        lastSyncedHeadSha: "abc1234",
+        lastSyncedHeadSha: headSha,
       },
       lastCommit: {
-        sha: "abc1234",
+        sha: headSha,
         message: "ship task",
         committedAt: "2026-04-21T00:00:00.000Z",
       },

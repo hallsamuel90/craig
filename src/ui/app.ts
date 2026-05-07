@@ -14,6 +14,8 @@ import { provisionTask } from "../services/task-provisioning.js";
 import { addRepo } from "../services/repo-registry.js";
 import { loadTaskLocalInspection, type InspectionTreeRow } from "../services/task-local-inspection.js";
 import { openPullRequest, refreshPullRequestChecks } from "../services/open-pull-request.js";
+import { mergeTask } from "../services/merge-task.js";
+import { closeTask } from "../services/close-task.js";
 import { buildShellData, type WorkspaceShellModel } from "./shell-data.js";
 import { getViewport, SHELL_LAYOUT, type Viewport } from "./layout.js";
 import type { PtyRuntimeOptions, PtySize } from "./pty-runtime.js";
@@ -433,6 +435,48 @@ export async function startTerminalApp(options: TerminalAppOptions = {}): Promis
         inspectionMode: "review",
         selectedActionId: "refresh-checks",
         actionMessage: `Refreshed checks: ${task.pullRequest.requiredChecks.length} reported`,
+      });
+    }
+
+    async function mergeTaskFromShell(shell: ControlShellState): Promise<ControlShellState> {
+      const syncedShell = syncShell(shell);
+      if (!syncedShell.selectedTaskId) {
+        throw new Error("Select a task before merging a PR.");
+      }
+
+      const result = await mergeTask(paths, syncedShell.selectedTaskId, { preserveWorktree: true });
+      await reloadModel();
+
+      return syncShell({
+        ...syncedShell,
+        focusedRegion: "inspector",
+        inspectionMode: "review",
+        selectedActionId: "merge",
+        actionMessage: `Merged PR #${result.prNumber}; worktree preserved`,
+      });
+    }
+
+    async function closeTaskFromShell(shell: ControlShellState): Promise<ControlShellState> {
+      const syncedShell = syncShell(shell);
+      if (!syncedShell.selectedTaskId) {
+        throw new Error("Select a task before closing it.");
+      }
+
+      const taskBeforeClose = await readTask(paths, syncedShell.selectedTaskId);
+      const task = await closeTask(paths, syncedShell.selectedTaskId);
+      for (const tab of taskBeforeClose.ptyTabs) {
+        ptyRuntime.disposeSession(tab.id);
+      }
+      await reloadModel();
+
+      return syncShell({
+        ...syncedShell,
+        focusedRegion: "inspector",
+        inspectionMode: "review",
+        selectedActionId: "close-task",
+        actionMessage: task.cleanup.preservedWorktree
+          ? `Closed task ${task.id}; worktree preserved`
+          : `Closed task ${task.id}`,
       });
     }
 
@@ -931,6 +975,36 @@ export async function startTerminalApp(options: TerminalAppOptions = {}): Promis
             })
             .catch((error: unknown) => {
               const message = error instanceof Error ? error.message : "Failed to refresh PR checks.";
+              state = { mode: "main", shell: syncShell({ ...result.state, actionMessage: message }) };
+              render();
+            });
+          return;
+        }
+
+        if (result.mergeTask) {
+          void mergeTaskFromShell(result.state)
+            .then((nextShell) => {
+              state = { mode: "main", shell: nextShell };
+              persistShellState(state.shell);
+              render();
+            })
+            .catch((error: unknown) => {
+              const message = error instanceof Error ? error.message : "Failed to merge PR.";
+              state = { mode: "main", shell: syncShell({ ...result.state, actionMessage: message }) };
+              render();
+            });
+          return;
+        }
+
+        if (result.closeTask) {
+          void closeTaskFromShell(result.state)
+            .then((nextShell) => {
+              state = { mode: "main", shell: nextShell };
+              persistShellState(state.shell);
+              render();
+            })
+            .catch((error: unknown) => {
+              const message = error instanceof Error ? error.message : "Failed to close task.";
               state = { mode: "main", shell: syncShell({ ...result.state, actionMessage: message }) };
               render();
             });

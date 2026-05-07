@@ -287,9 +287,11 @@ describe("terminal shell renderer", () => {
     expect(frame).toContain("sha abcdef1");
     expect(frame).toContain("✓ ci");
     expect(frame).toContain("- docs");
-    expect(frame).toContain("Next: ready for merge in 4.4.");
+    expect(frame).toContain("Next: merge PR.");
     expect(frame).toContain("sync pr");
     expect(frame).toContain("refresh checks");
+    expect(frame).toContain("merge pr");
+    expect(frame).toContain("close task");
   });
 
   test("renders review guidance for failed and unknown checks", () => {

@@ -157,6 +157,7 @@ export function summarizeRequiredChecks(pullRequest: TaskPullRequest): string {
 export function isMergeReady(pullRequest: TaskPullRequest): boolean {
   return (
     pullRequest.mergeable &&
+    pullRequest.requiredChecks.length > 0 &&
     pullRequest.requiredChecks.every((check) => check.status === "success" || check.status === "skipped")
   );
 }

@@ -1,8 +1,10 @@
 import type { CommandMergeResult } from "../types/command.js";
 import type { CraigPaths } from "../state/craig-paths.js";
+import type { TaskRecord } from "../types/task.js";
 import { readCraigConfig } from "../state/config-store.js";
 import { writeTask } from "../state/task-store.js";
 import { cleanupTask } from "./cleanup-task.js";
+import { getHeadCommit, isWorktreeClean } from "./git-task.js";
 import {
   ensureGhAuthenticated,
   isMergeReady,
@@ -27,11 +29,25 @@ export async function mergeTask(
     throw new Error(`Task ${task.id} does not have a tracked pull request.`);
   }
 
+  if (!task.lastCommit) {
+    throw new Error(`Task ${task.id} must be committed before merging.`);
+  }
+
+  if (!(await isWorktreeClean(task.worktreePath))) {
+    throw new Error(`Task ${task.id} worktree must be clean before merging.`);
+  }
+
+  const headCommit = await getHeadCommit(task.worktreePath);
+  if (headCommit.sha !== task.lastCommit.sha) {
+    throw new Error(`Task ${task.id} local HEAD does not match the tracked task commit. Sync or commit before merging.`);
+  }
+
   await ensureGhAuthenticated(task.worktreePath);
   await refreshPullRequestState(paths, task);
 
-  if (!isMergeReady(task.pullRequest)) {
-    throw new Error(`Task ${task.id} pull request is not merge-ready.`);
+  const blockers = getMergeBlockers(task);
+  if (blockers.length > 0) {
+    throw new Error(`Task ${task.id} pull request is not merge-ready: ${blockers.join("; ")}.`);
   }
 
   const config = await readCraigConfig(paths);
@@ -54,4 +70,38 @@ export async function mergeTask(
     preservedWorktree: options.preserveWorktree,
     cleanupWarning: task.cleanup.warning,
   };
+}
+
+function getMergeBlockers(task: TaskRecord): string[] {
+  const blockers: string[] = [];
+  const pr = task.pullRequest;
+
+  if (pr.status !== "open") {
+    blockers.push(`PR is ${pr.status ?? "unknown"}`);
+  }
+
+  if (!pr.mergeable) {
+    blockers.push(`GitHub reports merge state ${pr.mergeStateStatus ?? "unknown"}`);
+  }
+
+  if (pr.lastSyncedHeadSha !== task.lastCommit?.sha) {
+    blockers.push("local task commit is not synced to the PR head");
+  }
+
+  if (pr.requiredChecks.length === 0) {
+    blockers.push("no GitHub checks reported");
+  }
+
+  for (const status of ["failed", "pending", "unknown"] as const) {
+    const names = pr.requiredChecks.filter((check) => check.status === status).map((check) => check.name);
+    if (names.length > 0) {
+      blockers.push(`${status} checks: ${names.join(", ")}`);
+    }
+  }
+
+  if (!isMergeReady(pr)) {
+    blockers.push("required checks are not passing");
+  }
+
+  return [...new Set(blockers)];
 }
