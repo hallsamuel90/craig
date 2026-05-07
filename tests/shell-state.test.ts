@@ -408,23 +408,56 @@ describe("terminal shell control state", () => {
     });
   });
 
-  test("enter and P on review request PR create or sync without attaching a PTY", () => {
+  test("enter, P, and R on review request PR actions without attaching a PTY", () => {
     const review = {
       ...seededState(),
       focusedRegion: "inspector" as const,
       inspectionMode: "review" as const,
     };
+    const refreshSelected = {
+      ...review,
+      selectedActionId: "refresh-checks" as const,
+    };
 
     expect(reduceMainKey(review, "ENTER", KEY_OPTIONS)).toMatchObject({
       attachTerminal: false,
       syncPullRequest: true,
+      refreshPullRequestChecks: false,
       changed: true,
     });
     expect(reduceMainKey(review, "P", KEY_OPTIONS)).toMatchObject({
       attachTerminal: false,
       syncPullRequest: true,
+      state: { selectedActionId: "create-pr" },
       changed: true,
     });
+    expect(reduceMainKey(review, "R", KEY_OPTIONS)).toMatchObject({
+      attachTerminal: false,
+      refreshPullRequestChecks: true,
+      state: { selectedActionId: "refresh-checks" },
+      changed: true,
+    });
+    expect(reduceMainKey(refreshSelected, "ENTER", KEY_OPTIONS)).toMatchObject({
+      attachTerminal: false,
+      syncPullRequest: false,
+      refreshPullRequestChecks: true,
+      changed: true,
+    });
+  });
+
+  test("up and down select review actions while review inspector is focused", () => {
+    const review = {
+      ...seededState(),
+      focusedRegion: "inspector" as const,
+      inspectionMode: "review" as const,
+      selectedActionId: "create-pr" as const,
+    };
+
+    const refresh = reduceMainKey(review, "DOWN", KEY_OPTIONS);
+    const sync = reduceMainKey(refresh.state, "UP", KEY_OPTIONS);
+
+    expect(refresh.state.selectedActionId).toBe("refresh-checks");
+    expect(sync.state.selectedActionId).toBe("create-pr");
   });
 
   test("scrolls selected file and diff content while center is focused", () => {

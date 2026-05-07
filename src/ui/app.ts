@@ -13,7 +13,7 @@ import { listTasks } from "../services/list-tasks.js";
 import { provisionTask } from "../services/task-provisioning.js";
 import { addRepo } from "../services/repo-registry.js";
 import { loadTaskLocalInspection, type InspectionTreeRow } from "../services/task-local-inspection.js";
-import { openPullRequest } from "../services/open-pull-request.js";
+import { openPullRequest, refreshPullRequestChecks } from "../services/open-pull-request.js";
 import { buildShellData, type WorkspaceShellModel } from "./shell-data.js";
 import { getViewport, SHELL_LAYOUT, type Viewport } from "./layout.js";
 import type { PtyRuntimeOptions, PtySize } from "./pty-runtime.js";
@@ -415,6 +415,24 @@ export async function startTerminalApp(options: TerminalAppOptions = {}): Promis
         focusedRegion: "inspector",
         inspectionMode: "review",
         actionMessage: `${action}: #${result.prNumber} ${result.url}`,
+      });
+    }
+
+    async function refreshPullRequestChecksFromShell(shell: ControlShellState): Promise<ControlShellState> {
+      const syncedShell = syncShell(shell);
+      if (!syncedShell.selectedTaskId) {
+        throw new Error("Select a task before refreshing PR checks.");
+      }
+
+      const task = await refreshPullRequestChecks(paths, syncedShell.selectedTaskId);
+      await reloadModel();
+
+      return syncShell({
+        ...syncedShell,
+        focusedRegion: "inspector",
+        inspectionMode: "review",
+        selectedActionId: "refresh-checks",
+        actionMessage: `Refreshed checks: ${task.pullRequest.requiredChecks.length} reported`,
       });
     }
 
@@ -898,6 +916,21 @@ export async function startTerminalApp(options: TerminalAppOptions = {}): Promis
             })
             .catch((error: unknown) => {
               const message = error instanceof Error ? error.message : "Failed to create or sync PR.";
+              state = { mode: "main", shell: syncShell({ ...result.state, actionMessage: message }) };
+              render();
+            });
+          return;
+        }
+
+        if (result.refreshPullRequestChecks) {
+          void refreshPullRequestChecksFromShell(result.state)
+            .then((nextShell) => {
+              state = { mode: "main", shell: nextShell };
+              persistShellState(state.shell);
+              render();
+            })
+            .catch((error: unknown) => {
+              const message = error instanceof Error ? error.message : "Failed to refresh PR checks.";
               state = { mode: "main", shell: syncShell({ ...result.state, actionMessage: message }) };
               render();
             });

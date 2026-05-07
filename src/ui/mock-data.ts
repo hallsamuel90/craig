@@ -181,6 +181,7 @@ const ACTION_FIXTURES = [
   { id: "commit", label: "commit", shortcut: "c" },
   { id: "push", label: "push", shortcut: "p" },
   { id: "create-pr", label: "create pr", shortcut: "P" },
+  { id: "refresh-checks", label: "refresh checks", shortcut: "R" },
   { id: "merge", label: "merge", shortcut: "m" },
   { id: "close-task", label: "close task", shortcut: "x" },
 ] as const;

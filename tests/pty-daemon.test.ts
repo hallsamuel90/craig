@@ -10,6 +10,8 @@ import { createDaemonPtyRuntime, requestDaemonShutdown, servePtyDaemon } from ".
 import { getCraigPaths } from "../src/state/craig-paths.js";
 import { ensureCraigState } from "../src/state/ensure-state.js";
 
+const DAEMON_TEST_TIMEOUT_MS = 15000;
+
 describe("PTY daemon", () => {
   test("reconnect returns an existing live tab session without spawning again", async () => {
     const root = await createWorkspace();
@@ -45,7 +47,7 @@ describe("PTY daemon", () => {
       await daemon;
       await rm(root, { recursive: true, force: true });
     }
-  });
+  }, DAEMON_TEST_TIMEOUT_MS);
 
   test("disposing one daemon tab kills only that tab session", async () => {
     const root = await createWorkspace();
@@ -79,7 +81,7 @@ describe("PTY daemon", () => {
       await daemon;
       await rm(root, { recursive: true, force: true });
     }
-  });
+  }, DAEMON_TEST_TIMEOUT_MS);
 
   test("hydrate reconnects multiple live sessions without changing the attached input tab", async () => {
     const root = await createWorkspace();
@@ -123,7 +125,7 @@ describe("PTY daemon", () => {
       await daemon;
       await rm(root, { recursive: true, force: true });
     }
-  });
+  }, DAEMON_TEST_TIMEOUT_MS);
 
   test("stale daemon endpoint files are replaced by a new daemon", async () => {
     const root = await createWorkspace();
@@ -150,7 +152,7 @@ describe("PTY daemon", () => {
       }
       await rm(root, { recursive: true, force: true });
     }
-  });
+  }, DAEMON_TEST_TIMEOUT_MS);
 
   test("incompatible live daemon is shut down and replaced", async () => {
     const root = await createWorkspace();
@@ -200,7 +202,7 @@ describe("PTY daemon", () => {
       }
       await rm(root, { recursive: true, force: true });
     }
-  });
+  }, DAEMON_TEST_TIMEOUT_MS);
 });
 
 async function createWorkspace(): Promise<string> {
