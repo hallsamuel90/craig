@@ -189,7 +189,7 @@ export function buildShellData(state: ControlShellState, model: WorkspaceShellMo
     centerTranscript: buildCenterTranscript(activeTabId, state, selectedRepo, selectedTask, state.workspaceBrowser, model.inspection),
     tabs,
     rightContext: buildContextRows(selectedRepo, selectedTask),
-    rightInspection: buildInspectionSection(state, model.inspection, checkRows, buildActionRows(state)),
+    rightInspection: buildInspectionSection(state, selectedTask, model.inspection, checkRows, buildActionRows(state)),
     rightChecks: checkRows,
     rightActions: buildActionRows(state),
   };
@@ -670,22 +670,16 @@ function styleForToken(token: string): TerminalCellStyle {
 
 function buildInspectionSection(
   state: ControlShellState,
+  task: TaskRecord | null,
   inspection: TaskLocalInspection | null,
   checks: ShellCheckRow[],
   actions: ShellActionRow[],
 ): ShellInspectionSection | null {
   const modeRows = [renderInspectionModeRow(state), { id: "mode-spacer", text: "", muted: true }];
-  if (state.inspectionMode === "actions") {
+  if (state.inspectionMode === "review") {
     return {
       title: "",
-      rows: [...modeRows, ...actions.map(renderActionInspectionRow)],
-    };
-  }
-
-  if (state.inspectionMode === "checks") {
-    return {
-      title: "",
-      rows: [...modeRows, ...checks.map(renderCheckInspectionRow)],
+      rows: [...modeRows, ...buildReviewInspectionRows(state, task, checks, actions)],
     };
   }
 
@@ -713,8 +707,7 @@ function formatInspectionModeRow(mode: ControlShellState["inspectionMode"]): str
   return [
     mode === "diff" ? "[CHANGES]" : "CHANGES",
     mode === "files" ? "[FILES]" : "FILES",
-    mode === "checks" ? "[CHECKS]" : "CHECKS",
-    mode === "actions" ? "[ACTIONS]" : "ACTIONS",
+    mode === "review" ? "[REVIEW]" : "REVIEW",
   ].join(" ");
 }
 
@@ -722,19 +715,8 @@ function buildActionRows(state: ControlShellState): ShellActionRow[] {
   return ACTION_FIXTURES.map((action) => ({
     ...action,
     selected: action.id === state.selectedActionId,
-    focused:
-      (state.focusedRegion === "actions" || (state.focusedRegion === "inspector" && state.inspectionMode === "actions")) &&
-      action.id === state.selectedActionId,
+    focused: state.focusedRegion === "actions" && action.id === state.selectedActionId,
   }));
-}
-
-function renderActionInspectionRow(row: ShellActionRow): ShellInspectionRow {
-  return {
-    id: row.id,
-    text: `${row.label.padEnd(18, " ")} ${row.shortcut}`,
-    selected: row.selected ?? false,
-    focused: row.focused ?? false,
-  };
 }
 
 function renderCheckInspectionRow(row: ShellCheckRow): ShellInspectionRow {
@@ -743,6 +725,53 @@ function renderCheckInspectionRow(row: ShellCheckRow): ShellInspectionRow {
     text: `${row.status} ${row.label.padEnd(14, " ")} ${row.result.padEnd(8, " ")} ${row.duration}`,
     muted: !row.success,
   };
+}
+
+function buildReviewInspectionRows(
+  state: ControlShellState,
+  task: TaskRecord | null,
+  checks: ShellCheckRow[],
+  actions: ShellActionRow[],
+): ShellInspectionRow[] {
+  if (!task) {
+    return [{ id: "review-empty", text: "No task selected.", muted: true }];
+  }
+
+  const pr = task.pullRequest;
+  const createPrAction = actions.find((action) => action.id === "create-pr");
+  const actionLabel = pr.number ? "sync pr" : "create pr";
+  const rows: ShellInspectionRow[] = [
+    { id: "review-title", text: "PR", muted: true },
+    pr.number
+      ? { id: "pr-number", text: `#${pr.number} ${pr.status ?? "unknown"}` }
+      : { id: "pr-number", text: "No tracked PR", muted: true },
+    { id: "pr-url", text: pr.url ?? "not created", muted: pr.url === null },
+    { id: "pr-base", text: `base ${pr.baseBranch ?? "unknown"}`, muted: pr.baseBranch === null },
+    { id: "pr-head", text: `head ${pr.headBranch ?? task.branch}`, muted: pr.headBranch === null },
+    { id: "pr-merge", text: `merge ${pr.mergeable ? "ready" : pr.mergeStateStatus ?? "unknown"}` },
+    { id: "pr-synced", text: `synced ${formatNullableValue(pr.lastSyncedAt)}`, muted: pr.lastSyncedAt === null },
+    { id: "pr-sha", text: `sha ${formatNullableSha(pr.lastSyncedHeadSha)}`, muted: pr.lastSyncedHeadSha === null },
+    { id: "review-spacer", text: "" },
+    { id: "review-checks", text: "Checks", muted: true },
+    ...checks.map(renderCheckInspectionRow),
+    { id: "review-action-spacer", text: "" },
+    {
+      id: "create-pr",
+      text: `${actionLabel.padEnd(18, " ")} ${createPrAction?.shortcut ?? "P"}`,
+      selected: true,
+      focused: state.focusedRegion === "inspector" && state.inspectionMode === "review",
+    },
+  ];
+
+  return rows;
+}
+
+function formatNullableValue(value: string | null): string {
+  return value ?? "--";
+}
+
+function formatNullableSha(value: string | null): string {
+  return value ? value.slice(0, 7) : "--";
 }
 
 function buildFileInspectionRows(state: ControlShellState, inspection: TaskLocalInspection | null): ShellInspectionRow[] {

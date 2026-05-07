@@ -156,6 +156,7 @@ export function buildTaskRecord(
       mergeStateStatus: null,
       requiredChecks: [],
       lastSyncedAt: null,
+      lastSyncedHeadSha: null,
     },
     artifacts: task.artifacts ?? {
       logPath: `.craig/logs/${task.id}.log`,
@@ -371,6 +372,7 @@ set -eu
 mode="\${CRAIG_TEST_GH_MODE:-success}"
 pr_number="\${CRAIG_TEST_GH_PR_NUMBER:-17}"
 pr_url="\${CRAIG_TEST_GH_PR_URL:-https://github.com/example/repo/pull/17}"
+head_oid="\${CRAIG_TEST_GH_HEAD_OID:-abc1234}"
 view_file="\${CRAIG_TEST_GH_VIEW_FILE:-}"
 if [ "$1" = "auth" ] && [ "$2" = "status" ]; then
   if [ "$mode" = "auth-fail" ]; then
@@ -389,7 +391,7 @@ if [ "$1" = "pr" ] && [ "$2" = "view" ]; then
     exit 0
   fi
   cat <<EOF
-{"number":$pr_number,"url":"$pr_url","baseRefName":"main","headRefName":"craig/task_1","state":"OPEN","mergeable":"MERGEABLE","mergeStateStatus":"CLEAN","statusCheckRollup":[]}
+{"number":$pr_number,"url":"$pr_url","baseRefName":"main","headRefName":"craig/task_1","headRefOid":"$head_oid","state":"OPEN","mergeable":"MERGEABLE","mergeStateStatus":"CLEAN","statusCheckRollup":[]}
 EOF
   exit 0
 fi

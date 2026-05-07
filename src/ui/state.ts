@@ -11,7 +11,7 @@ export const INSPECTION_TAB_ID = "inspection";
 export const CENTER_TAB_IDS = [...LEGACY_PTY_SURFACE_IDS, ...FIXED_CENTER_TAB_IDS] as const;
 export const ACTION_IDS = ["commit", "push", "create-pr", "merge", "close-task"] as const;
 export const INSPECTOR_SECTION_IDS = ["task", "checks", "pr", "setup-run", "actions", "next-action"] as const;
-export const INSPECTION_MODE_IDS = ["diff", "files", "checks", "actions"] as const;
+export const INSPECTION_MODE_IDS = ["diff", "files", "review"] as const;
 
 export type InputMode = "control" | "terminal";
 export type FocusRegion = (typeof FOCUS_REGIONS)[number];
@@ -95,6 +95,7 @@ export interface MainKeyResult {
   createPtyTab: boolean;
   createPtyTabKind: TaskPtyTabKind | null;
   closePtyTab: boolean;
+  syncPullRequest: boolean;
   refreshInspection: boolean;
 }
 
@@ -126,7 +127,7 @@ export function createInitialShellState(runtime: CraigUiRuntime | null): Control
     activeTab: legacyInspectionKind ? INSPECTION_TAB_ID : optionalString(runtime?.activeTab) ?? "agent",
     preferredPtyTabKind: getValidPtyTabKind(runtime?.preferredPtyTabKind),
     inspectorSection: getValidValue(runtime?.inspectorSection, INSPECTOR_SECTION_IDS, "task"),
-    inspectionMode: getValidValue(runtime?.inspectionMode, INSPECTION_MODE_IDS, legacyInspectionKind === "diff" ? "diff" : "files"),
+    inspectionMode: getValidInspectionMode(runtime?.inspectionMode, legacyInspectionKind === "diff" ? "diff" : "files"),
     openInspectionKind,
     selectedFileTreePath: optionalString(runtime?.selectedFileTreePath),
     selectedFilePath: optionalString(runtime?.selectedFilePath),
@@ -297,6 +298,14 @@ export function reduceMainKey(state: ControlShellState, key: string, options: Re
     });
   }
 
+  if ((key === "P" || key === "p") && state.focusedRegion === "inspector" && state.inspectionMode === "review") {
+    return result({
+      state: { ...state, actionMessage: null },
+      changed: true,
+      syncPullRequest: true,
+    });
+  }
+
   if (key === "x" && state.focusedRegion === "center" && isConcretePtyTab(state.activeTab, options.ptyTabIds ?? [])) {
     return result({ state: { ...state, actionMessage: null }, changed: true, closePtyTab: true });
   }
@@ -424,17 +433,14 @@ export function reduceMainKey(state: ControlShellState, key: string, options: Re
       });
     }
 
-    if (state.focusedRegion === "inspector" && state.inspectionMode === "checks") {
-      return result({ state });
-    }
-
-    if (state.focusedRegion === "inspector" && state.inspectionMode === "actions") {
+    if (state.focusedRegion === "inspector" && state.inspectionMode === "review") {
       return result({
         state: {
           ...state,
-          actionMessage: `Action queued: ${state.selectedActionId} (inspection surfaces land in phase 4.1).`,
+          actionMessage: null,
         },
         changed: true,
+        syncPullRequest: true,
       });
     }
 
@@ -554,10 +560,6 @@ function moveSelection(state: ControlShellState, direction: -1 | 1, options: Red
   }
 
   if (state.focusedRegion === "inspector") {
-    if (state.inspectionMode === "actions") {
-      return updateIndexedValue(state, "selectedActionId", ACTION_IDS, direction);
-    }
-
     if (state.inspectionMode === "files") {
       return moveFileTreeSelection(state, direction, options);
     }
@@ -586,10 +588,6 @@ export function scrollInspectionContent(state: ControlShellState, delta: number,
     if (state.inspectionMode === "diff") {
       const next = updateDynamicValue(state, "selectedDiffPath", options.diffPathIds ?? [], delta, true);
       return next.changed ? { ...next, state: { ...next.state, diffScrollOffset: 0 } } : next;
-    }
-
-    if (state.inspectionMode === "actions") {
-      return updateIndexedValue(state, "selectedActionId", ACTION_IDS, delta);
     }
 
     return result({ state });
@@ -772,6 +770,7 @@ function result(input: {
   createPtyTab?: boolean;
   createPtyTabKind?: TaskPtyTabKind | null;
   closePtyTab?: boolean;
+  syncPullRequest?: boolean;
   refreshInspection?: boolean;
 }): MainKeyResult {
   return {
@@ -786,6 +785,7 @@ function result(input: {
     createPtyTab: input.createPtyTab ?? false,
     createPtyTabKind: input.createPtyTabKind ?? null,
     closePtyTab: input.closePtyTab ?? false,
+    syncPullRequest: input.syncPullRequest ?? false,
     refreshInspection: input.refreshInspection ?? false,
   };
 }
@@ -804,6 +804,14 @@ function getValidFocusRegion(value: string | null | undefined): FocusRegion {
   }
 
   return getValidValue(value, FOCUS_REGIONS, "tasks");
+}
+
+function getValidInspectionMode(value: string | null | undefined, fallback: InspectionMode): InspectionMode {
+  if (value === "checks" || value === "actions" || value === "review") {
+    return "review";
+  }
+
+  return getValidValue(value, INSPECTION_MODE_IDS, fallback);
 }
 
 function getValidOpenInspectionKind(value: string | null | undefined): OpenInspectionKind | null {

@@ -74,8 +74,10 @@ describe("listTasks", () => {
             headBranch: null,
             status: null,
             mergeable: false,
+            mergeStateStatus: null,
             requiredChecks: [],
             lastSyncedAt: null,
+            lastSyncedHeadSha: null,
           },
           artifacts: {
             logPath: ".craig/logs/task_1.log",

@@ -135,6 +135,7 @@ function buildDraftTask(paths: CraigPaths, input: DraftTaskInput): TaskRecord {
       mergeStateStatus: null,
       requiredChecks: [],
       lastSyncedAt: null,
+      lastSyncedHeadSha: null,
     },
     artifacts: {
       logPath: path.relative(paths.workspaceRoot, path.join(paths.logsDir, `${input.taskId}.log`)),

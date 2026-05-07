@@ -241,6 +241,50 @@ describe("terminal shell renderer", () => {
     expect(frame).toContain("\u001B[38;2;86;156;214;48;2;16;33;15mexport");
   });
 
+  test("renders review panel with tracked PR metadata and create sync action", () => {
+    const task = buildTaskRecord("/tmp/craig", {
+      id: "task_20260430_02",
+      repoId: "repo_bug_fixes",
+      workspaceId: "workspace_bug_fixes",
+      pullRequest: {
+        provider: "github",
+        number: 17,
+        url: "https://github.com/example/repo/pull/17",
+        baseBranch: "main",
+        headBranch: "craig/task_20260430_02",
+        status: "open",
+        mergeable: true,
+        mergeStateStatus: "CLEAN",
+        requiredChecks: [{ name: "ci", status: "success", conclusion: "SUCCESS" }],
+        lastSyncedAt: "2026-05-06T00:00:00.000Z",
+        lastSyncedHeadSha: "abcdef123456",
+      },
+    });
+    const data = buildShellData(
+      {
+        ...createInitialShellState(null),
+        selectedRepoId: "repo_bug_fixes",
+        selectedTaskId: task.id,
+        selectedLeftItemId: `task:${task.id}`,
+        focusedRegion: "inspector",
+        inspectionMode: "review",
+      },
+      {
+        workspaceRoot: "/tmp/craig",
+        repos: [{ id: "repo_bug_fixes", name: "bug-fixes", rootPath: "/tmp/craig", defaultBranch: "main", createdAt: "", updatedAt: "" }],
+        tasks: [task],
+        inspection: null,
+      },
+    );
+
+    const frame = renderMainShellFrame(MIN_VIEWPORT, data, { color: false });
+
+    expect(frame).toContain("CHANGES FILES [REVIEW]");
+    expect(frame).toContain("#17 open");
+    expect(frame).toContain("sha abcdef1");
+    expect(frame).toContain("sync pr");
+  });
+
   test("renders the PTY terminal surface and terminal-mode hint", () => {
     const frame = renderMainShellFrame(
       MIN_VIEWPORT,
