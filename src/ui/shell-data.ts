@@ -123,8 +123,8 @@ const ACTION_FIXTURES: Array<{ id: ActionId; label: string; shortcut: string }> 
   { id: "push", label: "push", shortcut: "p" },
   { id: "create-pr", label: "create pr", shortcut: "P" },
   { id: "refresh-checks", label: "refresh checks", shortcut: "R" },
-  { id: "merge", label: "merge", shortcut: "m" },
-  { id: "close-task", label: "close task", shortcut: "x" },
+  { id: "merge", label: "merge", shortcut: "M" },
+  { id: "close-task", label: "close task", shortcut: "X" },
 ];
 const SYNTAX_COLORS = {
   lineNumber: "858585",
@@ -731,10 +731,14 @@ function buildReviewInspectionRows(
   const pr = task.pullRequest;
   const createPrAction = actions.find((action) => action.id === "create-pr");
   const refreshChecksAction = actions.find((action) => action.id === "refresh-checks");
+  const mergeAction = actions.find((action) => action.id === "merge");
+  const closeTaskAction = actions.find((action) => action.id === "close-task");
   const actionLabel = pr.number ? "sync pr" : "create pr";
   const reviewActionRows = [
     renderReviewActionRow("create-pr", actionLabel, createPrAction?.shortcut ?? "P", state),
     renderReviewActionRow("refresh-checks", "refresh checks", refreshChecksAction?.shortcut ?? "R", state, !pr.number),
+    renderReviewActionRow("merge", "merge pr", mergeAction?.shortcut ?? "M", state, !isReviewMergeActionAvailable(task)),
+    renderReviewActionRow("close-task", "close task", closeTaskAction?.shortcut ?? "X", state, task.status !== "merged"),
   ];
   const rows: ShellInspectionRow[] = [
     { id: "review-title", text: "PR", muted: true },
@@ -769,11 +773,11 @@ function renderReviewActionRow(
   return {
     id,
     text: `${label.padEnd(18, " ")} ${shortcut}`,
-    selected: id === state.selectedActionId || (id === "create-pr" && state.selectedActionId !== "refresh-checks"),
+    selected: id === state.selectedActionId,
     focused:
       state.focusedRegion === "inspector" &&
       state.inspectionMode === "review" &&
-      (id === state.selectedActionId || (id === "create-pr" && state.selectedActionId !== "refresh-checks")),
+      id === state.selectedActionId,
     muted,
   };
 }
@@ -829,8 +833,24 @@ function formatPullRequestCheckStatus(status: TaskPullRequestCheck["status"]): s
 function renderReviewGuidance(task: TaskRecord): ShellInspectionRow {
   const pr = task.pullRequest;
 
+  if (task.status === "closed") {
+    return { id: "review-guidance", text: "Task closed.", muted: true };
+  }
+
+  if (task.status === "merged") {
+    return { id: "review-guidance", text: "Next: close task." };
+  }
+
   if (!pr.number) {
     return { id: "review-guidance", text: "Next: create PR.", muted: true };
+  }
+
+  if (task.lastCommit && pr.lastSyncedHeadSha !== task.lastCommit.sha) {
+    return { id: "review-guidance", text: "Next: sync PR head." };
+  }
+
+  if (pr.requiredChecks.length === 0) {
+    return { id: "review-guidance", text: "Next: refresh checks.", muted: true };
   }
 
   if (pr.requiredChecks.some((check) => check.status === "failed")) {
@@ -846,10 +866,22 @@ function renderReviewGuidance(task: TaskRecord): ShellInspectionRow {
   }
 
   if (pr.mergeable && pr.status === "open") {
-    return { id: "review-guidance", text: "Next: ready for merge in 4.4." };
+    return { id: "review-guidance", text: "Next: merge PR." };
   }
 
   return { id: "review-guidance", text: "Next: review PR state.", muted: true };
+}
+
+function isReviewMergeActionAvailable(task: TaskRecord): boolean {
+  return (
+    task.status === "merge_ready" &&
+    task.pullRequest.status === "open" &&
+    task.pullRequest.mergeable &&
+    task.pullRequest.requiredChecks.length > 0 &&
+    task.pullRequest.requiredChecks.every((check) => check.status === "success" || check.status === "skipped") &&
+    task.lastCommit !== null &&
+    task.pullRequest.lastSyncedHeadSha === task.lastCommit.sha
+  );
 }
 
 function formatNullableValue(value: string | null): string {

@@ -10,7 +10,7 @@ export const FIXED_CENTER_TAB_IDS = [] as const;
 export const INSPECTION_TAB_ID = "inspection";
 export const CENTER_TAB_IDS = [...LEGACY_PTY_SURFACE_IDS, ...FIXED_CENTER_TAB_IDS] as const;
 export const ACTION_IDS = ["commit", "push", "create-pr", "refresh-checks", "merge", "close-task"] as const;
-const REVIEW_ACTION_IDS = ["create-pr", "refresh-checks"] as const;
+const REVIEW_ACTION_IDS = ["create-pr", "refresh-checks", "merge", "close-task"] as const;
 export const INSPECTOR_SECTION_IDS = ["task", "checks", "pr", "setup-run", "actions", "next-action"] as const;
 export const INSPECTION_MODE_IDS = ["diff", "files", "review"] as const;
 
@@ -98,6 +98,8 @@ export interface MainKeyResult {
   closePtyTab: boolean;
   syncPullRequest: boolean;
   refreshPullRequestChecks: boolean;
+  mergeTask: boolean;
+  closeTask: boolean;
   refreshInspection: boolean;
 }
 
@@ -316,6 +318,22 @@ export function reduceMainKey(state: ControlShellState, key: string, options: Re
     });
   }
 
+  if ((key === "M" || key === "m") && state.focusedRegion === "inspector" && state.inspectionMode === "review") {
+    return result({
+      state: { ...state, selectedActionId: "merge", actionMessage: null },
+      changed: true,
+      mergeTask: true,
+    });
+  }
+
+  if ((key === "X" || key === "x") && state.focusedRegion === "inspector" && state.inspectionMode === "review") {
+    return result({
+      state: { ...state, selectedActionId: "close-task", actionMessage: null },
+      changed: true,
+      closeTask: true,
+    });
+  }
+
   if (key === "x" && state.focusedRegion === "center" && isConcretePtyTab(state.activeTab, options.ptyTabIds ?? [])) {
     return result({ state: { ...state, actionMessage: null }, changed: true, closePtyTab: true });
   }
@@ -452,6 +470,28 @@ export function reduceMainKey(state: ControlShellState, key: string, options: Re
           },
           changed: true,
           refreshPullRequestChecks: true,
+        });
+      }
+
+      if (state.selectedActionId === "merge") {
+        return result({
+          state: {
+            ...state,
+            actionMessage: null,
+          },
+          changed: true,
+          mergeTask: true,
+        });
+      }
+
+      if (state.selectedActionId === "close-task") {
+        return result({
+          state: {
+            ...state,
+            actionMessage: null,
+          },
+          changed: true,
+          closeTask: true,
         });
       }
 
@@ -794,6 +834,8 @@ function result(input: {
   closePtyTab?: boolean;
   syncPullRequest?: boolean;
   refreshPullRequestChecks?: boolean;
+  mergeTask?: boolean;
+  closeTask?: boolean;
   refreshInspection?: boolean;
 }): MainKeyResult {
   return {
@@ -810,6 +852,8 @@ function result(input: {
     closePtyTab: input.closePtyTab ?? false,
     syncPullRequest: input.syncPullRequest ?? false,
     refreshPullRequestChecks: input.refreshPullRequestChecks ?? false,
+    mergeTask: input.mergeTask ?? false,
+    closeTask: input.closeTask ?? false,
     refreshInspection: input.refreshInspection ?? false,
   };
 }

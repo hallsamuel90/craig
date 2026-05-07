@@ -6,7 +6,8 @@ export type TaskStatus =
   | "checked"
   | "pr_open"
   | "merge_ready"
-  | "merged";
+  | "merged"
+  | "closed";
 export type RunnerType = "cursor" | "codex";
 
 export interface TaskPromptSource {

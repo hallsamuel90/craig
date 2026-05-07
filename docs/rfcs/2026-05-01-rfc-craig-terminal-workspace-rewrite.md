@@ -261,7 +261,7 @@ Required durable concerns:
 - `4.1` Add local files and diff inspection with right-panel navigation and center-panel detail views: `implemented and verified`
 - `4.2` Add PR creation and sync for task branches, including persisted PR metadata: `implemented and verified`
 - `4.3` Add checks and CI status reading for tracked PRs and head commits: `implemented and verified`
-- `4.4` Add guarded PR merge and task close flow from Craig: `pending`
+- `4.4` Add guarded PR merge and task close flow from Craig: `implemented and verified`
 - `5.1` Add Cursor and Claude runner support alongside Codex: `pending`
 - `5.2` Add multi-root workspace support across registered repos and linked task roots: `pending`
 - `6.1` Add a focused UX polish pass across navigation, density, empty states, and review ergonomics: `pending`
@@ -281,7 +281,7 @@ Required durable concerns:
 - `4.1` Verified by adding a local inspection service that indexes Git-visible files, excludes ignored files, splits local changes into staged, unstaged, and untracked groups, and guards binary or oversized file/diff previews. The Craig shell now has four focus regions (`tasks`, `center`, `inspector`, `actions`), persists selected file and diff paths, restores stale inspection paths to valid rows, and renders `Files`/`Diff` as stable center tabs with right-panel navigation and center-panel detail content. Automated coverage includes file indexing, grouped diff summaries, guarded binary previews, reducer inspector navigation, renderer file/diff layouts, app-level file/diff selection without PTY attach, and existing terminal E2E attach contracts. `pnpm test`, `pnpm typecheck`, `pnpm lint`, and `pnpm build` passed locally.
 - `4.2` Verified by consolidating the right operational sidebar into `CHANGES FILES REVIEW`; mapping legacy `checks` and `actions` inspection modes to `review`; rendering tracked PR metadata, persisted check summary rows, synced timestamp, and synced head SHA in Review; wiring Review `Enter`/`P` to create or sync PRs through the existing Git/GitHub service path; and persisting `TaskPullRequest.lastSyncedHeadSha` after PR refresh. Automated coverage includes PR metadata normalization, PR create and sync service behavior, Review reducer intents, Review renderer output, app-level PR create, app-level PR sync after a newer local commit, GitHub auth failure display, and unchanged file/diff/PTY attach behavior. `pnpm test`, `pnpm typecheck`, `pnpm lint`, and `pnpm build` passed locally.
 - `4.3` Verified by extending persisted PR check state to distinguish passing, pending, failing, skipped, and unknown GitHub check results; treating skipped as non-blocking while keeping it visually distinct; adding an explicit Review `R` refresh action beside the existing `P` create/sync PR action; rendering tracked PR check rows and next-action guidance from persisted PR metadata; and keeping refresh in Craig control mode without attaching PTYs or changing file/diff orientation. Automated coverage includes GitHub check normalization, skipped/non-blocking readiness, failed and unknown states, refresh-without-PR failure, Review reducer intents for `P`/`R`/`Enter`, Review renderer guidance, and app-level check refresh/error behavior. `pnpm test`, `pnpm typecheck`, `pnpm lint`, and `pnpm build` passed locally.
-- `4.4` Not yet verified.
+- `4.4` Verified by hardening the tracked PR merge service so it refreshes GitHub PR/check state immediately before merge, blocks missing PRs, missing commits, dirty worktrees, stale local/remote heads, missing check data, pending/failing/unknown checks, and non-mergeable GitHub states, then merges through the configured GitHub merge method while preserving the task worktree from the shell. The Review panel now exposes `P` create/sync, `R` refresh checks, `M` merge PR, and `X` close task actions; merged tasks can be marked `closed` as a recoverable persisted state without deleting worktrees or branch metadata, and shell close disposes live task PTY sessions. Automated coverage includes service blockers for stale heads, missing checks, and pending checks; close-task success and pre-merge failure; renderer Review merge/close rows and guidance; and app-level merge success, merge blocker, and close-task behavior without PTY attach. `pnpm test`, `pnpm typecheck`, `pnpm lint`, `pnpm build`, and `git diff --check` passed locally.
 - `5.1` Not yet verified.
 - `5.2` Not yet verified.
 - `6.1` Not yet verified.
@@ -289,7 +289,7 @@ Required durable concerns:
 
 ### Next resume point
 
-Resume at the first sub-phase that is not both implemented and verified on the primary review-workflow track. The current primary resume point is `4.4`, which adds guarded PR merge and task close flow from Craig.
+Resume at the first sub-phase that is not both implemented and verified on the primary track. The current primary resume point is `5.1`, which adds Cursor and Claude runner support alongside Codex.
 
 ### Parallelizable phases
 
