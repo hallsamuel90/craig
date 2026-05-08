@@ -80,12 +80,13 @@ Identity rules locked by this RFC:
 
 - `workspace`: the Craig root and durable local state boundary
 - `repo`: one registered source repository inside the workspace
-- `workspace root`: one local filesystem root registered into Craig; a workspace may contain multiple roots/repos after the multi-root phase
+- `workspace root`: one local filesystem root registered into Craig; after the multi-repo workspace phase this may be a parent directory such as `~/projects` that contains many child Git repos
 - `task`: one execution unit bound to one repo, one worktree, one branch, and one runner identity
 - `pty tab`: one task-scoped PTY-backed runtime surface such as an auto-booted `agent` tab or a plain `terminal` tab
 - `surface`: one center-panel view such as `agent`, `files`, `diff`, `terminal`, or `logs`
 - `overlay`: one full-screen Craig-owned modal state such as boot, pause, or resize warning
 - `runner`: the agent/tool identity used for task PTY bootstrap, initially Codex and later Cursor or Claude
+- `workspace batch view`: a read-oriented multi-repo view that groups files, changes, and review state by child repo so a parent directory feels monorepo-like without collapsing real Git repo boundaries
 
 ### Interaction model
 
@@ -157,6 +158,13 @@ Files and diff inspection use the right inspector as an index and the center pan
 - on `Diff`, the right inspector shows a per-file change summary; selecting a changed file opens that file's diff in the center panel
 - inspection navigation never implicitly attaches a PTY tab or changes input ownership
 - concrete PTY tabs remain separate center tabs and are unaffected by browsing files or diffs
+
+After the multi-repo workspace phase, `Files`, `Diff`, and `Review` each support two scopes:
+
+- task scope: the current single-repo task view, where rows are rooted in the selected task worktree
+- workspace scope: a parent-directory view grouped by child repo, where each repo directory can expand/collapse to reveal that repo's files, changes, PRs, checks, and task state
+
+Workspace scope should feel like a monorepo browser for daily orientation, but it must preserve actual repo boundaries for Git, branch, PR, check, merge, and terminal commands. Read-only batch actions such as refresh all review state may operate across expanded or selected repos; mutating actions such as merge, cleanup, or branch deletion remain single-task unless a later RFC adds explicit batch confirmation semantics.
 
 ### Visual direction
 
@@ -263,9 +271,11 @@ Required durable concerns:
 - `4.3` Add checks and CI status reading for tracked PRs and head commits: `implemented and verified`
 - `4.4` Add guarded PR merge and task close flow from Craig: `implemented and verified`
 - `5.1` Add Cursor and Claude runner support alongside Codex: `pending`
-- `5.2` Add multi-root workspace support across registered repos and linked task roots: `pending`
-- `6.1` Add a focused UX polish pass across navigation, density, empty states, and review ergonomics: `pending`
+- `5.2` Add parent-directory multi-repo workspace mode with repo-grouped Files, Changes, and Review: `pending`
+- `6.1` Add a focused design and ergonomics pass across palette, navigation, density, empty states, and review workflows: `pending`
 - `6.2` Add configurable video-game-like sound effects for important Craig events: `pending`
+- `7.1` Add npm packaging, publish workflow, and CI source-leak prevention: `pending`
+- `8.1` Add marketing site and public documentation entrypoint: `pending`
 
 ### Verification summary
 
@@ -286,6 +296,8 @@ Required durable concerns:
 - `5.2` Not yet verified.
 - `6.1` Not yet verified.
 - `6.2` Not yet verified.
+- `7.1` Not yet verified.
+- `8.1` Not yet verified.
 
 ### Next resume point
 
@@ -295,6 +307,7 @@ Resume at the first sub-phase that is not both implemented and verified on the p
 
 - background session persistence beyond the local Craig process was delivered in phase `3.4`; daemon-owned PTY sessions now keep in-progress agent conversations alive across Craig UI exits
 - review-workflow phases `4.2` through `4.4` remain scoped to PR creation, check reading, merge behavior, and task-review state; those semantics were intentionally untouched by `3.4`
+- the marketing site in `8.1` may be designed in parallel with implementation work, but it should not publish until package metadata, privacy language, and install docs from `7.1` are stable
 
 ### Phase execution and verification policy
 
@@ -392,7 +405,8 @@ State model decisions locked by this RFC:
 - files and diff inspection may persist selected file paths, but file contents and diff text are derived from the task worktree on demand
 - PR metadata, check snapshots, and merge/cleanup status are durable task concerns, but they land in separate phases after local inspection
 - runner identity and launch command metadata must be explicit so Codex, Cursor, and Claude tasks can coexist without guessing from tab titles
-- multi-root workspace state must preserve primary versus linked roots so task actions know which repo owns branch, PR, checks, and merge state
+- multi-repo workspace state must preserve discovered child repos, manually registered repos, and selected parent-directory roots so Craig can restore a monorepo-like workspace view without confusing which repo owns branch, PR, checks, and merge state
+- task records may link related repos for context, but every mutating task action still has one primary repo/worktree target unless explicitly expanded by a later phase
 - UX and sound preferences are workspace-local runtime settings and must be safe to disable for quiet terminals, CI, and accessibility needs
 - all state writes must remain atomic
 
@@ -426,6 +440,9 @@ State model decisions locked by this RFC:
 - if persisted selected tabs or inspector sections are no longer valid after an upgrade, Craig falls back to the default task summary view
 - if GitHub CLI is not installed, PR actions remain unavailable without blocking the rest of the workspace
 - if visual reference coverage is incomplete, implementation may proceed on core layout, but polish and acceptance for the affected surface stay open
+- if a parent-directory workspace contains non-Git folders, nested repos, hidden repos, or inaccessible directories, repo discovery must skip or report them without blocking already registered repos
+- if multiple repos have similarly named branches, tasks, files, or PRs, every row and action message must retain enough repo identity to prevent wrong-repo commands
+- if package publishing or static artifact checks fail, release workflows must fail closed rather than publishing a partial or source-leaking npm package
 
 ## Security and privacy
 
@@ -433,6 +450,9 @@ State model decisions locked by this RFC:
 - PTY sessions inherit the local developer environment, so Craig must avoid logging secrets from interactive output unless log capture is explicitly enabled
 - review metadata stored under `.craig/artifacts/` should be treated as local developer state and remain out of version control
 - command dispatch must keep repo, worktree, and branch targeting explicit to avoid running task actions in the wrong workspace
+- npm publish artifacts must be generated from an explicit allowlist and checked in CI so local source trees, `.context`, `.craig`, task artifacts, logs, env files, private repo paths, and generated workspace state cannot leak into the package
+- source-leak checks must be conservative and fail the release path when they cannot determine whether a packed artifact is safe
+- the marketing site must not require or expose local Craig workspace state, task prompts, logs, or private repository metadata
 
 ## Observability
 
@@ -440,6 +460,7 @@ State model decisions locked by this RFC:
 - record task action failures with enough detail to diagnose Git, PTY, and render-path problems
 - keep lightweight render and input diagnostics available in development builds
 - expose current input mode and selected task in debug output so mode-ownership issues are diagnosable
+- record package dry-run and artifact-audit failures in CI logs with the offending path or rule name
 
 ## Rollout plan
 
@@ -475,11 +496,19 @@ Deliver the review path in separable vertical slices: local files/diff inspectio
 
 ### Phase 5: Workspace and runner expansion
 
-Deliver broader task execution and repository topology support after the core Codex single-root workflow is stable. This phase adds Cursor and Claude as first-class runner identities, then adds multi-root workspace support for projects that span more than one registered repo/root.
+Deliver broader task execution and repository topology support after the core Codex single-root workflow is stable. This phase adds Cursor and Claude as first-class runner identities, then adds a parent-directory multi-repo workspace mode for projects stored under roots such as `~/projects`. The multi-repo mode should feel like a monorepo in Files, Changes, and Review by grouping expandable rows by child repo, while preserving real repo boundaries for branch, worktree, PR, check, merge, and terminal actions.
 
 ### Phase 6: Product feel and delight
 
-Deliver a dedicated polish pass after the core workflow is useful end to end. This phase tightens navigation, density, empty states, and review ergonomics, then adds configurable video-game-like sound effects for important Craig events without making audio a requirement.
+Deliver a dedicated product-design pass after the core workflow is useful end to end. This phase audits and revises the color palette, focus states, typography density, hierarchy, empty states, and repeated-use ergonomics across normal terminal sizes. It then adds configurable video-game-like sound effects for important Craig events without making audio a requirement.
+
+### Phase 7: Packaging and publish safety
+
+Deliver npm packaging and release safety only after the local product has a stable command surface. This phase prepares Craig for npm distribution, adds a manual publish workflow, and adds CI checks that fail if package artifacts include local source trees, private workspace state, task artifacts, logs, `.context`, `.craig`, env files, or other accidental source/code leakage.
+
+### Phase 8: Marketing site and public docs
+
+Deliver a public-facing site after package installation, privacy claims, and core workflows are stable enough to describe accurately. This phase creates a marketing and documentation entrypoint with product positioning, install instructions, workflow screenshots or terminal captures, privacy/security language, and links to the npm package and GitHub repository.
 
 ## Plan Mode handoff checklist and acceptance criteria
 
@@ -801,35 +830,46 @@ Deliver a dedicated polish pass after the core workflow is useful end to end. Th
 
 #### Implementation
 
-- allow a Craig workspace to register and display multiple local roots/repos as one workspace context
-- preserve primary repo semantics for task branch, PR, checks, and merge operations
-- allow tasks to record linked repo/root ids when work spans more than the primary repo
-- extend file and diff inspection to group entries by root when a task has linked roots
-- make task creation and restore deterministic when multiple roots are present
-- keep destructive Git actions scoped to the correct repo/root and visibly identified in the UI
+- allow a Craig workspace to register a parent directory such as `~/projects` and discover child Git repos beneath it
+- preserve manually registered repos and support parent-directory discovery without requiring every child repo to be added one by one
+- render the left navigation as a repo-grouped workspace tree when multiple repos are present
+- add workspace-scope `Files`, `Diff`/`Changes`, and `Review` views where each child repo directory can expand/collapse independently
+- keep task-scope inspection behavior intact for the selected task worktree
+- preserve primary repo semantics for task branch, PR, checks, merge, and terminal operations
+- allow tasks to record linked repo ids for context when work spans more than the primary repo
+- make task creation, selection, restore, and command dispatch deterministic when multiple repos contain similar names, branches, files, or PRs
+- support read-only batch workspace actions such as refreshing review/check state across selected or expanded repos
+- defer destructive batch actions such as merge, cleanup, or branch deletion until a later phase with explicit confirmation semantics
 
 #### Verification
 
 - run `pnpm test`
 - run `pnpm typecheck`
 - run `pnpm lint`
-- manually register multiple repos into one workspace context
-- manually create a task with a primary repo and linked root, then verify files/diffs are grouped by root
-- manually verify PR/check/merge actions still target only the primary repo unless explicitly expanded later
+- manually register a parent directory containing multiple Git repos and verify child repo discovery
+- manually verify Files, Changes, and Review can expand/collapse repo groups and preserve row selection
+- manually create tasks in at least two child repos and verify task-scope files/diffs/review still target the selected task
+- manually verify PR/check/merge actions still target only the selected task's primary repo
+- manually verify read-only batch refresh does not run mutating Git commands
 
 #### Tracking update
 
-- keep `5.2` open if multi-root display makes branch, PR, checks, or merge target ambiguous
-- keep `5.2` open if linked roots cannot restore after Craig restart
+- keep `5.2` open if parent-directory discovery or workspace-scope panels make branch, PR, checks, merge, or terminal targets ambiguous
+- keep `5.2` open if repo-group expansion state, linked repo context, or selected rows cannot restore after Craig restart
+- keep `5.2` open if read-only batch actions can accidentally mutate child repos
 
 ### 6.1 Handoff
 
 #### Implementation
 
+- audit and revise the Craig color palette for contrast, hierarchy, selection clarity, and reduced visual noise
+- introduce or consolidate renderer tokens for palette, focus, muted, success, pending, failure, and disabled states so colors are not scattered through rendering code
 - polish navigation affordances, focus styling, truncation, and dense-layout behavior across the shell
 - improve empty, loading, failure, and unavailable-tool states for tasks, files, diffs, PRs, checks, and runners
-- tune right-panel hierarchy so file/diff/PR/check navigation remains scannable during repeated daily use
+- tune right-panel hierarchy so file/diff/PR/check navigation remains scannable during repeated daily use, including multi-repo grouped views from `5.2`
 - tighten copy for action feedback, blocked states, and next-action guidance
+- improve ergonomics for common repeated workflows: task selection, PTY attach/detach, file browsing, diff review, PR refresh, merge, and close
+- verify the shell does not become card-heavy, over-padded, or dominated by a one-note color family
 - preserve keyboard-first control-mode behavior and avoid adding hidden input ownership changes
 
 #### Verification
@@ -840,11 +880,14 @@ Deliver a dedicated polish pass after the core workflow is useful end to end. Th
 - manually review the shell at narrow, normal, and wide terminal sizes
 - manually verify long repo, task, branch, file, check, and PR labels truncate cleanly without overlap
 - manually verify common workflows remain discoverable without explanatory marketing text
+- manually verify selected, focused, muted, disabled, passing, pending, failing, and unknown states are distinguishable in the active palette
+- manually compare single-repo and multi-repo workspace views for scanability
 
 #### Tracking update
 
 - keep `6.1` open if visual polish introduces overlap, ambiguous focus, or slower repeated keyboard workflows
 - keep `6.1` open if empty/error states leave the user without a clear next action
+- keep `6.1` open if the palette reads as one-note, low-contrast, or inconsistent across panels
 
 ### 6.2 Handoff
 
@@ -870,6 +913,57 @@ Deliver a dedicated polish pass after the core workflow is useful end to end. Th
 - keep `6.2` open if sound effects are not configurable or cannot be fully muted
 - keep `6.2` open if audio playback can interfere with terminal input, rendering, or PTY sessions
 
+### 7.1 Handoff
+
+#### Implementation
+
+- prepare npm package metadata, bin entries, README install instructions, license metadata, and package exports for Craig distribution
+- define an explicit npm publish artifact allowlist, preferably through `package.json` `files`
+- add a CI job that runs the package build and `npm pack --dry-run` or equivalent artifact listing
+- add static artifact analysis that fails CI if packed files include `.context`, `.craig`, task artifacts, logs, env files, private workspace state, source maps or source files not intended for distribution, local absolute paths, or other denied patterns
+- add a local release/publish script or documented manual workflow that builds, audits, packs, smoke-tests install from the tarball, and only then publishes
+- make the publish workflow manual or approval-gated until release confidence is established
+
+#### Verification
+
+- run `pnpm test`
+- run `pnpm typecheck`
+- run `pnpm lint`
+- run `pnpm build`
+- run the package dry-run and inspect the included files
+- run the source-leak/static artifact check against the packed output
+- install Craig from the generated tarball in a temporary directory and verify the binary starts without requiring repo-local source files
+- intentionally add a denied file to a local dry-run fixture or test and verify the leak check fails
+
+#### Tracking update
+
+- keep `7.1` open if npm artifacts are not allowlisted
+- keep `7.1` open if CI cannot fail closed on likely source, secret, workspace-state, or task-artifact leakage
+- keep `7.1` open if the packed package cannot be installed and smoke-tested outside the repo checkout
+
+### 8.1 Handoff
+
+#### Implementation
+
+- create a marketing site or docs entrypoint that explains Craig's terminal workspace model, multi-repo workflow, runner support, review lifecycle, and install path
+- include durable screenshots, terminal captures, or short demos that show the real product rather than mock-only claims
+- add privacy and security copy that explains local workspace state, PTY behavior, package artifact safety, and what Craig does not upload
+- link to npm installation, GitHub source, and release notes
+- keep the site decoupled from local Craig workspace state and private task artifacts
+
+#### Verification
+
+- run the site's build or static export command
+- manually review the site on mobile and desktop widths
+- manually verify install instructions match the published npm package and current CLI behavior
+- manually verify no private repo names, local paths, task prompts, logs, `.context`, or `.craig` artifacts are included in public assets
+
+#### Tracking update
+
+- keep `8.1` open if the site promises workflows not yet implemented in Craig
+- keep `8.1` open if privacy/security language is absent or inconsistent with the package and runtime behavior
+- keep `8.1` open if public assets include private workspace details
+
 ### Acceptance criteria
 
 - `[0.1]` Craig starts without exposing the old Ink shell, REPL parser flow, or `tmux`-driven interactive UX.
@@ -886,6 +980,8 @@ Deliver a dedicated polish pass after the core workflow is useful end to end. Th
 - `[4.3]` Craig can read CI/check state for a tracked PR or task head commit and explain whether it is passing, pending, failing, skipped, or unknown.
 - `[4.4]` Craig can merge a ready PR and close the task through guarded actions that preserve recovery state when cleanup is incomplete.
 - `[5.1]` Craig can create and run Codex, Cursor, and Claude tasks through explicit runner profiles without changing task/worktree semantics.
-- `[5.2]` Craig can manage a workspace with multiple registered roots while preserving clear primary-repo targeting for task actions.
-- `[6.1]` Craig's shell is polished enough for repeated daily use across normal terminal sizes, with clear focus, truncation, empty states, and next actions.
+- `[5.2]` Craig can open a parent-directory workspace such as `~/projects`, discover child Git repos, and present Files, Changes, and Review as repo-grouped expandable workspace views while preserving clear primary-repo targeting for task actions.
+- `[6.1]` Craig's shell is polished enough for repeated daily use across normal terminal sizes, with a deliberate color palette, clear focus, truncation, empty states, grouped workspace scanability, and efficient next actions.
 - `[6.2]` Craig can play configurable video-game-like sound effects for important workflow events, and those effects can be fully muted without disrupting terminal operation.
+- `[7.1]` Craig can be packed and published to npm through an allowlisted artifact workflow with CI static analysis that fails on likely source, secret, local workspace, or task-artifact leakage.
+- `[8.1]` Craig has a public marketing/docs entrypoint with accurate install instructions, workflow visuals, and privacy/security language that does not expose private local workspace data.
