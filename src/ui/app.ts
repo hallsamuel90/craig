@@ -20,7 +20,7 @@ import { buildShellData, type WorkspaceShellModel } from "./shell-data.js";
 import { getViewport, SHELL_LAYOUT, type Viewport } from "./layout.js";
 import type { PtyRuntimeOptions, PtySize } from "./pty-runtime.js";
 import { createDaemonPtyRuntime } from "./pty-daemon.js";
-import { CENTER_TERMINAL_GUTTER, renderBootOverlayFrame, renderMainShellFrame, renderPauseOverlayFrame } from "./render.js";
+import { CENTER_TERMINAL_GUTTER, renderBootOverlayFrame, renderHelpOverlayFrame, renderMainShellFrame, renderOptionsOverlayFrame, renderPauseOverlayFrame } from "./render.js";
 import {
   createInitialShellState,
   buildCenterTabIds,
@@ -37,9 +37,9 @@ import {
   type WorkspaceBrowserState,
 } from "./state.js";
 
-type OverlayVariant = "boot" | "pause";
+type OverlayVariant = "boot" | "pause" | "help" | "options";
 type AppState =
-  | { mode: "overlay"; variant: OverlayVariant; menuIndex: number; optionsMessage: string | null; shell: ControlShellState }
+  | { mode: "overlay"; variant: OverlayVariant; menuIndex: number; optionsMessage: string | null; shell: ControlShellState; parentVariant?: "boot" | "pause"; viaOptions?: boolean }
   | { mode: "main"; shell: ControlShellState };
 
 /* eslint-disable no-unused-vars */
@@ -534,14 +534,12 @@ export async function startTerminalApp(options: TerminalAppOptions = {}): Promis
         state.mode === "main"
           ? renderMainShellFrame(viewport, buildShellData(syncShell(state.shell), model))
           : state.variant === "boot"
-            ? renderBootOverlayFrame(viewport, {
-                menuIndex: state.menuIndex,
-                optionsMessage: state.optionsMessage,
-              })
-            : renderPauseOverlayFrame(viewport, {
-                menuIndex: state.menuIndex,
-                optionsMessage: state.optionsMessage,
-              });
+            ? renderBootOverlayFrame(viewport, { menuIndex: state.menuIndex, optionsMessage: state.optionsMessage })
+            : state.variant === "pause"
+              ? renderPauseOverlayFrame(viewport, { menuIndex: state.menuIndex, optionsMessage: state.optionsMessage })
+              : state.variant === "options"
+                ? renderOptionsOverlayFrame(viewport, { menuIndex: state.menuIndex })
+                : renderHelpOverlayFrame(viewport);
 
       activeTerminal.moveTo(1, 1);
       if (pendingClear) {
@@ -888,8 +886,17 @@ export async function startTerminalApp(options: TerminalAppOptions = {}): Promis
           return;
         }
 
+        if (key === "?" && state.shell.inputMode === "control") {
+          state = { mode: "overlay", variant: "help", menuIndex: 0, optionsMessage: null, shell: state.shell };
+          pendingClear = true;
+          render();
+          return;
+        }
+
+
         if (result.pause) {
           state = { mode: "overlay", variant: "pause", menuIndex: 0, optionsMessage: null, shell: syncShell(result.state) };
+          pendingClear = true;
           render();
           return;
         }
@@ -1034,6 +1041,46 @@ export async function startTerminalApp(options: TerminalAppOptions = {}): Promis
         return;
       }
 
+      if (state.variant === "help") {
+        if (state.viaOptions && state.parentVariant) {
+          state = { mode: "overlay", variant: "options", menuIndex: 0, optionsMessage: null, shell: state.shell, parentVariant: state.parentVariant };
+        } else if (state.parentVariant) {
+          state = { mode: "overlay", variant: state.parentVariant, menuIndex: 1, optionsMessage: null, shell: state.shell };
+        } else {
+          state = { mode: "main", shell: syncShell(state.shell) };
+        }
+        pendingClear = true;
+        render();
+        return;
+      }
+
+      if (state.variant === "options") {
+        if (key === "UP" || key === "k") {
+          state = { ...state, menuIndex: Math.max(0, state.menuIndex - 1) };
+          render();
+          return;
+        }
+        if (key === "DOWN" || key === "j") {
+          state = { ...state, menuIndex: Math.min(0, state.menuIndex + 1) };
+          render();
+          return;
+        }
+        if (isEnterKey(key) && state.menuIndex === 0) {
+          const parentVariant = state.parentVariant;
+          state = { mode: "overlay", variant: "help", menuIndex: 0, optionsMessage: null, shell: state.shell, viaOptions: true, ...(parentVariant !== undefined ? { parentVariant } : {}) };
+          pendingClear = true;
+          render();
+          return;
+        }
+        if (key === "ESCAPE" && state.parentVariant) {
+          state = { mode: "overlay", variant: state.parentVariant, menuIndex: 1, optionsMessage: null, shell: state.shell };
+          pendingClear = true;
+          render();
+          return;
+        }
+        return;
+      }
+
       if (state.optionsMessage) {
         if (key === "ESCAPE" || isEnterKey(key)) {
           state = { ...state, optionsMessage: null };
@@ -1063,6 +1110,7 @@ export async function startTerminalApp(options: TerminalAppOptions = {}): Promis
       if (key === "ESCAPE") {
         if (state.variant === "pause") {
           state = { mode: "main", shell: syncShell(state.shell) };
+          pendingClear = true;
           render();
         }
         return;
@@ -1074,16 +1122,16 @@ export async function startTerminalApp(options: TerminalAppOptions = {}): Promis
 
       if (state.menuIndex === 0) {
         state = { mode: "main", shell: syncShell({ ...state.shell, inputMode: "control" }) };
+        pendingClear = true;
         render();
         hydrateAndRenderOpenPtyTabs();
         return;
       }
 
       if (state.menuIndex === 1) {
-        state = {
-          ...state,
-          optionsMessage: "Options are not available in phase 3.1.",
-        };
+        const parentVariant = state.variant === "boot" || state.variant === "pause" ? state.variant : undefined;
+        state = { mode: "overlay", variant: "options", menuIndex: 0, optionsMessage: null, shell: state.shell, ...(parentVariant !== undefined ? { parentVariant } : {}) };
+        pendingClear = true;
         render();
         return;
       }

@@ -40,14 +40,14 @@ describe("terminal shell renderer", () => {
     expect(frame).toContain("WORKSPACES");
     expect(frame).toContain("+ New Task");
     expect(frame).toContain("+ New Workspace");
-    expect(frame).toContain("RUNNERS");
+    expect(frame).toContain("codex");
     expect(frame).toContain("NORMAL   n new task");
     expect(frame).toContain("▸ task_20260430_02");
     expect(frame).toContain("running ●");
     expect(frame).toContain("AGENT");
     expect(frame).toContain("TERMINAL");
     expect(frame).toContain("CONTEXT");
-    expect(frame).toContain("AGENT  task_20260430_02 · bug-fixes · codex");
+    expect(frame).toContain("AGENT  task_20260430_02 · bug-fixes");
     expect(frame).toContain("Press Enter on the AGENT");
     expect(frame).toContain("─────");
     expect(frame).not.toContain("│WORKSPACES");
@@ -104,7 +104,7 @@ describe("terminal shell renderer", () => {
     expect(frame).toContain("src/app.ts");
     expect(frame).toContain("export const app = true;");
     expect(frame).toContain("  1 │ export const app = true;");
-    expect(frame).toContain("▸     app.ts");
+    expect(frame).toContain("app.ts");
   });
 
   test("renders file content from the current scroll offset", () => {
@@ -167,8 +167,8 @@ describe("terminal shell renderer", () => {
 
     const frame = renderMainShellFrame(MIN_VIEWPORT, data, { color: true });
 
-    expect(frame).toContain("\u001B[38;2;86;156;214;48;2;10;10;10mexport");
-    expect(frame).toContain("\u001B[38;2;133;133;133;48;2;10;10;10m  1");
+    expect(frame).toContain("\u001B[38;2;157;124;216;48;2;10;10;10mexport");
+    expect(frame).toContain("\u001B[38;2;59;66;97;48;2;10;10;10m  1");
   });
 
   test("renders diff tab with grouped changed files and selected patch", () => {
@@ -199,7 +199,7 @@ describe("terminal shell renderer", () => {
 
     const frame = renderMainShellFrame(MIN_VIEWPORT, data, { color: false });
 
-    expect(frame).toContain("[CHANGES] FILES");
+    expect(frame).toContain("CHANGES  FILES");
     expect(frame).toContain("STAGED");
     expect(frame).toContain("UNSTAGED");
     expect(frame).toContain("  1 │ export const app = false;");
@@ -237,8 +237,8 @@ describe("terminal shell renderer", () => {
 
     const frame = renderMainShellFrame(MIN_VIEWPORT, data, { color: true });
 
-    expect(frame).toContain("\u001B[38;2;86;156;214;48;2;42;17;17mexport");
-    expect(frame).toContain("\u001B[38;2;86;156;214;48;2;16;33;15mexport");
+    expect(frame).toContain("\u001B[38;2;157;124;216;48;2;42;17;17mexport");
+    expect(frame).toContain("\u001B[38;2;157;124;216;48;2;16;33;15mexport");
   });
 
   test("renders review panel with tracked PR metadata, GitHub checks, guidance, and actions", () => {
@@ -282,11 +282,11 @@ describe("terminal shell renderer", () => {
 
     const frame = renderMainShellFrame(MIN_VIEWPORT, data, { color: false });
 
-    expect(frame).toContain("CHANGES FILES [REVIEW]");
+    expect(frame).toContain("CHANGES  FILES  REVIEW");
     expect(frame).toContain("#17 open");
     expect(frame).toContain("sha abcdef1");
     expect(frame).toContain("✓ ci");
-    expect(frame).toContain("- docs");
+    expect(frame).toContain("○ docs");
     expect(frame).toContain("Next: merge PR.");
     expect(frame).toContain("sync pr");
     expect(frame).toContain("refresh checks");
@@ -342,7 +342,7 @@ describe("terminal shell renderer", () => {
       { color: false },
     );
 
-    expect(failed).toContain("! ci");
+    expect(failed).toContain("✕ ci");
     expect(failed).toContain("Next: fix failing checks.");
     expect(unknown).toContain("? coverage");
     expect(unknown).toContain("Next: refresh unknown checks.");
@@ -370,7 +370,7 @@ describe("terminal shell renderer", () => {
     expect(frame).toContain("TERMINAL  task_20260430_02 · bug-fixes");
     expect(frame).toContain("TERMINAL   Ctrl+] detach");
     expect(frame).toContain("$ pwd");
-    expect(frame).toContain("/Users/samhall/conductor/workspaces/crai");
+    expect(frame).toContain("/Users/samhall/conductor/workspaces/");
     expect(frame).not.toContain("terminal ▸ terminal mode");
   });
 

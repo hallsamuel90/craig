@@ -1,7 +1,8 @@
 import path from "node:path";
 
 import type { InspectionDiffGroup, InspectionDiffRow, TaskLocalInspection } from "../services/task-local-inspection.js";
-import type { TaskPullRequestCheck, TaskPtyTabRecord, TaskRecord } from "../types/task.js";
+import { DIR_ICON_CLOSED, DIR_ICON_OPEN, getFileIcon, getFileIconColor } from "./icons.js";
+import type { TaskPullRequest, TaskPullRequestCheck, TaskPtyTabRecord, TaskRecord } from "../types/task.js";
 import type { RepoRecord } from "../types/workspace.js";
 import { INSPECTION_TAB_ID } from "./state.js";
 import type { TerminalCellStyle, TerminalRowSegment } from "./terminal-emulator.js";
@@ -35,7 +36,8 @@ export interface ShellTreeRow {
 
 export interface ShellRunnerRow {
   name: string;
-  meter: string;
+  health: number;
+  unlimited?: boolean;
   count: string;
 }
 
@@ -74,6 +76,9 @@ export interface ShellInspectionRow {
   selected?: boolean;
   focused?: boolean;
   muted?: boolean;
+  accentPrefix?: boolean;
+  color?: string;
+  segments?: TerminalRowSegment[];
 }
 
 export interface ShellInspectionSection {
@@ -127,17 +132,17 @@ const ACTION_FIXTURES: Array<{ id: ActionId; label: string; shortcut: string }> 
   { id: "close-task", label: "close task", shortcut: "X" },
 ];
 const SYNTAX_COLORS = {
-  lineNumber: "858585",
-  gutter: "404040",
-  keyword: "569cd6",
-  string: "ce9178",
-  literal: "b5cea8",
-  comment: "6a9955",
-  markup: "4ec9b0",
-  diffAdd: "6a9955",
-  diffDelete: "f48771",
-  diffMeta: "808080",
-  diffHunk: "c586c0",
+  lineNumber: "3b4261",
+  gutter:     "3b4261",
+  keyword:    "9d7cd8",
+  string:     "9ece6a",
+  literal:    "ff9e64",
+  comment:    "565f89",
+  markup:     "f7768e",
+  diffAdd:    "9ece6a",
+  diffDelete: "f7768e",
+  diffMeta:   "565f89",
+  diffHunk:   "565f89",
 } as const;
 
 export function buildShellData(state: ControlShellState, model: WorkspaceShellModel): ShellData {
@@ -675,7 +680,7 @@ function buildInspectionSection(
   inspection: TaskLocalInspection | null,
   actions: ShellActionRow[],
 ): ShellInspectionSection | null {
-  const modeRows = [renderInspectionModeRow(state), { id: "mode-spacer", text: "", muted: true }];
+  const modeRows = [renderInspectionModeRow(state, task), { id: "mode-spacer", text: "", muted: true }];
   if (state.inspectionMode === "review") {
     return {
       title: "",
@@ -696,19 +701,40 @@ function buildInspectionSection(
   };
 }
 
-function renderInspectionModeRow(state: ControlShellState): ShellInspectionRow {
-  return {
-    id: "inspection-mode",
-    text: formatInspectionModeRow(state.inspectionMode),
-  };
+function renderInspectionModeRow(state: ControlShellState, task: TaskRecord | null): ShellInspectionRow {
+  const mode = state.inspectionMode;
+  const modes = [
+    { label: "CHANGES", active: mode === "diff" },
+    { label: "FILES", active: mode === "files" },
+    { label: "REVIEW", active: mode === "review" },
+  ];
+  const segments: TerminalRowSegment[] = [];
+  for (let i = 0; i < modes.length; i++) {
+    const m = modes[i]!;
+    if (i > 0) segments.push({ text: "  " });
+    segments.push({ text: m.label, style: { fg: m.active ? "7aa2f7" : "565f89" } });
+  }
+
+  const prSegment = buildPrLifecycleSegment(task?.pullRequest ?? null);
+  const checksSegment = buildPrChecksSegment(task?.pullRequest?.requiredChecks ?? null);
+  segments.push({ text: "  " }, prSegment, { text: " " }, checksSegment);
+
+  const text = segments.map((s) => s.text).join("");
+  return { id: "inspection-mode", text, segments };
 }
 
-function formatInspectionModeRow(mode: ControlShellState["inspectionMode"]): string {
-  return [
-    mode === "diff" ? "[CHANGES]" : "CHANGES",
-    mode === "files" ? "[FILES]" : "FILES",
-    mode === "review" ? "[REVIEW]" : "REVIEW",
-  ].join(" ");
+function buildPrLifecycleSegment(pr: TaskPullRequest | null): TerminalRowSegment {
+  if (!pr || !pr.number) return { text: "○", style: { fg: "565f89" } };
+  if (pr.status === "merged") return { text: "⊕", style: { fg: "9d7cd8" } };
+  if (pr.status === "closed") return { text: "⊗", style: { fg: "f7768e" } };
+  return { text: "⊙", style: { fg: "9ece6a" } };
+}
+
+function buildPrChecksSegment(checks: TaskPullRequestCheck[] | null): TerminalRowSegment {
+  if (!checks || checks.length === 0) return { text: "—", style: { fg: "565f89" } };
+  if (checks.some((c) => c.status === "failed")) return { text: "✕", style: { fg: "f7768e" } };
+  if (checks.every((c) => c.status === "success")) return { text: "✓", style: { fg: "9ece6a" } };
+  return { text: "◌", style: { fg: "e0af68" } };
 }
 
 function buildActionRows(state: ControlShellState): ShellActionRow[] {
@@ -744,7 +770,7 @@ function buildReviewInspectionRows(
     { id: "review-title", text: "PR", muted: true },
     pr.number
       ? { id: "pr-number", text: `#${pr.number} ${pr.status ?? "unknown"}` }
-      : { id: "pr-number", text: "No tracked PR", muted: true },
+      : { id: "pr-number", text: "No PR — press P to create one.", muted: true },
     { id: "pr-url", text: pr.url ?? "not created", muted: pr.url === null },
     { id: "pr-base", text: `base ${pr.baseBranch ?? "unknown"}`, muted: pr.baseBranch === null },
     { id: "pr-head", text: `head ${pr.headBranch ?? task.branch}`, muted: pr.headBranch === null },
@@ -784,7 +810,7 @@ function renderReviewActionRow(
 
 function buildPullRequestCheckRows(task: TaskRecord): ShellInspectionRow[] {
   if (!task.pullRequest.number) {
-    return [{ id: "pr-checks-none", text: "Create a PR to start remote checks.", muted: true }];
+    return [{ id: "pr-checks-none", text: "No checks — create a PR first (P).", muted: true }];
   }
 
   if (task.pullRequest.requiredChecks.length === 0) {
@@ -795,29 +821,24 @@ function buildPullRequestCheckRows(task: TaskRecord): ShellInspectionRow[] {
 }
 
 function renderPullRequestCheckRow(check: TaskPullRequestCheck): ShellInspectionRow {
-  const symbol = formatPullRequestCheckSymbol(check.status);
+  const { icon, color } = formatCheckStatus(check.status);
   const label = check.name.length > 16 ? `${check.name.slice(0, 15)}…` : check.name;
   return {
     id: `pr-check:${check.name}`,
-    text: `${symbol} ${label.padEnd(16, " ")} ${formatPullRequestCheckStatus(check.status)}`,
-    muted: check.status !== "success" && check.status !== "skipped",
+    text: `${icon} ${label.padEnd(16, " ")} ${formatPullRequestCheckStatus(check.status)}`,
+    color,
+    muted: false,
   };
 }
 
-function formatPullRequestCheckSymbol(status: TaskPullRequestCheck["status"]): string {
-  if (status === "success") {
-    return "✓";
+function formatCheckStatus(status: TaskPullRequestCheck["status"]): { icon: string; color: string } {
+  switch (status) {
+    case "success": return { icon: "✓", color: "9ece6a" };
+    case "pending": return { icon: "⟳", color: "e0af68" };
+    case "failed":  return { icon: "✕", color: "f7768e" };
+    case "skipped": return { icon: "○", color: "565f89" };
+    default:        return { icon: "?", color: "565f89" };
   }
-  if (status === "skipped") {
-    return "-";
-  }
-  if (status === "failed") {
-    return "!";
-  }
-  if (status === "unknown") {
-    return "?";
-  }
-  return "○";
 }
 
 function formatPullRequestCheckStatus(status: TaskPullRequestCheck["status"]): string {
@@ -838,7 +859,7 @@ function renderReviewGuidance(task: TaskRecord): ShellInspectionRow {
   }
 
   if (task.status === "merged") {
-    return { id: "review-guidance", text: "Next: close task." };
+    return { id: "review-guidance", text: "Next: close task.", accentPrefix: true };
   }
 
   if (!pr.number) {
@@ -846,7 +867,7 @@ function renderReviewGuidance(task: TaskRecord): ShellInspectionRow {
   }
 
   if (task.lastCommit && pr.lastSyncedHeadSha !== task.lastCommit.sha) {
-    return { id: "review-guidance", text: "Next: sync PR head." };
+    return { id: "review-guidance", text: "Next: sync PR head.", accentPrefix: true };
   }
 
   if (pr.requiredChecks.length === 0) {
@@ -854,11 +875,11 @@ function renderReviewGuidance(task: TaskRecord): ShellInspectionRow {
   }
 
   if (pr.requiredChecks.some((check) => check.status === "failed")) {
-    return { id: "review-guidance", text: "Next: fix failing checks." };
+    return { id: "review-guidance", text: "Next: fix failing checks.", accentPrefix: true };
   }
 
   if (pr.requiredChecks.some((check) => check.status === "unknown")) {
-    return { id: "review-guidance", text: "Next: refresh unknown checks." };
+    return { id: "review-guidance", text: "Next: refresh unknown checks.", accentPrefix: true };
   }
 
   if (pr.requiredChecks.some((check) => check.status === "pending")) {
@@ -866,7 +887,7 @@ function renderReviewGuidance(task: TaskRecord): ShellInspectionRow {
   }
 
   if (pr.mergeable && pr.status === "open") {
-    return { id: "review-guidance", text: "Next: merge PR." };
+    return { id: "review-guidance", text: "Next: merge PR.", accentPrefix: true };
   }
 
   return { id: "review-guidance", text: "Next: review PR state.", muted: true };
@@ -894,7 +915,7 @@ function formatNullableSha(value: string | null): string {
 
 function buildFileInspectionRows(state: ControlShellState, inspection: TaskLocalInspection | null): ShellInspectionRow[] {
   if (!inspection) {
-    return [{ id: "empty", text: "No task file index.", muted: true }];
+    return [{ id: "empty", text: "No file index. Select a task with local changes.", muted: true }];
   }
 
   if (inspection.error) {
@@ -905,15 +926,33 @@ function buildFileInspectionRows(state: ControlShellState, inspection: TaskLocal
     return [{ id: "empty", text: "No Git-visible files.", muted: true }];
   }
 
+  const changedPaths = new Map(inspection.diffRows.map((row) => [row.path, row.status]));
   const visibleRows = getVisibleFileTreeRows(inspection.fileRows, state.collapsedFileTreePaths);
   const selectedTreePath = state.selectedFileTreePath ?? inspection.selectedFilePath;
-  return visibleRows.map((row) => ({
-    id: row.path,
-    text: `${"  ".repeat(row.depth)}${row.kind === "directory" ? directoryIcon(row.path, state.collapsedFileTreePaths) : " "} ${row.label}`,
-    selected: row.path === selectedTreePath,
-    focused: row.path === selectedTreePath && state.focusedRegion === "inspector",
-    muted: row.kind === "directory",
-  }));
+  return visibleRows.map((row) => {
+    const gitStatus = row.kind === "file" ? changedPaths.get(row.path) : undefined;
+    const color = gitStatus === "A" ? "9ece6a"
+      : gitStatus === "M" ? "e0af68"
+      : gitStatus === "D" ? "f7768e"
+      : gitStatus === "??" ? "565f89"
+      : undefined;
+    const icon = row.kind === "directory"
+      ? (state.collapsedFileTreePaths.includes(row.path) ? DIR_ICON_CLOSED : DIR_ICON_OPEN)
+      : getFileIcon(row.label);
+    const iconColor = row.kind === "file" ? getFileIconColor(row.label) : undefined;
+    const indent = "  ".repeat(row.depth);
+    const iconSegment: TerminalRowSegment = iconColor ? { text: icon, style: { fg: iconColor } } : { text: icon };
+    const labelSegment: TerminalRowSegment = color ? { text: row.label, style: { fg: color } } : { text: row.label };
+    const segments: TerminalRowSegment[] = [{ text: indent }, iconSegment, labelSegment];
+    return {
+      id: row.path,
+      text: `${indent}${icon}${row.label}`,
+      selected: row.path === selectedTreePath,
+      focused: row.path === selectedTreePath && state.focusedRegion === "inspector",
+      muted: row.kind === "directory",
+      segments,
+    };
+  });
 }
 
 function getVisibleFileTreeRows(rows: TaskLocalInspection["fileRows"], collapsedPaths: string[]): TaskLocalInspection["fileRows"] {
@@ -929,9 +968,6 @@ function getVisibleFileTreeRows(rows: TaskLocalInspection["fileRows"], collapsed
   });
 }
 
-function directoryIcon(directoryPath: string, collapsedPaths: string[]): string {
-  return collapsedPaths.includes(directoryPath) ? "▸" : "▾";
-}
 
 function buildDiffInspectionRows(state: ControlShellState, inspection: TaskLocalInspection | null): ShellInspectionRow[] {
   if (!inspection) {
@@ -967,11 +1003,15 @@ function renderDiffInspectionRow(
 ): ShellInspectionRow {
   const additions = row.additions === null ? "-" : `+${row.additions}`;
   const deletions = row.deletions === null ? "-" : `-${row.deletions}`;
+  const color = row.status === "A" || row.group === "untracked" ? "9ece6a"
+    : row.status === "D" ? "f7768e"
+    : "e0af68";
   return {
     id: `${row.group}:${row.path}`,
     text: `  ${row.status.padEnd(2, " ")} ${row.path} ${additions}/${deletions}`,
     selected: row.path === inspection.selectedDiffPath,
     focused: row.path === inspection.selectedDiffPath && state.focusedRegion === "inspector",
+    color,
   };
 }
 
@@ -1032,10 +1072,9 @@ function countRunners(tasks: TaskRecord[]): Record<"codex" | "cursor", number> {
 }
 
 function renderRunnerRow(name: "codex" | "cursor", count: number): ShellRunnerRow {
-  const bounded = Math.max(0, Math.min(10, count));
   return {
     name,
-    meter: `[${"#".repeat(bounded).padEnd(10, ".")}]`,
+    health: count > 0 ? 1.0 : 0.0,
     count: String(count),
   };
 }

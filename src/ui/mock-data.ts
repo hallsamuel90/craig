@@ -80,8 +80,8 @@ export function getMockShellData(state: MockShellStateInput = {}): ShellData {
       },
     ],
     runners: [
-      { name: "codex", meter: "[##########]", count: "6" },
-      { name: "cursor", meter: "[##........]", count: "2" },
+      { name: "codex", health: 1.0, count: "6" },
+      { name: "cursor", health: 0.3, count: "2" },
     ],
     centerHeader: {
       tabLabel: activeTab.label,
