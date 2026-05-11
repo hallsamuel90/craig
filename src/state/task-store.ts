@@ -4,6 +4,7 @@ import type { RunnerSession, TaskPtyTabRecord, TaskRecord } from "../types/task.
 import type { CraigPaths } from "./craig-paths.js";
 import { atomicWriteJson } from "./atomic-write.js";
 import { readCraigIndex, writeCraigIndex } from "./state-store.js";
+import { createEmptyPullRequest, createRepoReview } from "../services/task-worktrees.js";
 
 export async function readTask(paths: CraigPaths, taskId: string): Promise<TaskRecord> {
   const raw = await readFile(getTaskFilePath(paths, taskId), "utf8");
@@ -75,11 +76,13 @@ function normalizeLegacyTaskRecord(value: unknown): unknown {
     linkedRepoIds: Array.isArray(candidate.linkedRepoIds)
       ? candidate.linkedRepoIds.filter((entry): entry is string => typeof entry === "string")
       : [],
+    worktrees: normalizeLegacyWorktrees(candidate),
     ptyTabs: normalizeTaskPtyTabs(candidate),
     runnerSession: candidate.runnerSession ?? buildLegacyRunnerSession(candidate),
     checks: normalizeLegacyChecks(candidate),
     lastCommit: candidate.lastCommit ?? null,
     pullRequest: normalizeLegacyPullRequest(candidate),
+    repoReviews: normalizeLegacyRepoReviews(candidate),
     artifacts: normalizeLegacyArtifacts(candidate),
     cleanup: normalizeLegacyCleanup(candidate),
   };
@@ -120,6 +123,7 @@ function isTaskRecord(value: unknown): value is TaskRecord {
     (typeof candidate.selectedPtyTabId === "string" || candidate.selectedPtyTabId === null) &&
     Array.isArray(candidate.linkedRepoIds) &&
     candidate.linkedRepoIds.every((entry) => typeof entry === "string") &&
+    isTaskWorktrees(candidate.worktrees) &&
     typeof candidate.repoRoot === "string" &&
     typeof candidate.worktreePath === "string" &&
     typeof candidate.branch === "string" &&
@@ -129,6 +133,7 @@ function isTaskRecord(value: unknown): value is TaskRecord {
     isChecks(candidate.checks) &&
     isLastCommit(candidate.lastCommit) &&
     isPullRequest(candidate.pullRequest) &&
+    isRepoReviews(candidate.repoReviews) &&
     isArtifacts(candidate.artifacts) &&
     isCleanup(candidate.cleanup) &&
     (candidate.lastFailureReason === undefined ||
@@ -136,6 +141,48 @@ function isTaskRecord(value: unknown): value is TaskRecord {
       typeof candidate.lastFailureReason === "string") &&
     typeof candidate.createdAt === "string" &&
     typeof candidate.updatedAt === "string"
+  );
+}
+
+function normalizeLegacyWorktrees(candidate: Partial<TaskRecord>): TaskRecord["worktrees"] {
+  if (isTaskWorktrees(candidate.worktrees)) {
+    return candidate.worktrees;
+  }
+
+  if (
+    typeof candidate.repoRoot !== "string" ||
+    typeof candidate.worktreePath !== "string" ||
+    typeof candidate.branch !== "string"
+  ) {
+    return [];
+  }
+
+  return [
+    {
+      repoId: typeof candidate.repoId === "string" ? candidate.repoId : "legacy_repo",
+      repoRoot: candidate.repoRoot,
+      worktreePath: candidate.worktreePath,
+      branch: candidate.branch,
+      role: "primary",
+    },
+  ];
+}
+
+function isTaskWorktrees(value: TaskRecord["worktrees"] | undefined): value is TaskRecord["worktrees"] {
+  return (
+    Array.isArray(value) &&
+    value.length > 0 &&
+    value.every(
+      (entry) =>
+        typeof entry === "object" &&
+        entry !== null &&
+        typeof entry.repoId === "string" &&
+        typeof entry.repoRoot === "string" &&
+        typeof entry.worktreePath === "string" &&
+        typeof entry.branch === "string" &&
+        (entry.role === "primary" || entry.role === "linked"),
+    ) &&
+    value.filter((entry) => entry.role === "primary").length === 1
   );
 }
 
@@ -287,6 +334,100 @@ function isPullRequest(value: TaskRecord["pullRequest"] | undefined): boolean {
     (typeof value.lastSyncedAt === "string" || value.lastSyncedAt === null) &&
     (typeof value.lastSyncedHeadSha === "string" || value.lastSyncedHeadSha === null || value.lastSyncedHeadSha === undefined)
   );
+}
+
+function normalizeLegacyRepoReviews(candidate: Partial<TaskRecord>): TaskRecord["repoReviews"] {
+  const normalized: TaskRecord["repoReviews"] = {};
+  const worktrees = normalizeLegacyWorktrees(candidate);
+
+  if (candidate.repoReviews && isRepoReviews(candidate.repoReviews)) {
+    for (const [repoId, review] of Object.entries(candidate.repoReviews)) {
+      normalized[repoId] = {
+        ...review,
+        pullRequest: normalizePullRequestValue(review.pullRequest),
+        lastCommit: isLastCommit(review.lastCommit) ? review.lastCommit : null,
+        updatedAt: typeof review.updatedAt === "string" ? review.updatedAt : candidate.updatedAt ?? new Date().toISOString(),
+      };
+    }
+  }
+
+  for (const worktree of worktrees) {
+    if (!normalized[worktree.repoId]) {
+      normalized[worktree.repoId] = createRepoReview(worktree.repoId, candidate.updatedAt);
+    }
+  }
+
+  const primary = worktrees.find((worktree) => worktree.role === "primary") ?? worktrees[0];
+  if (primary) {
+    normalized[primary.repoId] = {
+      ...(normalized[primary.repoId] ?? createRepoReview(primary.repoId, candidate.updatedAt)),
+      lastCommit: candidate.lastCommit ?? normalized[primary.repoId]?.lastCommit ?? null,
+      pullRequest: normalizeLegacyPullRequest(candidate),
+      status: deriveLegacyReviewStatus(candidate),
+    };
+  }
+
+  return normalized;
+}
+
+function isRepoReviews(value: TaskRecord["repoReviews"] | undefined): value is TaskRecord["repoReviews"] {
+  return (
+    typeof value === "object" &&
+    value !== null &&
+    Object.entries(value).every(([repoId, review]) =>
+      typeof repoId === "string" &&
+      typeof review === "object" &&
+      review !== null &&
+      review.repoId === repoId &&
+      isLastCommit(review.lastCommit) &&
+      isPullRequest(review.pullRequest) &&
+      (review.status === "not_changed" ||
+        review.status === "changed" ||
+        review.status === "committed" ||
+        review.status === "pr_open" ||
+        review.status === "merge_ready" ||
+        review.status === "merged" ||
+        review.status === "closed") &&
+      (typeof review.lastFailureReason === "string" || review.lastFailureReason === null) &&
+      typeof review.updatedAt === "string",
+    )
+  );
+}
+
+function normalizePullRequestValue(value: TaskRecord["pullRequest"] | undefined): TaskRecord["pullRequest"] {
+  if (isPullRequest(value)) {
+    const current = value as TaskRecord["pullRequest"];
+    return {
+        ...current,
+        mergeStateStatus: current.mergeStateStatus ?? null,
+        requiredChecks: normalizeLegacyPullRequestChecks(current.requiredChecks),
+        lastSyncedHeadSha: current.lastSyncedHeadSha ?? null,
+      }
+  }
+
+  return createEmptyPullRequest();
+}
+
+function deriveLegacyReviewStatus(candidate: Partial<TaskRecord>): TaskRecord["repoReviews"][string]["status"] {
+  if (candidate.status === "merged") {
+    return "merged";
+  }
+  if (candidate.status === "closed") {
+    return "closed";
+  }
+  if (candidate.status === "merge_ready") {
+    return "merge_ready";
+  }
+  if (candidate.status === "pr_open") {
+    return "pr_open";
+  }
+  if (candidate.status === "checked") {
+    return "committed";
+  }
+  if (candidate.status === "review") {
+    return "changed";
+  }
+  return "not_changed";
 }
 
 function isArtifacts(value: TaskRecord["artifacts"] | undefined): boolean {

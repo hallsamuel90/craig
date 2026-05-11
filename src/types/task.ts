@@ -53,6 +53,23 @@ export interface TaskPullRequest {
   lastSyncedHeadSha: string | null;
 }
 
+export interface TaskWorktree {
+  repoId: string;
+  repoRoot: string;
+  worktreePath: string;
+  branch: string;
+  role: "primary" | "linked";
+}
+
+export interface TaskRepoReview {
+  repoId: string;
+  lastCommit: TaskLastCommit | null;
+  pullRequest: TaskPullRequest;
+  status: "not_changed" | "changed" | "committed" | "pr_open" | "merge_ready" | "merged" | "closed";
+  lastFailureReason: string | null;
+  updatedAt: string;
+}
+
 export interface TaskArtifacts {
   logPath: string | null;
   checkSummaryPath: string | null;
@@ -106,6 +123,7 @@ export interface TaskRecord {
   sessionId: string | null;
   selectedPtyTabId: string | null;
   linkedRepoIds: string[];
+  worktrees: TaskWorktree[];
   repoRoot: string;
   worktreePath: string;
   branch: string;
@@ -115,6 +133,7 @@ export interface TaskRecord {
   checks: TaskChecks;
   lastCommit: TaskLastCommit | null;
   pullRequest: TaskPullRequest;
+  repoReviews: Record<string, TaskRepoReview>;
   artifacts: TaskArtifacts;
   cleanup: TaskCleanup;
   lastFailureReason?: string | null;

@@ -105,6 +105,29 @@ export function buildTaskRecord(
   const paths = getCraigPaths(repoRoot);
   const now = "2026-04-21T00:00:00.000Z";
   const ptyTabs = task.ptyTabs ?? createDefaultTaskPtyTabs(task.id, task.title ?? "test task", now);
+  const worktrees = task.worktrees ?? [
+    {
+      repoId: task.repoId ?? "repo_test",
+      repoRoot,
+      worktreePath: task.worktreePath ?? path.join(paths.worktreesDir, task.id),
+      branch: task.branch ?? `craig/${task.id}`,
+      role: "primary" as const,
+    },
+  ];
+  const pullRequest = task.pullRequest ?? {
+    provider: "github" as const,
+    number: null,
+    url: null,
+    baseBranch: null,
+    headBranch: null,
+    status: null,
+    mergeable: false,
+    mergeStateStatus: null,
+    requiredChecks: [],
+    lastSyncedAt: null,
+    lastSyncedHeadSha: null,
+  };
+  const lastCommit = task.lastCommit ?? null;
 
   return {
     id: task.id,
@@ -118,6 +141,7 @@ export function buildTaskRecord(
     sessionId: task.sessionId ?? `session_${task.id}`,
     selectedPtyTabId: task.selectedPtyTabId ?? ptyTabs[0]?.id ?? null,
     linkedRepoIds: task.linkedRepoIds ?? [],
+    worktrees,
     repoRoot,
     worktreePath: task.worktreePath ?? path.join(paths.worktreesDir, task.id),
     branch: task.branch ?? `craig/${task.id}`,
@@ -144,20 +168,31 @@ export function buildTaskRecord(
       commands: [],
       results: [],
     },
-    lastCommit: task.lastCommit ?? null,
-    pullRequest: task.pullRequest ?? {
-      provider: "github",
-      number: null,
-      url: null,
-      baseBranch: null,
-      headBranch: null,
-      status: null,
-      mergeable: false,
-      mergeStateStatus: null,
-      requiredChecks: [],
-      lastSyncedAt: null,
-      lastSyncedHeadSha: null,
-    },
+    lastCommit,
+    pullRequest,
+    repoReviews: task.repoReviews ?? Object.fromEntries(worktrees.map((worktree) => [
+      worktree.repoId,
+      {
+        repoId: worktree.repoId,
+        lastCommit: worktree.role === "primary" ? lastCommit : null,
+        pullRequest: worktree.role === "primary" ? pullRequest : {
+          provider: "github",
+          number: null,
+          url: null,
+          baseBranch: null,
+          headBranch: null,
+          status: null,
+          mergeable: false,
+          mergeStateStatus: null,
+          requiredChecks: [],
+          lastSyncedAt: null,
+          lastSyncedHeadSha: null,
+        },
+        status: worktree.role === "primary" ? toRepoReviewStatus(task.status ?? "running", pullRequest.number !== null) : "not_changed",
+        lastFailureReason: null,
+        updatedAt: now,
+      },
+    ])),
     artifacts: task.artifacts ?? {
       logPath: `.craig/logs/${task.id}.log`,
       checkSummaryPath: `.craig/artifacts/${task.id}/check-summary.json`,
@@ -174,6 +209,16 @@ export function buildTaskRecord(
     createdAt: task.createdAt ?? now,
     updatedAt: task.updatedAt ?? now,
   };
+}
+
+function toRepoReviewStatus(status: TaskRecord["status"], hasPr: boolean): TaskRecord["repoReviews"][string]["status"] {
+  if (status === "merged") return "merged";
+  if (status === "closed") return "closed";
+  if (status === "merge_ready") return "merge_ready";
+  if (status === "pr_open" || hasPr) return "pr_open";
+  if (status === "checked") return "committed";
+  if (status === "review") return "changed";
+  return "not_changed";
 }
 
 export function buildSessionRecord(

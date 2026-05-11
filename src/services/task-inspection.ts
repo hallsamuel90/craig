@@ -5,6 +5,7 @@ import type { TaskInspection } from "../types/command.js";
 import type { TaskRecord } from "../types/task.js";
 import type { CraigPaths } from "../state/craig-paths.js";
 import { readTask } from "../state/task-store.js";
+import { getTaskWorktree } from "./task-worktrees.js";
 
 export async function getTaskOrThrow(paths: CraigPaths, taskId: string): Promise<TaskRecord> {
   try {
@@ -18,10 +19,11 @@ export async function getTaskOrThrow(paths: CraigPaths, taskId: string): Promise
   }
 }
 
-export async function assertTaskWorktreeExists(task: TaskRecord): Promise<void> {
-  if (!(await pathExists(task.worktreePath))) {
+export async function assertTaskWorktreeExists(task: TaskRecord, repoId?: string): Promise<void> {
+  const worktree = getTaskWorktree(task, repoId);
+  if (!(await pathExists(worktree.worktreePath))) {
     throw new Error(
-      `Task ${task.id} worktree does not exist at ${task.worktreePath}. Repair or recreate the task before retrying.`,
+      `Task ${task.id} worktree does not exist for repo ${worktree.repoId} at ${worktree.worktreePath}. Repair or recreate the task before retrying.`,
     );
   }
 }

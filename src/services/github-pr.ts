@@ -8,6 +8,7 @@ import { writeTask } from "../state/task-store.js";
 import { readCraigConfig } from "../state/config-store.js";
 import { runCommand, runCommandAllowingFailure } from "../utils/exec.js";
 import { resolveArtifactPath } from "./task-artifacts.js";
+import { deriveAggregateTaskStatus, getTaskWorktree, syncPrimaryReviewMirrors } from "./task-worktrees.js";
 
 interface GhPrView {
   number: number;
@@ -54,7 +55,10 @@ export async function ensurePrDraft(task: TaskRecord, paths: CraigPaths): Promis
 export async function createGitHubPullRequest(
   task: TaskRecord,
   bodyFile: string,
+  repoId?: string,
 ): Promise<void> {
+  const worktree = getTaskWorktree(task, repoId);
+  const review = task.repoReviews[worktree.repoId] ?? task.repoReviews[task.repoId];
   await runCommand(
     "gh",
     [
@@ -63,53 +67,72 @@ export async function createGitHubPullRequest(
       "--base",
       "main",
       "--head",
-      task.branch,
+      worktree.branch,
       "--title",
-      task.lastCommit?.message ?? task.title,
+      review?.lastCommit?.message ?? task.title,
       "--body-file",
       bodyFile,
     ],
-    { cwd: task.worktreePath },
+    { cwd: worktree.worktreePath },
   );
 }
 
 export async function mergeGitHubPullRequest(
   task: TaskRecord,
   mergeMethod: "merge" | "rebase" | "squash",
+  repoId?: string,
 ): Promise<void> {
   const flag = mergeMethod === "merge" ? "--merge" : mergeMethod === "rebase" ? "--rebase" : "--squash";
+  const worktree = getTaskWorktree(task, repoId);
+  const review = task.repoReviews[worktree.repoId] ?? task.repoReviews[task.repoId];
 
   await runCommand(
     "gh",
-    ["pr", "merge", String(task.pullRequest.number), flag, "--delete-branch=false"],
-    { cwd: task.worktreePath },
+    ["pr", "merge", String(review?.pullRequest.number), flag, "--delete-branch=false"],
+    { cwd: worktree.worktreePath },
   );
 }
 
 export async function refreshPullRequestState(
   paths: CraigPaths,
   task: TaskRecord,
+  repoId?: string,
 ): Promise<TaskRecord> {
+  const worktree = getTaskWorktree(task, repoId);
+  const review = task.repoReviews[worktree.repoId] ?? task.repoReviews[task.repoId];
   const result = await runCommand(
     "gh",
     [
       "pr",
       "view",
-      task.pullRequest.number ? String(task.pullRequest.number) : task.branch,
+      review?.pullRequest.number ? String(review.pullRequest.number) : worktree.branch,
       "--json",
       "number,url,baseRefName,headRefName,headRefOid,state,mergeable,mergeStateStatus,statusCheckRollup",
     ],
-    { cwd: task.worktreePath },
+    { cwd: worktree.worktreePath },
   );
   const payload = JSON.parse(result.stdout) as GhPrView;
   const normalized = normalizePullRequest(payload);
 
-  task.pullRequest = normalized;
-  task.status = deriveTaskStatusFromPullRequest(normalized);
+  task.repoReviews[worktree.repoId] = {
+    ...(review ?? {
+      repoId: worktree.repoId,
+      lastCommit: null,
+      status: "not_changed" as const,
+      lastFailureReason: null,
+      updatedAt: new Date().toISOString(),
+    }),
+    pullRequest: normalized,
+    status: deriveReviewStatusFromPullRequest(normalized),
+    lastFailureReason: null,
+    updatedAt: new Date().toISOString(),
+  };
+  task.status = deriveAggregateTaskStatus(task);
+  const mirrored = syncPrimaryReviewMirrors(task);
   await writePrStatusArtifact(paths, task);
-  await writeTask(paths, task);
+  await writeTask(paths, mirrored);
 
-  return task;
+  return mirrored;
 }
 
 export async function waitForPullRequestState(
@@ -175,7 +198,7 @@ function hasReachedTerminalWatchState(pullRequest: TaskPullRequest): boolean {
   );
 }
 
-function deriveTaskStatusFromPullRequest(pullRequest: TaskPullRequest): TaskRecord["status"] {
+function deriveReviewStatusFromPullRequest(pullRequest: TaskPullRequest): TaskRecord["repoReviews"][string]["status"] {
   if (isMergeReady(pullRequest)) {
     return "merge_ready";
   }
@@ -188,7 +211,7 @@ function deriveTaskStatusFromPullRequest(pullRequest: TaskPullRequest): TaskReco
     return "pr_open";
   }
 
-  return "checked";
+  return "committed";
 }
 
 function normalizePullRequest(view: GhPrView): TaskPullRequest {

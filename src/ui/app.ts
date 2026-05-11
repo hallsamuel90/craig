@@ -16,6 +16,7 @@ import { loadTaskLocalInspection, type InspectionTreeRow } from "../services/tas
 import { openPullRequest, refreshPullRequestChecks } from "../services/open-pull-request.js";
 import { mergeTask } from "../services/merge-task.js";
 import { closeTask } from "../services/close-task.js";
+import { getTaskBundlePath } from "../services/task-worktrees.js";
 import { buildShellData, type WorkspaceShellModel } from "./shell-data.js";
 import { getViewport, SHELL_LAYOUT, type Viewport } from "./layout.js";
 import type { PtyRuntimeOptions, PtySize } from "./pty-runtime.js";
@@ -408,10 +409,12 @@ export async function startTerminalApp(options: TerminalAppOptions = {}): Promis
       }
 
       const beforeTask = await readTask(paths, syncedShell.selectedTaskId);
-      const result = await openPullRequest(paths, syncedShell.selectedTaskId, { watch: false });
+      const repoId = resolveSelectedReviewRepoId(beforeTask, syncedShell);
+      const result = await openPullRequest(paths, syncedShell.selectedTaskId, { watch: false, repoId });
       await reloadModel();
 
-      const action = beforeTask.pullRequest.number ? "Synced PR" : "Created PR";
+      const beforeReview = beforeTask.repoReviews[result.repoId] ?? beforeTask.repoReviews[beforeTask.repoId];
+      const action = beforeReview?.pullRequest.number ? "Synced PR" : "Created PR";
       return syncShell({
         ...syncedShell,
         focusedRegion: "inspector",
@@ -426,7 +429,9 @@ export async function startTerminalApp(options: TerminalAppOptions = {}): Promis
         throw new Error("Select a task before refreshing PR checks.");
       }
 
-      const task = await refreshPullRequestChecks(paths, syncedShell.selectedTaskId);
+      const beforeTask = await readTask(paths, syncedShell.selectedTaskId);
+      const repoId = resolveSelectedReviewRepoId(beforeTask, syncedShell);
+      const task = await refreshPullRequestChecks(paths, syncedShell.selectedTaskId, { repoId });
       await reloadModel();
 
       return syncShell({
@@ -434,7 +439,7 @@ export async function startTerminalApp(options: TerminalAppOptions = {}): Promis
         focusedRegion: "inspector",
         inspectionMode: "review",
         selectedActionId: "refresh-checks",
-        actionMessage: `Refreshed checks: ${task.pullRequest.requiredChecks.length} reported`,
+        actionMessage: `Refreshed checks: ${task.repoReviews[repoId]?.pullRequest.requiredChecks.length ?? 0} reported (${repoId})`,
       });
     }
 
@@ -444,7 +449,9 @@ export async function startTerminalApp(options: TerminalAppOptions = {}): Promis
         throw new Error("Select a task before merging a PR.");
       }
 
-      const result = await mergeTask(paths, syncedShell.selectedTaskId, { preserveWorktree: true });
+      const beforeTask = await readTask(paths, syncedShell.selectedTaskId);
+      const repoId = resolveSelectedReviewRepoId(beforeTask, syncedShell);
+      const result = await mergeTask(paths, syncedShell.selectedTaskId, { preserveWorktree: true, repoId });
       await reloadModel();
 
       return syncShell({
@@ -452,7 +459,7 @@ export async function startTerminalApp(options: TerminalAppOptions = {}): Promis
         focusedRegion: "inspector",
         inspectionMode: "review",
         selectedActionId: "merge",
-        actionMessage: `Merged PR #${result.prNumber}; worktree preserved`,
+        actionMessage: `Merged PR #${result.prNumber}; worktree preserved (${result.repoId})`,
       });
     }
 
@@ -1297,6 +1304,27 @@ function resolveSelectedTaskForInspection(tasks: TaskRecord[], shell: ControlShe
   return tasks.find((task) => task.id === shell.selectedTaskId) ?? null;
 }
 
+function resolveSelectedReviewRepoId(task: TaskRecord, shell: ControlShellState): string {
+  const pathRepoId = decodeRepoId(shell.selectedDiffPath) ?? decodeRepoId(shell.selectedFilePath);
+  if (pathRepoId && task.worktrees.some((worktree) => worktree.repoId === pathRepoId)) {
+    return pathRepoId;
+  }
+
+  return (
+    Object.values(task.repoReviews).find((review) =>
+      review.status === "changed" ||
+      review.status === "committed" ||
+      review.status === "pr_open" ||
+      review.status === "merge_ready"
+    )?.repoId ?? task.repoId
+  );
+}
+
+function decodeRepoId(value: string | null): string | null {
+  const separator = value?.indexOf(":") ?? -1;
+  return separator > 0 ? value!.slice(0, separator) : null;
+}
+
 function resolveShellState(state: ControlShellState, model: WorkspaceShellModel): ControlShellState {
   return restoreShellState(state, model);
 }
@@ -1304,6 +1332,10 @@ function resolveShellState(state: ControlShellState, model: WorkspaceShellModel)
 function getVisibleFileTreeRows(rows: InspectionTreeRow[], collapsedPaths: string[]): InspectionTreeRow[] {
   const collapsed = new Set(collapsedPaths);
   return rows.filter((row) => {
+    const repoId = decodeRepoId(row.path);
+    if (repoId && collapsed.has(repoId)) {
+      return false;
+    }
     const parts = row.path.split("/");
     for (let index = 1; index < parts.length; index += 1) {
       if (collapsed.has(parts.slice(0, index).join("/"))) {
@@ -1334,7 +1366,7 @@ function resolvePtySessionSpec(model: WorkspaceShellModel, tabId: string, worksp
   const tab = task?.ptyTabs.find((entry) => entry.id === tabId) ?? null;
 
   return {
-    cwd: task?.worktreePath ?? workspaceRoot,
+    cwd: task ? getTaskBundlePath(task) : workspaceRoot,
     command: tab?.kind === "agent" ? resolveAgentCommand(tab) : [],
   };
 }
@@ -1371,7 +1403,9 @@ function createNextPtyTab(task: TaskRecord, kind: TaskPtyTabRecord["kind"]): Tas
 }
 
 async function createInteractiveTask(paths: ReturnType<typeof getCraigPaths>, repoId: string, prompt: string): Promise<TaskRecord> {
-  const provisioned = await provisionTask(paths, repoId, prompt);
+  const repos = await listRepos(paths);
+  const linkedRepoIds = repos.map((repo) => repo.id).filter((id) => id !== repoId);
+  const provisioned = await provisionTask(paths, repoId, prompt, { linkedRepoIds });
   const agentTabId = getRequiredPtyTabId(provisioned.task, "agent");
   const runningTask: TaskRecord = {
     ...provisioned.task,

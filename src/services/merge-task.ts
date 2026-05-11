@@ -12,69 +12,83 @@ import {
   refreshPullRequestState,
 } from "./github-pr.js";
 import { assertTaskWorktreeExists, getTaskOrThrow } from "./task-inspection.js";
+import { deriveAggregateTaskStatus, getTaskWorktree, syncPrimaryReviewMirrors } from "./task-worktrees.js";
 
 export async function mergeTask(
   paths: CraigPaths,
   taskId: string,
-  options: { preserveWorktree: boolean },
+  options: { preserveWorktree: boolean; repoId?: string },
 ): Promise<CommandMergeResult> {
   const task = await getTaskOrThrow(paths, taskId);
-  await assertTaskWorktreeExists(task);
+  const worktree = getTaskWorktree(task, options.repoId);
+  const review = task.repoReviews[worktree.repoId] ?? task.repoReviews[task.repoId];
+  await assertTaskWorktreeExists(task, worktree.repoId);
 
   if (task.status !== "pr_open" && task.status !== "merge_ready") {
     throw new Error(`Task ${task.id} cannot merge from status "${task.status}".`);
   }
 
-  if (!task.pullRequest.number) {
-    throw new Error(`Task ${task.id} does not have a tracked pull request.`);
+  if (!review?.pullRequest.number) {
+    throw new Error(`Task ${task.id} repo ${worktree.repoId} does not have a tracked pull request.`);
   }
 
-  if (!task.lastCommit) {
-    throw new Error(`Task ${task.id} must be committed before merging.`);
+  if (!review.lastCommit) {
+    throw new Error(`Task ${task.id} repo ${worktree.repoId} must be committed before merging.`);
   }
 
-  if (!(await isWorktreeClean(task.worktreePath))) {
-    throw new Error(`Task ${task.id} worktree must be clean before merging.`);
+  if (!(await isWorktreeClean(worktree.worktreePath))) {
+    throw new Error(`Task ${task.id} repo ${worktree.repoId} worktree must be clean before merging.`);
   }
 
-  const headCommit = await getHeadCommit(task.worktreePath);
-  if (headCommit.sha !== task.lastCommit.sha) {
-    throw new Error(`Task ${task.id} local HEAD does not match the tracked task commit. Sync or commit before merging.`);
+  const headCommit = await getHeadCommit(worktree.worktreePath);
+  if (headCommit.sha !== review.lastCommit.sha) {
+    throw new Error(`Task ${task.id} repo ${worktree.repoId} local HEAD does not match the tracked task commit. Sync or commit before merging.`);
   }
 
-  await ensureGhAuthenticated(task.worktreePath);
-  await refreshPullRequestState(paths, task);
+  await ensureGhAuthenticated(worktree.worktreePath);
+  const refreshed = await refreshPullRequestState(paths, task, worktree.repoId);
+  const refreshedReview = refreshed.repoReviews[worktree.repoId]!;
 
-  const blockers = getMergeBlockers(task);
+  const blockers = getMergeBlockers(refreshed, worktree.repoId);
   if (blockers.length > 0) {
-    throw new Error(`Task ${task.id} pull request is not merge-ready: ${blockers.join("; ")}.`);
+    throw new Error(`pull request for repo ${worktree.repoId} is not merge-ready: ${blockers.join("; ")}.`);
   }
 
   const config = await readCraigConfig(paths);
   const mergeMethod = config.github?.mergeMethod ?? "squash";
 
-  await mergeGitHubPullRequest(task, mergeMethod);
+  await mergeGitHubPullRequest(refreshed, mergeMethod, worktree.repoId);
 
-  task.pullRequest.status = "merged";
-  task.status = "merged";
-  task.lastFailureReason = null;
-  await writeTask(paths, task);
+  refreshedReview.pullRequest.status = "merged";
+  refreshedReview.status = "merged";
+  refreshedReview.lastFailureReason = null;
+  refreshedReview.updatedAt = new Date().toISOString();
+  refreshed.status = deriveAggregateTaskStatus(refreshed);
+  refreshed.lastFailureReason = null;
+  const mirrored = syncPrimaryReviewMirrors(refreshed);
+  await writeTask(paths, mirrored);
 
-  await cleanupTask(paths, task, options);
+  await cleanupTask(paths, mirrored, options);
 
   return {
     kind: "mergeTask",
-    taskId: task.id,
-    status: task.status,
-    prNumber: task.pullRequest.number,
+    taskId: mirrored.id,
+    repoId: worktree.repoId,
+    status: mirrored.status,
+    prNumber: refreshedReview.pullRequest.number ?? 0,
     preservedWorktree: options.preserveWorktree,
-    cleanupWarning: task.cleanup.warning,
+    cleanupWarning: mirrored.cleanup.warning,
   };
 }
 
-function getMergeBlockers(task: TaskRecord): string[] {
+function getMergeBlockers(task: TaskRecord, repoId: string): string[] {
   const blockers: string[] = [];
-  const pr = task.pullRequest;
+  const review = task.repoReviews[repoId];
+  const pr = review?.pullRequest;
+
+  if (!review || !pr) {
+    return [`repo ${repoId} has no review state`];
+  }
 
   if (pr.status !== "open") {
     blockers.push(`PR is ${pr.status ?? "unknown"}`);
@@ -84,7 +98,7 @@ function getMergeBlockers(task: TaskRecord): string[] {
     blockers.push(`GitHub reports merge state ${pr.mergeStateStatus ?? "unknown"}`);
   }
 
-  if (pr.lastSyncedHeadSha !== task.lastCommit?.sha) {
+  if (pr.lastSyncedHeadSha !== review.lastCommit?.sha) {
     blockers.push("local task commit is not synced to the PR head");
   }
 

@@ -71,4 +71,53 @@ describe("task local inspection", () => {
     expect(inspection.selectedFile.status).toBe("binary");
     expect(inspection.selectedFile.lines.join("\n")).toContain("Binary file preview");
   });
+
+  test("groups multi-repo task files and diffs by repo-qualified paths", async () => {
+    const workspaceRoot = await createRepoRoot("craig-inspection-multi-");
+    const repoA = path.join(workspaceRoot, "repo-a");
+    const repoB = path.join(workspaceRoot, "repo-b");
+    await Promise.all([mkdir(repoA, { recursive: true }), mkdir(repoB, { recursive: true })]);
+    await Promise.all([createGitRepo(repoA), createGitRepo(repoB)]);
+    await Promise.all([
+      writeFile(path.join(repoA, "README.md"), "repo a before\n", "utf8"),
+      writeFile(path.join(repoB, "README.md"), "repo b before\n", "utf8"),
+    ]);
+    await Promise.all([
+      runCommand("git", ["add", "README.md"], { cwd: repoA }),
+      runCommand("git", ["add", "README.md"], { cwd: repoB }),
+    ]);
+    await Promise.all([
+      runCommand("git", ["commit", "-m", "initial"], { cwd: repoA }),
+      runCommand("git", ["commit", "-m", "initial"], { cwd: repoB }),
+    ]);
+    await Promise.all([
+      writeFile(path.join(repoA, "README.md"), "repo a after\n", "utf8"),
+      writeFile(path.join(repoB, "README.md"), "repo b after\n", "utf8"),
+    ]);
+    const task = buildTaskRecord(workspaceRoot, {
+      id: "task_1",
+      repoId: "repo_a",
+      repoRoot: repoA,
+      worktreePath: repoA,
+      linkedRepoIds: ["repo_b"],
+      worktrees: [
+        { repoId: "repo_a", repoRoot: repoA, worktreePath: repoA, branch: "craig/task_1", role: "primary" },
+        { repoId: "repo_b", repoRoot: repoB, worktreePath: repoB, branch: "craig/task_1", role: "linked" },
+      ],
+    });
+
+    const inspection = await loadTaskLocalInspection(task, { selectedFilePath: "repo_b:README.md", selectedDiffPath: "repo_b:README.md" });
+
+    expect(inspection.fileRows).toContainEqual(expect.objectContaining({ kind: "directory", path: "repo_a" }));
+    expect(inspection.fileRows).toContainEqual(expect.objectContaining({ kind: "directory", path: "repo_b" }));
+    expect(inspection.filePaths).toEqual(["repo_a:README.md", "repo_b:README.md"]);
+    expect(inspection.diffRows).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ repoId: "repo_a", path: "repo_a:README.md" }),
+        expect.objectContaining({ repoId: "repo_b", path: "repo_b:README.md" }),
+      ]),
+    );
+    expect(inspection.selectedFile.lines.join("\n")).toContain("repo b after");
+    expect(inspection.selectedDiff.lines.join("\n")).toContain("repo b after");
+  });
 });

@@ -1,5 +1,5 @@
 import path from "node:path";
-import { stat } from "node:fs/promises";
+import { readdir, stat } from "node:fs/promises";
 
 import type {
   CommandListReposResult,
@@ -24,6 +24,54 @@ export async function addRepo(paths: CraigPaths, rawPath: string): Promise<Comma
     throw new Error(`Repo path does not exist: ${rootPath}`);
   }
 
+  if (!(await isGitRepo(rootPath))) {
+    const result = await addParentDirectoryRepos(paths, rootPath);
+    await selectRepo(paths, result.repo.id, result.workspaceId);
+    return result;
+  }
+
+  const result = await addSingleRepo(paths, rootPath);
+  await selectRepo(paths, result.repo.id, result.workspaceId);
+  return result;
+}
+
+async function addParentDirectoryRepos(paths: CraigPaths, rootPath: string): Promise<CommandCreateRepoResult> {
+  const entries = await readdir(rootPath, { withFileTypes: true });
+  const children = entries
+    .filter((entry) => entry.isDirectory())
+    .map((entry) => path.join(rootPath, entry.name))
+    .sort((left, right) => left.localeCompare(right));
+  const skipped: Array<{ path: string; reason: string }> = [];
+  const registeredRepos: RepoRecord[] = [];
+
+  for (const childPath of children) {
+    if (!(await isGitRepo(childPath))) {
+      skipped.push({ path: childPath, reason: "not a Git repo" });
+      continue;
+    }
+
+    const result = await addSingleRepo(paths, childPath);
+    registeredRepos.push(result.repo);
+    if (!result.created) {
+      skipped.push({ path: childPath, reason: "already registered" });
+    }
+  }
+
+  if (registeredRepos.length === 0) {
+    throw new Error(`No direct child Git repositories found under: ${rootPath}`);
+  }
+
+  return {
+    kind: "createRepo",
+    repo: registeredRepos[0]!,
+    workspaceId: getWorkspaceIdForRepo(registeredRepos[0]!.id),
+    created: registeredRepos.some((repo) => !skipped.some((entry) => entry.path === repo.rootPath && entry.reason === "already registered")),
+    registeredRepos,
+    skipped,
+  };
+}
+
+async function addSingleRepo(paths: CraigPaths, rootPath: string): Promise<CommandCreateRepoResult> {
   await assertGitRepo(rootPath);
   const defaultBranch = await getCurrentBranch(rootPath);
   const existingRepos = await listRepos(paths);
@@ -70,22 +118,24 @@ export async function addRepo(paths: CraigPaths, rawPath: string): Promise<Comma
     workspaceIds: [...index.workspaceIds, workspace.id],
   });
 
-  await writeUiState(
-    { uiStateFile: paths.uiStateFile },
-    {
-      ...((await readUiState({ uiStateFile: paths.uiStateFile })) ?? getDefaultUiState()),
-      selectedRepoId: repo.id,
-      selectedWorkspaceId: workspace.id,
-      selectedTaskId: null,
-    },
-  );
-
   return {
     kind: "createRepo",
     repo,
     workspaceId: workspace.id,
     created: true,
   };
+}
+
+async function selectRepo(paths: CraigPaths, repoId: string, workspaceId: string): Promise<void> {
+  await writeUiState(
+    { uiStateFile: paths.uiStateFile },
+    {
+      ...((await readUiState({ uiStateFile: paths.uiStateFile })) ?? getDefaultUiState()),
+      selectedRepoId: repoId,
+      selectedWorkspaceId: workspaceId,
+      selectedTaskId: null,
+    },
+  );
 }
 
 export async function listRegisteredRepos(paths: CraigPaths): Promise<CommandListReposResult> {
@@ -162,6 +212,15 @@ async function assertGitRepo(rootPath: string): Promise<void> {
     await runCommand("git", ["rev-parse", "--show-toplevel"], { cwd: rootPath });
   } catch {
     throw new Error(`Repo path is not a git repository: ${rootPath}`);
+  }
+}
+
+async function isGitRepo(rootPath: string): Promise<boolean> {
+  try {
+    await runCommand("git", ["rev-parse", "--show-toplevel"], { cwd: rootPath });
+    return true;
+  } catch {
+    return false;
   }
 }
 

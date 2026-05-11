@@ -9,11 +9,13 @@ import { readUiState, writeUiState, getDefaultUiState } from "../state/ui-state-
 import { codexRunnerAdapter } from "./codex-runner.js";
 import { tmuxSessionManager } from "./session-manager.js";
 import { provisionTask } from "./task-provisioning.js";
+import { getTaskBundlePath } from "./task-worktrees.js";
 
 export async function createTask(
   paths: CraigPaths,
   repoId: string,
   prompt: string,
+  options: { linkedRepoIds?: string[] } = {},
 ): Promise<CommandCreateTaskResult> {
   const trimmedPrompt = prompt.trim();
 
@@ -24,7 +26,7 @@ export async function createTask(
   if (trimmedPrompt.length === 0) {
     throw new Error("Task prompt cannot be empty.");
   }
-  const provisioned = await provisionTask(paths, repoId, trimmedPrompt);
+  const provisioned = await provisionTask(paths, repoId, trimmedPrompt, { linkedRepoIds: options.linkedRepoIds ?? [] });
   const draftTask = provisioned.task;
   const sessionId = `session_${draftTask.id}`;
   const logPath = draftTask.artifacts.logPath
@@ -40,7 +42,7 @@ export async function createTask(
       repoId: provisioned.repoId,
       workspaceId: provisioned.workspaceId,
       repoRoot: provisioned.repoRoot,
-      worktreePath: draftTask.worktreePath,
+      worktreePath: getTaskBundlePath(draftTask),
       logPath,
       command: ["codex", trimmedPrompt],
     });
@@ -87,6 +89,7 @@ export async function createTask(
       kind: "createTask",
       taskId: runningTask.id,
       repoId: runningTask.repoId,
+      linkedRepoIds: runningTask.linkedRepoIds,
       sessionId: session.id,
       status: runningTask.status,
       branch: runningTask.branch,

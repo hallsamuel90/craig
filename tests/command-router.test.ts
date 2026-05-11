@@ -1,4 +1,4 @@
-import { readFile, rm } from "node:fs/promises";
+import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import path from "node:path";
 
 import { afterEach, describe, expect, test } from "vitest";
@@ -36,6 +36,15 @@ describe("command routing", () => {
     expect(parseArgv(["workspace", "restore", "workspace_repo_one"]).command).toEqual({
       kind: "restoreWorkspace",
       workspaceId: "workspace_repo_one",
+    });
+  });
+
+  test("argv task new supports linked repos", () => {
+    expect(parseArgv(["task", "new", "--repo", "repo_a", "--link", "repo_b", "--link", "repo_c", "touch all"]).command).toEqual({
+      kind: "createTask",
+      repoId: "repo_a",
+      linkedRepoIds: ["repo_b", "repo_c"],
+      prompt: "touch all",
     });
   });
 
@@ -90,6 +99,40 @@ describe("command routing", () => {
     }
 
     expect(result.repos.map((repo) => repo.name)).toEqual(["alpha", "zebra"]);
+  });
+
+  test("repo add on a parent directory registers direct child git repos and skips other children", async () => {
+    const workspaceRoot = await createRepoRoot("craig-router-parent-");
+    tempRoots.push(workspaceRoot);
+    await createCraigState(workspaceRoot);
+    const paths = getCraigPaths(workspaceRoot);
+    const parent = path.join(workspaceRoot, "projects");
+    const alpha = path.join(parent, "alpha");
+    const zebra = path.join(parent, "zebra");
+    const notes = path.join(parent, "notes");
+    await Promise.all([mkdir(alpha, { recursive: true }), mkdir(zebra, { recursive: true }), mkdir(notes, { recursive: true })]);
+    await Promise.all([createGitRepo(alpha), createGitRepo(zebra)]);
+    await writeFile(path.join(notes, "README.md"), "not a repo\n", "utf8");
+
+    const result = await executeCommand({ kind: "addRepo", path: parent }, { paths });
+    const duplicate = await executeCommand({ kind: "addRepo", path: parent }, { paths });
+    const listResult = await executeCommand({ kind: "listRepos" }, { paths });
+
+    if (result.kind !== "createRepo" || duplicate.kind !== "createRepo") {
+      throw new Error("Expected createRepo results.");
+    }
+    expect(result.registeredRepos?.map((repo) => repo.name)).toEqual(["alpha", "zebra"]);
+    expect(result.skipped).toContainEqual({ path: notes, reason: "not a Git repo" });
+    expect(duplicate.skipped).toEqual(
+      expect.arrayContaining([
+        { path: alpha, reason: "already registered" },
+        { path: zebra, reason: "already registered" },
+      ]),
+    );
+    expect(listResult.kind).toBe("listRepos");
+    if (listResult.kind === "listRepos") {
+      expect(listResult.repos.map((repo) => repo.name)).toEqual(["alpha", "zebra"]);
+    }
   });
 
   test("workspace archive and restore update state and persisted UI selection", async () => {

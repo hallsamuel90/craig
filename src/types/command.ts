@@ -9,7 +9,7 @@ export type AppCommand =
   | { kind: "listWorkspaces"; archived: boolean }
   | { kind: "archiveWorkspace"; workspaceId: string }
   | { kind: "restoreWorkspace"; workspaceId: string }
-  | { kind: "createTask"; repoId: string; prompt: string }
+  | { kind: "createTask"; repoId: string; prompt: string; linkedRepoIds?: string[] }
   | { kind: "listTasks"; repoId?: string }
   | { kind: "attachTask"; taskId: string }
   | { kind: "addTaskLink"; taskId: string; repoId: string }
@@ -40,6 +40,7 @@ export interface CommandCreateTaskResult {
   kind: "createTask";
   taskId: string;
   repoId: string;
+  linkedRepoIds: string[];
   sessionId: string;
   status: string;
   branch: string;
@@ -52,6 +53,8 @@ export interface CommandCreateRepoResult {
   repo: RepoRecord;
   workspaceId: string;
   created: boolean;
+  registeredRepos?: RepoRecord[];
+  skipped?: Array<{ path: string; reason: string }>;
 }
 
 export interface CommandListReposResult {
@@ -184,6 +187,7 @@ export interface CommandCommitResult {
 export interface CommandPullRequestResult {
   kind: "openPullRequest";
   taskId: string;
+  repoId: string;
   watch: boolean;
   prNumber: number;
   url: string;
@@ -195,6 +199,7 @@ export interface CommandPullRequestResult {
 export interface CommandMergeResult {
   kind: "mergeTask";
   taskId: string;
+  repoId: string;
   status: string;
   prNumber: number;
   preservedWorktree: boolean;

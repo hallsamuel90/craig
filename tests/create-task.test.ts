@@ -5,6 +5,7 @@ import { afterEach, describe, expect, test } from "vitest";
 
 import { createTask } from "../src/services/create-task.js";
 import { getSessionNameForTask } from "../src/services/tmux-session.js";
+import { getCraigPaths } from "../src/state/craig-paths.js";
 import { readSession } from "../src/state/session-store.js";
 import { readTask } from "../src/state/task-store.js";
 import {
@@ -124,6 +125,35 @@ describe("createTask", () => {
     expect(result.taskId).toBe(`task_${dateSegment}_02`);
   });
 
+  test("creates a cross-repo task bundle with one worktree per linked repo", async () => {
+    const workspaceRoot = await createRepoRoot("craig-create-bundle-");
+    const primary = await setupRegisteredRepo(workspaceRoot, "repo-a");
+    const linked = await setupAdditionalRepo(workspaceRoot, "repo-b");
+    const stubDir = await createStubCommands(workspaceRoot);
+    const tmuxStateFile = `${workspaceRoot}/tmux-state`;
+    const tmuxCommandLog = `${workspaceRoot}/tmux-commands.log`;
+
+    process.env.PATH = `${stubDir}:${originalPath}`;
+    process.env.CRAIG_TEST_TMUX_STATE_FILE = tmuxStateFile;
+    process.env.CRAIG_TEST_TMUX_COMMAND_LOG = tmuxCommandLog;
+
+    const result = await createTask(primary.paths, primary.repoId, "touch both repos", { linkedRepoIds: [linked.repoId] });
+    const task = await readTask(primary.paths, result.taskId);
+    const session = await readSession(primary.paths, result.sessionId);
+    const tmuxCommands = await readFile(tmuxCommandLog, "utf8");
+
+    expect(result.linkedRepoIds).toEqual([linked.repoId]);
+    expect(task.worktrees.map((worktree) => worktree.repoId)).toEqual([primary.repoId, linked.repoId]);
+    expect(task.worktrees.map((worktree) => worktree.worktreePath)).toEqual([
+      path.join(primary.paths.worktreesDir, result.taskId, "repo-a"),
+      path.join(primary.paths.worktreesDir, result.taskId, "repo-b"),
+    ]);
+    expect(task.repoRoot).toBe(primary.repoRoot);
+    expect(task.worktreePath).toBe(path.join(primary.paths.worktreesDir, result.taskId, "repo-a"));
+    expect(session.worktreePath).toBe(path.join(primary.paths.worktreesDir, result.taskId));
+    expect(tmuxCommands).toContain(`-c ${path.join(primary.paths.worktreesDir, result.taskId)}`);
+  });
+
   test("keeps a durable draft task when session provisioning fails", async () => {
     const workspaceRoot = await createRepoRoot("craig-create-fail-");
     const { paths, repoId } = await setupRegisteredRepo(workspaceRoot, "repo-a");
@@ -148,6 +178,39 @@ describe("createTask", () => {
 async function setupRegisteredRepo(workspaceRoot: string, repoName: string) {
   tempRoots.push(workspaceRoot);
   const paths = await createCraigState(workspaceRoot);
+  const repoRoot = path.join(workspaceRoot, repoName);
+  await mkdir(repoRoot, { recursive: true });
+  const repoId = `repo_${repoName}`;
+  const workspaceId = `workspace_${repoId}`;
+  const timestamp = "2026-04-24T00:00:00.000Z";
+
+  await writeRepoRecord(
+    workspaceRoot,
+    {
+      id: repoId,
+      name: repoName,
+      rootPath: repoRoot,
+      defaultBranch: "main",
+      createdAt: timestamp,
+      updatedAt: timestamp,
+    },
+    {
+      id: workspaceId,
+      primaryRepoId: repoId,
+      branch: "main",
+      status: "active",
+      linkedRepoIds: [],
+      archivedAt: null,
+      createdAt: timestamp,
+      updatedAt: timestamp,
+    },
+  );
+
+  return { paths, repoRoot, repoId, workspaceId };
+}
+
+async function setupAdditionalRepo(workspaceRoot: string, repoName: string) {
+  const paths = getCraigPaths(workspaceRoot);
   const repoRoot = path.join(workspaceRoot, repoName);
   await mkdir(repoRoot, { recursive: true });
   const repoId = `repo_${repoName}`;

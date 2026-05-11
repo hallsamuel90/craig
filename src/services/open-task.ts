@@ -4,11 +4,13 @@ import type { CommandOpenResult } from "../types/command.js";
 import type { CraigPaths } from "../state/craig-paths.js";
 import { readCraigConfig } from "../state/config-store.js";
 import { assertTaskWorktreeExists, getTaskOrThrow } from "./task-inspection.js";
+import { getTaskBundlePath } from "./task-worktrees.js";
 
 export async function openTask(paths: CraigPaths, taskId: string): Promise<CommandOpenResult> {
   const task = await getTaskOrThrow(paths, taskId);
 
   await assertTaskWorktreeExists(task);
+  const openPath = getTaskBundlePath(task);
 
   const config = await readCraigConfig(paths);
   const openCommand = config.open?.command ?? [];
@@ -17,19 +19,19 @@ export async function openTask(paths: CraigPaths, taskId: string): Promise<Comma
     return {
       kind: "openTask",
       taskId: task.id,
-      worktreePath: task.worktreePath,
+      worktreePath: openPath,
       launched: false,
       command: null,
     };
   }
 
-  const command = [...openCommand, task.worktreePath];
+  const command = [...openCommand, openPath];
   await runOpenCommand(command, paths.repoRoot);
 
   return {
     kind: "openTask",
     taskId: task.id,
-    worktreePath: task.worktreePath,
+    worktreePath: openPath,
     launched: true,
     command,
   };

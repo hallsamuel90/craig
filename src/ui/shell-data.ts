@@ -715,9 +715,10 @@ function renderInspectionModeRow(state: ControlShellState, task: TaskRecord | nu
     segments.push({ text: m.label, style: { fg: m.active ? "7aa2f7" : "565f89" } });
   }
 
+  const reviewSummary = summarizeRepoReviews(task);
   const prSegment = buildPrLifecycleSegment(task?.pullRequest ?? null);
   const checksSegment = buildPrChecksSegment(task?.pullRequest?.requiredChecks ?? null);
-  segments.push({ text: "  " }, prSegment, { text: " " }, checksSegment);
+  segments.push({ text: "  " }, prSegment, { text: " " }, checksSegment, { text: ` ${reviewSummary}` });
 
   const text = segments.map((s) => s.text).join("");
   return { id: "inspection-mode", text, segments };
@@ -754,7 +755,9 @@ function buildReviewInspectionRows(
     return [{ id: "review-empty", text: "No task selected.", muted: true }];
   }
 
-  const pr = task.pullRequest;
+  const changedReviews = Object.values(task.repoReviews).filter((review) => review.status !== "not_changed");
+  const primaryReview = task.repoReviews[task.repoId] ?? changedReviews[0] ?? null;
+  const pr = primaryReview?.pullRequest ?? task.pullRequest;
   const createPrAction = actions.find((action) => action.id === "create-pr");
   const refreshChecksAction = actions.find((action) => action.id === "refresh-checks");
   const mergeAction = actions.find((action) => action.id === "merge");
@@ -763,20 +766,15 @@ function buildReviewInspectionRows(
   const reviewActionRows = [
     renderReviewActionRow("create-pr", actionLabel, createPrAction?.shortcut ?? "P", state),
     renderReviewActionRow("refresh-checks", "refresh checks", refreshChecksAction?.shortcut ?? "R", state, !pr.number),
-    renderReviewActionRow("merge", "merge pr", mergeAction?.shortcut ?? "M", state, !isReviewMergeActionAvailable(task)),
+    renderReviewActionRow("merge", "merge pr", mergeAction?.shortcut ?? "M", state, !changedReviews.some((review) => isReviewMergeActionAvailable(task, review.repoId))),
     renderReviewActionRow("close-task", "close task", closeTaskAction?.shortcut ?? "X", state, task.status !== "merged"),
   ];
   const rows: ShellInspectionRow[] = [
     { id: "review-title", text: "PR", muted: true },
-    pr.number
-      ? { id: "pr-number", text: `#${pr.number} ${pr.status ?? "unknown"}` }
-      : { id: "pr-number", text: "No PR — press P to create one.", muted: true },
-    { id: "pr-url", text: pr.url ?? "not created", muted: pr.url === null },
-    { id: "pr-base", text: `base ${pr.baseBranch ?? "unknown"}`, muted: pr.baseBranch === null },
-    { id: "pr-head", text: `head ${pr.headBranch ?? task.branch}`, muted: pr.headBranch === null },
-    { id: "pr-merge", text: `merge ${pr.mergeable ? "ready" : pr.mergeStateStatus ?? "unknown"}` },
-    { id: "pr-synced", text: `synced ${formatNullableValue(pr.lastSyncedAt)}`, muted: pr.lastSyncedAt === null },
-    { id: "pr-sha", text: `sha ${formatNullableSha(pr.lastSyncedHeadSha)}`, muted: pr.lastSyncedHeadSha === null },
+    { id: "review-repos", text: "Repos", muted: true },
+    ...(changedReviews.length === 0
+      ? [{ id: "review-no-repos", text: "No changed repos.", muted: true }]
+      : changedReviews.flatMap((review) => buildRepoReviewRows(task, review.repoId))),
     { id: "review-spacer", text: "" },
     { id: "review-checks", text: "Checks", muted: true },
     ...buildPullRequestCheckRows(task),
@@ -809,15 +807,33 @@ function renderReviewActionRow(
 }
 
 function buildPullRequestCheckRows(task: TaskRecord): ShellInspectionRow[] {
-  if (!task.pullRequest.number) {
+  const pr = task.pullRequest.number ? task.pullRequest : task.repoReviews[task.repoId]?.pullRequest ?? task.pullRequest;
+  if (!pr.number) {
     return [{ id: "pr-checks-none", text: "No checks — create a PR first (P).", muted: true }];
   }
 
-  if (task.pullRequest.requiredChecks.length === 0) {
+  if (pr.requiredChecks.length === 0) {
     return [{ id: "pr-checks-empty", text: "No GitHub checks reported.", muted: true }];
   }
 
-  return task.pullRequest.requiredChecks.map(renderPullRequestCheckRow);
+  return pr.requiredChecks.map(renderPullRequestCheckRow);
+}
+
+function buildRepoReviewRows(task: TaskRecord, repoId: string): ShellInspectionRow[] {
+  const review = task.repoReviews[repoId];
+  if (!review) {
+    return [];
+  }
+  const worktree = task.worktrees.find((entry) => entry.repoId === repoId);
+  const label = worktree?.role === "primary" ? `${repoId} *` : repoId;
+  const pr = repoId === task.repoId ? task.pullRequest : review.pullRequest;
+  return [
+    { id: `repo-review:${repoId}`, text: `${label} ${review.status}`, accentPrefix: true },
+    pr.number
+      ? { id: `repo-pr:${repoId}`, text: `#${pr.number} ${pr.status ?? "unknown"} ${pr.mergeable ? "ready" : pr.mergeStateStatus ?? ""}`.trim() }
+      : { id: `repo-pr:${repoId}`, text: "No PR", muted: true },
+    { id: `repo-sha:${repoId}`, text: `sha ${formatNullableSha(pr.lastSyncedHeadSha)}`, muted: pr.lastSyncedHeadSha === null },
+  ];
 }
 
 function renderPullRequestCheckRow(check: TaskPullRequestCheck): ShellInspectionRow {
@@ -852,10 +868,18 @@ function formatPullRequestCheckStatus(status: TaskPullRequestCheck["status"]): s
 }
 
 function renderReviewGuidance(task: TaskRecord): ShellInspectionRow {
+  const reviews = Object.values(task.repoReviews).filter((review) => review.status !== "not_changed");
+  const ready = reviews.filter((review) => review.status === "merge_ready").length;
+  const pending = reviews.filter((review) => review.status === "pr_open" || review.status === "committed" || review.status === "changed").length;
+  const merged = reviews.filter((review) => review.status === "merged").length;
   const pr = task.pullRequest;
 
   if (task.status === "closed") {
     return { id: "review-guidance", text: "Task closed.", muted: true };
+  }
+
+  if (reviews.length > 1) {
+    return { id: "review-guidance", text: `${ready} ready, ${pending} pending, ${merged} merged.`, accentPrefix: ready > 0 };
   }
 
   if (task.status === "merged") {
@@ -893,20 +917,34 @@ function renderReviewGuidance(task: TaskRecord): ShellInspectionRow {
   return { id: "review-guidance", text: "Next: review PR state.", muted: true };
 }
 
-function isReviewMergeActionAvailable(task: TaskRecord): boolean {
+function isReviewMergeActionAvailable(task: TaskRecord, repoId = task.repoId): boolean {
+  const review = task.repoReviews[repoId];
+  if (!review) {
+    return false;
+  }
   return (
-    task.status === "merge_ready" &&
-    task.pullRequest.status === "open" &&
-    task.pullRequest.mergeable &&
-    task.pullRequest.requiredChecks.length > 0 &&
-    task.pullRequest.requiredChecks.every((check) => check.status === "success" || check.status === "skipped") &&
-    task.lastCommit !== null &&
-    task.pullRequest.lastSyncedHeadSha === task.lastCommit.sha
+    review.status === "merge_ready" &&
+    review.pullRequest.status === "open" &&
+    review.pullRequest.mergeable &&
+    review.pullRequest.requiredChecks.length > 0 &&
+    review.pullRequest.requiredChecks.every((check) => check.status === "success" || check.status === "skipped") &&
+    review.lastCommit !== null &&
+    review.pullRequest.lastSyncedHeadSha === review.lastCommit.sha
   );
 }
 
-function formatNullableValue(value: string | null): string {
-  return value ?? "--";
+function summarizeRepoReviews(task: TaskRecord | null): string {
+  if (!task) {
+    return "";
+  }
+  const reviews = Object.values(task.repoReviews).filter((review) => review.status !== "not_changed");
+  if (reviews.length <= 1) {
+    return "";
+  }
+  const ready = reviews.filter((review) => review.status === "merge_ready").length;
+  const pending = reviews.filter((review) => review.status === "pr_open" || review.status === "committed" || review.status === "changed").length;
+  const merged = reviews.filter((review) => review.status === "merged").length;
+  return `${ready}r/${pending}p/${merged}m`;
 }
 
 function formatNullableSha(value: string | null): string {

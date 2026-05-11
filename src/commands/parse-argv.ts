@@ -65,7 +65,22 @@ export function parseArgv(argv: string[]): ParsedArgvCommand {
     }
 
     const repoId = trimmedArgv[repoFlagIndex + 1]?.trim() ?? "";
-    const promptParts = trimmedArgv.filter((_, index) => index > 1 && index !== repoFlagIndex && index !== repoFlagIndex + 1);
+    const linkedRepoIds: string[] = [];
+    const consumedIndexes = new Set([0, 1, repoFlagIndex, repoFlagIndex + 1]);
+    for (let index = 2; index < trimmedArgv.length; index += 1) {
+      if (trimmedArgv[index] !== "--link") {
+        continue;
+      }
+      const linkedRepoId = trimmedArgv[index + 1]?.trim() ?? "";
+      if (linkedRepoId.length === 0) {
+        throw new Error("Linked repo id cannot be empty.\n\n" + getHelpText());
+      }
+      linkedRepoIds.push(linkedRepoId);
+      consumedIndexes.add(index);
+      consumedIndexes.add(index + 1);
+      index += 1;
+    }
+    const promptParts = trimmedArgv.filter((_, index) => index > 1 && !consumedIndexes.has(index));
     const prompt = promptParts.join(" ").trim();
 
     if (repoId.length === 0) {
@@ -76,7 +91,7 @@ export function parseArgv(argv: string[]): ParsedArgvCommand {
       throw new Error("Task prompt cannot be empty.\n\n" + getHelpText());
     }
 
-    return { mode: "command", command: { kind: "createTask", repoId, prompt } };
+    return { mode: "command", command: { kind: "createTask", repoId, prompt, linkedRepoIds } };
   }
 
   if (

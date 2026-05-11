@@ -4,6 +4,7 @@ import path from "node:path";
 import type { TaskRecord } from "../types/task.js";
 import { runCommand, runCommandAllowingFailure } from "../utils/exec.js";
 import { assertTaskWorktreeExists } from "./task-inspection.js";
+import type { TaskWorktree } from "../types/task.js";
 
 export const FILE_CONTENT_LIMIT_BYTES = 200 * 1024;
 export const DIFF_CONTENT_LIMIT_BYTES = 500 * 1024;
@@ -18,6 +19,7 @@ export type InspectionDiffGroup = "staged" | "unstaged" | "untracked";
 export interface InspectionDiffRow {
   group: InspectionDiffGroup;
   path: string;
+  repoId?: string;
   status: string;
   additions: number | null;
   deletions: number | null;
@@ -54,19 +56,44 @@ export async function loadTaskLocalInspection(
   selection: TaskLocalInspectionSelection = {},
 ): Promise<TaskLocalInspection> {
   try {
-    await assertTaskWorktreeExists(task);
-    const [filePaths, diffRows] = await Promise.all([listGitVisibleFiles(task.worktreePath), listDiffRows(task.worktreePath)]);
+    const isMultiRepo = task.worktrees.length > 1;
+    const inspections = await Promise.all(task.worktrees.map(async (worktree) => {
+      await assertTaskWorktreeExists(task, worktree.repoId);
+      const [localFilePaths, localDiffRows] = await Promise.all([
+        listGitVisibleFiles(worktree.worktreePath),
+        listDiffRows(worktree.worktreePath),
+      ]);
+      return {
+        worktree,
+        localFilePaths,
+        localDiffRows,
+        filePaths: localFilePaths.map((filePath) => isMultiRepo ? encodeRepoPath(worktree.repoId, filePath) : filePath),
+        diffRows: localDiffRows.map((row) => ({
+          ...row,
+          repoId: worktree.repoId,
+          path: isMultiRepo ? encodeRepoPath(worktree.repoId, row.path) : row.path,
+        })),
+      };
+    }));
+    const filePaths = inspections.flatMap((entry) => entry.filePaths);
+    const diffRows = inspections.flatMap((entry) => entry.diffRows);
     const diffPaths = [...new Set(diffRows.map((row) => row.path))];
     const selectedFilePath = resolveSelectedPath(selection.selectedFilePath ?? null, filePaths);
     const selectedDiffPath = resolveSelectedPath(selection.selectedDiffPath ?? null, diffPaths);
+    const selectedFileTarget = selectedFilePath ? resolveInspectionTarget(task, selectedFilePath) : null;
+    const selectedDiffTarget = selectedDiffPath ? resolveInspectionTarget(task, selectedDiffPath) : null;
     const [selectedFile, selectedDiff] = await Promise.all([
-      readGuardedFile(task.worktreePath, selectedFilePath),
-      readGuardedDiff(task.worktreePath, selectedDiffPath, diffRows),
+      selectedFileTarget
+        ? readGuardedFile(selectedFileTarget.worktree.worktreePath, selectedFileTarget.path, selectedFilePath)
+        : readGuardedFile(task.worktreePath, null),
+      selectedDiffTarget
+        ? readGuardedDiff(selectedDiffTarget.worktree.worktreePath, selectedDiffTarget.path, diffRows, selectedDiffPath)
+        : readGuardedDiff(task.worktreePath, null, diffRows),
     ]);
 
     return {
       taskId: task.id,
-      fileRows: buildTreeRows(filePaths),
+      fileRows: buildMultiRepoTreeRows(inspections),
       filePaths,
       diffRows,
       diffPaths,
@@ -179,7 +206,7 @@ async function readNumstat(
   };
 }
 
-async function readGuardedFile(worktreePath: string, filePath: string | null): Promise<InspectionContent> {
+async function readGuardedFile(worktreePath: string, filePath: string | null, displayPath = filePath): Promise<InspectionContent> {
   if (!filePath) {
     return buildEmptyContent("No file selected", "No Git-visible files found.", "empty");
   }
@@ -188,24 +215,24 @@ async function readGuardedFile(worktreePath: string, filePath: string | null): P
   try {
     const fileStat = await stat(absolutePath);
     if (fileStat.size > FILE_CONTENT_LIMIT_BYTES) {
-      return buildEmptyContent(filePath, `File is ${fileStat.size} bytes, above the 200 KB inline preview limit.`, "too_large", filePath, fileStat.size);
+      return buildEmptyContent(displayPath ?? filePath, `File is ${fileStat.size} bytes, above the 200 KB inline preview limit.`, "too_large", displayPath ?? filePath, fileStat.size);
     }
 
     const buffer = await readFile(absolutePath);
     if (isBinaryBuffer(buffer)) {
-      return buildEmptyContent(filePath, "Binary file preview is not available in Craig.", "binary", filePath, buffer.byteLength);
+      return buildEmptyContent(displayPath ?? filePath, "Binary file preview is not available in Craig.", "binary", displayPath ?? filePath, buffer.byteLength);
     }
 
     return {
-      path: filePath,
+      path: displayPath,
       status: "ready",
-      title: filePath,
+      title: displayPath ?? filePath,
       lines: buffer.toString("utf8").split("\n"),
       byteLength: buffer.byteLength,
     };
   } catch (error) {
     const message = error instanceof Error ? error.message : "Unable to read file.";
-    return buildEmptyContent(filePath, message, "missing", filePath, null);
+    return buildEmptyContent(displayPath ?? filePath, message, "missing", displayPath ?? filePath, null);
   }
 }
 
@@ -213,13 +240,14 @@ async function readGuardedDiff(
   worktreePath: string,
   filePath: string | null,
   rows: InspectionDiffRow[],
+  displayPath = filePath,
 ): Promise<InspectionContent> {
   if (!filePath) {
     return buildEmptyContent("No diff selected", "No local changes found.", "empty");
   }
 
   const parts: string[] = [];
-  const matchingGroups = rows.filter((row) => row.path === filePath).map((row) => row.group);
+  const matchingGroups = rows.filter((row) => row.path === (displayPath ?? filePath)).map((row) => row.group);
 
   if (matchingGroups.includes("staged")) {
     const staged = await runCommand(
@@ -256,17 +284,17 @@ async function readGuardedDiff(
 
   const diffText = parts.join("\n\n");
   if (diffText.length > DIFF_CONTENT_LIMIT_BYTES) {
-    return buildEmptyContent(filePath, "Diff is above the 500 KB inline preview limit.", "too_large", filePath, diffText.length);
+    return buildEmptyContent(displayPath ?? filePath, "Diff is above the 500 KB inline preview limit.", "too_large", displayPath ?? filePath, diffText.length);
   }
 
   if (diffText.includes("\0")) {
-    return buildEmptyContent(filePath, "Binary diff preview is not available in Craig.", "binary", filePath, diffText.length);
+    return buildEmptyContent(displayPath ?? filePath, "Binary diff preview is not available in Craig.", "binary", displayPath ?? filePath, diffText.length);
   }
 
   return {
-    path: filePath,
+    path: displayPath,
     status: diffText.length > 0 ? "ready" : "empty",
-    title: filePath,
+    title: displayPath ?? filePath,
     lines: diffText.length > 0 ? diffText.split("\n") : ["No diff for this file."],
     byteLength: diffText.length,
   };
@@ -301,6 +329,61 @@ function buildTreeRows(filePaths: string[]): InspectionTreeRow[] {
   }
 
   return rows;
+}
+
+function buildMultiRepoTreeRows(
+  inspections: Array<{ worktree: TaskWorktree; filePaths: string[]; localFilePaths: string[] }>,
+): InspectionTreeRow[] {
+  if (inspections.length === 1) {
+    return buildTreeRows(inspections[0]?.filePaths ?? []);
+  }
+
+  return inspections.flatMap((inspection) => [
+    {
+      kind: "directory" as const,
+      path: inspection.worktree.repoId,
+      depth: 0,
+      label: inspection.worktree.repoId,
+    },
+    ...buildTreeRows(inspection.localFilePaths).map((row) => ({
+      ...row,
+      path: encodeRepoPath(inspection.worktree.repoId, row.path),
+      depth: row.depth + 1,
+    })),
+  ]);
+}
+
+function encodeRepoPath(repoId: string, filePath: string): string {
+  return `${repoId}:${filePath}`;
+}
+
+function decodeRepoPath(value: string): { repoId: string; path: string } {
+  const separator = value.indexOf(":");
+  if (separator === -1) {
+    return { repoId: "", path: value };
+  }
+
+  return {
+    repoId: value.slice(0, separator),
+    path: value.slice(separator + 1),
+  };
+}
+
+function resolveInspectionTarget(task: TaskRecord, value: string): { worktree: TaskWorktree; path: string } {
+  const decoded = decodeRepoPath(value);
+  const worktree =
+    decoded.repoId.length > 0
+      ? task.worktrees.find((entry) => entry.repoId === decoded.repoId)
+      : task.worktrees[0];
+
+  if (!worktree) {
+    throw new Error(`Task ${task.id} does not include repo ${decoded.repoId}.`);
+  }
+
+  return {
+    worktree,
+    path: decoded.repoId.length > 0 ? decoded.path : value,
+  };
 }
 
 function resolveSelectedPath(requestedPath: string | null, validPaths: string[]): string | null {
