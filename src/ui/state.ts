@@ -15,6 +15,7 @@ export const INSPECTOR_SECTION_IDS = ["task", "checks", "pr", "setup-run", "acti
 export const INSPECTION_MODE_IDS = ["diff", "files", "review"] as const;
 
 export type InputMode = "control" | "terminal";
+export type MouseMode = "scroll" | "select";
 export type FocusRegion = (typeof FOCUS_REGIONS)[number];
 export type CenterTabId = string;
 export type FixedCenterTabId = (typeof FIXED_CENTER_TAB_IDS)[number];
@@ -46,6 +47,7 @@ export interface TerminalViewState {
 
 export interface ControlShellState {
   inputMode: InputMode;
+  mouseMode: MouseMode;
   focusedRegion: FocusRegion;
   selectedRepoId: string | null;
   selectedTaskId: string | null;
@@ -68,6 +70,7 @@ export interface ControlShellState {
   taskPromptError: string | null;
   workspaceBrowser: WorkspaceBrowserState | null;
   terminal: TerminalViewState;
+  centerZoomed: boolean;
 }
 
 export interface ReduceMainKeyOptions {
@@ -79,6 +82,7 @@ export interface ReduceMainKeyOptions {
   fileTreeFileIds?: string[];
   fileTreeDirectoryIds?: string[];
   diffPathIds?: string[];
+  diffPathRanges?: Array<{ path: string; start: number; end: number }>;
   fileLineCount?: number;
   diffLineCount?: number;
   pageRows?: number;
@@ -110,6 +114,7 @@ export interface RestoreShellModel {
     taskId: string;
     selectedFilePath: string | null;
     selectedDiffPath: string | null;
+    diffPaths?: string[];
     fileRows?: Array<{ kind: string; path: string }>;
   } | null;
 }
@@ -123,6 +128,7 @@ export function createInitialShellState(runtime: CraigUiRuntime | null): Control
   const openInspectionKind = getValidOpenInspectionKind(runtime?.openInspectionKind) ?? legacyInspectionKind;
   return {
     inputMode: getValidInputMode(runtime?.inputMode),
+    mouseMode: "scroll",
     focusedRegion: getValidFocusRegion(runtime?.focusedRegion),
     selectedRepoId: optionalString(runtime?.selectedRepoId),
     selectedTaskId: optionalString(runtime?.selectedTaskId),
@@ -145,6 +151,7 @@ export function createInitialShellState(runtime: CraigUiRuntime | null): Control
     taskPromptError: null,
     workspaceBrowser: null,
     terminal: createDefaultTerminalViewState(),
+    centerZoomed: false,
   };
 }
 
@@ -211,8 +218,7 @@ export function restoreShellState(
     selectedFilePath:
       model.inspection && model.inspection.taskId === selectedTask?.id ? model.inspection.selectedFilePath : state.selectedFilePath,
     ...resolveFileTreeState(state, model, selectedTask?.id ?? null),
-    selectedDiffPath:
-      model.inspection && model.inspection.taskId === selectedTask?.id ? model.inspection.selectedDiffPath : state.selectedDiffPath,
+    selectedDiffPath: resolveSelectedDiffPath(state, model, selectedTask?.id ?? null),
     inspectorSection: getValidValue(state.inspectorSection, INSPECTOR_SECTION_IDS, "task"),
   };
 }
@@ -221,9 +227,22 @@ export function reduceMainKey(state: ControlShellState, key: string, options: Re
   if (state.inputMode === "terminal") {
     if (isTerminalDetachKey(key)) {
       return result({
-        state: { ...state, inputMode: "control", actionMessage: null },
+        state: { ...state, inputMode: "control", mouseMode: "scroll", centerZoomed: false, actionMessage: null },
         changed: true,
         detachTerminal: true,
+      });
+    }
+
+    if (isTerminalMouseModeToggleKey(key)) {
+      const selectMode = state.mouseMode !== "select";
+      return result({
+        state: {
+          ...state,
+          mouseMode: selectMode ? "select" : "scroll",
+          centerZoomed: selectMode,
+          actionMessage: selectMode ? "Selection mode: mouse highlight enabled." : null,
+        },
+        changed: true,
       });
     }
 
@@ -258,6 +277,13 @@ export function reduceMainKey(state: ControlShellState, key: string, options: Re
 
   if (key === "SHIFT_TAB" || key === "[") {
     return updateFocus(state, -1);
+  }
+
+  if (key === "z" || key === "Z") {
+    return result({
+      state: { ...state, centerZoomed: !state.centerZoomed, actionMessage: null },
+      changed: true,
+    });
   }
 
   if (key === "UP" || key === "k") {
@@ -327,6 +353,14 @@ export function reduceMainKey(state: ControlShellState, key: string, options: Re
   }
 
   if ((key === "X" || key === "x") && state.focusedRegion === "inspector" && state.inspectionMode === "review") {
+    return result({
+      state: { ...state, selectedActionId: "close-task", actionMessage: null },
+      changed: true,
+      closeTask: true,
+    });
+  }
+
+  if ((key === "X" || key === "x") && state.focusedRegion === "tasks" && isTaskLeftItemId(state.selectedLeftItemId) && state.selectedTaskId) {
     return result({
       state: { ...state, selectedActionId: "close-task", actionMessage: null },
       changed: true,
@@ -545,6 +579,10 @@ export function isTerminalDetachKey(key: string): boolean {
   return key === "\u001D" || key === "CTRL_]" || key === "CTRL_RIGHT_BRACKET";
 }
 
+export function isTerminalMouseModeToggleKey(key: string): boolean {
+  return key === "\u0007" || key === "CTRL_G";
+}
+
 export function isEnterKey(key: string): boolean {
   return key === "ENTER" || key === "KP_ENTER" || key === "RETURN" || key === "CTRL_M" || key === "\r" || key === "\n";
 }
@@ -614,7 +652,7 @@ function moveTab(state: ControlShellState, direction: -1 | 1, centerTabIds: Cent
 
 function moveSelection(state: ControlShellState, direction: -1 | 1, options: ReduceMainKeyOptions): MainKeyResult {
   if (state.focusedRegion === "tasks") {
-    return updateDynamicValue(state, "selectedLeftItemId", options.leftItemIds, direction);
+    return moveLeftSelection(state, direction, options.leftItemIds);
   }
 
   if (state.focusedRegion === "center") {
@@ -635,6 +673,50 @@ function moveSelection(state: ControlShellState, direction: -1 | 1, options: Red
   }
 
   return updateIndexedValue(state, "selectedActionId", ACTION_IDS, direction);
+}
+
+function moveLeftSelection(state: ControlShellState, direction: -1 | 1, leftItemIds: LeftNavItemId[]): MainKeyResult {
+  const next = updateDynamicValue(state, "selectedLeftItemId", leftItemIds, direction);
+  if (!next.changed) {
+    return next;
+  }
+
+  const selection = parseLeftItemId(next.state.selectedLeftItemId);
+  if (selection?.kind === "task") {
+    return {
+      ...next,
+      state: {
+        ...next.state,
+        selectedTaskId: selection.id,
+        selectedFilePath: null,
+        selectedFileTreePath: null,
+        selectedDiffPath: null,
+        fileScrollOffset: 0,
+        diffScrollOffset: 0,
+      },
+      refreshInspection: true,
+    };
+  }
+
+  if (selection?.kind === "repo") {
+    return {
+      ...next,
+      state: {
+        ...next.state,
+        selectedRepoId: selection.id,
+        selectedTaskId: null,
+        selectedPtyTabId: null,
+        selectedFilePath: null,
+        selectedFileTreePath: null,
+        selectedDiffPath: null,
+        fileScrollOffset: 0,
+        diffScrollOffset: 0,
+      },
+      refreshInspection: true,
+    };
+  }
+
+  return next;
 }
 
 export function scrollInspectionContent(state: ControlShellState, delta: number, options: ReduceMainKeyOptions): MainKeyResult {
@@ -661,7 +743,7 @@ export function scrollInspectionContent(state: ControlShellState, delta: number,
     }
 
     if (state.openInspectionKind === "diff") {
-      return updateScrollOffset(state, "diffScrollOffset", delta, options.diffLineCount ?? 0, options.pageRows);
+      return scrollDiffContent(state, delta, options);
     }
   }
 
@@ -763,6 +845,133 @@ function updateScrollOffset(
     state: { ...state, [key]: nextOffset, actionMessage: null },
     changed: true,
   });
+}
+
+function scrollDiffContent(state: ControlShellState, delta: number, options: ReduceMainKeyOptions): MainKeyResult {
+  if (options.diffPathRanges && options.diffPathRanges.length > 0) {
+    return scrollCombinedDiffContent(state, delta, options);
+  }
+
+  const lineCount = options.diffLineCount ?? 0;
+  const visibleRows = options.pageRows ?? 10;
+  const maxOffset = Math.max(0, lineCount - Math.max(1, visibleRows));
+  const targetOffset = state.diffScrollOffset + delta;
+
+  const diffPathIds = options.diffPathIds ?? [];
+  if (diffPathIds.length === 0 || !state.selectedDiffPath) {
+    const nextOffset = clamp(targetOffset, 0, maxOffset);
+    return nextOffset === state.diffScrollOffset
+      ? result({ state })
+      : result({
+          state: { ...state, diffScrollOffset: nextOffset, actionMessage: null },
+          changed: true,
+        });
+  }
+
+  const currentIndex = diffPathIds.indexOf(state.selectedDiffPath);
+  if (currentIndex === -1) {
+    const nextOffset = clamp(targetOffset, 0, maxOffset);
+    return nextOffset === state.diffScrollOffset
+      ? result({ state })
+      : result({
+          state: { ...state, diffScrollOffset: nextOffset, actionMessage: null },
+          changed: true,
+        });
+  }
+
+  if (delta > 0 && targetOffset > maxOffset) {
+    const nextPath = diffPathIds[currentIndex + 1] ?? null;
+    if (!nextPath) {
+      return state.diffScrollOffset === maxOffset
+        ? result({ state })
+        : result({
+            state: { ...state, diffScrollOffset: maxOffset, actionMessage: null },
+            changed: true,
+          });
+    }
+
+    return result({
+      state: { ...state, selectedDiffPath: nextPath, diffScrollOffset: 0, actionMessage: null },
+      changed: true,
+      refreshInspection: true,
+    });
+  }
+
+  if (delta < 0 && targetOffset < 0) {
+    const previousPath = diffPathIds[currentIndex - 1] ?? null;
+    if (!previousPath) {
+      return state.diffScrollOffset === 0
+        ? result({ state })
+        : result({
+            state: { ...state, diffScrollOffset: 0, actionMessage: null },
+            changed: true,
+          });
+    }
+
+    return result({
+      state: {
+        ...state,
+        selectedDiffPath: previousPath,
+        diffScrollOffset: Number.MAX_SAFE_INTEGER,
+        actionMessage: null,
+      },
+      changed: true,
+      refreshInspection: true,
+    });
+  }
+
+  const nextOffset = clamp(targetOffset, 0, maxOffset);
+  return nextOffset === state.diffScrollOffset
+    ? result({ state })
+    : result({
+        state: { ...state, diffScrollOffset: nextOffset, actionMessage: null },
+        changed: true,
+      });
+}
+
+function scrollCombinedDiffContent(state: ControlShellState, delta: number, options: ReduceMainKeyOptions): MainKeyResult {
+  const lineCount = options.diffLineCount ?? 0;
+  const visibleRows = options.pageRows ?? 10;
+  const maxOffset = Math.max(0, lineCount - Math.max(1, visibleRows));
+  const nextOffset = clamp(state.diffScrollOffset + delta, 0, maxOffset);
+  const nextPath = resolveDiffPathForOffset(options.diffPathRanges ?? [], nextOffset) ?? state.selectedDiffPath;
+
+  if (nextOffset === state.diffScrollOffset && nextPath === state.selectedDiffPath) {
+    return result({ state });
+  }
+
+  return result({
+    state: {
+      ...state,
+      diffScrollOffset: nextOffset,
+      selectedDiffPath: nextPath,
+      actionMessage: null,
+    },
+    changed: true,
+  });
+}
+
+function resolveSelectedDiffPath(
+  state: ControlShellState,
+  model: RestoreShellModel,
+  selectedTaskId: string | null,
+): string | null {
+  if (!model.inspection || model.inspection.taskId !== selectedTaskId) {
+    return state.selectedDiffPath;
+  }
+
+  if (state.selectedDiffPath && (model.inspection.diffPaths ?? []).includes(state.selectedDiffPath)) {
+    return state.selectedDiffPath;
+  }
+
+  return model.inspection.selectedDiffPath;
+}
+
+function resolveDiffPathForOffset(
+  ranges: Array<{ path: string; start: number; end: number }>,
+  offset: number,
+): string | null {
+  return ranges.find((range) => offset >= range.start && offset < range.end)?.path ?? ranges.at(-1)?.path ?? null;
 }
 
 function updateIndexedValue<Key extends "focusedRegion" | "activeTab" | "selectedActionId">(

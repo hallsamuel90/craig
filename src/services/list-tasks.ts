@@ -4,7 +4,10 @@ import type { CraigPaths } from "../state/craig-paths.js";
 import { readCraigIndex } from "../state/state-store.js";
 import { readTask } from "../state/task-store.js";
 
-export async function listTasks(paths: CraigPaths, options?: { repoId?: string }): Promise<CommandListResult> {
+export async function listTasks(
+  paths: CraigPaths,
+  options?: { repoId?: string; includeClosed?: boolean },
+): Promise<CommandListResult> {
   const index = await readCraigIndex(paths);
   const tasks: TaskRecord[] = [];
   const missingTaskIds: string[] = [];
@@ -24,7 +27,8 @@ export async function listTasks(paths: CraigPaths, options?: { repoId?: string }
     }),
   );
 
-  const filteredTasks = options?.repoId ? tasks.filter((task) => task.repoId === options.repoId) : tasks;
+  const activeTasks = options?.includeClosed ? tasks : tasks.filter((task) => task.status !== "closed");
+  const filteredTasks = options?.repoId ? activeTasks.filter((task) => task.repoId === options.repoId) : activeTasks;
 
   filteredTasks.sort((left, right) => left.id.localeCompare(right.id));
   missingTaskIds.sort();

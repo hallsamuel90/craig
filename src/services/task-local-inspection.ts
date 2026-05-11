@@ -13,7 +13,7 @@ export type InspectionTreeRow =
   | { kind: "directory"; path: string; depth: number; label: string }
   | { kind: "file"; path: string; depth: number; label: string };
 
-export type InspectionDiffGroup = "staged" | "unstaged" | "untracked";
+export type InspectionDiffGroup = "branch" | "staged" | "unstaged" | "untracked";
 
 export interface InspectionDiffRow {
   group: InspectionDiffGroup;
@@ -37,6 +37,7 @@ export interface TaskLocalInspection {
   filePaths: string[];
   diffRows: InspectionDiffRow[];
   diffPaths: string[];
+  diffContents: Record<string, InspectionContent>;
   selectedFilePath: string | null;
   selectedDiffPath: string | null;
   selectedFile: InspectionContent;
@@ -59,10 +60,12 @@ export async function loadTaskLocalInspection(
     const diffPaths = [...new Set(diffRows.map((row) => row.path))];
     const selectedFilePath = resolveSelectedPath(selection.selectedFilePath ?? null, filePaths);
     const selectedDiffPath = resolveSelectedPath(selection.selectedDiffPath ?? null, diffPaths);
-    const [selectedFile, selectedDiff] = await Promise.all([
+    const [selectedFile, diffContentEntries] = await Promise.all([
       readGuardedFile(task.worktreePath, selectedFilePath),
-      readGuardedDiff(task.worktreePath, selectedDiffPath, diffRows),
+      Promise.all(diffPaths.map(async (diffPath) => [diffPath, await readGuardedDiff(task.worktreePath, diffPath, diffRows)] as const)),
     ]);
+    const diffContents = Object.fromEntries(diffContentEntries);
+    const selectedDiff = selectedDiffPath ? diffContents[selectedDiffPath] ?? buildEmptyContent("No diff selected", "No local changes found.", "empty") : buildEmptyContent("No diff selected", "No local changes found.", "empty");
 
     return {
       taskId: task.id,
@@ -70,6 +73,7 @@ export async function loadTaskLocalInspection(
       filePaths,
       diffRows,
       diffPaths,
+      diffContents,
       selectedFilePath,
       selectedDiffPath,
       selectedFile,
@@ -84,6 +88,7 @@ export async function loadTaskLocalInspection(
       filePaths: [],
       diffRows: [],
       diffPaths: [],
+      diffContents: {},
       selectedFilePath: null,
       selectedDiffPath: null,
       selectedFile: buildEmptyContent("Files unavailable", message, "error"),
@@ -99,13 +104,38 @@ async function listGitVisibleFiles(worktreePath: string): Promise<string[]> {
 }
 
 async function listDiffRows(worktreePath: string): Promise<InspectionDiffRow[]> {
-  const [staged, unstaged, untracked] = await Promise.all([
+  const [branch, staged, unstaged, untracked] = await Promise.all([
+    listBranchRows(worktreePath),
     listChangedRows(worktreePath, "staged"),
     listChangedRows(worktreePath, "unstaged"),
     listUntrackedRows(worktreePath),
   ]);
 
-  return [...staged, ...unstaged, ...untracked];
+  return [...branch, ...staged, ...unstaged, ...untracked];
+}
+
+async function listBranchRows(worktreePath: string): Promise<InspectionDiffRow[]> {
+  const baseRef = await resolveMainComparisonRef(worktreePath);
+  if (!baseRef) {
+    return [];
+  }
+
+  const result = await runCommand("git", ["diff", "--name-status", `${baseRef}...HEAD`], { cwd: worktreePath });
+  const changedFiles = parseNameStatus(result.stdout);
+  const rows = await Promise.all(
+    changedFiles.map(async (entry) => {
+      const numstat = await readBranchNumstat(worktreePath, baseRef, entry.path);
+      return {
+        group: "branch" as const,
+        path: entry.path,
+        status: entry.status,
+        additions: numstat.additions,
+        deletions: numstat.deletions,
+      };
+    }),
+  );
+
+  return rows.sort((left, right) => left.path.localeCompare(right.path));
 }
 
 async function listChangedRows(worktreePath: string, group: "staged" | "unstaged"): Promise<InspectionDiffRow[]> {
@@ -179,6 +209,37 @@ async function readNumstat(
   };
 }
 
+async function readBranchNumstat(
+  worktreePath: string,
+  baseRef: string,
+  filePath: string,
+): Promise<{ additions: number | null; deletions: number | null }> {
+  const result = await runCommand("git", ["diff", "--numstat", `${baseRef}...HEAD`, "--", filePath], { cwd: worktreePath });
+  const [additionsRaw = "-", deletionsRaw = "-"] = (result.stdout.split("\n")[0] ?? "").split("\t");
+  return {
+    additions: additionsRaw === "-" ? null : Number(additionsRaw),
+    deletions: deletionsRaw === "-" ? null : Number(deletionsRaw),
+  };
+}
+
+async function resolveMainComparisonRef(worktreePath: string): Promise<string | null> {
+  const remoteMain = await runCommandAllowingFailure("git", ["show-ref", "--verify", "--quiet", "refs/remotes/origin/main"], {
+    cwd: worktreePath,
+  });
+  if (remoteMain.exitCode === 0) {
+    return "origin/main";
+  }
+
+  const localMain = await runCommandAllowingFailure("git", ["show-ref", "--verify", "--quiet", "refs/heads/main"], {
+    cwd: worktreePath,
+  });
+  if (localMain.exitCode === 0) {
+    return "main";
+  }
+
+  return null;
+}
+
 async function readGuardedFile(worktreePath: string, filePath: string | null): Promise<InspectionContent> {
   if (!filePath) {
     return buildEmptyContent("No file selected", "No Git-visible files found.", "empty");
@@ -220,6 +281,20 @@ async function readGuardedDiff(
 
   const parts: string[] = [];
   const matchingGroups = rows.filter((row) => row.path === filePath).map((row) => row.group);
+
+  if (matchingGroups.includes("branch")) {
+    const baseRef = await resolveMainComparisonRef(worktreePath);
+    if (baseRef) {
+      const branch = await runCommand(
+        "git",
+        ["diff", "--stat", "--patch", `--unified=${FULL_FILE_DIFF_CONTEXT_LINES}`, `${baseRef}...HEAD`, "--", filePath],
+        { cwd: worktreePath },
+      );
+      if (branch.stdout.trim().length > 0) {
+        parts.push(`branch\n${branch.stdout.trimEnd()}`);
+      }
+    }
+  }
 
   if (matchingGroups.includes("staged")) {
     const staged = await runCommand(

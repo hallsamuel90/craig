@@ -368,10 +368,31 @@ describe("terminal shell renderer", () => {
     );
 
     expect(frame).toContain("TERMINAL  task_20260430_02 · bug-fixes");
-    expect(frame).toContain("TERMINAL   Ctrl+] detach");
+    expect(frame).toContain("TERMINAL SCROLL");
+    expect(frame).toContain("Ctrl+G select");
     expect(frame).toContain("$ pwd");
     expect(frame).toContain("/Users/samhall/conductor/workspaces/");
     expect(frame).not.toContain("terminal ▸ terminal mode");
+  });
+
+  test("wraps rendered PTY URLs with terminal hyperlinks", () => {
+    const frame = renderMainShellFrame(
+      MIN_VIEWPORT,
+      getMockShellData({
+        inputMode: "terminal",
+        focusedRegion: "center",
+        activeTab: "terminal",
+        terminal: {
+          status: "running",
+          rows: [
+            { segments: [{ text: "Open https://x.io/17." }] },
+          ],
+          error: null,
+        },
+      }),
+    );
+
+    expect(frame).toContain("\u001B]8;;https://x.io/17\u001B\\https://x.io/17\u001B]8;;\u001B\\.");
   });
 
   test("renders the attach hint using concrete agent tab ids", () => {
@@ -548,6 +569,37 @@ function inspectionFixture(input: { selectedFilePath?: string | null; selectedDi
       { group: "unstaged", path: "src/app.ts", status: "M", additions: 2, deletions: 1 },
     ],
     diffPaths: ["README.md", "src/app.ts"],
+    diffContents: {
+      "README.md": {
+        path: "README.md",
+        status: "ready",
+        title: "README.md",
+        lines: [
+          "staged",
+          "diff --git a/README.md b/README.md",
+          "@@ -1 +1 @@",
+          "+after staged",
+        ],
+        byteLength: 60,
+      },
+      "src/app.ts": {
+        path: "src/app.ts",
+        status: "ready",
+        title: "src/app.ts",
+        lines: [
+          "unstaged",
+          "diff --git a/src/app.ts b/src/app.ts",
+          "@@ -1,2 +1,2 @@",
+          "-export const app = false;",
+          "+export const app = true;",
+          " // after unstaged",
+          " export function run() {",
+          "   return app;",
+          " }",
+        ],
+        byteLength: 80,
+      },
+    },
     selectedFilePath: input.selectedFilePath ?? null,
     selectedDiffPath: input.selectedDiffPath ?? null,
     selectedFile: {

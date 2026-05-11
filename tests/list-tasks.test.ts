@@ -2,7 +2,7 @@ import { rm, writeFile } from "node:fs/promises";
 import { afterEach, describe, expect, test } from "vitest";
 
 import { listTasks } from "../src/services/list-tasks.js";
-import { createCraigState, createRepoRoot } from "./test-helpers.js";
+import { createCraigState, createRepoRoot, writeTaskRecord } from "./test-helpers.js";
 
 const tempRoots: string[] = [];
 
@@ -105,5 +105,19 @@ describe("listTasks", () => {
       exitCode: null,
       exitedAt: null,
     });
+  });
+
+  test("hides closed tasks by default but can include them for recovery views", async () => {
+    const repoRoot = await createRepoRoot("craig-list-");
+    tempRoots.push(repoRoot);
+    const paths = await createCraigState(repoRoot, ["task_active", "task_closed"]);
+    await writeTaskRecord(repoRoot, { id: "task_active", status: "running" });
+    await writeTaskRecord(repoRoot, { id: "task_closed", status: "closed" });
+
+    const active = await listTasks(paths);
+    const all = await listTasks(paths, { includeClosed: true });
+
+    expect(active.tasks.map((task) => task.id)).toEqual(["task_active"]);
+    expect(all.tasks.map((task) => task.id)).toEqual(["task_active", "task_closed"]);
   });
 });

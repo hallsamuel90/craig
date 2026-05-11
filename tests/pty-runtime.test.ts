@@ -11,6 +11,8 @@ describe("PTY runtime", () => {
     expect(mapKeyToPtyInput("BACKSPACE")).toBe("\x7f");
     expect(mapKeyToPtyInput("UP")).toBe("\x1b[A");
     expect(mapKeyToPtyInput("TAB")).toBe("\t");
+    expect(mapKeyToPtyInput("SHIFT_TAB")).toBe("\x1b[Z");
+    expect(mapKeyToPtyInput("BACK_TAB")).toBe("\x1b[Z");
     expect(mapKeyToPtyInput("CTRL_C")).toBe("\x03");
     expect(isTerminalDetachKey("\u001D")).toBe(true);
   });

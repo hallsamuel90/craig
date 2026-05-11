@@ -95,6 +95,7 @@ export interface ShellCenterLine {
 
 export interface ShellData {
   inputMode: InputMode;
+  mouseMode: ControlShellState["mouseMode"];
   focusedRegion: FocusRegion;
   actionMessage: string | null;
   terminal: TerminalViewState;
@@ -121,6 +122,12 @@ export interface WorkspaceShellModel {
   tasks: TaskRecord[];
   workspaceRoot: string;
   inspection: TaskLocalInspection | null;
+}
+
+export interface DiffPathRange {
+  path: string;
+  start: number;
+  end: number;
 }
 
 const ACTION_FIXTURES: Array<{ id: ActionId; label: string; shortcut: string }> = [
@@ -153,12 +160,14 @@ export function buildShellData(state: ControlShellState, model: WorkspaceShellMo
   const activeTabId = resolveDisplayActiveTab(state, selectedTask);
   const tabs = buildCenterTabs(state, selectedTask, activeTabId);
   const activeTab = tabs.find((tab) => tab.id === activeTabId) ?? tabs[0] ?? { id: "agent", label: "CODEX" };
+  const selectedInspection = model.inspection?.taskId === selectedTask?.id ? model.inspection : null;
   const repoLabel = selectedRepo?.name ?? "no repo";
   const agentLabel = selectedTask?.runner ?? "codex";
   const checkRows = buildCheckRows(selectedTask);
 
   return {
     inputMode: state.inputMode,
+    mouseMode: state.mouseMode,
     focusedRegion: state.focusedRegion,
     actionMessage: state.actionMessage,
     terminal: state.terminal,
@@ -168,7 +177,11 @@ export function buildShellData(state: ControlShellState, model: WorkspaceShellMo
         : state.taskPromptInput !== null
         ? `NEW TASK ${selectedRepo ? `[${selectedRepo.name}]` : "[no repo]"}: ${state.taskPromptInput}${state.taskPromptError ? ` · ${state.taskPromptError}` : ""}`
         : state.inputMode === "terminal"
-        ? "TERMINAL   Ctrl+] detach   wheel/PgUp/PgDn scroll"
+        ? state.mouseMode === "select"
+          ? "TERMINAL SELECT   Ctrl+G scroll   Ctrl+] detach"
+          : "TERMINAL SCROLL   Ctrl+G select   Wheel/Pg scroll   Ctrl+] detach"
+        : state.focusedRegion === "tasks"
+          ? "NORMAL   n new task   Enter attach   X close task"
         : state.focusedRegion === "center"
           ? activeTabId === INSPECTION_TAB_ID
             ? "NORMAL   ↑↓/wheel/PgUp/PgDn scroll   ←/→ switch   Tab inspector"
@@ -192,10 +205,10 @@ export function buildShellData(state: ControlShellState, model: WorkspaceShellMo
       repo: repoLabel,
       agent: agentLabel,
     },
-    centerTranscript: buildCenterTranscript(activeTabId, state, selectedRepo, selectedTask, state.workspaceBrowser, model.inspection),
+    centerTranscript: buildCenterTranscript(activeTabId, state, selectedRepo, selectedTask, state.workspaceBrowser, selectedInspection),
     tabs,
     rightContext: buildContextRows(selectedRepo, selectedTask),
-    rightInspection: buildInspectionSection(state, selectedTask, model.inspection, buildActionRows(state)),
+    rightInspection: buildInspectionSection(state, selectedTask, selectedInspection, buildActionRows(state)),
     rightChecks: checkRows,
     rightActions: buildActionRows(state),
   };
@@ -420,18 +433,49 @@ function buildDiffTranscript(task: TaskRecord | null, inspection: TaskLocalInspe
     return textLines(["Diff unavailable.", "", inspection?.error ?? "Craig has not loaded diff inspection for this task yet."]);
   }
 
-  const content = inspection.selectedDiff;
-  const language = detectLanguage(content.path ?? content.title);
-  const diffRows = renderUnifiedDiffLines(content.lines, scrollOffset, language);
+  const diffRows = buildCombinedDiffLines(inspection);
+  const start = Math.max(0, Math.min(scrollOffset, Math.max(0, diffRows.length - 1)));
   return [
-    { text: content.title },
+    { text: "All changes" },
     {
-      text: `${content.byteLength === null ? "size unknown" : `${content.byteLength} bytes`} · ${diffRows.length} rows · PgUp/PgDn or wheel scroll`,
+      text: `${inspection.diffPaths.length} files · ${diffRows.length} rows · PgUp/PgDn or wheel scroll`,
       tone: "muted",
     },
     { text: "" },
-    ...diffRows,
+    ...diffRows.slice(start),
   ];
+}
+
+export function getCombinedDiffPathRanges(inspection: TaskLocalInspection | null): DiffPathRange[] {
+  if (!inspection) {
+    return [];
+  }
+
+  let offset = 0;
+  return inspection.diffPaths.map((diffPath) => {
+    const content = inspection.diffContents[diffPath] ?? inspection.selectedDiff;
+    const lineCount = 1 + content.lines.length + 1;
+    const range = { path: diffPath, start: offset, end: offset + lineCount };
+    offset += lineCount;
+    return range;
+  });
+}
+
+export function getCombinedDiffLineCount(inspection: TaskLocalInspection | null): number {
+  return getCombinedDiffPathRanges(inspection).at(-1)?.end ?? 0;
+}
+
+function buildCombinedDiffLines(inspection: TaskLocalInspection): ShellCenterLine[] {
+  const rows: ShellCenterLine[] = [];
+  for (const diffPath of inspection.diffPaths) {
+    const content = inspection.diffContents[diffPath] ?? inspection.selectedDiff;
+    const language = detectLanguage(content.path ?? content.title);
+    rows.push({ text: content.title, tone: "muted" });
+    rows.push(...renderUnifiedDiffLines(content.lines, 0, language));
+    rows.push({ text: "" });
+  }
+
+  return rows.length > 0 ? rows : textLines(["No local changes."]);
 }
 
 function textLines(lines: string[]): ShellCenterLine[] {
@@ -764,7 +808,7 @@ function buildReviewInspectionRows(
     renderReviewActionRow("create-pr", actionLabel, createPrAction?.shortcut ?? "P", state),
     renderReviewActionRow("refresh-checks", "refresh checks", refreshChecksAction?.shortcut ?? "R", state, !pr.number),
     renderReviewActionRow("merge", "merge pr", mergeAction?.shortcut ?? "M", state, !isReviewMergeActionAvailable(task)),
-    renderReviewActionRow("close-task", "close task", closeTaskAction?.shortcut ?? "X", state, task.status !== "merged"),
+    renderReviewActionRow("close-task", "close task", closeTaskAction?.shortcut ?? "X", state, task.status === "closed"),
   ];
   const rows: ShellInspectionRow[] = [
     { id: "review-title", text: "PR", muted: true },
@@ -983,7 +1027,7 @@ function buildDiffInspectionRows(state: ControlShellState, inspection: TaskLocal
   }
 
   const rows: ShellInspectionRow[] = [];
-  for (const group of ["staged", "unstaged", "untracked"] as InspectionDiffGroup[]) {
+  for (const group of ["branch", "staged", "unstaged", "untracked"] as InspectionDiffGroup[]) {
     const groupRows = inspection.diffRows.filter((row) => row.group === group);
     if (groupRows.length === 0) {
       continue;
@@ -1009,8 +1053,8 @@ function renderDiffInspectionRow(
   return {
     id: `${row.group}:${row.path}`,
     text: `  ${row.status.padEnd(2, " ")} ${row.path} ${additions}/${deletions}`,
-    selected: row.path === inspection.selectedDiffPath,
-    focused: row.path === inspection.selectedDiffPath && state.focusedRegion === "inspector",
+    selected: row.path === (state.selectedDiffPath ?? inspection.selectedDiffPath),
+    focused: row.path === (state.selectedDiffPath ?? inspection.selectedDiffPath) && state.focusedRegion === "inspector",
     color,
   };
 }

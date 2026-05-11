@@ -758,19 +758,25 @@ describe("task lifecycle services", () => {
     expect(task.cleanup.worktreeRemovedAt).toBe("2026-04-21T00:00:01.000Z");
   });
 
-  test("closeTask blocks before merge", async () => {
-    const repoRoot = await createRepoRoot("craig-close-task-blocked-");
+  test("closeTask archives unmerged tasks and preserves their worktree", async () => {
+    const repoRoot = await createRepoRoot("craig-close-task-unmerged-");
     tempRoots.push(repoRoot);
     const paths = await createCraigState(repoRoot);
     const worktreePath = path.join(repoRoot, "worktree");
     await mkdir(worktreePath, { recursive: true });
+    await writeFile(path.join(worktreePath, "README.md"), "kept\n", "utf8");
     await writeTaskRecord(paths.repoRoot, {
       id: "task_1",
       status: "merge_ready",
       worktreePath,
     });
 
-    await expect(closeTask(paths, "task_1")).rejects.toThrow(/cannot close/);
+    await closeTask(paths, "task_1");
+    const task = await readTask(paths, "task_1");
+
+    expect(task.status).toBe("closed");
+    expect(task.cleanup.preservedWorktree).toBe(true);
+    await expect(readFile(path.join(worktreePath, "README.md"), "utf8")).resolves.toContain("kept");
   });
 
   test("mergeTask blocks when GitHub reports an in-progress check run", async () => {
