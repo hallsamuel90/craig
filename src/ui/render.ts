@@ -142,7 +142,7 @@ export function renderHelpOverlayFrame(viewport: Viewport, options: Pick<RenderO
 export function renderMainShellFrame(
   viewport: Viewport,
   data: ShellData,
-  options: Pick<RenderOptions, "color"> = {},
+  options: Pick<RenderOptions, "color" | "centerOnly"> = {},
 ): string {
   const color = options.color ?? true;
   const leftWidth = SHELL_LAYOUT.leftWidth;
