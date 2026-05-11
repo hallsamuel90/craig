@@ -9,7 +9,7 @@ export const MIN_VIEWPORT: Viewport = {
 };
 
 export const SHELL_LAYOUT = {
-  leftWidth: 38,
+  leftWidth: 42,
   rightWidth: 36,
   dividerWidth: 1,
   topRailHeight: 1,

@@ -27,6 +27,7 @@ interface SurfaceLine {
   segments?: TerminalRowSegment[];
   tone?: "default" | "muted" | "selected" | "focused";
   fullBleed?: boolean;
+  rightAlign?: boolean;
 }
 
 const BOOT_MENU = ["Start", "Options", "Exit"];
@@ -38,24 +39,23 @@ const ANSI_ESCAPE_PATTERN = new RegExp(`${String.fromCharCode(27)}\\[[0-9;]*m`, 
 const ANSI_RESET_PATTERN = new RegExp(`${String.fromCharCode(27)}\\[(?:0)?m`, "g");
 const RESET = "\u001B[0m";
 const PALETTE = {
-  rail: { bg: "0a0a0a", fg: "e6e6e6" },
-  divider: { bg: "1a1a1a", fg: "1a1a1a" },
-  overlay: { bg: "0a0a0a", fg: "888888" },
-  overlayTitle: { bg: "0a0a0a", fg: "888888" },
-  overlayLogo: { bg: "0a0a0a", fg: "22c55e" },
-  overlaySubtitle: { bg: "0a0a0a", fg: "6fbf86" },
-  leftDefault: { bg: "111418", fg: "d7d7d7" },
-  leftMuted: { bg: "111418", fg: "8b8b8b" },
-  leftSelected: { bg: "1a1f24", fg: "e6e6e6" },
-  centerDefault: { bg: "0a0a0a", fg: "e6e6e6" },
-  centerMuted: { bg: "0a0a0a", fg: "888888" },
-  rightDefault: { bg: "0c0f12", fg: "e6e6e6" },
-  rightMuted: { bg: "0c0f12", fg: "888888" },
-  rightSelected: { bg: "1a1f24", fg: "e6e6e6" },
-  accent: { fg: "22c55e" },
-  warning: { fg: "b8a35d" },
-  error: { fg: "c06c6c" },
-  subtleDivider: { fg: "444b53" },
+  panelBg:             { bg: "0a0a0a", fg: "c0caf5" },
+  panelMuted:          { bg: "0a0a0a", fg: "565f89" },
+  panelSelected:       { bg: "1a1b26", fg: "c0caf5" },
+  panelFocused:        { bg: "1a1b26", fg: "7aa2f7" },
+  divider:             { bg: "0a0a0a", fg: "292e42" },
+  rail:                { bg: "0a0a0a", fg: "c0caf5" },
+  overlay:             { bg: "06060f", fg: "565f89" },
+  overlayTitle:        { bg: "06060f", fg: "565f89" },
+  overlayLogo:         { bg: "06060f", fg: "9ece6a" },
+  overlaySubtitle:     { bg: "06060f", fg: "41a6b5" },
+  overlayMenuSelected: { bg: "06060f", fg: "7aa2f7" },
+  accent:              { fg: "7aa2f7" },
+  success:             { fg: "9ece6a" },
+  pending:             { fg: "e0af68" },
+  error:               { fg: "f7768e" },
+  mutedfg:             { fg: "565f89" },
+  disabled:            { fg: "3b4261" },
 } as const;
 
 export function renderBootOverlayFrame(viewport: Viewport, options: RenderOptions = {}): string {
@@ -80,6 +80,62 @@ export function renderPauseOverlayFrame(viewport: Viewport, options: RenderOptio
   });
 }
 
+const HELP_LINES = [
+  "  GLOBAL                     CENTER PANEL              INSPECTOR",
+  "  ?     help                 ←→ / hl   switch tab      ↑↓ / jk   navigate",
+  "  Esc   pause / back         +         new tab          ←→ / hl   switch mode",
+  "  Tab   cycle panels         a         codex tab        P         create PR",
+  "  q     quit                 t         terminal tab     R         refresh checks",
+  "                             x         close tab        M         merge PR",
+  "  TASKS                      Enter     attach PTY       X         close task",
+  "  ↑↓ / jk   navigate",
+  "  n          new task        TERMINAL MODE",
+  "  Enter      attach          Ctrl+]   return to control mode",
+  "                             Wheel / PgUp / PgDn   scroll",
+  "",
+  "  Press Esc to return.",
+];
+
+const OPTIONS_MENU = ["Help"];
+
+export function renderOptionsOverlayFrame(viewport: Viewport, options: RenderOptions = {}): string {
+  return renderOverlayFrame(viewport, {
+    title: "CRAIG options",
+    subtitle: "Configuration",
+    menuItems: OPTIONS_MENU,
+    menuIndex: options.menuIndex ?? 0,
+    optionsMessage: null,
+    color: options.color ?? true,
+  });
+}
+
+export function renderHelpOverlayFrame(viewport: Viewport, options: Pick<RenderOptions, "color"> = {}): string {
+  const color = options.color ?? true;
+  const bg = PALETTE.overlay;
+  const lines = new Array<string>(viewport.height).fill(fillSurface(" ".repeat(viewport.width), color, bg));
+  const logo = getBannerArtLines();
+  const logoStart = Math.max(1, Math.floor((viewport.height - logo.length - 2 - HELP_LINES.length) / 2));
+
+  lines[0] = fillSurface(pad("CRAIG keybindings", viewport.width), color, PALETTE.overlayTitle);
+
+  for (let index = 0; index < logo.length; index += 1) {
+    if (logoStart + index >= viewport.height) break;
+    lines[logoStart + index] = fillSurface(centerText(logo[index] ?? "", viewport.width), color, PALETTE.overlayLogo);
+  }
+
+  const tableWidth = Math.max(...HELP_LINES.map((l) => l.length));
+  const tableLeftPad = Math.max(0, Math.floor((viewport.width - tableWidth) / 2));
+  const tableStart = logoStart + logo.length + 2;
+  for (let index = 0; index < HELP_LINES.length; index += 1) {
+    const row = tableStart + index;
+    if (row >= viewport.height) break;
+    const text = HELP_LINES[index] ?? "";
+    lines[row] = fillSurface(pad(" ".repeat(tableLeftPad) + text, viewport.width), color, bg);
+  }
+
+  return lines.join("\n");
+}
+
 export function renderMainShellFrame(
   viewport: Viewport,
   data: ShellData,
@@ -89,7 +145,7 @@ export function renderMainShellFrame(
   const leftWidth = SHELL_LAYOUT.leftWidth;
   const rightWidth = SHELL_LAYOUT.rightWidth;
   const dividerWidth = SHELL_LAYOUT.dividerWidth;
-  const centerWidth = viewport.width - leftWidth - rightWidth - dividerWidth;
+  const centerWidth = viewport.width - leftWidth - rightWidth - dividerWidth * 2;
   const bodyHeight = viewport.height - SHELL_LAYOUT.topRailHeight;
 
   const railText = `CRAIG  |  ${data.topRail.workspacePath}  |  ${data.topRail.agent}  ${green(
@@ -107,10 +163,11 @@ export function renderMainShellFrame(
 
   for (let index = 0; index < bodyHeight; index += 1) {
     const left = renderSurfaceSegment(leftLines[index] ?? emptyLine(), leftWidth, color, "left");
+    const leftDivider = fillSurface("│", color, PALETTE.divider);
     const center = renderSurfaceSegment(centerLines[index] ?? emptyLine(), centerWidth, color, "center");
     const divider = fillSurface("│", color, PALETTE.divider);
     const right = renderSurfaceSegment(rightLines[index] ?? emptyLine(), rightWidth, color, "right");
-    body.push(`${left}${center}${divider}${right}`);
+    body.push(`${left}${leftDivider}${center}${divider}${right}`);
   }
 
   return [railTop, ...body].join("\n");
@@ -129,8 +186,9 @@ function renderOverlayFrame(
 ): string {
   const lines = new Array<string>(viewport.height).fill(fillSurface(" ".repeat(viewport.width), input.color, PALETTE.overlay));
   const logo = getBannerArtLines();
-  const menu = input.menuItems.map((item, index) => `${index === input.menuIndex ? ">" : " "} ${item}`);
-  const messageLines = input.optionsMessage ? ["", input.optionsMessage, "Press Esc to dismiss."] : [];
+  const maxMenuLen = Math.max(...input.menuItems.map((s) => s.length));
+  const menu = input.menuItems.map((item, index) => `${index === input.menuIndex ? ">" : " "} ${item.padEnd(maxMenuLen)}`);
+  const messageLines = input.optionsMessage ? ["", input.optionsMessage, "Press H to open · Esc to close"] : [];
   const content = [...logo, "", input.subtitle, "", ...menu, ...messageLines];
   const startLine = Math.max(1, Math.floor((viewport.height - content.length) / 2));
 
@@ -149,35 +207,37 @@ function renderOverlayFrame(
       continue;
     }
 
-    lines[startLine + index] = fillSurface(centered, input.color, PALETTE.overlay);
+    const menuOffset = index - (logo.length + 3);
+    const isMenuItem = menuOffset >= 0 && menuOffset < input.menuItems.length;
+    const itemPalette = isMenuItem && menuOffset === input.menuIndex
+      ? PALETTE.overlayMenuSelected
+      : PALETTE.overlay;
+    lines[startLine + index] = fillSurface(centered, input.color, itemPalette);
   }
 
   return lines.join("\n");
 }
 
 function toLeftLines(data: ShellData, width: number, height: number, color: boolean): SurfaceLine[] {
-  const lines: SurfaceLine[] = [
-    ...data.leftTree.map((row) => renderTreeRow(row, width, color)),
-    emptyLine(),
-    { text: "RUNNERS", tone: "muted" },
-    emptyLine(),
-    ...data.runners.map((runner) => renderRunnerRow(runner)),
-    emptyLine(),
+  const codex = data.runners.find((r) => r.name === "codex");
+  const runnerLines: SurfaceLine[] = codex ? renderRunnerRows(codex, width) : [];
+  const reservedLines = runnerLines.length + 1;
+  const treeLines = data.leftTree.map((row) => renderTreeRow(row, width, color));
+  const fittedTree = fitLines(treeLines, height - reservedLines);
+  return [
+    ...fittedTree,
+    ...runnerLines,
+    { text: data.footerText, tone: "muted", fullBleed: true },
   ];
-
-  const fitted = fitLines(lines, height);
-  fitted[height - 1] = { text: data.footerText, tone: "muted", fullBleed: true };
-  return fitted;
 }
 
 function toCenterLines(data: ShellData, width: number, height: number, color: boolean): SurfaceLine[] {
   const activeTab = data.tabs.find((tab) => tab.active)?.label ?? "AGENT";
   const tabOffset = findTabOffset(data.tabs);
-  const underline = `${" ".repeat(tabOffset)}${green("─".repeat(activeTab.length + 1), color, PALETTE.centerMuted)}`;
+  const underline = `${" ".repeat(tabOffset)}${accent("─".repeat(activeTab.length + 1), color, PALETTE.panelMuted)}`;
   const header = [
-    `${green(data.centerHeader.tabLabel, color, PALETTE.centerDefault)}  ${data.centerHeader.taskId}`,
+    `${accent(data.centerHeader.tabLabel, color, PALETTE.panelBg)}  ${data.centerHeader.taskId}`,
     data.centerHeader.repo,
-    data.centerHeader.agent,
   ].join(" · ");
 
   const activeTabId = data.tabs.find((tab) => tab.active)?.id ?? "agent";
@@ -235,7 +295,7 @@ function toRightLines(data: ShellData, width: number, height: number, color: boo
         height,
       )
     : fitLines([
-        { text: sectionTitle("CONTEXT", data.focusedRegion === "tasks", color, PALETTE.rightDefault) },
+        { text: sectionTitle("CONTEXT", data.focusedRegion === "tasks", color, PALETTE.panelBg) },
         emptyLine(),
         ...data.rightContext.map((row) => renderContextRow(row, color)),
         ...(data.actionMessage ? [emptyLine(), { text: data.actionMessage }] : []),
@@ -258,19 +318,50 @@ function renderInspectionSection(rows: ShellInspectionRow[], height: number): Su
 
 function renderInspectionRow(row: ShellInspectionRow): SurfaceLine {
   const prefix = row.focused ? "▸ " : row.selected ? "• " : "  ";
-  return {
-    text: `${prefix}${row.text}`,
-    tone: row.focused || row.selected ? "selected" : row.muted ? "muted" : "default",
-  };
+  const tone = row.focused || row.selected ? "selected" : row.muted ? "muted" : "default";
+  const text = `${prefix}${row.text}`;
+
+  if (row.segments) {
+    return {
+      text,
+      segments: [{ text: prefix }, ...row.segments],
+      tone,
+    };
+  }
+
+  if (row.accentPrefix && !row.muted) {
+    const firstSpace = row.text.indexOf(" ");
+    const word = firstSpace === -1 ? row.text : row.text.slice(0, firstSpace);
+    const rest = firstSpace === -1 ? "" : row.text.slice(firstSpace);
+    return {
+      text,
+      segments: [
+        { text: prefix },
+        { text: word, style: { fg: "7aa2f7" } },
+        { text: rest },
+      ],
+      tone,
+    };
+  }
+
+  if (row.color) {
+    return {
+      text,
+      segments: [{ text: prefix }, { text: row.text, style: { fg: row.color } }],
+      tone,
+    };
+  }
+
+  return { text, tone };
 }
 
 function renderTreeRow(row: ShellTreeRow, width: number, color: boolean): SurfaceLine {
   const indent = " ".repeat(row.indent ?? 0);
   const dot = row.accentDot ? " ●" : "";
   const status = row.status ? ` ${row.status}` : "";
-  const accentDot = row.accentDot ? ` ${green("●", color, row.selected ? PALETTE.leftSelected : PALETTE.leftDefault)}` : "";
+  const accentDot = row.accentDot ? ` ${green("●", color, row.selected ? PALETTE.panelSelected : PALETTE.panelBg)}` : "";
   const visibleWidth = width - stringWidth(status) - stringWidth(dot);
-  const label = row.focused && !row.selected ? sectionTitle(row.text, true, color, PALETTE.leftDefault) : row.text;
+  const label = row.focused && !row.selected ? sectionTitle(row.text, true, color, PALETTE.panelBg) : row.text;
   const base = pad(`${indent}${label}`, Math.max(0, visibleWidth));
   const text = `${base}${status}${accentDot}`;
 
@@ -285,32 +376,49 @@ function renderTreeRow(row: ShellTreeRow, width: number, color: boolean): Surfac
   return { text };
 }
 
-function renderRunnerRow(runner: ShellRunnerRow): SurfaceLine {
-  return {
-    text: `${runner.name.padEnd(8, " ")} ${runner.meter} ${runner.count}`,
-  };
+function renderRunnerRows(runner: ShellRunnerRow, width: number): SurfaceLine[] {
+  const barWidth = Math.max(1, width - runner.name.length - 1);
+  let barText: string;
+  let barColor: string;
+
+  if (runner.unlimited) {
+    barText = "∞".repeat(barWidth);
+    barColor = PALETTE.pending.fg;
+  } else {
+    const filled = Math.round(runner.health * barWidth);
+    barText = "█".repeat(filled) + "░".repeat(barWidth - filled);
+    barColor = runner.health < 0.2 ? PALETTE.error.fg : PALETTE.success.fg;
+  }
+
+  return [
+    {
+      text: `${runner.name} ${barText}`,
+      segments: [{ text: `${runner.name} ` }, { text: barText, style: { fg: barColor } }],
+      tone: "muted" as const,
+    },
+  ];
 }
 
 function renderTabLine(tabs: ShellTab[], color: boolean): string {
   return tabs
     .map((tab) => {
       if (tab.active) {
-        return green(tab.label, color, PALETTE.centerDefault);
+        return accent(tab.label, color, PALETTE.panelBg);
       }
 
-      return muted(tab.label, color, PALETTE.centerDefault);
+      return muted(tab.label, color, PALETTE.panelBg);
     })
     .join("   ");
 }
 
 function renderContextRow(row: ShellContextRow, color: boolean): SurfaceLine {
   return {
-    text: `${row.label.padEnd(8, " ")}  ${row.mutedValue ? muted(row.value, color, PALETTE.rightDefault) : row.value}`,
+    text: `${row.label.padEnd(8, " ")}  ${row.mutedValue ? muted(row.value, color, PALETTE.panelBg) : row.value}`,
   };
 }
 
 function sectionTitle(text: string, focused: boolean, color: boolean, base: PaletteColor): string {
-  return focused ? green(text, color, base) : text;
+  return focused ? accent(text, color, base) : text;
 }
 
 function renderSurfaceSegment(
@@ -327,6 +435,13 @@ function renderSurfaceSegment(
     }
 
     const contentWidth = width - LEFT_PANEL_INSET - LEFT_PANEL_GUTTER;
+    if (line.rightAlign) {
+      const visLen = stringWidth(lineContent);
+      const leftPad = Math.max(0, contentWidth - visLen);
+      const text = `${" ".repeat(LEFT_PANEL_INSET)}${" ".repeat(leftPad)}${lineContent}${" ".repeat(LEFT_PANEL_GUTTER)}`;
+      return fillSurface(text, color, palette);
+    }
+
     const text = `${" ".repeat(LEFT_PANEL_INSET)}${pad(lineContent, contentWidth)}${" ".repeat(LEFT_PANEL_GUTTER)}`;
     return fillSurface(text, color, palette);
   }
@@ -339,32 +454,14 @@ function renderSurfaceSegment(
   return fillSurface(pad(`${inset}${lineContent}`, width), color, palette);
 }
 
-function getPanelPalette(panel: "left" | "center" | "right", tone: SurfaceLine["tone"]): PaletteColor {
-  if (panel === "left") {
-    if (tone === "selected") {
-      return PALETTE.leftSelected;
-    }
-    if (tone === "muted") {
-      return PALETTE.leftMuted;
-    }
-    return PALETTE.leftDefault;
+function getPanelPalette(_panel: "left" | "center" | "right", tone: SurfaceLine["tone"]): PaletteColor {
+  if (tone === "selected" || tone === "focused") {
+    return PALETTE.panelSelected;
   }
-
-  if (panel === "right") {
-    if (tone === "selected") {
-      return PALETTE.rightSelected;
-    }
-    if (tone === "muted") {
-      return PALETTE.rightMuted;
-    }
-    return PALETTE.rightDefault;
-  }
-
   if (tone === "muted") {
-    return PALETTE.centerMuted;
+    return PALETTE.panelMuted;
   }
-
-  return PALETTE.centerDefault;
+  return PALETTE.panelBg;
 }
 
 function fitLines(lines: SurfaceLine[], height: number): SurfaceLine[] {
@@ -579,11 +676,15 @@ function hexToRgb(hex: string): [number, number, number] {
 }
 
 function green(value: string, color: boolean, base: PaletteColor): string {
+  return inlineColor(value, color, PALETTE.success.fg, base);
+}
+
+function accent(value: string, color: boolean, base: PaletteColor): string {
   return inlineColor(value, color, PALETTE.accent.fg, base);
 }
 
 function muted(value: string, color: boolean, base: PaletteColor): string {
-  return inlineColor(value, color, PALETTE.rightMuted.fg, base);
+  return inlineColor(value, color, PALETTE.mutedfg.fg, base);
 }
 
 function inlineColor(value: string, color: boolean, fg: string, base: PaletteColor): string {

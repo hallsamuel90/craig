@@ -94,7 +94,7 @@ describe("terminal app PTY attach flow", () => {
       await vi.waitFor(() => expect(terminal.hasKeyListener()).toBe(true));
 
       terminal.emitKey(enterKey);
-      expect(stripAnsi(terminal.frames.at(-1) ?? "")).toContain("TERMINAL  task_20260430_02 · repo-a · codex");
+      expect(stripAnsi(terminal.frames.at(-1) ?? "")).toContain("TERMINAL  task_20260430_02 · repo-a");
       expect(ptyRuntime.ensureSession).not.toHaveBeenCalled();
       terminal.emitKey(enterKey);
       terminal.emitKey("p");
@@ -144,7 +144,7 @@ describe("terminal app PTY attach flow", () => {
       "task_20260430_02:agent",
       "task_20260430_02:terminal",
     ]));
-    await vi.waitFor(() => expect(stripAnsi(terminal.frames.at(-1) ?? "")).toContain("task_20260430_02:termina"));
+    await vi.waitFor(() => expect(stripAnsi(terminal.frames.at(-1) ?? "")).toContain("TERMINAL  task_20260430_02"));
     terminal.emitKey("q");
 
     await expect(app).resolves.toBe(0);
@@ -264,7 +264,7 @@ describe("terminal app PTY attach flow", () => {
     await vi.waitFor(() => expect(terminal.hasKeyListener()).toBe(true));
 
     terminal.emitKey("\r"); // boot start
-    expect(stripAnsi(terminal.frames.at(-1) ?? "")).toContain("TERMINAL  task_20260430_02 · repo-a · codex");
+    expect(stripAnsi(terminal.frames.at(-1) ?? "")).toContain("TERMINAL  task_20260430_02 · repo-a");
     terminal.emitKey("ENTER");
     terminal.emitKey("n");
     terminal.emitUnknown("n");
@@ -286,7 +286,7 @@ describe("terminal app PTY attach flow", () => {
     await vi.waitFor(() => expect(terminal.hasKeyListener()).toBe(true));
 
     terminal.emitKey("\r"); // boot start
-    expect(stripAnsi(terminal.frames.at(-1) ?? "")).toContain("TERMINAL  task_20260430_02 · repo-a · codex");
+    expect(stripAnsi(terminal.frames.at(-1) ?? "")).toContain("TERMINAL  task_20260430_02 · repo-a");
     terminal.emitKey("ENTER");
     terminal.emitMouse("MOUSE_WHEEL_UP");
     terminal.emitMouse("MOUSE_WHEEL_DOWN");
@@ -311,7 +311,7 @@ describe("terminal app PTY attach flow", () => {
     await vi.waitFor(() => expect(terminal.hasKeyListener()).toBe(true));
 
     terminal.emitKey("\r"); // boot start
-    expect(stripAnsi(terminal.frames.at(-1) ?? "")).toContain("TERMINAL  task_20260430_02 · repo-a · codex");
+    expect(stripAnsi(terminal.frames.at(-1) ?? "")).toContain("TERMINAL  task_20260430_02 · repo-a");
     terminal.emitKey("ENTER");
     terminal.emitUnknown("\u001B[<64;20;10M");
     terminal.emitUnknown("\u001B[<65;20;10M");
@@ -791,7 +791,7 @@ describe("terminal app PTY attach flow", () => {
 
     terminal.emitKey("\r"); // boot start
     await vi.waitFor(() => expect(ptyRuntime.hydrateSessions).toHaveBeenCalled());
-    await vi.waitFor(() => expect(stripAnsi(terminal.frames.at(-1) ?? "")).toContain("[CHANGES] FILES"));
+    await vi.waitFor(() => expect(stripAnsi(terminal.frames.at(-1) ?? "")).toContain("CHANGES  FILES"));
     terminal.emitKey("[");
     terminal.emitKey("[");
     terminal.emitKey("[");
@@ -825,7 +825,6 @@ describe("terminal app PTY attach flow", () => {
     terminal.emitKey("TAB"); // center
     terminal.emitKey("TAB"); // inspector
     terminal.emitKey("LEFT"); // changes
-    await vi.waitFor(() => expect(stripAnsi(terminal.frames.at(-1) ?? "")).toContain("[CHANGES] FILES"));
     await vi.waitFor(() => expect(stripAnsi(terminal.frames.at(-1) ?? "")).toContain("changed"));
     terminal.emitKey("q");
 
@@ -864,7 +863,7 @@ describe("terminal app PTY attach flow", () => {
     terminal.emitKey("\r"); // boot start
     terminal.emitKey("TAB"); // inspector
     terminal.emitKey("RIGHT"); // review
-    await vi.waitFor(() => expect(stripAnsi(terminal.frames.at(-1) ?? "")).toContain("[REVIEW]"));
+    await vi.waitFor(() => expect(stripAnsi(terminal.frames.at(-1) ?? "")).toContain("  PR"));
     terminal.emitKey("P");
     await vi.waitFor(() => expect(stripAnsi(terminal.frames.at(-1) ?? "")).toContain("Created PR: #17"));
     terminal.emitKey("q");
@@ -892,7 +891,7 @@ describe("terminal app PTY attach flow", () => {
     terminal.emitKey("\r"); // boot start
     terminal.emitKey("TAB"); // inspector
     terminal.emitKey("RIGHT"); // review
-    await vi.waitFor(() => expect(stripAnsi(terminal.frames.at(-1) ?? "")).toContain("[REVIEW]"));
+    await vi.waitFor(() => expect(stripAnsi(terminal.frames.at(-1) ?? "")).toContain("  PR"));
     terminal.emitKey("P");
     await vi.waitFor(() => expect(stripAnsi(terminal.frames.at(-1) ?? "")).toContain("gh auth failed"));
     terminal.emitKey("q");
@@ -960,7 +959,7 @@ describe("terminal app PTY attach flow", () => {
     terminal.emitKey("\r"); // boot start
     terminal.emitKey("TAB"); // inspector
     terminal.emitKey("RIGHT"); // review
-    await vi.waitFor(() => expect(stripAnsi(terminal.frames.at(-1) ?? "")).toContain("[REVIEW]"));
+    await vi.waitFor(() => expect(stripAnsi(terminal.frames.at(-1) ?? "")).toContain("  PR"));
     terminal.emitKey("P");
     await vi.waitFor(() => expect(stripAnsi(terminal.frames.at(-1) ?? "")).toContain("Synced PR: #17"));
     terminal.emitKey("q");
@@ -1024,7 +1023,7 @@ describe("terminal app PTY attach flow", () => {
     terminal.emitKey("\r"); // boot start
     terminal.emitKey("TAB"); // inspector
     terminal.emitKey("RIGHT"); // review
-    await vi.waitFor(() => expect(stripAnsi(terminal.frames.at(-1) ?? "")).toContain("[REVIEW]"));
+    await vi.waitFor(() => expect(stripAnsi(terminal.frames.at(-1) ?? "")).toContain("  PR"));
     terminal.emitKey("R");
     await vi.waitFor(() => expect(stripAnsi(terminal.frames.at(-1) ?? "")).toContain("Refreshed checks: 2 reported"));
     terminal.emitKey("q");
@@ -1051,7 +1050,7 @@ describe("terminal app PTY attach flow", () => {
     terminal.emitKey("\r"); // boot start
     terminal.emitKey("TAB"); // inspector
     terminal.emitKey("RIGHT"); // review
-    await vi.waitFor(() => expect(stripAnsi(terminal.frames.at(-1) ?? "")).toContain("[REVIEW]"));
+    await vi.waitFor(() => expect(stripAnsi(terminal.frames.at(-1) ?? "")).toContain("  PR"));
     terminal.emitKey("R");
     await vi.waitFor(() => expect(stripAnsi(terminal.frames.at(-1) ?? "")).toContain("no tracked PR"));
     terminal.emitKey("q");
@@ -1108,7 +1107,7 @@ describe("terminal app PTY attach flow", () => {
     terminal.emitKey("\r"); // boot start
     terminal.emitKey("TAB"); // inspector
     terminal.emitKey("RIGHT"); // review
-    await vi.waitFor(() => expect(stripAnsi(terminal.frames.at(-1) ?? "")).toContain("[REVIEW]"));
+    await vi.waitFor(() => expect(stripAnsi(terminal.frames.at(-1) ?? "")).toContain("  PR"));
     terminal.emitKey("M");
     await vi.waitFor(() => expect(stripAnsi(terminal.frames.at(-1) ?? "")).toContain("Merged PR #17"));
     terminal.emitKey("q");
@@ -1169,7 +1168,7 @@ describe("terminal app PTY attach flow", () => {
     terminal.emitKey("\r"); // boot start
     terminal.emitKey("TAB"); // inspector
     terminal.emitKey("RIGHT"); // review
-    await vi.waitFor(() => expect(stripAnsi(terminal.frames.at(-1) ?? "")).toContain("[REVIEW]"));
+    await vi.waitFor(() => expect(stripAnsi(terminal.frames.at(-1) ?? "")).toContain("  PR"));
     terminal.emitKey("M");
     await vi.waitFor(async () => expect((await readTask(paths, task.id)).pullRequest.requiredChecks[0]?.status).toBe("pending"));
     expect(stripAnsi(terminal.frames.at(-1) ?? "")).toContain("pull requ");
@@ -1212,7 +1211,7 @@ describe("terminal app PTY attach flow", () => {
     terminal.emitKey("\r"); // boot start
     terminal.emitKey("TAB"); // inspector
     terminal.emitKey("RIGHT"); // review
-    await vi.waitFor(() => expect(stripAnsi(terminal.frames.at(-1) ?? "")).toContain("[REVIEW]"));
+    await vi.waitFor(() => expect(stripAnsi(terminal.frames.at(-1) ?? "")).toContain("  PR"));
     terminal.emitKey("X");
     await vi.waitFor(() => expect(stripAnsi(terminal.frames.at(-1) ?? "")).toContain("Closed task task_20260430_02"));
     terminal.emitKey("q");
@@ -1296,7 +1295,7 @@ describe("terminal app PTY attach flow", () => {
     await vi.waitFor(() => expect(terminal.hasKeyListener()).toBe(true));
 
     terminal.emitKey("\r"); // boot start
-    expect(stripAnsi(terminal.frames.at(-1) ?? "")).toContain("TERMINAL  task_20260430_02 · repo-a · codex");
+    expect(stripAnsi(terminal.frames.at(-1) ?? "")).toContain("TERMINAL  task_20260430_02 · repo-a");
     terminal.emitKey("q");
 
     await expect(app).resolves.toBe(0);

@@ -272,7 +272,7 @@ Required durable concerns:
 - `4.4` Add guarded PR merge and task close flow from Craig: `implemented and verified`
 - `5.1` Add Cursor and Claude runner support alongside Codex: `pending`
 - `5.2` Add parent-directory multi-repo workspace mode with repo-grouped Files, Changes, and Review: `pending`
-- `6.1` Add a focused design and ergonomics pass across palette, navigation, density, empty states, and review workflows: `pending`
+- `6.1` Add a focused design and ergonomics pass across palette, navigation, density, empty states, and review workflows: `implemented and verified`
 - `6.2` Add configurable video-game-like sound effects for important Craig events: `pending`
 - `7.1` Add npm packaging, publish workflow, and CI source-leak prevention: `pending`
 - `8.1` Add marketing site and public documentation entrypoint: `pending`
@@ -294,7 +294,7 @@ Required durable concerns:
 - `4.4` Verified by hardening the tracked PR merge service so it refreshes GitHub PR/check state immediately before merge, blocks missing PRs, missing commits, dirty worktrees, stale local/remote heads, missing check data, pending/failing/unknown checks, and non-mergeable GitHub states, then merges through the configured GitHub merge method while preserving the task worktree from the shell. The Review panel now exposes `P` create/sync, `R` refresh checks, `M` merge PR, and `X` close task actions; merged tasks can be marked `closed` as a recoverable persisted state without deleting worktrees or branch metadata, and shell close disposes live task PTY sessions. Automated coverage includes service blockers for stale heads, missing checks, and pending checks; close-task success and pre-merge failure; renderer Review merge/close rows and guidance; and app-level merge success, merge blocker, and close-task behavior without PTY attach. `pnpm test`, `pnpm typecheck`, `pnpm lint`, `pnpm build`, and `git diff --check` passed locally.
 - `5.1` Not yet verified.
 - `5.2` Not yet verified.
-- `6.1` Not yet verified.
+- `6.1` Verified by replacing the three-panel background differentiation approach with a unified flat Tokyo Night palette (`0a0a0a` base) divided by visible `│` dividers; introducing semantic color tokens for success, pending, error, muted, accent, and disabled states; adding Nerd Font file-tree icons with per-extension color; adding PR lifecycle and check-status icons to the inspection mode selector; converting the runner row to a full-width dynamic health bar (name flush-left, bar filling the remaining panel width, green at full health / red below 20%); adding a `?` global help overlay with a centered keybinding table and the CRAIG logo treatment; refactoring the boot and pause overlays from four-item to three-item menus (`Start/Resume`, `Options`, `Exit`) with Options navigating into a dedicated submenu; fixing overlay menu-item centering to eliminate layout shift during navigation; adding truncation via the shared `pad`/`truncate` helpers across all fixed-width columns; tightening empty-state copy to include actionable next steps; and widening the left panel from 38 to 42 characters to give the health bar meaningful visual weight. Automated verification passed via `pnpm test`, `pnpm typecheck`, `pnpm lint`, and `pnpm build`. Manual verification passed in a real TTY confirming palette, focus states, health bar, icons, overlays, and keybinding table render correctly across narrow and normal terminal sizes.
 - `6.2` Not yet verified.
 - `7.1` Not yet verified.
 - `8.1` Not yet verified.
