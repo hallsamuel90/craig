@@ -158,6 +158,28 @@ describe("terminal shell control state", () => {
     });
   });
 
+  test("restore preserves an in-memory diff selection when it is still valid", () => {
+    const state = restoreShellState(
+      {
+        ...seededState(),
+        selectedTaskId: "task_a_2",
+        selectedLeftItemId: "task:task_a_2",
+        selectedDiffPath: "src/app.ts",
+      },
+      {
+        ...restoreModel(),
+        inspection: {
+          taskId: "task_a_2",
+          selectedFilePath: "README.md",
+          selectedDiffPath: "README.md",
+          diffPaths: ["README.md", "src/app.ts"],
+        },
+      },
+    );
+
+    expect(state.selectedDiffPath).toBe("src/app.ts");
+  });
+
   test("falls back safely when persisted repo, task, and PTY tab ids are stale", () => {
     const state = restoreShellState(
       createInitialShellState({
@@ -216,8 +238,31 @@ describe("terminal shell control state", () => {
     const actions = reduceMainKey(reduceMainKey(reduceMainKey(nextTab, "TAB", KEY_OPTIONS).state, "TAB", KEY_OPTIONS).state, "DOWN", KEY_OPTIONS).state;
 
     expect(nextTask.selectedLeftItemId).toBe("task:task_20260430_03");
+    expect(nextTask.selectedTaskId).toBe("task_20260430_03");
     expect(nextTab.activeTab).toBe("task_20260430_02:terminal");
     expect(actions.selectedActionId).toBe("push");
+  });
+
+  test("moving to another task requests fresh inspection for that task", () => {
+    const result = reduceMainKey(
+      {
+        ...seededState(),
+        selectedFilePath: "README.md",
+        selectedDiffPath: "README.md",
+        fileScrollOffset: 8,
+        diffScrollOffset: 12,
+      },
+      "DOWN",
+      KEY_OPTIONS,
+    );
+
+    expect(result.refreshInspection).toBe(true);
+    expect(result.state.selectedLeftItemId).toBe("task:task_20260430_03");
+    expect(result.state.selectedTaskId).toBe("task_20260430_03");
+    expect(result.state.selectedFilePath).toBeNull();
+    expect(result.state.selectedDiffPath).toBeNull();
+    expect(result.state.fileScrollOffset).toBe(0);
+    expect(result.state.diffScrollOffset).toBe(0);
   });
 
   test("enter on the new workspace row requests the workspace browser", () => {
@@ -230,6 +275,13 @@ describe("terminal shell control state", () => {
     expect(result.openWorkspaceBrowser).toBe(true);
     expect(result.attachTerminal).toBe(false);
     expect(result.state.selectedLeftItemId).toBe("new-workspace");
+  });
+
+  test("x on a focused task row requests task close", () => {
+    const result = reduceMainKey(seededState(), "x", KEY_OPTIONS);
+
+    expect(result.closeTask).toBe(true);
+    expect(result.state.selectedActionId).toBe("close-task");
   });
 
   test("enter on the new task row opens the task prompt from the left pane", () => {
@@ -529,6 +581,64 @@ describe("terminal shell control state", () => {
     const nextFile = reduceMainKey(files, "PAGE_DOWN", { ...KEY_OPTIONS, fileLineCount: 15, pageRows: 12 });
 
     expect(nextFile.state.fileScrollOffset).toBe(3);
+  });
+
+  test("scrolling diff content past file boundaries selects adjacent diff files", () => {
+    const diff = {
+      ...reduceMainKey(seededState(), "TAB", KEY_OPTIONS).state,
+      activeTab: "inspection",
+      openInspectionKind: "diff" as const,
+      selectedDiffPath: "src/app.ts",
+      diffScrollOffset: 28,
+    };
+
+    const nextFile = reduceMainKey(diff, "MOUSE_WHEEL_DOWN", {
+      ...KEY_OPTIONS,
+      diffPathIds: ["README.md", "src/app.ts", "tests/app.test.ts"],
+      diffLineCount: 40,
+      pageRows: 12,
+    });
+    const previousFile = reduceMainKey({ ...diff, diffScrollOffset: 0 }, "MOUSE_WHEEL_UP", {
+      ...KEY_OPTIONS,
+      diffPathIds: ["README.md", "src/app.ts", "tests/app.test.ts"],
+      diffLineCount: 40,
+      pageRows: 12,
+    });
+
+    expect(nextFile.changed).toBe(true);
+    expect(nextFile.refreshInspection).toBe(true);
+    expect(nextFile.state.selectedDiffPath).toBe("tests/app.test.ts");
+    expect(nextFile.state.diffScrollOffset).toBe(0);
+    expect(previousFile.changed).toBe(true);
+    expect(previousFile.refreshInspection).toBe(true);
+    expect(previousFile.state.selectedDiffPath).toBe("README.md");
+    expect(previousFile.state.diffScrollOffset).toBe(Number.MAX_SAFE_INTEGER);
+  });
+
+  test("combined diff scrolling moves through file ranges without forcing a reload", () => {
+    const diff = {
+      ...reduceMainKey(seededState(), "TAB", KEY_OPTIONS).state,
+      activeTab: "inspection",
+      openInspectionKind: "diff" as const,
+      selectedDiffPath: "README.md",
+      diffScrollOffset: 4,
+    };
+
+    const result = reduceMainKey(diff, "MOUSE_WHEEL_DOWN", {
+      ...KEY_OPTIONS,
+      diffPathIds: ["README.md", "src/app.ts"],
+      diffPathRanges: [
+        { path: "README.md", start: 0, end: 6 },
+        { path: "src/app.ts", start: 6, end: 20 },
+      ],
+      diffLineCount: 20,
+      pageRows: 5,
+    });
+
+    expect(result.changed).toBe(true);
+    expect(result.refreshInspection).toBe(false);
+    expect(result.state.diffScrollOffset).toBe(7);
+    expect(result.state.selectedDiffPath).toBe("src/app.ts");
   });
 
   test("changing inspector file or diff selection resets content scroll", () => {

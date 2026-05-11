@@ -7,11 +7,6 @@ import { getTaskOrThrow } from "./task-inspection.js";
 
 export async function closeTask(paths: CraigPaths, taskId: string): Promise<TaskRecord> {
   const task = await getTaskOrThrow(paths, taskId);
-
-  if (task.status !== "merged") {
-    throw new Error(`Task ${task.id} cannot close from status "${task.status}".`);
-  }
-
   const worktreeExists = await pathExists(task.worktreePath);
 
   const closedTask: TaskRecord = {

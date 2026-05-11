@@ -110,10 +110,61 @@ describe("terminal app PTY attach flow", () => {
       expect(ptyRuntime.writeKey).toHaveBeenCalledWith("p");
       expect(ptyRuntime.detach).toHaveBeenCalledTimes(1);
       expect(ptyRuntime.disposeAll).toHaveBeenCalledTimes(1);
-      expect(terminal.frames.join("\n")).toContain("TERMINAL   Ctrl+] detach");
-      expect(terminal.frames.join("\n")).toContain("wheel/PgUp");
+      expect(terminal.frames.join("\n")).toContain("TERMINAL SCROLL");
+      expect(terminal.frames.join("\n")).toContain("Ctrl+G select");
     },
   );
+
+  test("terminal mode toggles from scroll capture to center-only selection mode", async () => {
+    const root = await mkdtemp(join(tmpdir(), "craig-ui-app-"));
+    tempRoots.push(root);
+    const paths = await setupWorkspace(root);
+    const terminal = new FakeTerminal();
+    const ptyRuntime = new FakePtyRuntime();
+    const app = startTerminalApp({ terminal, ptyRuntime, uiStateFile: paths.uiStateFile, workspaceRoot: root });
+    await vi.waitFor(() => expect(terminal.hasKeyListener()).toBe(true));
+
+    terminal.emitKey("\r"); // boot start
+    expect(terminal.grabInput).toHaveBeenLastCalledWith(true);
+    terminal.emitKey("ENTER");
+    await vi.waitFor(() => expect(ptyRuntime.ensureSession).toHaveBeenCalled());
+    expect(terminal.grabInput).toHaveBeenLastCalledWith({ mouse: "button" });
+    terminal.emitKey("CTRL_G");
+    expect(terminal.grabInput).toHaveBeenLastCalledWith(true);
+    expect(stripAnsi(terminal.frames.at(-1) ?? "")).toContain("TERMINAL SELECT");
+    expect(stripAnsi(terminal.frames.at(-1) ?? "")).not.toContain("WORKSPACES");
+    terminal.emitKey("CTRL_G");
+    expect(terminal.grabInput).toHaveBeenLastCalledWith({ mouse: "button" });
+    terminal.emitKey("\u001D");
+    expect(terminal.grabInput).toHaveBeenLastCalledWith(true);
+    terminal.emitKey("q");
+
+    await expect(app).resolves.toBe(0);
+  });
+
+  test("terminal mode treats wheel-generated up and down keys as viewport scroll", async () => {
+    const root = await mkdtemp(join(tmpdir(), "craig-ui-app-"));
+    tempRoots.push(root);
+    const paths = await setupWorkspace(root);
+    const terminal = new FakeTerminal();
+    const ptyRuntime = new FakePtyRuntime();
+    const app = startTerminalApp({ terminal, ptyRuntime, uiStateFile: paths.uiStateFile, workspaceRoot: root });
+    await vi.waitFor(() => expect(terminal.hasKeyListener()).toBe(true));
+
+    terminal.emitKey("\r"); // boot start
+    terminal.emitKey("ENTER");
+    await vi.waitFor(() => expect(ptyRuntime.ensureSession).toHaveBeenCalled());
+    terminal.emitKey("UP");
+    terminal.emitKey("DOWN");
+    terminal.emitKey("DOWN");
+    await vi.waitFor(() => expect(ptyRuntime.scrollViewport).toHaveBeenCalledWith(3));
+    terminal.emitKey("\u001D");
+    terminal.emitKey("q");
+
+    await expect(app).resolves.toBe(0);
+    expect(ptyRuntime.writeKey).not.toHaveBeenCalledWith("UP");
+    expect(ptyRuntime.writeKey).not.toHaveBeenCalledWith("DOWN");
+  });
 
   test("boot start hydrates and renders the restored selected PTY tab without attaching input", async () => {
     const root = await mkdtemp(join(tmpdir(), "craig-ui-app-"));
@@ -276,6 +327,45 @@ describe("terminal app PTY attach flow", () => {
     expect(ptyRuntime.write).not.toHaveBeenCalledWith("n");
   });
 
+  test("terminal mode forwards shift+tab to the attached Codex PTY", async () => {
+    const root = await mkdtemp(join(tmpdir(), "craig-ui-app-"));
+    tempRoots.push(root);
+    const paths = await setupWorkspace(root);
+    await writeFile(
+      paths.uiStateFile,
+      JSON.stringify({
+        version: 1,
+        selectedRepoId: "repo_a",
+        selectedWorkspaceId: "workspace_repo_a",
+        selectedTaskId: "task_20260430_02",
+        selectedPtyTabId: "task_20260430_02:agent",
+        inputMode: "control",
+        focusedRegion: "center",
+        activeTab: "task_20260430_02:agent",
+        selectedActionId: "commit",
+        updatedAt: "2026-05-04T00:00:00.000Z",
+      }),
+    );
+    const terminal = new FakeTerminal();
+    const ptyRuntime = new FakePtyRuntime();
+    const app = startTerminalApp({ terminal, ptyRuntime, uiStateFile: paths.uiStateFile, workspaceRoot: root });
+    await vi.waitFor(() => expect(terminal.hasKeyListener()).toBe(true));
+
+    terminal.emitKey("\r"); // boot start
+    terminal.emitKey("ENTER");
+    await vi.waitFor(() => expect(ptyRuntime.ensureSession).toHaveBeenCalledWith(
+      "task_20260430_02",
+      "task_20260430_02:agent",
+      expect.objectContaining({ columns: expect.any(Number) }),
+    ));
+    terminal.emitKey("SHIFT_TAB");
+    terminal.emitKey("\u001D");
+    terminal.emitKey("q");
+
+    await expect(app).resolves.toBe(0);
+    expect(ptyRuntime.writeKey).toHaveBeenCalledWith("SHIFT_TAB");
+  });
+
   test("mouse wheel in terminal mode scrolls the PTY viewport instead of writing to the PTY", async () => {
     const root = await mkdtemp(join(tmpdir(), "craig-ui-app-"));
     tempRoots.push(root);
@@ -296,7 +386,6 @@ describe("terminal app PTY attach flow", () => {
     terminal.emitKey("q");
 
     await expect(app).resolves.toBe(0);
-    expect(terminal.grabInput).toHaveBeenCalledWith({ mouse: "button" });
     expect(ptyRuntime.scrollViewport).toHaveBeenCalledWith(3);
     expect(ptyRuntime.write).not.toHaveBeenCalledWith(expect.stringContaining("[<64;"));
   });
@@ -807,6 +896,44 @@ describe("terminal app PTY attach flow", () => {
     expect(ptyRuntime.ensureSession).not.toHaveBeenCalled();
   });
 
+  test("mouse wheel diff scrolling refreshes when it advances to the next changed file", async () => {
+    const root = await mkdtemp(join(tmpdir(), "craig-ui-app-"));
+    tempRoots.push(root);
+    const paths = await setupWorkspace(root);
+    const task = await prepareInspectableTask(paths);
+    await writeFile(
+      paths.uiStateFile,
+      JSON.stringify({
+        version: 1,
+        selectedRepoId: "repo_a",
+        selectedWorkspaceId: "workspace_repo_a",
+        selectedTaskId: task.id,
+        selectedPtyTabId: "task_20260430_02:terminal",
+        inputMode: "control",
+        focusedRegion: "center",
+        activeTab: "inspection",
+        inspectionMode: "diff",
+        openInspectionKind: "diff",
+        selectedDiffPath: "README.md",
+        selectedActionId: "commit",
+        updatedAt: "2026-05-04T00:00:00.000Z",
+      }),
+    );
+    const terminal = new FakeTerminal();
+    const ptyRuntime = new FakePtyRuntime();
+    const app = startTerminalApp({ terminal, ptyRuntime, uiStateFile: paths.uiStateFile, workspaceRoot: root });
+    await vi.waitFor(() => expect(terminal.hasKeyListener()).toBe(true));
+
+    terminal.emitKey("\r"); // boot start
+    await vi.waitFor(() => expect(stripAnsi(terminal.frames.at(-1) ?? "")).toContain("after staged"));
+    terminal.emitMouse("MOUSE_WHEEL_DOWN");
+    await vi.waitFor(() => expect(stripAnsi(terminal.frames.at(-1) ?? "")).toContain("after unstaged"));
+    terminal.emitKey("q");
+
+    await expect(app).resolves.toBe(0);
+    expect(ptyRuntime.ensureSession).not.toHaveBeenCalled();
+  });
+
   test("switching to diff refreshes task changes made after startup", async () => {
     const root = await mkdtemp(join(tmpdir(), "craig-ui-app-"));
     tempRoots.push(root);
@@ -1213,7 +1340,7 @@ describe("terminal app PTY attach flow", () => {
     terminal.emitKey("RIGHT"); // review
     await vi.waitFor(() => expect(stripAnsi(terminal.frames.at(-1) ?? "")).toContain("  PR"));
     terminal.emitKey("X");
-    await vi.waitFor(() => expect(stripAnsi(terminal.frames.at(-1) ?? "")).toContain("Closed task task_20260430_02"));
+    await vi.waitFor(() => expect(stripAnsi(terminal.frames.at(-1) ?? "")).toContain("Archived task task_20260430_02"));
     terminal.emitKey("q");
 
     await expect(app).resolves.toBe(0);
@@ -1223,6 +1350,33 @@ describe("terminal app PTY attach flow", () => {
     expect(ptyRuntime.disposeSession).toHaveBeenCalledWith("task_20260430_02:agent");
     expect(ptyRuntime.disposeSession).toHaveBeenCalledWith("task_20260430_02:terminal");
     expect(ptyRuntime.ensureSession).not.toHaveBeenCalled();
+  });
+
+  test("left task row x archives an unmerged task, hides it, and disposes task sessions", async () => {
+    const root = await mkdtemp(join(tmpdir(), "craig-ui-app-"));
+    tempRoots.push(root);
+    const paths = await setupWorkspace(root);
+    const task = await readTask(paths, "task_20260430_02");
+    await mkdir(task.worktreePath, { recursive: true });
+    const terminal = new FakeTerminal();
+    const ptyRuntime = new FakePtyRuntime();
+    const app = startTerminalApp({ terminal, ptyRuntime, uiStateFile: paths.uiStateFile, workspaceRoot: root });
+    await vi.waitFor(() => expect(terminal.hasKeyListener()).toBe(true));
+
+    terminal.emitKey("\r"); // boot start
+    terminal.emitKey("["); // focus left pane
+    terminal.emitKey("x");
+    await vi.waitFor(() => expect(stripAnsi(terminal.frames.at(-1) ?? "")).toContain("Archived task task_20260430_02"));
+    await vi.waitFor(async () => expect((await readTask(paths, task.id)).status).toBe("closed"));
+    await vi.waitFor(() => expect(stripAnsi(terminal.frames.at(-1) ?? "")).toContain("└ no tasks yet"));
+    terminal.emitKey("q");
+
+    await expect(app).resolves.toBe(0);
+    const updatedTask = await readTask(paths, task.id);
+    expect(updatedTask.status).toBe("closed");
+    expect(updatedTask.cleanup.preservedWorktree).toBe(true);
+    expect(ptyRuntime.disposeSession).toHaveBeenCalledWith("task_20260430_02:agent");
+    expect(ptyRuntime.disposeSession).toHaveBeenCalledWith("task_20260430_02:terminal");
   });
 
   test("ctrl-c from an attached agent stays in the same agent PTY", async () => {

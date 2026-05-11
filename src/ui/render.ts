@@ -15,6 +15,7 @@ export interface RenderOptions {
   color?: boolean;
   menuIndex?: number;
   optionsMessage?: string | null;
+  centerOnly?: boolean;
 }
 
 interface PaletteColor {
@@ -37,7 +38,9 @@ const LEFT_PANEL_GUTTER = 2;
 export const CENTER_TERMINAL_GUTTER = 2;
 const ANSI_ESCAPE_PATTERN = new RegExp(`${String.fromCharCode(27)}\\[[0-9;]*m`, "g");
 const ANSI_RESET_PATTERN = new RegExp(`${String.fromCharCode(27)}\\[(?:0)?m`, "g");
+const URL_PATTERN = /https?:\/\/[^\s<>"']+/g;
 const RESET = "\u001B[0m";
+const OSC8_END = "\u001B]8;;\u001B\\";
 const PALETTE = {
   panelBg:             { bg: "0a0a0a", fg: "c0caf5" },
   panelMuted:          { bg: "0a0a0a", fg: "565f89" },
@@ -145,7 +148,8 @@ export function renderMainShellFrame(
   const leftWidth = SHELL_LAYOUT.leftWidth;
   const rightWidth = SHELL_LAYOUT.rightWidth;
   const dividerWidth = SHELL_LAYOUT.dividerWidth;
-  const centerWidth = viewport.width - leftWidth - rightWidth - dividerWidth * 2;
+  const centerOnly = options.centerOnly ?? false;
+  const centerWidth = centerOnly ? viewport.width : viewport.width - leftWidth - rightWidth - dividerWidth * 2;
   const bodyHeight = viewport.height - SHELL_LAYOUT.topRailHeight;
 
   const railText = `CRAIG  |  ${data.topRail.workspacePath}  |  ${data.topRail.agent}  ${green(
@@ -162,6 +166,14 @@ export function renderMainShellFrame(
   const body: string[] = [];
 
   for (let index = 0; index < bodyHeight; index += 1) {
+    if (centerOnly) {
+      const line = index === bodyHeight - 1
+        ? { text: data.footerText, tone: "muted" as const, fullBleed: true }
+        : centerLines[index] ?? emptyLine();
+      body.push(renderSurfaceSegment(line, centerWidth, color, "center"));
+      continue;
+    }
+
     const left = renderSurfaceSegment(leftLines[index] ?? emptyLine(), leftWidth, color, "left");
     const leftDivider = fillSurface("│", color, PALETTE.divider);
     const center = renderSurfaceSegment(centerLines[index] ?? emptyLine(), centerWidth, color, "center");
@@ -500,11 +512,32 @@ function renderFullBleedCenterLine(line: SurfaceLine, width: number, color: bool
 }
 
 function renderTerminalSegment(segment: TerminalRowSegment, color: boolean, base: PaletteColor): string {
+  const text = linkifyUrls(segment.text);
   if (!color || !segment.style) {
-    return segment.text;
+    return text;
   }
 
-  return `${toAnsi(terminalStyleToPalette(segment.style, base))}${styleCodes(segment.style)}${segment.text}${RESET}${toAnsi(base)}`;
+  return `${toAnsi(terminalStyleToPalette(segment.style, base))}${styleCodes(segment.style)}${text}${RESET}${toAnsi(base)}`;
+}
+
+function linkifyUrls(value: string): string {
+  return value.replace(URL_PATTERN, (match) => {
+    const [url, trailing] = splitTrailingUrlPunctuation(match);
+    return `${osc8Start(url)}${url}${OSC8_END}${trailing}`;
+  });
+}
+
+function splitTrailingUrlPunctuation(value: string): [string, string] {
+  let end = value.length;
+  while (end > 0 && ".,;:!?)]}".includes(value[end - 1] ?? "")) {
+    end -= 1;
+  }
+
+  return [value.slice(0, end), value.slice(end)];
+}
+
+function osc8Start(url: string): string {
+  return `\u001B]8;;${url}\u001B\\`;
 }
 
 function fitTerminalSegmentsToWidth(segments: TerminalRowSegment[], width: number): TerminalRowSegment[] {

@@ -5,6 +5,7 @@ type MockShellStateInput = Partial<
   Pick<
     ControlShellState,
     | "inputMode"
+    | "mouseMode"
     | "focusedRegion"
     | "selectedRepoId"
     | "selectedTaskId"
@@ -38,6 +39,7 @@ export function getMockShellData(state: MockShellStateInput = {}): ShellData {
 
   return {
     inputMode: resolved.inputMode,
+    mouseMode: resolved.mouseMode,
     focusedRegion: resolved.focusedRegion,
     actionMessage: resolved.actionMessage,
     terminal: resolved.terminal,
@@ -45,7 +47,9 @@ export function getMockShellData(state: MockShellStateInput = {}): ShellData {
       resolved.taskPromptInput !== null
         ? `NEW TASK [${selectedRepo.name}]: ${resolved.taskPromptInput}${resolved.taskPromptError ? ` · ${resolved.taskPromptError}` : ""}`
         : resolved.inputMode === "terminal"
-        ? "TERMINAL   Ctrl+] detach   wheel/PgUp/PgDn scroll"
+        ? "TERMINAL SCROLL   Ctrl+G select   Wheel/Pg scroll   Ctrl+] detach"
+        : resolved.focusedRegion === "tasks"
+        ? "NORMAL   n new task   Enter attach   X close task"
         : "NORMAL   n new task   ? help   / search   : command",
     topRail: {
       workspacePath: "~/workspaces/craig/colombo",
@@ -119,6 +123,7 @@ export function getMockShellData(state: MockShellStateInput = {}): ShellData {
 const DEFAULT_MOCK_SHELL_STATE: Pick<
   ControlShellState,
   | "inputMode"
+  | "mouseMode"
   | "focusedRegion"
   | "selectedRepoId"
   | "selectedTaskId"
@@ -133,8 +138,10 @@ const DEFAULT_MOCK_SHELL_STATE: Pick<
   | "taskPromptError"
   | "workspaceBrowser"
   | "terminal"
+  | "centerZoomed"
 > = {
   inputMode: "control",
+  mouseMode: "scroll",
   focusedRegion: "tasks",
   selectedRepoId: "repo_bug_fixes",
   selectedTaskId: "task_20260430_02",
@@ -153,6 +160,7 @@ const DEFAULT_MOCK_SHELL_STATE: Pick<
     rows: [],
     error: null,
   },
+  centerZoomed: false,
 };
 
 const REPO_FIXTURES = [

@@ -55,6 +55,8 @@ const SPECIAL_KEY_INPUT: Record<string, string> = {
   ENTER: "\r",
   KP_ENTER: "\r",
   TAB: "\t",
+  SHIFT_TAB: "\x1b[Z",
+  BACK_TAB: "\x1b[Z",
   BACKSPACE: "\x7f",
   DELETE: "\x1b[3~",
   ESCAPE: "\x1b",

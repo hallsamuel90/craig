@@ -56,6 +56,33 @@ describe("task local inspection", () => {
     expect(inspection.selectedDiff.lines.join("\n")).toContain("line 7");
   });
 
+  test("keeps committed task branch changes visible against main", async () => {
+    const repoRoot = await createRepoRoot("craig-inspection-");
+    await createGitRepo(repoRoot);
+    await writeFile(path.join(repoRoot, "feature.txt"), "main\n", "utf8");
+    await runCommand("git", ["add", "feature.txt"], { cwd: repoRoot });
+    await runCommand("git", ["commit", "-m", "initial"], { cwd: repoRoot });
+    await runCommand("git", ["checkout", "-b", "craig/task_1"], { cwd: repoRoot });
+    await writeFile(path.join(repoRoot, "feature.txt"), "branch\n", "utf8");
+    await writeFile(path.join(repoRoot, "new-committed.txt"), "committed\n", "utf8");
+    await runCommand("git", ["add", "feature.txt", "new-committed.txt"], { cwd: repoRoot });
+    await runCommand("git", ["commit", "-m", "task changes"], { cwd: repoRoot });
+
+    const inspection = await loadTaskLocalInspection(buildTaskRecord(repoRoot, { id: "task_1", worktreePath: repoRoot }), {
+      selectedDiffPath: "feature.txt",
+    });
+
+    expect(inspection.diffRows).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ group: "branch", path: "feature.txt" }),
+        expect.objectContaining({ group: "branch", path: "new-committed.txt", additions: 1, deletions: 0 }),
+      ]),
+    );
+    expect(inspection.selectedDiffPath).toBe("feature.txt");
+    expect(inspection.selectedDiff.lines.join("\n")).toContain("branch");
+    expect(inspection.selectedDiff.lines.join("\n")).toContain("+branch");
+  });
+
   test("falls back from stale selected paths and guards binary files", async () => {
     const repoRoot = await createRepoRoot("craig-inspection-");
     await createGitRepo(repoRoot);

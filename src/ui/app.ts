@@ -16,7 +16,12 @@ import { loadTaskLocalInspection, type InspectionTreeRow } from "../services/tas
 import { openPullRequest, refreshPullRequestChecks } from "../services/open-pull-request.js";
 import { mergeTask } from "../services/merge-task.js";
 import { closeTask } from "../services/close-task.js";
-import { buildShellData, type WorkspaceShellModel } from "./shell-data.js";
+import {
+  buildShellData,
+  getCombinedDiffLineCount,
+  getCombinedDiffPathRanges,
+  type WorkspaceShellModel,
+} from "./shell-data.js";
 import { getViewport, SHELL_LAYOUT, type Viewport } from "./layout.js";
 import type { PtyRuntimeOptions, PtySize } from "./pty-runtime.js";
 import { createDaemonPtyRuntime } from "./pty-daemon.js";
@@ -142,6 +147,7 @@ export async function startTerminalApp(options: TerminalAppOptions = {}): Promis
     let inspectionScrollRenderTimer: ReturnType<typeof setTimeout> | null = null;
     let ptyRenderTimer: ReturnType<typeof setTimeout> | null = null;
     let pendingClear = true;
+    let inputCaptureMode: "control" | "terminal" | null = null;
     let render: () => void = () => undefined;
     const ptyRuntime = initialPtyRuntime;
     handlePtyUpdate = () => {
@@ -213,8 +219,9 @@ export async function startTerminalApp(options: TerminalAppOptions = {}): Promis
         fileTreeFileIds: fileTreeRows.filter((row) => row.kind === "file").map((row) => row.path),
         fileTreeDirectoryIds: fileTreeRows.filter((row) => row.kind === "directory").map((row) => row.path),
         diffPathIds: selectedInspection?.diffPaths ?? [],
+        diffPathRanges: getCombinedDiffPathRanges(selectedInspection),
         fileLineCount: selectedInspection?.selectedFile.lines.length ?? 0,
-        diffLineCount: selectedInspection?.selectedDiff.lines.length ?? 0,
+        diffLineCount: getCombinedDiffLineCount(selectedInspection),
         pageRows: Math.max(5, getViewport(activeTerminal.width, activeTerminal.height).height - SHELL_LAYOUT.topRailHeight - 8),
       };
     }
@@ -471,12 +478,10 @@ export async function startTerminalApp(options: TerminalAppOptions = {}): Promis
 
       return syncShell({
         ...syncedShell,
-        focusedRegion: "inspector",
-        inspectionMode: "review",
         selectedActionId: "close-task",
         actionMessage: task.cleanup.preservedWorktree
-          ? `Closed task ${task.id}; worktree preserved`
-          : `Closed task ${task.id}`,
+          ? `Archived task ${task.id}; worktree preserved`
+          : `Archived task ${task.id}`,
       });
     }
 
@@ -529,10 +534,11 @@ export async function startTerminalApp(options: TerminalAppOptions = {}): Promis
     }
 
     render = () => {
+      syncInputCapture();
       const viewport = getViewport(activeTerminal.width, activeTerminal.height);
       const frame =
         state.mode === "main"
-          ? renderMainShellFrame(viewport, buildShellData(syncShell(state.shell), model))
+          ? renderMainShellFrame(viewport, buildShellData(syncShell(state.shell), model), { centerOnly: state.shell.centerZoomed })
           : state.variant === "boot"
             ? renderBootOverlayFrame(viewport, { menuIndex: state.menuIndex, optionsMessage: state.optionsMessage })
             : state.variant === "pause"
@@ -548,6 +554,18 @@ export async function startTerminalApp(options: TerminalAppOptions = {}): Promis
       }
       activeTerminal.noFormat(frame);
     };
+
+    function syncInputCapture(): void {
+      const nextMode = state.mode === "main" && state.shell.inputMode === "terminal" && state.shell.mouseMode === "scroll"
+        ? "terminal"
+        : "control";
+      if (nextMode === inputCaptureMode) {
+        return;
+      }
+
+      inputCaptureMode = nextMode;
+      activeTerminal.grabInput(nextMode === "terminal" ? { mouse: "button" } : true);
+    }
 
     const cleanup = () => {
       process.stdout.off("resize", handleResize);
@@ -856,6 +874,13 @@ export async function startTerminalApp(options: TerminalAppOptions = {}): Promis
         }
 
         if (state.shell.inputMode === "terminal") {
+          if (result.changed) {
+            state = { mode: "main", shell: syncShell(result.state) };
+            persistShellState(state.shell);
+            render();
+            return;
+          }
+
           if (suppressTerminalEnterOnAttach && isEnterKey(key)) {
             suppressTerminalEnterOnAttach = false;
             return;
@@ -1242,6 +1267,15 @@ export async function startTerminalApp(options: TerminalAppOptions = {}): Promis
           return;
         }
 
+        if (result.refreshInspection) {
+          void refreshInspection(result.state).catch((error: unknown) => {
+            const message = error instanceof Error ? error.message : "Failed to refresh inspection.";
+            state = { mode: "main", shell: syncShell({ ...result.state, actionMessage: message }) };
+            render();
+          });
+          return;
+        }
+
         state = { mode: "main", shell: syncShell(result.state) };
         persistShellState(state.shell);
         render();
@@ -1260,7 +1294,8 @@ export async function startTerminalApp(options: TerminalAppOptions = {}): Promis
     };
 
     process.stdout.on("resize", handleResize);
-    activeTerminal.grabInput({ mouse: "button" });
+    activeTerminal.grabInput(true);
+    inputCaptureMode = "control";
     activeTerminal.hideCursor(true);
     activeTerminal.fullscreen(true);
     activeTerminal.on("key", onKey);
@@ -1462,6 +1497,14 @@ function isAgentTabId(tabId: string | null): boolean {
 }
 
 function getTerminalScrollLinesForKey(key: string): number {
+  if (key === "UP") {
+    return -3;
+  }
+
+  if (key === "DOWN") {
+    return 3;
+  }
+
   if (key === "PAGE_UP") {
     return -5;
   }
