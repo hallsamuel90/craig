@@ -231,8 +231,7 @@ function renderOverlayFrame(
 }
 
 function toLeftLines(data: ShellData, width: number, height: number, color: boolean): SurfaceLine[] {
-  const codex = data.runners.find((r) => r.name === "codex");
-  const runnerLines: SurfaceLine[] = codex ? renderRunnerRows(codex, width) : [];
+  const runnerLines = data.runners.flatMap((runner) => renderRunnerRows(runner, width));
   const reservedLines = runnerLines.length + 1;
   const treeLines = data.leftTree.map((row) => renderTreeRow(row, width, color));
   const fittedTree = fitLines(treeLines, height - reservedLines);

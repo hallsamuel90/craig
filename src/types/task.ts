@@ -8,7 +8,7 @@ export type TaskStatus =
   | "merge_ready"
   | "merged"
   | "closed";
-export type RunnerType = "cursor" | "codex";
+export type RunnerType = "codex" | "cursor" | "claude";
 
 export interface TaskPromptSource {
   source: "inline" | "file";

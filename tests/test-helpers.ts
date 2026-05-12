@@ -7,6 +7,7 @@ import type { SessionRecord } from "../src/types/session.js";
 import type { TaskRecord } from "../src/types/task.js";
 import type { RepoRecord, WorkspaceRecord } from "../src/types/workspace.js";
 import { createDefaultTaskPtyTabs } from "../src/services/task-provisioning.js";
+import { buildRunnerCommand } from "../src/services/runner-profiles.js";
 import { runCommand } from "../src/utils/exec.js";
 
 export async function createRepoRoot(prefix: string): Promise<string> {
@@ -104,7 +105,8 @@ export function buildTaskRecord(
 ): TaskRecord {
   const paths = getCraigPaths(repoRoot);
   const now = "2026-04-21T00:00:00.000Z";
-  const ptyTabs = task.ptyTabs ?? createDefaultTaskPtyTabs(task.id, task.title ?? "test task", now);
+  const runner = task.runner ?? "codex";
+  const ptyTabs = task.ptyTabs ?? createDefaultTaskPtyTabs(task.id, task.title ?? "test task", now, runner);
 
   return {
     id: task.id,
@@ -112,7 +114,7 @@ export function buildTaskRecord(
     slug: task.slug ?? "test-task",
     type: "repo",
     status: task.status ?? "running",
-    runner: task.runner ?? "codex",
+    runner,
     repoId: task.repoId ?? "repo_test",
     workspaceId: task.workspaceId ?? "workspace_repo_test",
     sessionId: task.sessionId ?? `session_${task.id}`,
@@ -123,7 +125,7 @@ export function buildTaskRecord(
     branch: task.branch ?? `craig/${task.id}`,
     ptyTabs,
     runnerSession: task.runnerSession ?? {
-      command: ["codex", task.title ?? "test task"],
+      command: buildRunnerCommand(runner, task.title ?? "test task"),
       pid: null,
       startedAt: now,
       lastKnownState: "running",
@@ -226,6 +228,7 @@ export async function createStubCommands(root: string): Promise<string> {
   const tmuxScript = path.join(stubDir, "tmux-stub.sh");
   const cursorScript = path.join(stubDir, "cursor-stub.sh");
   const codexScript = path.join(stubDir, "codex-stub.sh");
+  const claudeScript = path.join(stubDir, "claude-stub.sh");
   const ghScript = path.join(stubDir, "gh-stub.sh");
   const scriptLog = path.join(stubDir, "script-log.sh");
 
@@ -344,11 +347,10 @@ printf "%s\\n" "$*" >> "$log_file"
     cursorScript,
     `#!/bin/sh
 set -eu
-if [ "$1" = "agent" ] && [ "$2" = "--help" ]; then
+if [ "\${1:-}" = "--help" ]; then
   exit 0
 fi
-echo "unsupported cursor stub invocation: $*" >&2
-exit 1
+exit 0
 `,
     "utf8",
   );
@@ -358,6 +360,18 @@ exit 1
     `#!/bin/sh
 set -eu
 if [ "$1" = "--help" ]; then
+  exit 0
+fi
+exit 0
+`,
+    "utf8",
+  );
+
+  await writeFile(
+    claudeScript,
+    `#!/bin/sh
+set -eu
+if [ "\${1:-}" = "--help" ]; then
   exit 0
 fi
 exit 0
@@ -408,13 +422,16 @@ exit 1
   await chmod(tmuxScript, 0o755);
   await chmod(cursorScript, 0o755);
   await chmod(codexScript, 0o755);
+  await chmod(claudeScript, 0o755);
   await chmod(ghScript, 0o755);
   await chmod(scriptLog, 0o755);
 
   await symlink("git-stub.sh", path.join(stubDir, "git"));
   await symlink("tmux-stub.sh", path.join(stubDir, "tmux"));
   await symlink("cursor-stub.sh", path.join(stubDir, "cursor"));
+  await symlink("cursor-stub.sh", path.join(stubDir, "cursor-agent"));
   await symlink("codex-stub.sh", path.join(stubDir, "codex"));
+  await symlink("claude-stub.sh", path.join(stubDir, "claude"));
   await symlink("gh-stub.sh", path.join(stubDir, "gh"));
 
   return stubDir;

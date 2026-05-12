@@ -4,9 +4,10 @@ import path from "node:path";
 import type { CraigPaths } from "../state/craig-paths.js";
 import { readRepo } from "../state/repo-store.js";
 import { appendTaskId, writeTask } from "../state/task-store.js";
-import type { TaskPtyTabRecord, TaskRecord } from "../types/task.js";
+import type { RunnerType, TaskPtyTabRecord, TaskRecord } from "../types/task.js";
 import { listWorkspaceRecords } from "../state/workspace-store.js";
 import { createWorktree } from "./git-task.js";
+import { buildRunnerCommand, getRunnerProfile } from "./runner-profiles.js";
 import { allocateTaskIdForRepo } from "./task-id.js";
 
 export interface ProvisionedTask {
@@ -21,7 +22,7 @@ export async function provisionTask(
   paths: CraigPaths,
   repoId: string,
   prompt: string,
-  options: { sessionId?: string | null } = {},
+  options: { sessionId?: string | null; runner?: RunnerType } = {},
 ): Promise<ProvisionedTask> {
   const repo = await readRepo(paths, repoId);
   const workspace = await resolveWorkspaceForRepo(paths, repo.id);
@@ -43,6 +44,7 @@ export async function provisionTask(
     sessionId,
     repoRoot: repo.rootPath,
     prompt,
+    runner: options.runner ?? "codex",
     branch,
     worktreePath,
   });
@@ -60,13 +62,14 @@ export async function provisionTask(
   };
 }
 
-export function createDefaultTaskPtyTabs(taskId: string, _prompt: string, timestamp: string): TaskPtyTabRecord[] {
+export function createDefaultTaskPtyTabs(taskId: string, _prompt: string, timestamp: string, runner: RunnerType = "codex"): TaskPtyTabRecord[] {
+  const profile = getRunnerProfile(runner);
   return [
     {
       id: `${taskId}:agent`,
       kind: "agent",
-      title: "Codex",
-      command: ["codex"],
+      title: profile.defaultAgentTitle,
+      command: buildRunnerCommand(runner),
       createdAt: timestamp,
       updatedAt: timestamp,
     },
@@ -83,7 +86,7 @@ export function createDefaultTaskPtyTabs(taskId: string, _prompt: string, timest
 
 function buildDraftTask(paths: CraigPaths, input: DraftTaskInput): TaskRecord {
   const timestamp = new Date().toISOString();
-  const ptyTabs = createDefaultTaskPtyTabs(input.taskId, input.prompt, timestamp);
+  const ptyTabs = createDefaultTaskPtyTabs(input.taskId, input.prompt, timestamp, input.runner);
 
   return {
     id: input.taskId,
@@ -91,7 +94,7 @@ function buildDraftTask(paths: CraigPaths, input: DraftTaskInput): TaskRecord {
     slug: slugify(input.prompt),
     type: "repo",
     status: "draft",
-    runner: "codex",
+    runner: input.runner,
     repoId: input.repoId,
     workspaceId: input.workspaceId,
     sessionId: input.sessionId,
@@ -102,7 +105,7 @@ function buildDraftTask(paths: CraigPaths, input: DraftTaskInput): TaskRecord {
     branch: input.branch,
     ptyTabs,
     runnerSession: {
-      command: ["codex", input.prompt],
+      command: buildRunnerCommand(input.runner, input.prompt),
       pid: null,
       startedAt: null,
       lastKnownState: "starting",
@@ -162,6 +165,7 @@ interface DraftTaskInput {
   sessionId: string | null;
   repoRoot: string;
   prompt: string;
+  runner: RunnerType;
   branch: string;
   worktreePath: string;
 }

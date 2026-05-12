@@ -1522,6 +1522,8 @@ describe("terminal app PTY attach flow", () => {
     const root = await mkdtemp(join(tmpdir(), "craig-ui-app-"));
     tempRoots.push(root);
     const paths = await setupWorkspace(root);
+    const stubDir = await createStubCommands(root);
+    process.env.PATH = `${stubDir}:${originalPath}`;
     const terminal = new FakeTerminal();
     const ptyRuntime = new FakePtyRuntime();
     const app = startTerminalApp({ terminal, ptyRuntime, uiStateFile: paths.uiStateFile, workspaceRoot: root });
@@ -1545,6 +1547,81 @@ describe("terminal app PTY attach flow", () => {
     expect(ptyRuntime.ensureSession.mock.calls[0]?.[1]).toBe(`${createdTaskId}:agent`);
     const task = await readTask(paths, createdTaskId);
     expect(task.prompt.value).toBe("fix busted task launch");
+  });
+
+  test("creating a task from the left pane uses the selected runner profile", async () => {
+    const root = await mkdtemp(join(tmpdir(), "craig-ui-app-runner-"));
+    tempRoots.push(root);
+    const paths = await setupWorkspace(root);
+    const stubDir = await createStubCommands(root);
+    process.env.PATH = `${stubDir}:${originalPath}`;
+    const terminal = new FakeTerminal();
+    const ptyRuntime = new FakePtyRuntime();
+    const app = startTerminalApp({ terminal, ptyRuntime, uiStateFile: paths.uiStateFile, workspaceRoot: root });
+    await vi.waitFor(() => expect(terminal.hasKeyListener()).toBe(true));
+
+    terminal.emitKey("\r"); // boot start
+    terminal.emitKey("["); // focus left pane
+    terminal.emitKey("DOWN"); // + New Task
+    terminal.emitKey("r"); // Cursor
+    terminal.emitKey("r"); // Claude
+    terminal.emitKey("ENTER");
+    for (const char of "use claude runner") {
+      terminal.emitKey(char);
+    }
+    terminal.emitKey("ENTER");
+    await vi.waitFor(() => expect(ptyRuntime.ensureSession).toHaveBeenCalled());
+    terminal.emitKey("\u001D");
+    terminal.emitKey("q");
+
+    await expect(app).resolves.toBe(0);
+    const createdTaskId = String(ptyRuntime.ensureSession.mock.calls[0]?.[0] ?? "");
+    const task = await readTask(paths, createdTaskId);
+    expect(task.runner).toBe("claude");
+    expect(task.runnerSession.command).toEqual(["claude", "use claude runner"]);
+    expect(task.ptyTabs.find((tab) => tab.kind === "agent")).toMatchObject({
+      title: "Claude",
+      command: ["claude"],
+    });
+  });
+
+  test("missing selected runner binary leaves a durable failed task", async () => {
+    const root = await mkdtemp(join(tmpdir(), "craig-ui-app-missing-runner-"));
+    tempRoots.push(root);
+    const paths = await setupWorkspace(root);
+    const stubDir = await createStubCommands(root);
+    await rm(join(stubDir, "claude"), { force: true });
+    process.env.PATH = `${stubDir}:/bin:/usr/bin`;
+    const terminal = new FakeTerminal();
+    const ptyRuntime = new FakePtyRuntime();
+    const app = startTerminalApp({ terminal, ptyRuntime, uiStateFile: paths.uiStateFile, workspaceRoot: root });
+    await vi.waitFor(() => expect(terminal.hasKeyListener()).toBe(true));
+
+    terminal.emitKey("\r"); // boot start
+    terminal.emitKey("["); // focus left pane
+    terminal.emitKey("DOWN"); // + New Task
+    terminal.emitKey("r"); // Cursor
+    terminal.emitKey("r"); // Claude
+    terminal.emitKey("ENTER");
+    for (const char of "missing claude") {
+      terminal.emitKey(char);
+    }
+    terminal.emitKey("ENTER");
+    await vi.waitFor(async () => {
+      const tasks = await import("../src/services/list-tasks.js").then(({ listTasks }) => listTasks(paths));
+      expect(tasks.tasks.some((task) => task.runner === "claude" && task.runnerSession.lastKnownState === "failed")).toBe(true);
+    });
+    terminal.emitKey("q");
+
+    await expect(app).resolves.toBe(0);
+    expect(ptyRuntime.ensureSession).not.toHaveBeenCalled();
+    const taskIds = (await import("../src/services/list-tasks.js").then(({ listTasks }) => listTasks(paths))).tasks.map((task) => task.id);
+    const createdTaskId = taskIds.find((id) => id !== "task_20260430_02");
+    expect(createdTaskId).toBeDefined();
+    const task = await readTask(paths, createdTaskId!);
+    expect(task.runner).toBe("claude");
+    expect(task.runnerSession.lastKnownState).toBe("failed");
+    expect(task.lastFailureReason).toMatch(/claude/);
   });
 
   test("the left panel can open the new workspace browser and register a repo with arrow keys", async () => {

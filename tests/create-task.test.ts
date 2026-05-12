@@ -80,7 +80,35 @@ describe("createTask", () => {
     expect(tmuxCommands).toContain(`set-option -t ${expectedSessionName} status off`);
     expect(tmuxCommands).toContain(`set-window-option -t ${expectedSessionName} pane-border-status off`);
     expect(tmuxCommands).toContain("send-keys -t %42");
-    expect(tmuxCommands).toContain("codex 'refactor auth'");
+    expect(tmuxCommands).toContain("'codex' 'refactor auth'");
+  });
+
+  test.each([
+    ["cursor", "cursor-agent", "Cursor"],
+    ["claude", "claude", "Claude"],
+  ] as const)("creates a %s task with runner-specific command metadata", async (runner, executable, title) => {
+    const workspaceRoot = await createRepoRoot(`craig-create-${runner}-`);
+    const { paths, repoId } = await setupRegisteredRepo(workspaceRoot, "repo-a");
+    const stubDir = await createStubCommands(workspaceRoot);
+    const tmuxStateFile = `${workspaceRoot}/tmux-state`;
+    const tmuxCommandLog = `${workspaceRoot}/tmux-commands.log`;
+
+    process.env.PATH = `${stubDir}:${originalPath}`;
+    process.env.CRAIG_TEST_TMUX_STATE_FILE = tmuxStateFile;
+    process.env.CRAIG_TEST_TMUX_COMMAND_LOG = tmuxCommandLog;
+
+    const result = await createTask(paths, repoId, `${runner} task`, { runner });
+    const task = await readTask(paths, result.taskId);
+    const tmuxCommands = await readFile(tmuxCommandLog, "utf8");
+
+    expect(result.runner).toBe(runner);
+    expect(task.runner).toBe(runner);
+    expect(task.runnerSession.command).toEqual([executable, `${runner} task`]);
+    expect(task.ptyTabs.find((tab) => tab.kind === "agent")).toMatchObject({
+      title,
+      command: [executable],
+    });
+    expect(tmuxCommands).toContain(`'${executable}' '${runner} task'`);
   });
 
   test("sizes a detached task session from the current terminal when available", async () => {

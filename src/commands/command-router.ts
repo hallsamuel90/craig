@@ -40,7 +40,12 @@ export async function executeCommand(
     case "restoreWorkspace":
       return restoreWorkspace(context.paths, command.workspaceId);
     case "createTask":
-      return createTask(context.paths, command.repoId, command.prompt);
+      return createTask(
+        context.paths,
+        command.repoId,
+        command.prompt,
+        command.runner ? { runner: command.runner } : {},
+      );
     case "listTasks":
       return command.repoId ? listTasks(context.paths, { repoId: command.repoId }) : listTasks(context.paths);
     case "attachTask":

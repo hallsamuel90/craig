@@ -2,8 +2,9 @@ import path from "node:path";
 
 import type { InspectionDiffGroup, InspectionDiffRow, TaskLocalInspection } from "../services/task-local-inspection.js";
 import { DIR_ICON_CLOSED, DIR_ICON_OPEN, getFileIcon, getFileIconColor } from "./icons.js";
-import type { TaskPullRequest, TaskPullRequestCheck, TaskPtyTabRecord, TaskRecord } from "../types/task.js";
+import type { RunnerType, TaskPullRequest, TaskPullRequestCheck, TaskPtyTabRecord, TaskRecord } from "../types/task.js";
 import type { RepoRecord } from "../types/workspace.js";
+import { getRunnerDisplayName } from "../services/runner-profiles.js";
 import { INSPECTION_TAB_ID } from "./state.js";
 import type { TerminalCellStyle, TerminalRowSegment } from "./terminal-emulator.js";
 import type {
@@ -161,7 +162,7 @@ export function buildShellData(state: ControlShellState, model: WorkspaceShellMo
   const activeTab = tabs.find((tab) => tab.id === activeTabId) ?? tabs[0] ?? { id: "agent", label: "CODEX" };
   const selectedInspection = model.inspection?.taskId === selectedTask?.id ? model.inspection : null;
   const repoLabel = selectedRepo?.name ?? "no repo";
-  const agentLabel = selectedTask?.runner ?? "codex";
+  const agentLabel = selectedTask ? getRunnerDisplayName(selectedTask.runner) : getRunnerDisplayName(state.selectedRunner);
   const checkRows = buildCheckRows(selectedTask);
 
   return {
@@ -173,11 +174,11 @@ export function buildShellData(state: ControlShellState, model: WorkspaceShellMo
       state.workspaceBrowser !== null
         ? `BROWSE WORKSPACE ${state.workspaceBrowser.cwd}   ↑↓ move   → open   ← up   Enter add repo`
         : state.taskPromptInput !== null
-        ? `NEW TASK ${selectedRepo ? `[${selectedRepo.name}]` : "[no repo]"}: ${state.taskPromptInput}${state.taskPromptError ? ` · ${state.taskPromptError}` : ""}`
+        ? `NEW TASK ${selectedRepo ? `[${selectedRepo.name}]` : "[no repo]"} ${getRunnerDisplayName(state.selectedRunner)} Ctrl+R runner: ${state.taskPromptInput}${state.taskPromptError ? ` · ${state.taskPromptError}` : ""}`
         : state.inputMode === "terminal"
         ? "TERMINAL   ↑↓/PgUp/PgDn scroll   Ctrl+] detach"
         : state.focusedRegion === "tasks"
-          ? "NORMAL   n new task   Enter attach   X close task"
+          ? "NORMAL   n new task   r runner   Enter attach   X close task"
         : state.focusedRegion === "center"
           ? activeTabId === INSPECTION_TAB_ID
             ? "NORMAL   ↑↓/wheel/PgUp/PgDn scroll   ←/→ switch   Tab inspector"
@@ -194,6 +195,7 @@ export function buildShellData(state: ControlShellState, model: WorkspaceShellMo
     runners: [
       renderRunnerRow("codex", runnerCounts.codex),
       renderRunnerRow("cursor", runnerCounts.cursor),
+      renderRunnerRow("claude", runnerCounts.claude),
     ],
     centerHeader: {
       tabLabel: state.workspaceBrowser ? "BROWSER" : activeTab.label,
@@ -237,7 +239,7 @@ function buildLeftTree(state: ControlShellState, repos: RepoRecord[], tasks: Tas
         const row: ShellTreeRow = {
           id: `task:${task.id}`,
           taskId: task.id,
-          text: `${prefix} ${task.id}`,
+          text: `${prefix} ${task.id} [${task.runner}]`,
           indent: 2,
           selected,
           focused: selected && state.focusedRegion === "tasks",
@@ -256,7 +258,7 @@ function buildLeftTree(state: ControlShellState, repos: RepoRecord[], tasks: Tas
   rows.push({ text: "", muted: true });
   rows.push({
     id: "new-task",
-    text: "+ New Task",
+    text: `+ New Task [${getRunnerDisplayName(state.selectedRunner)}]`,
     selected: newTaskSelected,
     focused: newTaskSelected && state.focusedRegion === "tasks",
   });
@@ -310,7 +312,7 @@ function buildCenterTranscript(
     return textLines([
       `Repo ${repo.name} is ready.`,
       "",
-      "Press n to create a task and boot a Codex agent tab in its worktree.",
+      "Press n to create a task and boot the selected runner in its worktree.",
     ]);
   }
 
@@ -343,7 +345,7 @@ function buildCenterTranscript(
     return textLines([
       "No task tabs open.",
       "",
-      "Press a to create a Codex tab, t to create a Terminal tab, or + to create the preferred tab kind.",
+      "Press a to create an agent tab, t to create a Terminal tab, or + to create the preferred tab kind.",
     ]);
   }
 
@@ -1071,7 +1073,7 @@ function buildContextRows(repo: RepoRecord | null, task: TaskRecord | null): She
   return [
     { label: "Task", value: task.id },
     { label: "Repo", value: repo.name },
-    { label: "Agent", value: task.runner },
+    { label: "Agent", value: getRunnerDisplayName(task.runner) },
     { label: "Branch", value: task.branch },
     { label: "Status", value: task.status },
     { label: "Worktree", value: path.basename(task.worktreePath) },
@@ -1101,19 +1103,19 @@ function buildCheckRows(task: TaskRecord | null): ShellCheckRow[] {
   ];
 }
 
-function countRunners(tasks: TaskRecord[]): Record<"codex" | "cursor", number> {
+function countRunners(tasks: TaskRecord[]): Record<RunnerType, number> {
   return tasks.reduce(
     (counts, task) => {
       counts[task.runner] += 1;
       return counts;
     },
-    { codex: 0, cursor: 0 },
+    { codex: 0, cursor: 0, claude: 0 },
   );
 }
 
-function renderRunnerRow(name: "codex" | "cursor", count: number): ShellRunnerRow {
+function renderRunnerRow(name: RunnerType, count: number): ShellRunnerRow {
   return {
-    name,
+    name: getRunnerDisplayName(name).toLowerCase(),
     health: count > 0 ? 1.0 : 0.0,
     count: String(count),
   };

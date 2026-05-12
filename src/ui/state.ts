@@ -1,7 +1,8 @@
 import { getDefaultUiState } from "../state/ui-state-store.js";
-import type { TaskPtyTabKind, TaskRecord } from "../types/task.js";
+import type { RunnerType, TaskPtyTabKind, TaskRecord } from "../types/task.js";
 import type { RepoRecord } from "../types/workspace.js";
 import type { CraigUiRuntime } from "../types/workspace.js";
+import { RUNNER_IDS, isRunnerType } from "../services/runner-profiles.js";
 import type { TerminalScreenRow } from "./terminal-emulator.js";
 
 export const FOCUS_REGIONS = ["tasks", "center", "inspector", "actions"] as const;
@@ -63,6 +64,7 @@ export interface ControlShellState {
   fileScrollOffset: number;
   diffScrollOffset: number;
   selectedActionId: ActionId;
+  selectedRunner: RunnerType;
   actionMessage: string | null;
   taskPromptInput: string | null;
   taskPromptError: string | null;
@@ -143,6 +145,7 @@ export function createInitialShellState(runtime: CraigUiRuntime | null): Control
     fileScrollOffset: 0,
     diffScrollOffset: 0,
     selectedActionId: getValidValue(runtime?.selectedActionId, ACTION_IDS, "commit"),
+    selectedRunner: getValidRunner(runtime?.selectedRunner),
     actionMessage: null,
     taskPromptInput: null,
     taskPromptError: null,
@@ -178,6 +181,7 @@ export function toPersistedUiState(runtime: CraigUiRuntime | null, state: Contro
     selectedDiffPath: state.selectedDiffPath,
     collapsedFileTreePaths: state.collapsedFileTreePaths,
     selectedActionId: state.selectedActionId,
+    selectedRunner: state.selectedRunner,
   };
 }
 
@@ -252,6 +256,18 @@ export function reduceMainKey(state: ControlShellState, key: string, options: Re
       },
       changed: true,
       beginTaskPrompt: true,
+    });
+  }
+
+  if ((key === "r" || key === "R") && state.focusedRegion === "tasks" && state.selectedLeftItemId === "new-task") {
+    return result({
+      state: {
+        ...state,
+        selectedRunner: getNextRunner(state.selectedRunner),
+        actionMessage: null,
+        taskPromptError: null,
+      },
+      changed: true,
     });
   }
 
@@ -1085,6 +1101,15 @@ function getValidPtyTabKind(value: string | null | undefined): TaskPtyTabKind {
 
 function getValidInputMode(value: string | null | undefined): InputMode {
   return value === "terminal" ? "terminal" : "control";
+}
+
+function getValidRunner(value: string | null | undefined): RunnerType {
+  return value && isRunnerType(value) ? value : "codex";
+}
+
+export function getNextRunner(runner: RunnerType): RunnerType {
+  const index = RUNNER_IDS.indexOf(runner);
+  return RUNNER_IDS[(index + 1) % RUNNER_IDS.length] ?? "codex";
 }
 
 function getPtyTabKindFromId(tabId: string): TaskPtyTabKind | null {

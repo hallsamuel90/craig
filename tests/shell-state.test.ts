@@ -296,6 +296,20 @@ describe("terminal shell control state", () => {
     expect(result.attachTerminal).toBe(false);
   });
 
+  test("r cycles the selected runner while the new task row is focused", () => {
+    const state = {
+      ...seededState(),
+      selectedLeftItemId: "new-task",
+    };
+    const cursor = reduceMainKey(state, "r", KEY_OPTIONS).state;
+    const claude = reduceMainKey(cursor, "r", KEY_OPTIONS).state;
+    const codex = reduceMainKey(claude, "r", KEY_OPTIONS).state;
+
+    expect(cursor.selectedRunner).toBe("cursor");
+    expect(claude.selectedRunner).toBe("claude");
+    expect(codex.selectedRunner).toBe("codex");
+  });
+
   test("enter on actions emits the current placeholder action message", () => {
     const focusedAction = reduceMainKey(
       reduceMainKey(reduceMainKey(seededState(), "TAB", KEY_OPTIONS).state, "TAB", KEY_OPTIONS).state,

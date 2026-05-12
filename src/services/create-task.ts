@@ -1,12 +1,13 @@
 import path from "node:path";
 
 import type { CommandCreateTaskResult } from "../types/command.js";
-import type { TaskRecord } from "../types/task.js";
+import type { RunnerType, TaskRecord } from "../types/task.js";
 import type { CraigPaths } from "../state/craig-paths.js";
 import { writeSession } from "../state/session-store.js";
 import { writeTask } from "../state/task-store.js";
 import { readUiState, writeUiState, getDefaultUiState } from "../state/ui-state-store.js";
-import { codexRunnerAdapter } from "./codex-runner.js";
+import { commandRunnerAdapter } from "./codex-runner.js";
+import { buildRunnerCommand } from "./runner-profiles.js";
 import { tmuxSessionManager } from "./session-manager.js";
 import { provisionTask } from "./task-provisioning.js";
 
@@ -14,8 +15,10 @@ export async function createTask(
   paths: CraigPaths,
   repoId: string,
   prompt: string,
+  options: { runner?: RunnerType } = {},
 ): Promise<CommandCreateTaskResult> {
   const trimmedPrompt = prompt.trim();
+  const runner = options.runner ?? "codex";
 
   if (repoId.trim().length === 0) {
     throw new Error("Repo id cannot be empty.");
@@ -24,15 +27,16 @@ export async function createTask(
   if (trimmedPrompt.length === 0) {
     throw new Error("Task prompt cannot be empty.");
   }
-  const provisioned = await provisionTask(paths, repoId, trimmedPrompt);
+  const provisioned = await provisionTask(paths, repoId, trimmedPrompt, { runner });
   const draftTask = provisioned.task;
+  const runnerCommand = buildRunnerCommand(runner, trimmedPrompt);
   const sessionId = `session_${draftTask.id}`;
   const logPath = draftTask.artifacts.logPath
     ? path.resolve(paths.workspaceRoot, draftTask.artifacts.logPath)
     : path.join(paths.logsDir, `${draftTask.id}.log`);
 
   try {
-    await codexRunnerAdapter.prepare(draftTask, { repoRoot: provisioned.repoRoot });
+    await commandRunnerAdapter.prepare(draftTask, { repoRoot: provisioned.repoRoot });
 
     let session = await tmuxSessionManager.create(paths, {
       sessionId,
@@ -42,22 +46,22 @@ export async function createTask(
       repoRoot: provisioned.repoRoot,
       worktreePath: draftTask.worktreePath,
       logPath,
-      command: ["codex", trimmedPrompt],
+      command: runnerCommand,
     });
-    await codexRunnerAdapter.launch(draftTask, { repoRoot: provisioned.repoRoot, session });
+    await commandRunnerAdapter.launch(draftTask, { repoRoot: provisioned.repoRoot, session });
 
     const startedAt = new Date().toISOString();
     session = {
       ...session,
       status: "running",
       startedAt,
-      command: ["codex", trimmedPrompt],
+      command: runnerCommand,
     };
 
     const runningTask: TaskRecord = {
       ...draftTask,
       status: "running",
-      runner: "codex",
+      runner,
       sessionId: session.id,
       selectedPtyTabId: draftTask.selectedPtyTabId,
       runnerSession: {

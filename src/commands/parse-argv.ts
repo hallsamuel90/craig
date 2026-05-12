@@ -1,4 +1,5 @@
 import type { AppCommand } from "../types/command.js";
+import { parseRunnerType } from "../services/runner-profiles.js";
 
 export interface ParsedArgvCommand {
   mode: "interactive" | "command";
@@ -59,13 +60,22 @@ export function parseArgv(argv: string[]): ParsedArgvCommand {
 
   if (trimmedArgv.length >= 2 && trimmedArgv[0] === "task" && trimmedArgv[1] === "new") {
     const repoFlagIndex = trimmedArgv.indexOf("--repo");
+    const runnerFlagIndex = trimmedArgv.indexOf("--runner");
 
     if (repoFlagIndex === -1) {
       throw new Error("Task creation now requires '--repo <repo-id>'.\n\n" + getHelpText());
     }
 
     const repoId = trimmedArgv[repoFlagIndex + 1]?.trim() ?? "";
-    const promptParts = trimmedArgv.filter((_, index) => index > 1 && index !== repoFlagIndex && index !== repoFlagIndex + 1);
+    const runner = parseRunnerType(runnerFlagIndex === -1 ? null : trimmedArgv[runnerFlagIndex + 1]?.trim() ?? "");
+    const promptParts = trimmedArgv.filter(
+      (_, index) =>
+        index > 1 &&
+        index !== repoFlagIndex &&
+        index !== repoFlagIndex + 1 &&
+        index !== runnerFlagIndex &&
+        index !== runnerFlagIndex + 1,
+    );
     const prompt = promptParts.join(" ").trim();
 
     if (repoId.length === 0) {
@@ -76,7 +86,7 @@ export function parseArgv(argv: string[]): ParsedArgvCommand {
       throw new Error("Task prompt cannot be empty.\n\n" + getHelpText());
     }
 
-    return { mode: "command", command: { kind: "createTask", repoId, prompt } };
+    return { mode: "command", command: { kind: "createTask", repoId, prompt, runner } };
   }
 
   if (
@@ -220,7 +230,7 @@ export function getHelpText(): string {
     "  craig workspace list --archived  List archived workspaces",
     "  craig workspace archive   Archive a workspace",
     "  craig workspace restore   Restore an archived workspace",
-    "  craig task new --repo <repo-id> <prompt>  Create a new Craig task",
+    "  craig task new --repo <repo-id> [--runner codex|cursor|claude] <prompt>  Create a new Craig task",
     "  craig task list [--repo <repo-id>]  List known Craig tasks",
     "  craig task show    Show details for a Craig task",
     "  craig task logs    Stream Craig-managed logs for a task",

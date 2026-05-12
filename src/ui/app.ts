@@ -8,7 +8,7 @@ import { getDefaultUiState, readUiState, writeUiState } from "../state/ui-state-
 import { readTask, writeTask } from "../state/task-store.js";
 import { getCraigPaths } from "../state/craig-paths.js";
 import { ensureCraigState } from "../state/ensure-state.js";
-import type { TaskPtyTabRecord, TaskRecord } from "../types/task.js";
+import type { RunnerType, TaskPtyTabRecord, TaskRecord } from "../types/task.js";
 import { listTasks } from "../services/list-tasks.js";
 import { provisionTask } from "../services/task-provisioning.js";
 import { addRepo } from "../services/repo-registry.js";
@@ -16,6 +16,8 @@ import { loadTaskLocalInspection, type InspectionTreeRow } from "../services/tas
 import { openPullRequest, refreshPullRequestChecks } from "../services/open-pull-request.js";
 import { mergeTask } from "../services/merge-task.js";
 import { closeTask } from "../services/close-task.js";
+import { buildRunnerCommand, getRunnerProfile } from "../services/runner-profiles.js";
+import { runCommand } from "../utils/exec.js";
 import {
   buildShellData,
   getCombinedDiffLineCount,
@@ -32,6 +34,7 @@ import {
   isEnterKey,
   isPrintableKey,
   markTerminalAttachFailed,
+  getNextRunner,
   reduceMainKey,
   restoreShellState,
   scrollInspectionContent,
@@ -336,10 +339,30 @@ export async function startTerminalApp(options: TerminalAppOptions = {}): Promis
         persistShellState(state.shell);
       } catch (error) {
         const message = error instanceof Error ? error.message : "Failed to start PTY.";
+        if (shell.selectedTaskId && shell.selectedPtyTabId && isAgentTabId(shell.selectedPtyTabId)) {
+          await markTaskRunnerFailed(shell.selectedTaskId, message).catch(() => undefined);
+          await reloadModel().catch(() => undefined);
+        }
         state = { mode: "main", shell: markTerminalAttachFailed(syncShell(shell), message) };
         persistShellState(state.shell);
       }
       render();
+    }
+
+    async function markTaskRunnerFailed(taskId: string, message: string): Promise<void> {
+      await queueTaskMutation(async () => {
+        const task = await readTask(paths, taskId);
+        await writeTask(paths, {
+          ...task,
+          status: task.status === "running" ? "draft" : task.status,
+          runnerSession: {
+            ...task.runnerSession,
+            lastKnownState: "failed",
+            exitedAt: new Date().toISOString(),
+          },
+          lastFailureReason: message,
+        });
+      });
     }
 
     async function createPtyTabFromShell(shell: ControlShellState, requestedKind: TaskPtyTabRecord["kind"] | null): Promise<ControlShellState> {
@@ -620,13 +643,14 @@ export async function startTerminalApp(options: TerminalAppOptions = {}): Promis
         mode: "main",
         shell: syncShell({
           ...shell,
-          actionMessage: `Creating task in ${shell.selectedRepoId}...`,
+          actionMessage: `Creating ${shell.selectedRunner} task in ${shell.selectedRepoId}...`,
         }),
       };
       render();
 
+      let createdTask: TaskRecord | null = null;
       try {
-        const createdTask = await createInteractiveTask(paths, shell.selectedRepoId, prompt);
+        createdTask = await createInteractiveTask(paths, shell.selectedRepoId, prompt, shell.selectedRunner);
         await reloadModel();
         const nextShell = syncShell({
           ...state.shell,
@@ -649,13 +673,33 @@ export async function startTerminalApp(options: TerminalAppOptions = {}): Promis
         state = { mode: "main", shell: updateTerminalViewState(nextShell, view) };
         persistShellState(state.shell);
       } catch (error) {
+        if (error instanceof InteractiveTaskStartupError) {
+          createdTask = error.task;
+        }
         const message = error instanceof Error ? error.message : "Failed to create task.";
+        if (createdTask) {
+          await writeTask(paths, {
+            ...createdTask,
+            status: "draft",
+            runnerSession: {
+              ...createdTask.runnerSession,
+              lastKnownState: "failed",
+              exitedAt: new Date().toISOString(),
+            },
+            lastFailureReason: message,
+          }).catch(() => undefined);
+          await reloadModel().catch(() => undefined);
+        }
         state = {
           mode: "main",
           shell: syncShell({
             ...state.shell,
             inputMode: "control",
-            taskPromptInput: "",
+            selectedTaskId: createdTask?.id ?? state.shell.selectedTaskId,
+            selectedPtyTabId: createdTask?.selectedPtyTabId ?? state.shell.selectedPtyTabId,
+            selectedLeftItemId: createdTask ? `task:${createdTask.id}` : state.shell.selectedLeftItemId,
+            activeTab: createdTask?.selectedPtyTabId ?? state.shell.activeTab,
+            taskPromptInput: createdTask ? null : "",
             taskPromptError: message,
             actionMessage: null,
           }),
@@ -696,6 +740,19 @@ export async function startTerminalApp(options: TerminalAppOptions = {}): Promis
           shell: syncShell({
             ...shell,
             taskPromptInput: shell.taskPromptInput.slice(0, -1),
+            taskPromptError: null,
+          }),
+        };
+        render();
+        return;
+      }
+
+      if (key === "CTRL_R") {
+        state = {
+          mode: "main",
+          shell: syncShell({
+            ...shell,
+            selectedRunner: getNextRunner(shell.selectedRunner),
             taskPromptError: null,
           }),
         };
@@ -1369,7 +1426,7 @@ function resolvePtySessionSpec(model: WorkspaceShellModel, tabId: string, worksp
 }
 
 function resolveAgentCommand(tab: TaskPtyTabRecord): string[] {
-  return [tab.command[0] ?? "codex"];
+  return tab.command.length > 0 ? tab.command : ["codex"];
 }
 
 function resolveNewPtyTabKind(task: TaskRecord, activeTab: string, preferredKind: TaskPtyTabRecord["kind"]): TaskPtyTabRecord["kind"] {
@@ -1377,7 +1434,8 @@ function resolveNewPtyTabKind(task: TaskRecord, activeTab: string, preferredKind
 }
 
 function createNextPtyTab(task: TaskRecord, kind: TaskPtyTabRecord["kind"]): TaskPtyTabRecord {
-  const baseTitle = kind === "agent" ? "Codex" : "Terminal";
+  const runnerProfile = getRunnerProfile(task.runner);
+  const baseTitle = kind === "agent" ? runnerProfile.defaultAgentTitle : "Terminal";
   const baseId = `${task.id}:${kind}`;
   const existingIds = new Set(task.ptyTabs.map((tab) => tab.id));
   let ordinal = 1;
@@ -1393,14 +1451,31 @@ function createNextPtyTab(task: TaskRecord, kind: TaskPtyTabRecord["kind"]): Tas
     id,
     kind,
     title: ordinal === 1 ? baseTitle : `${baseTitle} ${ordinal}`,
-    command: kind === "agent" ? ["codex"] : [],
+    command: kind === "agent" ? buildRunnerCommand(task.runner) : [],
     createdAt: timestamp,
     updatedAt: timestamp,
   };
 }
 
-async function createInteractiveTask(paths: ReturnType<typeof getCraigPaths>, repoId: string, prompt: string): Promise<TaskRecord> {
-  const provisioned = await provisionTask(paths, repoId, prompt);
+async function createInteractiveTask(paths: ReturnType<typeof getCraigPaths>, repoId: string, prompt: string, runner: RunnerType): Promise<TaskRecord> {
+  const provisioned = await provisionTask(paths, repoId, prompt, { runner });
+  try {
+    await runCommand(getRunnerProfile(runner).executable, ["--help"], { cwd: provisioned.repoRoot });
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "Failed to start runner.";
+    const failedTask: TaskRecord = {
+      ...provisioned.task,
+      status: "draft",
+      runnerSession: {
+        ...provisioned.task.runnerSession,
+        lastKnownState: "failed",
+        exitedAt: new Date().toISOString(),
+      },
+      lastFailureReason: message,
+    };
+    await writeTask(paths, failedTask);
+    throw new InteractiveTaskStartupError(message, failedTask);
+  }
   const agentTabId = getRequiredPtyTabId(provisioned.task, "agent");
   const runningTask: TaskRecord = {
     ...provisioned.task,
@@ -1432,6 +1507,16 @@ async function createInteractiveTask(paths: ReturnType<typeof getCraigPaths>, re
   );
 
   return runningTask;
+}
+
+class InteractiveTaskStartupError extends Error {
+  readonly task: TaskRecord;
+
+  constructor(message: string, task: TaskRecord) {
+    super(message);
+    this.name = "InteractiveTaskStartupError";
+    this.task = task;
+  }
 }
 
 function getRequiredPtyTabId(task: TaskRecord, kind: TaskPtyTabRecord["kind"]): string {
