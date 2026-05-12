@@ -4,6 +4,7 @@ import path from "node:path";
 
 const COMMON_COMMAND_DIRS = [
   path.join(homedir(), ".local", "bin"),
+  path.join(homedir(), ".cursor", "bin"),
   "/opt/homebrew/bin",
   "/usr/local/bin",
   "/usr/bin",

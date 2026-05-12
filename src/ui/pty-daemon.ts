@@ -10,7 +10,7 @@ import type { CraigPaths } from "../state/craig-paths.js";
 import type { TerminalViewState } from "./state.js";
 import { PtyRuntime, type PtyRuntimeOptions, type PtySessionSpec, type PtySize } from "./pty-runtime.js";
 
-const DAEMON_PROTOCOL_VERSION = 2;
+const DAEMON_PROTOCOL_VERSION = 3;
 
 type DaemonRequest =
   | { id: number; type: "ping" }
