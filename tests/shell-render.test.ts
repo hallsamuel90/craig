@@ -368,8 +368,7 @@ describe("terminal shell renderer", () => {
     );
 
     expect(frame).toContain("TERMINAL  task_20260430_02 · bug-fixes");
-    expect(frame).toContain("TERMINAL SCROLL");
-    expect(frame).toContain("Ctrl+G select");
+    expect(frame).toContain("TERMINAL   ↑↓/PgUp/PgDn scroll");
     expect(frame).toContain("$ pwd");
     expect(frame).toContain("/Users/samhall/conductor/workspaces/");
     expect(frame).not.toContain("terminal ▸ terminal mode");

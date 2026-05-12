@@ -95,7 +95,6 @@ export interface ShellCenterLine {
 
 export interface ShellData {
   inputMode: InputMode;
-  mouseMode: ControlShellState["mouseMode"];
   focusedRegion: FocusRegion;
   actionMessage: string | null;
   terminal: TerminalViewState;
@@ -167,7 +166,6 @@ export function buildShellData(state: ControlShellState, model: WorkspaceShellMo
 
   return {
     inputMode: state.inputMode,
-    mouseMode: state.mouseMode,
     focusedRegion: state.focusedRegion,
     actionMessage: state.actionMessage,
     terminal: state.terminal,
@@ -177,9 +175,7 @@ export function buildShellData(state: ControlShellState, model: WorkspaceShellMo
         : state.taskPromptInput !== null
         ? `NEW TASK ${selectedRepo ? `[${selectedRepo.name}]` : "[no repo]"}: ${state.taskPromptInput}${state.taskPromptError ? ` · ${state.taskPromptError}` : ""}`
         : state.inputMode === "terminal"
-        ? state.mouseMode === "select"
-          ? "TERMINAL SELECT   Ctrl+G scroll   Ctrl+] detach"
-          : "TERMINAL SCROLL   Ctrl+G select   Wheel/Pg scroll   Ctrl+] detach"
+        ? "TERMINAL   ↑↓/PgUp/PgDn scroll   Ctrl+] detach"
         : state.focusedRegion === "tasks"
           ? "NORMAL   n new task   Enter attach   X close task"
         : state.focusedRegion === "center"
