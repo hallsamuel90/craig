@@ -20,6 +20,7 @@ describe("terminal app PTY attach flow", () => {
   const originalPath = process.env.PATH ?? "";
   const originalGhMode = process.env.CRAIG_TEST_GH_MODE;
   const originalGhViewFile = process.env.CRAIG_TEST_GH_VIEW_FILE;
+  const originalDisableCommandPathFallbacks = process.env.CRAIG_DISABLE_COMMAND_PATH_FALLBACKS;
   let stdinDescriptor: PropertyDescriptor | undefined;
   let stdoutDescriptor: PropertyDescriptor | undefined;
 
@@ -36,6 +37,7 @@ describe("terminal app PTY attach flow", () => {
     process.env.PATH = originalPath;
     process.env.CRAIG_TEST_GH_MODE = originalGhMode;
     process.env.CRAIG_TEST_GH_VIEW_FILE = originalGhViewFile;
+    process.env.CRAIG_DISABLE_COMMAND_PATH_FALLBACKS = originalDisableCommandPathFallbacks;
     await Promise.all(
       tempRoots.splice(0).map(async (root) => rm(root, { recursive: true, force: true, maxRetries: 3, retryDelay: 50 })),
     );
@@ -1601,6 +1603,7 @@ describe("terminal app PTY attach flow", () => {
     const stubDir = await createStubCommands(root);
     await rm(join(stubDir, "claude"), { force: true });
     process.env.PATH = `${stubDir}:/bin:/usr/bin`;
+    process.env.CRAIG_DISABLE_COMMAND_PATH_FALLBACKS = "1";
     const terminal = new FakeTerminal();
     const ptyRuntime = new FakePtyRuntime();
     const app = startTerminalApp({ terminal, ptyRuntime, uiStateFile: paths.uiStateFile, workspaceRoot: root });

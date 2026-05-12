@@ -16,7 +16,7 @@ const COMMON_COMMAND_DIRS = [
 export function getCommandSearchPath(env: Record<string, string | undefined> = process.env): string[] {
   return unique([
     ...(env.PATH ?? "").split(path.delimiter).filter((entry) => entry.length > 0),
-    ...COMMON_COMMAND_DIRS,
+    ...(env.CRAIG_DISABLE_COMMAND_PATH_FALLBACKS === "1" ? [] : COMMON_COMMAND_DIRS),
   ]);
 }
 
