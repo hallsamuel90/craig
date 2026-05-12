@@ -434,6 +434,8 @@ describe("terminal app PTY attach flow", () => {
     const root = await mkdtemp(join(tmpdir(), "craig-ui-app-"));
     tempRoots.push(root);
     const paths = await setupWorkspace(root);
+    const stubDir = await createStubCommands(root);
+    process.env.PATH = `${stubDir}:${originalPath}`;
     const terminal = new FakeTerminal();
     const ptyRuntime = new FakePtyRuntime();
     const app = startTerminalApp({ terminal, ptyRuntime, uiStateFile: paths.uiStateFile, workspaceRoot: root });
@@ -1143,6 +1145,13 @@ describe("terminal app PTY attach flow", () => {
     await vi.waitFor(() => expect(stripAnsi(terminal.frames.at(-1) ?? "")).toContain("  PR"));
     terminal.emitKey("R");
     await vi.waitFor(() => expect(stripAnsi(terminal.frames.at(-1) ?? "")).toContain("Refreshed checks: 2 reported"));
+    await vi.waitFor(async () => {
+      const refreshedTask = await readTask(paths, task.id);
+      expect(refreshedTask.pullRequest.requiredChecks.map((check) => `${check.name}:${check.status}`)).toEqual([
+        "ci:success",
+        "docs:skipped",
+      ]);
+    });
     terminal.emitKey("q");
 
     await expect(app).resolves.toBe(0);
