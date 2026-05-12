@@ -110,12 +110,11 @@ describe("terminal app PTY attach flow", () => {
       expect(ptyRuntime.writeKey).toHaveBeenCalledWith("p");
       expect(ptyRuntime.detach).toHaveBeenCalledTimes(1);
       expect(ptyRuntime.disposeAll).toHaveBeenCalledTimes(1);
-      expect(terminal.frames.join("\n")).toContain("TERMINAL SCROLL");
-      expect(terminal.frames.join("\n")).toContain("Ctrl+G select");
+      expect(terminal.frames.join("\n")).toContain("TERMINAL   ↑↓/PgUp/PgDn scroll");
     },
   );
 
-  test("terminal mode toggles from scroll capture to center-only selection mode", async () => {
+  test("terminal mode uses keyboard-only input capture without mouse", async () => {
     const root = await mkdtemp(join(tmpdir(), "craig-ui-app-"));
     tempRoots.push(root);
     const paths = await setupWorkspace(root);
@@ -128,13 +127,7 @@ describe("terminal app PTY attach flow", () => {
     expect(terminal.grabInput).toHaveBeenLastCalledWith(true);
     terminal.emitKey("ENTER");
     await vi.waitFor(() => expect(ptyRuntime.ensureSession).toHaveBeenCalled());
-    expect(terminal.grabInput).toHaveBeenLastCalledWith({ mouse: "button" });
-    terminal.emitKey("CTRL_G");
     expect(terminal.grabInput).toHaveBeenLastCalledWith(true);
-    expect(stripAnsi(terminal.frames.at(-1) ?? "")).toContain("TERMINAL SELECT");
-    expect(stripAnsi(terminal.frames.at(-1) ?? "")).not.toContain("WORKSPACES");
-    terminal.emitKey("CTRL_G");
-    expect(terminal.grabInput).toHaveBeenLastCalledWith({ mouse: "button" });
     terminal.emitKey("\u001D");
     expect(terminal.grabInput).toHaveBeenLastCalledWith(true);
     terminal.emitKey("q");
@@ -142,7 +135,7 @@ describe("terminal app PTY attach flow", () => {
     await expect(app).resolves.toBe(0);
   });
 
-  test("terminal mode treats wheel-generated up and down keys as viewport scroll", async () => {
+    test("terminal mode treats wheel-generated up and down keys as viewport scroll", async () => {
     const root = await mkdtemp(join(tmpdir(), "craig-ui-app-"));
     tempRoots.push(root);
     const paths = await setupWorkspace(root);
@@ -390,7 +383,7 @@ describe("terminal app PTY attach flow", () => {
     expect(ptyRuntime.write).not.toHaveBeenCalledWith(expect.stringContaining("[<64;"));
   });
 
-  test("raw mouse wheel escape input in terminal mode scrolls instead of leaking to the PTY", async () => {
+  test("raw unknown input in terminal mode is forwarded to the PTY without viewport scroll", async () => {
     const root = await mkdtemp(join(tmpdir(), "craig-ui-app-"));
     tempRoots.push(root);
     const paths = await setupWorkspace(root);
@@ -402,17 +395,14 @@ describe("terminal app PTY attach flow", () => {
     terminal.emitKey("\r"); // boot start
     expect(stripAnsi(terminal.frames.at(-1) ?? "")).toContain("TERMINAL  task_20260430_02 · repo-a");
     terminal.emitKey("ENTER");
-    terminal.emitUnknown("\u001B[<64;20;10M");
-    terminal.emitUnknown("\u001B[<65;20;10M");
-    terminal.emitUnknown("\u001B[<65;20;10M");
-    await vi.waitFor(() => expect(ptyRuntime.scrollViewport).toHaveBeenCalledWith(3));
+    await vi.waitFor(() => expect(ptyRuntime.ensureSession).toHaveBeenCalled());
+    terminal.emitUnknown("some-raw-input");
     terminal.emitKey("\u001D");
     terminal.emitKey("q");
 
     await expect(app).resolves.toBe(0);
-    expect(ptyRuntime.scrollViewport).toHaveBeenCalledWith(3);
-    expect(ptyRuntime.write).not.toHaveBeenCalledWith("\u001B[<64;20;10M");
-    expect(ptyRuntime.write).not.toHaveBeenCalledWith("\u001B[<65;20;10M");
+    expect(ptyRuntime.scrollViewport).not.toHaveBeenCalled();
+    expect(ptyRuntime.write).toHaveBeenCalledWith("some-raw-input");
   });
 
   test("rapid mouse wheel events are coalesced into one PTY scroll and one redraw", async () => {

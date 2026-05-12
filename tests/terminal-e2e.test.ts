@@ -68,18 +68,17 @@ describe("Craig terminal mode E2E", () => {
       child.write("\r");
       await output.waitFor("NORMAL   + new tab");
       child.write("\r");
-      await output.waitFor("TERMINAL SCROLL");
+      await output.waitFor("TERMINAL   ↑↓/PgUp/PgDn scroll");
 
       child.write(`printf '\\033[3;12H${cursorMarker}'\r`);
       await output.waitForLatestFrame(cursorMarker);
       child.write("\u001D");
       await output.waitForLatestFrame("NORMAL   + new tab");
       child.write("\r");
-      await output.waitForLatestFrame("TERMINAL SCROLL");
+      await output.waitForLatestFrame("TERMINAL   ↑↓/PgUp/PgDn scroll");
       await output.waitForLatestFrame(cursorMarker);
 
-      expect(output.value).toContain("TERMINAL SCROLL");
-      expect(output.value).toContain("Ctrl+G select");
+      expect(output.value).toContain("TERMINAL   ↑↓/PgUp/PgDn scroll");
       expect(output.latestFrame()).toContain(cursorMarker);
     } finally {
       child.kill();
@@ -153,8 +152,7 @@ describe("Craig terminal mode E2E", () => {
       await output.waitFor("codex_stub_started");
       await output.waitForLatestFrame("codex_stub_bottom_bar");
       const frame = output.latestFrame();
-      expect(frame).toContain("TERMINAL SCROLL");
-      expect(frame).toContain("Ctrl+G select");
+      expect(frame).toContain("TERMINAL   ↑↓/PgUp/PgDn scroll");
       expect(frame).toContain("codex_stub_started");
       expect(frame).toContain("codex_stub_prompt:");
       expect(frame).toContain("codex_stub_bottom_bar");
@@ -232,8 +230,7 @@ describe("Craig terminal mode E2E", () => {
       await output.waitFor("codex_stub_started");
       await output.waitForLatestFrame("codex_stub_bottom_bar");
       const frame = output.latestFrame();
-      expect(frame).toContain("TERMINAL SCROLL");
-      expect(frame).toContain("Ctrl+G select");
+      expect(frame).toContain("TERMINAL   ↑↓/PgUp/PgDn scroll");
       expect(frame).toContain("codex_stub_prompt:");
       expect(frame).not.toContain("[process exited");
     } finally {

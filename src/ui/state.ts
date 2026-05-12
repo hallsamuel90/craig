@@ -15,7 +15,6 @@ export const INSPECTOR_SECTION_IDS = ["task", "checks", "pr", "setup-run", "acti
 export const INSPECTION_MODE_IDS = ["diff", "files", "review"] as const;
 
 export type InputMode = "control" | "terminal";
-export type MouseMode = "scroll" | "select";
 export type FocusRegion = (typeof FOCUS_REGIONS)[number];
 export type CenterTabId = string;
 export type FixedCenterTabId = (typeof FIXED_CENTER_TAB_IDS)[number];
@@ -47,7 +46,6 @@ export interface TerminalViewState {
 
 export interface ControlShellState {
   inputMode: InputMode;
-  mouseMode: MouseMode;
   focusedRegion: FocusRegion;
   selectedRepoId: string | null;
   selectedTaskId: string | null;
@@ -128,7 +126,6 @@ export function createInitialShellState(runtime: CraigUiRuntime | null): Control
   const openInspectionKind = getValidOpenInspectionKind(runtime?.openInspectionKind) ?? legacyInspectionKind;
   return {
     inputMode: getValidInputMode(runtime?.inputMode),
-    mouseMode: "scroll",
     focusedRegion: getValidFocusRegion(runtime?.focusedRegion),
     selectedRepoId: optionalString(runtime?.selectedRepoId),
     selectedTaskId: optionalString(runtime?.selectedTaskId),
@@ -227,22 +224,9 @@ export function reduceMainKey(state: ControlShellState, key: string, options: Re
   if (state.inputMode === "terminal") {
     if (isTerminalDetachKey(key)) {
       return result({
-        state: { ...state, inputMode: "control", mouseMode: "scroll", centerZoomed: false, actionMessage: null },
+        state: { ...state, inputMode: "control", centerZoomed: false, actionMessage: null },
         changed: true,
         detachTerminal: true,
-      });
-    }
-
-    if (isTerminalMouseModeToggleKey(key)) {
-      const selectMode = state.mouseMode !== "select";
-      return result({
-        state: {
-          ...state,
-          mouseMode: selectMode ? "select" : "scroll",
-          centerZoomed: selectMode,
-          actionMessage: selectMode ? "Selection mode: mouse highlight enabled." : null,
-        },
-        changed: true,
       });
     }
 
@@ -577,10 +561,6 @@ export function markTerminalAttachFailed(state: ControlShellState, message: stri
 
 export function isTerminalDetachKey(key: string): boolean {
   return key === "\u001D" || key === "CTRL_]" || key === "CTRL_RIGHT_BRACKET";
-}
-
-export function isTerminalMouseModeToggleKey(key: string): boolean {
-  return key === "\u0007" || key === "CTRL_G";
 }
 
 export function isEnterKey(key: string): boolean {
