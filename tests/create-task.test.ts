@@ -80,7 +80,7 @@ describe("createTask", () => {
     expect(tmuxCommands).toContain(`set-option -t ${expectedSessionName} status off`);
     expect(tmuxCommands).toContain(`set-window-option -t ${expectedSessionName} pane-border-status off`);
     expect(tmuxCommands).toContain("send-keys -t %42");
-    expect(tmuxCommands).toContain("'codex' 'refactor auth'");
+    expect(tmuxCommands).toContain(`'${path.join(stubDir, "codex")}' 'refactor auth'`);
   });
 
   test.each([
@@ -108,7 +108,7 @@ describe("createTask", () => {
       title,
       command: [executable],
     });
-    expect(tmuxCommands).toContain(`'${executable}' '${runner} task'`);
+    expect(tmuxCommands).toContain(`'${path.join(stubDir, executable)}' '${runner} task'`);
   });
 
   test("sizes a detached task session from the current terminal when available", async () => {

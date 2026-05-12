@@ -18,6 +18,7 @@ import { mergeTask } from "../services/merge-task.js";
 import { closeTask } from "../services/close-task.js";
 import { buildRunnerCommand, getRunnerProfile } from "../services/runner-profiles.js";
 import { runCommand } from "../utils/exec.js";
+import { requireExecutablePath, withDefaultCommandPath } from "../utils/command-path.js";
 import {
   buildShellData,
   getCombinedDiffLineCount,
@@ -1460,7 +1461,11 @@ function createNextPtyTab(task: TaskRecord, kind: TaskPtyTabRecord["kind"]): Tas
 async function createInteractiveTask(paths: ReturnType<typeof getCraigPaths>, repoId: string, prompt: string, runner: RunnerType): Promise<TaskRecord> {
   const provisioned = await provisionTask(paths, repoId, prompt, { runner });
   try {
-    await runCommand(getRunnerProfile(runner).executable, ["--help"], { cwd: provisioned.repoRoot });
+    const env = withDefaultCommandPath();
+    await runCommand(requireExecutablePath(getRunnerProfile(runner).executable, { cwd: provisioned.repoRoot, env }), ["--help"], {
+      cwd: provisioned.repoRoot,
+      env,
+    });
   } catch (error) {
     const message = error instanceof Error ? error.message : "Failed to start runner.";
     const failedTask: TaskRecord = {

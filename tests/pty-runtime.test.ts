@@ -151,7 +151,7 @@ describe("PTY runtime", () => {
       spawn,
       resolveSessionSpec: () => ({
         cwd: "/tmp/craig/task-worktree",
-        command: ["codex"],
+        command: ["/bin/echo", "ready"],
       }),
     });
 
@@ -159,7 +159,7 @@ describe("PTY runtime", () => {
 
     expect(spawn).toHaveBeenCalledWith(
       "/bin/zsh",
-      ["-lc", "'codex'; exec '/bin/zsh' -l"],
+      ["-lc", "'/bin/echo' 'ready'; exec '/bin/zsh' -l"],
       expect.objectContaining({
         cwd: "/tmp/craig/task-worktree",
       }),

@@ -9,6 +9,7 @@ import {
   resizeTerminalEmulator,
   writeTerminalEmulator,
 } from "./terminal-emulator.js";
+import { requireExecutablePath, withDefaultCommandPath } from "../utils/command-path.js";
 
 export interface PtySize {
   columns: number;
@@ -191,13 +192,14 @@ export class PtyRuntime {
     const spawn = this.spawn ?? loadNodePty().spawn;
     const terminal = createTerminalEmulator(size);
     const spec = specOverride ?? this.resolveSessionSpec(taskId, tabId);
-    const { executable, args } = resolveSpawnCommand(this.shell, spec.command);
+    const env = withDefaultCommandPath(this.env);
+    const { executable, args } = resolveSpawnCommand(this.shell, spec.command, { cwd: spec.cwd, env });
     const pty = spawn(executable, args, {
       name: "xterm-256color",
       cols: size.columns,
       rows: size.rows,
       cwd: spec.cwd,
-      env: toPtyEnv(this.env),
+      env: toPtyEnv(env),
     });
     const session: PtySession = {
       taskId,
@@ -277,12 +279,17 @@ function loadNodePty(): typeof NodePty {
   return require("node-pty") as typeof NodePty;
 }
 
-function resolveSpawnCommand(shell: string, command: string[]): { executable: string; args: string[] } {
+function resolveSpawnCommand(
+  shell: string,
+  command: string[],
+  options: { cwd: string; env: Record<string, string | undefined> },
+): { executable: string; args: string[] } {
   if (command.length === 0) {
     return { executable: shell, args: [] };
   }
 
-  const bootstrap = `${command.map(shellEscape).join(" ")}; exec ${shellEscape(shell)} -l`;
+  const resolvedCommand = [requireExecutablePath(command[0]!, options), ...command.slice(1)];
+  const bootstrap = `${resolvedCommand.map(shellEscape).join(" ")}; exec ${shellEscape(shell)} -l`;
   return { executable: shell, args: ["-lc", bootstrap] };
 }
 
