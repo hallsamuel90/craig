@@ -178,7 +178,7 @@ export function buildShellData(state: ControlShellState, model: WorkspaceShellMo
         : state.inputMode === "terminal"
         ? "TERMINAL   ↑↓/PgUp/PgDn scroll   Ctrl+] detach"
         : state.focusedRegion === "tasks"
-          ? "NORMAL   n new task   r runner   Enter attach   X close task"
+          ? `NORMAL   n new task   r runner: ${getRunnerDisplayName(state.selectedRunner)}   Enter attach   X close task`
         : state.focusedRegion === "center"
           ? activeTabId === INSPECTION_TAB_ID
             ? "NORMAL   ↑↓/wheel/PgUp/PgDn scroll   ←/→ switch   Tab inspector"

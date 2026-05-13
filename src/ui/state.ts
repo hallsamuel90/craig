@@ -259,7 +259,7 @@ export function reduceMainKey(state: ControlShellState, key: string, options: Re
     });
   }
 
-  if ((key === "r" || key === "R") && state.focusedRegion === "tasks" && state.selectedLeftItemId === "new-task") {
+  if ((key === "r" || key === "R") && state.focusedRegion === "tasks") {
     return result({
       state: {
         ...state,

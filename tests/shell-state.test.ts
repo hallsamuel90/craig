@@ -310,6 +310,20 @@ describe("terminal shell control state", () => {
     expect(codex.selectedRunner).toBe("codex");
   });
 
+  test("r cycles the selected runner while a task row is focused", () => {
+    const state = {
+      ...seededState(),
+      focusedRegion: "tasks" as const,
+      selectedLeftItemId: "task:task_20260430_02",
+      selectedTaskId: "task_20260430_02",
+    };
+
+    const result = reduceMainKey(state, "r", KEY_OPTIONS);
+
+    expect(result.state.selectedRunner).toBe("cursor");
+    expect(result.changed).toBe(true);
+  });
+
   test("enter on actions emits the current placeholder action message", () => {
     const focusedAction = reduceMainKey(
       reduceMainKey(reduceMainKey(seededState(), "TAB", KEY_OPTIONS).state, "TAB", KEY_OPTIONS).state,

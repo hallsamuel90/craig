@@ -107,6 +107,7 @@ describe("terminal shell renderer", () => {
     expect(frame).toContain("task_20260430_03 [claude]");
     expect(frame).toContain("+ New Task [Claude]");
     expect(frame).toContain("claude");
+    expect(frame).toContain("r runner: Claude");
   });
 
   test("renders files tab with right-panel file tree and selected file content", () => {
