@@ -1596,37 +1596,6 @@ describe("terminal app PTY attach flow", () => {
     });
   });
 
-  test("runner selection works from a focused task row before creating a task", async () => {
-    const root = await mkdtemp(join(tmpdir(), "craig-ui-app-task-row-runner-"));
-    tempRoots.push(root);
-    const paths = await setupWorkspace(root);
-    const stubDir = await createStubCommands(root);
-    process.env.PATH = `${stubDir}:${originalPath}`;
-    const terminal = new FakeTerminal();
-    const ptyRuntime = new FakePtyRuntime();
-    const app = startTerminalApp({ terminal, ptyRuntime, uiStateFile: paths.uiStateFile, workspaceRoot: root });
-    await vi.waitFor(() => expect(terminal.hasKeyListener()).toBe(true));
-
-    terminal.emitKey("\r"); // boot start
-    terminal.emitKey("["); // focus left pane on the selected task row
-    terminal.emitKey("r"); // Cursor
-    terminal.emitKey("r"); // Claude
-    terminal.emitKey("n");
-    for (const char of "new task from task row") {
-      terminal.emitKey(char);
-    }
-    terminal.emitKey("ENTER");
-    await vi.waitFor(() => expect(ptyRuntime.ensureSession).toHaveBeenCalled());
-    terminal.emitKey("\u001D");
-    terminal.emitKey("q");
-
-    await expect(app).resolves.toBe(0);
-    const createdTaskId = String(ptyRuntime.ensureSession.mock.calls[0]?.[0] ?? "");
-    const task = await readTask(paths, createdTaskId);
-    expect(task.runner).toBe("claude");
-    expect(task.prompt.value).toBe("new task from task row");
-  });
-
   test("missing selected runner binary leaves a durable failed task", async () => {
     const root = await mkdtemp(join(tmpdir(), "craig-ui-app-missing-runner-"));
     tempRoots.push(root);
@@ -1665,7 +1634,7 @@ describe("terminal app PTY attach flow", () => {
     expect(task.runner).toBe("claude");
     expect(task.runnerSession.lastKnownState).toBe("failed");
     expect(task.lastFailureReason).toMatch(/claude/);
-  }, 10000);
+  });
 
   test("the left panel can open the new workspace browser and register a repo with arrow keys", async () => {
     const root = await mkdtemp(join(tmpdir(), "craig-ui-app-"));
