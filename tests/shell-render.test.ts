@@ -22,7 +22,7 @@ describe("terminal shell renderer", () => {
   test("renders the pause overlay with resume and exit actions", () => {
     const frame = renderPauseOverlayFrame(MIN_VIEWPORT, { color: false, menuIndex: 0 });
 
-    expect(frame).toContain("CRAIG paused");
+    expect(frame).toContain("Control mode is paused.");
     expect(frame).toContain("> Resume");
     expect(frame).toContain("  Options");
     expect(frame).toContain("  Exit");
@@ -41,7 +41,7 @@ describe("terminal shell renderer", () => {
     expect(frame).toContain("+ New Task");
     expect(frame).toContain("+ New Workspace");
     expect(frame).toContain("codex");
-    expect(frame).toContain("NORMAL   n new task");
+    expect(frame).toContain("n new task");
     expect(frame).toContain("▸ task_20260430_02");
     expect(frame).toContain("running ●");
     expect(frame).toContain("AGENT");

@@ -366,7 +366,7 @@ export async function startTerminalApp(options: TerminalAppOptions = {}): Promis
       });
     }
 
-    async function createPtyTabFromShell(shell: ControlShellState, requestedKind: TaskPtyTabRecord["kind"] | null): Promise<ControlShellState> {
+    async function createPtyTabFromShell(shell: ControlShellState, requestedKind: TaskPtyTabRecord["kind"] | null, requestedRunner?: RunnerType | null): Promise<ControlShellState> {
       const syncedShell = syncShell(shell);
       if (!syncedShell.selectedTaskId) {
         throw new Error("Select a task before creating a tab.");
@@ -375,7 +375,7 @@ export async function startTerminalApp(options: TerminalAppOptions = {}): Promis
       const updatedTask = await queueTaskMutation(async () => {
         const task = await readTask(paths, syncedShell.selectedTaskId!);
         const kind = requestedKind ?? resolveNewPtyTabKind(task, syncedShell.activeTab, syncedShell.preferredPtyTabKind);
-        const tab = createNextPtyTab(task, kind);
+        const tab = createNextPtyTab(task, kind, requestedRunner ?? undefined);
         const nextTask: TaskRecord = {
           ...task,
           ptyTabs: [...task.ptyTabs, tab],
@@ -954,7 +954,7 @@ export async function startTerminalApp(options: TerminalAppOptions = {}): Promis
 
           lastTerminalKey = shouldTrackTerminalKey(key) ? { key, at: Date.now() } : null;
 
-          const scrollLines = getTerminalScrollLinesForKey(key);
+          const scrollLines = getTerminalScrollLinesForKey(key, state.shell.terminal.scrolledBack ?? false);
           if (scrollLines !== 0) {
             scheduleTerminalViewportScroll(scrollLines);
             return;
@@ -1012,11 +1012,9 @@ export async function startTerminalApp(options: TerminalAppOptions = {}): Promis
         }
 
         if (result.createPtyTab) {
-          void createPtyTabFromShell(result.state, result.createPtyTabKind)
+          void createPtyTabFromShell(result.state, result.createPtyTabKind, result.createPtyTabRunner)
             .then((nextShell) => {
-              state = { mode: "main", shell: nextShell };
-              persistShellState(state.shell);
-              render();
+              void attachPtyFromShell(nextShell);
             })
             .catch((error: unknown) => {
               const message = error instanceof Error ? error.message : "Failed to create tab.";
@@ -1409,9 +1407,9 @@ function getLeftItemIds(model: WorkspaceShellModel): string[] {
     for (const task of model.tasks.filter((entry) => entry.repoId === repo.id)) {
       itemIds.push(`task:${task.id}`);
     }
+    itemIds.push(`new-task:${repo.id}`);
   }
 
-  itemIds.push("new-task");
   itemIds.push("new-workspace");
   return itemIds;
 }
@@ -1434,10 +1432,13 @@ function resolveNewPtyTabKind(task: TaskRecord, activeTab: string, preferredKind
   return task.ptyTabs.find((tab) => tab.id === activeTab)?.kind ?? preferredKind;
 }
 
-function createNextPtyTab(task: TaskRecord, kind: TaskPtyTabRecord["kind"]): TaskPtyTabRecord {
-  const runnerProfile = getRunnerProfile(task.runner);
+function createNextPtyTab(task: TaskRecord, kind: TaskPtyTabRecord["kind"], runner?: RunnerType): TaskPtyTabRecord {
+  const effectiveRunner = runner ?? task.runner;
+  const runnerProfile = getRunnerProfile(effectiveRunner);
   const baseTitle = kind === "agent" ? runnerProfile.defaultAgentTitle : "Terminal";
-  const baseId = `${task.id}:${kind}`;
+  const baseId = kind === "agent" && runner && runner !== task.runner
+    ? `${task.id}:${runner}`
+    : `${task.id}:${kind}`;
   const existingIds = new Set(task.ptyTabs.map((tab) => tab.id));
   let ordinal = 1;
   let id = baseId;
@@ -1448,11 +1449,13 @@ function createNextPtyTab(task: TaskRecord, kind: TaskPtyTabRecord["kind"]): Tas
   }
 
   const timestamp = new Date().toISOString();
+  const tabRunner = runner && runner !== task.runner ? runner : undefined;
   return {
     id,
     kind,
+    ...(tabRunner ? { runner: tabRunner } : {}),
     title: ordinal === 1 ? baseTitle : `${baseTitle} ${ordinal}`,
-    command: kind === "agent" ? buildRunnerCommand(task.runner) : [],
+    command: kind === "agent" ? buildRunnerCommand(effectiveRunner) : [],
     createdAt: timestamp,
     updatedAt: timestamp,
   };
@@ -1580,12 +1583,12 @@ function isAgentTabId(tabId: string | null): boolean {
   return typeof tabId === "string" && /:agent(?:-\d+)?$/.test(tabId);
 }
 
-function getTerminalScrollLinesForKey(key: string): number {
-  if (key === "UP") {
+function getTerminalScrollLinesForKey(key: string, scrolledBack: boolean): number {
+  if (key === "UP" && scrolledBack) {
     return -3;
   }
 
-  if (key === "DOWN") {
+  if (key === "DOWN" && scrolledBack) {
     return 3;
   }
 

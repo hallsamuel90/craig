@@ -63,7 +63,7 @@ const PALETTE = {
 
 export function renderBootOverlayFrame(viewport: Viewport, options: RenderOptions = {}): string {
   return renderOverlayFrame(viewport, {
-    title: "CRAIG boot",
+    title: "",
     subtitle: "crAIg is that you?",
     menuItems: BOOT_MENU,
     menuIndex: options.menuIndex ?? 0,
@@ -74,7 +74,7 @@ export function renderBootOverlayFrame(viewport: Viewport, options: RenderOption
 
 export function renderPauseOverlayFrame(viewport: Viewport, options: RenderOptions = {}): string {
   return renderOverlayFrame(viewport, {
-    title: "CRAIG paused",
+    title: "",
     subtitle: "Control mode is paused.",
     menuItems: PAUSE_MENU,
     menuIndex: options.menuIndex ?? 0,
@@ -231,13 +231,13 @@ function renderOverlayFrame(
 }
 
 function toLeftLines(data: ShellData, width: number, height: number, color: boolean): SurfaceLine[] {
-  const runnerLines = data.runners.flatMap((runner) => renderRunnerRows(runner, width));
-  const reservedLines = runnerLines.length + 1;
+  const runnerLine = renderRunnersCompact(data.runners);
+  const reservedLines = 2; // runner line + footer
   const treeLines = data.leftTree.map((row) => renderTreeRow(row, width, color));
   const fittedTree = fitLines(treeLines, height - reservedLines);
   return [
     ...fittedTree,
-    ...runnerLines,
+    runnerLine,
     { text: data.footerText, tone: "muted", fullBleed: true },
   ];
 }
@@ -387,27 +387,31 @@ function renderTreeRow(row: ShellTreeRow, width: number, color: boolean): Surfac
   return { text };
 }
 
-function renderRunnerRows(runner: ShellRunnerRow, width: number): SurfaceLine[] {
-  const barWidth = Math.max(1, width - runner.name.length - 1);
-  let barText: string;
-  let barColor: string;
+function renderRunnersCompact(runners: ShellRunnerRow[]): SurfaceLine {
+  const parts = runners.map((runner) => {
+    const active = runner.health >= 1.0;
+    const count = parseInt(runner.count, 10);
+    const countSuffix = count > 1 ? ` (${count})` : "";
+    const dot = active ? "●" : "○";
+    return { text: `${dot} ${runner.name}${countSuffix}`, active };
+  });
 
-  if (runner.unlimited) {
-    barText = "∞".repeat(barWidth);
-    barColor = PALETTE.pending.fg;
-  } else {
-    const filled = Math.round(runner.health * barWidth);
-    barText = "█".repeat(filled) + "░".repeat(barWidth - filled);
-    barColor = runner.health < 0.2 ? PALETTE.error.fg : PALETTE.success.fg;
+  const segments: TerminalRowSegment[] = [];
+  for (let i = 0; i < parts.length; i++) {
+    const part = parts[i]!;
+    if (i > 0) segments.push({ text: "  " });
+    if (part.active) {
+      segments.push({ text: part.text, style: { fg: PALETTE.success.fg } });
+    } else {
+      segments.push({ text: part.text, style: { fg: PALETTE.panelMuted.fg } });
+    }
   }
 
-  return [
-    {
-      text: `${runner.name} ${barText}`,
-      segments: [{ text: `${runner.name} ` }, { text: barText, style: { fg: barColor } }],
-      tone: "muted" as const,
-    },
-  ];
+  return {
+    text: parts.map((p) => p.text).join("  "),
+    segments,
+    tone: "muted",
+  };
 }
 
 function renderTabLine(tabs: ShellTab[], color: boolean): string {

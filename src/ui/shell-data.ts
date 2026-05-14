@@ -5,7 +5,7 @@ import { DIR_ICON_CLOSED, DIR_ICON_OPEN, getFileIcon, getFileIconColor } from ".
 import type { RunnerType, TaskPullRequest, TaskPullRequestCheck, TaskPtyTabRecord, TaskRecord } from "../types/task.js";
 import type { RepoRecord } from "../types/workspace.js";
 import { getRunnerDisplayName } from "../services/runner-profiles.js";
-import { INSPECTION_TAB_ID } from "./state.js";
+import { INSPECTION_TAB_ID, isTaskLeftItemId } from "./state.js";
 import type { TerminalCellStyle, TerminalRowSegment } from "./terminal-emulator.js";
 import type {
   ActionId,
@@ -178,12 +178,16 @@ export function buildShellData(state: ControlShellState, model: WorkspaceShellMo
         : state.inputMode === "terminal"
         ? "TERMINAL   ↑↓/PgUp/PgDn scroll   Ctrl+] detach"
         : state.focusedRegion === "tasks"
-          ? "NORMAL   n new task   r runner   Enter attach   X close task"
+          ? state.selectedLeftItemId?.startsWith("new-task:")
+            ? `r runner [${getRunnerDisplayName(state.selectedRunner)}]   Enter create task`
+            : isTaskLeftItemId(state.selectedLeftItemId)
+            ? "n new task   Enter attach   X close task"
+            : "n new task   Enter select"
         : state.focusedRegion === "center"
           ? activeTabId === INSPECTION_TAB_ID
-            ? "NORMAL   ↑↓/wheel/PgUp/PgDn scroll   ←/→ switch   Tab inspector"
-            : "NORMAL   + new tab   a Codex   t Terminal   x close tab   Enter attach"
-          : "NORMAL   n new task   ? help   / search   : command",
+            ? "↑↓/wheel/PgUp/PgDn scroll   ←/→ switch   Tab inspector"
+            : `+ new tab   a ${getRunnerDisplayName(state.centerTabRunner ?? (selectedTask?.runner ?? state.selectedRunner))}   r runner   t Terminal   x close   Enter attach`
+          : "n new task   ? help   / search   : command",
     topRail: {
       workspacePath: path.relative(process.env.HOME ?? "", model.workspaceRoot).length > 0
         ? `~/${path.relative(process.env.HOME ?? "", model.workspaceRoot)}`
@@ -229,39 +233,42 @@ function buildLeftTree(state: ControlShellState, repos: RepoRecord[], tasks: Tas
       const repoTasks = tasks.filter((task) => task.repoId === repo.id);
 
       if (repoTasks.length === 0) {
-        rows.push({ text: "└ no tasks yet", indent: 2, muted: true });
-        continue;
+        rows.push({ text: "  · no tasks yet", indent: 0, muted: true });
+      } else {
+        for (const task of repoTasks) {
+          const selected = state.selectedLeftItemId === `task:${task.id}`;
+          const prefix = selected ? "▸" : "•";
+          const row: ShellTreeRow = {
+            id: `task:${task.id}`,
+            taskId: task.id,
+            text: `${prefix} ${task.id} [${task.runner}]`,
+            indent: 2,
+            selected,
+            focused: selected && state.focusedRegion === "tasks",
+            accentDot: task.status === "running",
+          };
+          if (selected) {
+            row.status = task.status;
+          }
+          rows.push(row);
+        }
       }
 
-      for (const [index, task] of repoTasks.entries()) {
-        const selected = state.selectedLeftItemId === `task:${task.id}`;
-        const prefix = selected ? "▸" : index === repoTasks.length - 1 ? "└" : "•";
-        const row: ShellTreeRow = {
-          id: `task:${task.id}`,
-          taskId: task.id,
-          text: `${prefix} ${task.id} [${task.runner}]`,
-          indent: 2,
-          selected,
-          focused: selected && state.focusedRegion === "tasks",
-          accentDot: task.status === "running",
-        };
-        if (selected) {
-          row.status = task.status;
-        }
-        rows.push(row);
-      }
+      const newTaskId = `new-task:${repo.id}`;
+      const newTaskSelected = state.selectedLeftItemId === newTaskId;
+      rows.push({
+        id: newTaskId,
+        text: `+ New Task [${getRunnerDisplayName(state.selectedRunner)}]`,
+        indent: 2,
+        selected: newTaskSelected,
+        focused: newTaskSelected && state.focusedRegion === "tasks",
+        muted: !newTaskSelected,
+      });
     }
   }
 
   const newWorkspaceSelected = state.selectedLeftItemId === "new-workspace";
-  const newTaskSelected = state.selectedLeftItemId === "new-task";
   rows.push({ text: "", muted: true });
-  rows.push({
-    id: "new-task",
-    text: `+ New Task [${getRunnerDisplayName(state.selectedRunner)}]`,
-    selected: newTaskSelected,
-    focused: newTaskSelected && state.focusedRegion === "tasks",
-  });
   rows.push({
     id: "new-workspace",
     text: "+ New Workspace",

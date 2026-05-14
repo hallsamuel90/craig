@@ -193,10 +193,10 @@ export class DaemonPtyRuntimeClient {
 
   getViewState(tabId: string | null): TerminalViewState {
     if (!tabId) {
-      return { status: "idle", rows: [], error: null };
+      return { status: "idle", rows: [], error: null, scrolledBack: false };
     }
 
-    return this.viewCache.get(tabId) ?? { status: "idle", rows: [], error: null };
+    return this.viewCache.get(tabId) ?? { status: "idle", rows: [], error: null, scrolledBack: false };
   }
 
   async requestShutdown(): Promise<void> {

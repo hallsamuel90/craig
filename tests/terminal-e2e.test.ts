@@ -66,14 +66,14 @@ describe("Craig terminal mode E2E", () => {
     try {
       await output.waitFor("> Start");
       child.write("\r");
-      await output.waitFor("NORMAL   + new tab");
+      await output.waitFor("+ new tab");
       child.write("\r");
       await output.waitFor("TERMINAL   ↑↓/PgUp/PgDn scroll");
 
       child.write(`printf '\\033[3;12H${cursorMarker}'\r`);
       await output.waitForLatestFrame(cursorMarker);
       child.write("\u001D");
-      await output.waitForLatestFrame("NORMAL   + new tab");
+      await output.waitForLatestFrame("+ new tab");
       child.write("\r");
       await output.waitForLatestFrame("TERMINAL   ↑↓/PgUp/PgDn scroll");
       await output.waitForLatestFrame(cursorMarker);
@@ -147,7 +147,7 @@ describe("Craig terminal mode E2E", () => {
     try {
       await output.waitFor("> Start");
       child.write("\r");
-      await output.waitFor("NORMAL   + new tab");
+      await output.waitFor("+ new tab");
       child.write("\r");
       await output.waitFor("codex_stub_started");
       await output.waitForLatestFrame("codex_stub_bottom_bar");
@@ -229,7 +229,7 @@ describe("Craig terminal mode E2E", () => {
     try {
       await output.waitFor("> Start");
       child.write("\r");
-      await output.waitFor("NORMAL   + new tab");
+      await output.waitFor("+ new tab");
       child.write("\r");
       await output.waitFor(`${runner}_stub_started`);
       const frame = output.latestFrame();
@@ -377,7 +377,7 @@ describe("Craig terminal mode E2E", () => {
       first.onData((chunk) => firstOutput.append(chunk));
       await firstOutput.waitFor("> Start");
       first.write("\r");
-      await firstOutput.waitFor("NORMAL   + new tab");
+      await firstOutput.waitFor("+ new tab");
       first.write("\r");
       await firstOutput.waitForLatestFrame("codex_stub_started");
       first.kill();

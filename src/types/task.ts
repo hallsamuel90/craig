@@ -66,6 +66,7 @@ export type TaskPtyTabKind = "agent" | "terminal";
 export interface TaskPtyTabRecord {
   id: string;
   kind: TaskPtyTabKind;
+  runner?: RunnerType;
   title: string;
   command: string[];
   createdAt: string;

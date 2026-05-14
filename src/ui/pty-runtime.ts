@@ -172,19 +172,20 @@ export class PtyRuntime {
 
   getViewState(tabId: string | null): TerminalViewState {
     if (!tabId) {
-      return { status: "idle", rows: [], error: null };
+      return { status: "idle", rows: [], error: null, scrolledBack: false };
     }
 
     const session = this.sessions.get(tabId);
 
     if (!session) {
-      return { status: "idle", rows: [], error: null };
+      return { status: "idle", rows: [], error: null, scrolledBack: false };
     }
 
     return {
       status: session.status,
       rows: renderTerminalScreenRows(session.terminal, session.scrollbackLines),
       error: session.error,
+      scrolledBack: session.scrollbackLines > 0,
     };
   }
 
