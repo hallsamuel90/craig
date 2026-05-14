@@ -1,8 +1,9 @@
 import { getDefaultUiState } from "../state/ui-state-store.js";
+import type { CraigConfig } from "../types/config.js";
 import type { RunnerType, TaskPtyTabKind, TaskRecord } from "../types/task.js";
 import type { RepoRecord } from "../types/workspace.js";
 import type { CraigUiRuntime } from "../types/workspace.js";
-import { RUNNER_IDS, isRunnerType } from "../services/runner-profiles.js";
+import { RUNNER_IDS, getDefaultRunner, getEnabledRunnerIds, isRunnerType } from "../services/runner-profiles.js";
 import type { TerminalScreenRow } from "./terminal-emulator.js";
 
 export const FOCUS_REGIONS = ["tasks", "center", "inspector", "actions"] as const;
@@ -88,6 +89,7 @@ export interface ReduceMainKeyOptions {
   fileLineCount?: number;
   diffLineCount?: number;
   pageRows?: number;
+  enabledRunnerIds?: RunnerType[];
 }
 
 export interface MainKeyResult {
@@ -126,9 +128,10 @@ export interface RestoreShellStateOptions {
   resetInputMode?: boolean;
 }
 
-export function createInitialShellState(runtime: CraigUiRuntime | null): ControlShellState {
+export function createInitialShellState(runtime: CraigUiRuntime | null, config: CraigConfig = {}): ControlShellState {
   const legacyInspectionKind = runtime?.activeTab === "files" ? "file" : runtime?.activeTab === "diff" ? "diff" : null;
   const openInspectionKind = getValidOpenInspectionKind(runtime?.openInspectionKind) ?? legacyInspectionKind;
+  const enabledRunnerIds = getEnabledRunnerIds(config);
   return {
     inputMode: getValidInputMode(runtime?.inputMode),
     focusedRegion: getValidFocusRegion(runtime?.focusedRegion),
@@ -148,7 +151,7 @@ export function createInitialShellState(runtime: CraigUiRuntime | null): Control
     fileScrollOffset: 0,
     diffScrollOffset: 0,
     selectedActionId: getValidValue(runtime?.selectedActionId, ACTION_IDS, "commit"),
-    selectedRunner: getValidRunner(runtime?.selectedRunner),
+    selectedRunner: getValidRunner(runtime?.selectedRunner, enabledRunnerIds, getDefaultRunner(config)),
     centerTabRunner: null,
     actionMessage: null,
     taskPromptInput: null,
@@ -268,7 +271,7 @@ export function reduceMainKey(state: ControlShellState, key: string, options: Re
     return result({
       state: {
         ...state,
-        selectedRunner: getNextRunner(state.selectedRunner),
+        selectedRunner: getNextRunner(state.selectedRunner, options.enabledRunnerIds),
         actionMessage: null,
         taskPromptError: null,
       },
@@ -324,7 +327,7 @@ export function reduceMainKey(state: ControlShellState, key: string, options: Re
   }
 
   if (key === "r" && state.focusedRegion === "center" && state.selectedTaskId) {
-    const runners = RUNNER_IDS as readonly RunnerType[];
+    const runners = options.enabledRunnerIds ?? (RUNNER_IDS as readonly RunnerType[]);
     const currentIndex = state.centerTabRunner ? runners.indexOf(state.centerTabRunner) : -1;
     const nextRunner: RunnerType | null = currentIndex === runners.length - 1 ? null : runners[currentIndex + 1]!;
     return result({
@@ -1134,13 +1137,18 @@ function getValidInputMode(value: string | null | undefined): InputMode {
   return value === "terminal" ? "terminal" : "control";
 }
 
-function getValidRunner(value: string | null | undefined): RunnerType {
-  return value && isRunnerType(value) ? value : "codex";
+function getValidRunner(
+  value: string | null | undefined,
+  enabledRunnerIds: RunnerType[] = [...RUNNER_IDS],
+  fallback: RunnerType = "codex",
+): RunnerType {
+  return value && isRunnerType(value) && enabledRunnerIds.includes(value) ? value : fallback;
 }
 
-export function getNextRunner(runner: RunnerType): RunnerType {
-  const index = RUNNER_IDS.indexOf(runner);
-  return RUNNER_IDS[(index + 1) % RUNNER_IDS.length] ?? "codex";
+export function getNextRunner(runner: RunnerType, enabledRunnerIds: readonly RunnerType[] = RUNNER_IDS): RunnerType {
+  const runners = enabledRunnerIds.length > 0 ? enabledRunnerIds : RUNNER_IDS;
+  const index = runners.indexOf(runner);
+  return runners[(index + 1) % runners.length] ?? runners[0] ?? "codex";
 }
 
 function getPtyTabKindFromId(tabId: string): TaskPtyTabKind | null {

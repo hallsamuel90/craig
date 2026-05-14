@@ -1,4 +1,9 @@
 export interface CraigConfig {
+  runners?: {
+    codex?: RunnerConfig;
+    cursor?: RunnerConfig;
+    claude?: RunnerConfig;
+  };
   checks?: {
     commands: string[];
   };
@@ -9,4 +14,9 @@ export interface CraigConfig {
     mergeMethod?: "merge" | "rebase" | "squash";
     watchIntervalSeconds?: number;
   };
+}
+
+export interface RunnerConfig {
+  enabled?: boolean;
+  path?: string;
 }

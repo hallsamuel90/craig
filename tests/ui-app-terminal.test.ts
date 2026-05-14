@@ -9,6 +9,7 @@ import type { TerminalViewState } from "../src/ui/state.js";
 import { listRepos } from "../src/state/repo-store.js";
 import { runCommand } from "../src/utils/exec.js";
 import { readTask, writeTask } from "../src/state/task-store.js";
+import { readCraigConfig } from "../src/state/config-store.js";
 import { createCraigState, createGitRepo, createStubCommands, writeRepoRecord, writeTaskRecord } from "./test-helpers.js";
 
 /* eslint-disable no-unused-vars */
@@ -1648,12 +1649,57 @@ describe("terminal app PTY attach flow", () => {
     });
   });
 
+  test("options menu toggles runners and edits runner paths", async () => {
+    const root = await mkdtemp(join(tmpdir(), "craig-ui-app-options-"));
+    tempRoots.push(root);
+    const paths = await setupWorkspace(root);
+    const terminal = new FakeTerminal();
+    const ptyRuntime = new FakePtyRuntime();
+    const app = startTerminalApp({ terminal, ptyRuntime, uiStateFile: paths.uiStateFile, workspaceRoot: root });
+    await vi.waitFor(() => expect(terminal.hasKeyListener()).toBe(true));
+
+    terminal.emitKey("DOWN"); // Options
+    terminal.emitKey("ENTER");
+    await vi.waitFor(() => expect(terminal.frames.at(-1) ?? "").toContain("Runners"));
+
+    terminal.emitKey("ENTER"); // Runners submenu
+    await vi.waitFor(() => expect(terminal.frames.at(-1) ?? "").toContain("Codex  enabled"));
+
+    terminal.emitKey("ENTER"); // Codex toggle (already at index 0)
+    await vi.waitFor(async () => expect((await readCraigConfig(paths)).runners?.codex?.enabled).toBe(false));
+
+    terminal.emitKey("DOWN"); // Cursor (index 1)
+    terminal.emitKey("e"); // edit Cursor executable path
+    for (const char of "/tmp/cursor-agent") {
+      terminal.emitKey(char);
+    }
+    terminal.emitKey("ENTER");
+    await vi.waitFor(async () => expect((await readCraigConfig(paths)).runners?.cursor?.path).toBe("/tmp/cursor-agent"));
+
+    terminal.emitKey("ESCAPE"); // back to options menu
+    terminal.emitKey("ESCAPE"); // back to boot menu
+    terminal.emitKey("DOWN");
+    terminal.emitKey("ENTER");
+    await expect(app).resolves.toBe(0);
+  });
+
   test("missing selected runner binary leaves a durable failed task", async () => {
     const root = await mkdtemp(join(tmpdir(), "craig-ui-app-missing-runner-"));
     tempRoots.push(root);
     const paths = await setupWorkspace(root);
     const stubDir = await createStubCommands(root);
     await rm(join(stubDir, "claude"), { force: true });
+    await writeFile(
+      paths.configFile,
+      JSON.stringify({
+        runners: {
+          codex: { enabled: false },
+          cursor: { enabled: false },
+          claude: { enabled: true },
+        },
+      }),
+      "utf8",
+    );
     process.env.PATH = `${stubDir}:/bin:/usr/bin`;
     process.env.CRAIG_DISABLE_COMMAND_PATH_FALLBACKS = "1";
     const terminal = new FakeTerminal();
@@ -1664,8 +1710,6 @@ describe("terminal app PTY attach flow", () => {
     terminal.emitKey("\r"); // boot start
     terminal.emitKey("["); // focus left pane
     terminal.emitKey("DOWN"); // + New Task
-    terminal.emitKey("r"); // Cursor
-    terminal.emitKey("r"); // Claude
     terminal.emitKey("ENTER");
     for (const char of "missing claude") {
       terminal.emitKey(char);

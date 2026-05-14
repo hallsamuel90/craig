@@ -15,6 +15,8 @@ export interface RenderOptions {
   color?: boolean;
   menuIndex?: number;
   optionsMessage?: string | null;
+  optionsMenuItems?: string[];
+  optionsSubtitle?: string;
   centerOnly?: boolean;
 }
 
@@ -63,7 +65,6 @@ const PALETTE = {
 
 export function renderBootOverlayFrame(viewport: Viewport, options: RenderOptions = {}): string {
   return renderOverlayFrame(viewport, {
-    title: "",
     subtitle: "crAIg is that you?",
     menuItems: BOOT_MENU,
     menuIndex: options.menuIndex ?? 0,
@@ -74,7 +75,6 @@ export function renderBootOverlayFrame(viewport: Viewport, options: RenderOption
 
 export function renderPauseOverlayFrame(viewport: Viewport, options: RenderOptions = {}): string {
   return renderOverlayFrame(viewport, {
-    title: "",
     subtitle: "Control mode is paused.",
     menuItems: PAUSE_MENU,
     menuIndex: options.menuIndex ?? 0,
@@ -103,11 +103,10 @@ const OPTIONS_MENU = ["Help"];
 
 export function renderOptionsOverlayFrame(viewport: Viewport, options: RenderOptions = {}): string {
   return renderOverlayFrame(viewport, {
-    title: "CRAIG options",
-    subtitle: "Configuration",
-    menuItems: OPTIONS_MENU,
+    subtitle: options.optionsSubtitle ?? "Configuration",
+    menuItems: options.optionsMenuItems ?? OPTIONS_MENU,
     menuIndex: options.menuIndex ?? 0,
-    optionsMessage: null,
+    optionsMessage: options.optionsMessage ?? null,
     color: options.color ?? true,
   });
 }
@@ -118,8 +117,6 @@ export function renderHelpOverlayFrame(viewport: Viewport, options: Pick<RenderO
   const lines = new Array<string>(viewport.height).fill(fillSurface(" ".repeat(viewport.width), color, bg));
   const logo = getBannerArtLines();
   const logoStart = Math.max(1, Math.floor((viewport.height - logo.length - 2 - HELP_LINES.length) / 2));
-
-  lines[0] = fillSurface(pad("CRAIG keybindings", viewport.width), color, PALETTE.overlayTitle);
 
   for (let index = 0; index < logo.length; index += 1) {
     if (logoStart + index >= viewport.height) break;
@@ -188,7 +185,6 @@ export function renderMainShellFrame(
 function renderOverlayFrame(
   viewport: Viewport,
   input: {
-    title: string;
     subtitle: string;
     menuItems: string[];
     menuIndex: number;
@@ -200,11 +196,9 @@ function renderOverlayFrame(
   const logo = getBannerArtLines();
   const maxMenuLen = Math.max(...input.menuItems.map((s) => s.length));
   const menu = input.menuItems.map((item, index) => `${index === input.menuIndex ? ">" : " "} ${item.padEnd(maxMenuLen)}`);
-  const messageLines = input.optionsMessage ? ["", input.optionsMessage, "Press H to open · Esc to close"] : [];
+  const messageLines = input.optionsMessage ? ["", input.optionsMessage] : [];
   const content = [...logo, "", input.subtitle, "", ...menu, ...messageLines];
   const startLine = Math.max(1, Math.floor((viewport.height - content.length) / 2));
-
-  lines[0] = fillSurface(pad(input.title, viewport.width), input.color, PALETTE.overlayTitle);
 
   for (let index = 0; index < content.length; index += 1) {
     const centered = centerText(content[index] ?? "", viewport.width);

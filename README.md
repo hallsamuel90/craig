@@ -93,6 +93,8 @@ Command mode:
 Craig reads optional repo-local config from `.craig/config.json`.
 
 `checks.commands` is an ordered list of shell commands. `check <id>` runs them in the task worktree.
+`runners.<id>.enabled` controls whether `codex`, `cursor`, or `claude` appears as a new-task runner. Disabled runners cannot be launched. If Codex is disabled, Craig defaults new tasks to the first enabled runner.
+`runners.<id>.path` overrides the executable path for that runner while keeping the built-in default when unset.
 `open.command` is an argv array. Craig appends the resolved task worktree path as the final argument.
 `github.mergeMethod` defaults to `squash`, and `github.watchIntervalSeconds` defaults to `10`.
 
@@ -100,6 +102,11 @@ Example:
 
 ```json
 {
+  "runners": {
+    "codex": { "enabled": false },
+    "cursor": { "enabled": true, "path": "/Users/me/.cursor/bin/cursor-agent" },
+    "claude": { "enabled": false }
+  },
   "checks": {
     "commands": ["pnpm test", "pnpm typecheck", "pnpm lint"]
   },

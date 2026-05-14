@@ -67,7 +67,9 @@ export function parseArgv(argv: string[]): ParsedArgvCommand {
     }
 
     const repoId = trimmedArgv[repoFlagIndex + 1]?.trim() ?? "";
-    const runner = parseRunnerType(runnerFlagIndex === -1 ? null : trimmedArgv[runnerFlagIndex + 1]?.trim() ?? "");
+    const runner = runnerFlagIndex === -1
+      ? undefined
+      : parseRunnerType(trimmedArgv[runnerFlagIndex + 1]?.trim() ?? "");
     const promptParts = trimmedArgv.filter(
       (_, index) =>
         index > 1 &&
@@ -86,7 +88,7 @@ export function parseArgv(argv: string[]): ParsedArgvCommand {
       throw new Error("Task prompt cannot be empty.\n\n" + getHelpText());
     }
 
-    return { mode: "command", command: { kind: "createTask", repoId, prompt, runner } };
+    return { mode: "command", command: { kind: "createTask", repoId, prompt, ...(runner ? { runner } : {}) } };
   }
 
   if (

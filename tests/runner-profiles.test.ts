@@ -3,7 +3,14 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { describe, expect, test } from "vitest";
 
-import { buildRunnerCommand, getRunnerProfile, parseRunnerType } from "../src/services/runner-profiles.js";
+import {
+  assertRunnerEnabled,
+  buildRunnerCommand,
+  getDefaultRunner,
+  getEnabledRunnerIds,
+  getRunnerProfile,
+  parseRunnerType,
+} from "../src/services/runner-profiles.js";
 import { requireExecutablePath, withDefaultCommandPath } from "../src/utils/command-path.js";
 
 describe("runner profiles", () => {
@@ -23,6 +30,25 @@ describe("runner profiles", () => {
     expect(buildRunnerCommand("codex", "ship it")).toEqual(["codex", "ship it"]);
     expect(buildRunnerCommand("cursor", "ship it")).toEqual(["cursor-agent", "ship it"]);
     expect(buildRunnerCommand("claude", "ship it")).toEqual(["claude", "ship it"]);
+    expect(buildRunnerCommand("cursor", "ship it", { runners: { cursor: { path: "/opt/cursor-agent" } } })).toEqual([
+      "/opt/cursor-agent",
+      "ship it",
+    ]);
+  });
+
+  test("filters disabled runners and defaults to the first enabled runner", () => {
+    const config = {
+      runners: {
+        codex: { enabled: false },
+        cursor: { enabled: true },
+        claude: { enabled: false },
+      },
+    };
+
+    expect(getEnabledRunnerIds(config)).toEqual(["cursor"]);
+    expect(getDefaultRunner(config)).toBe("cursor");
+    expect(() => assertRunnerEnabled("codex", config)).toThrow(/disabled/);
+    expect(() => assertRunnerEnabled("cursor", config)).not.toThrow();
   });
 
   test("validates runner ids and defaults empty values to codex", () => {

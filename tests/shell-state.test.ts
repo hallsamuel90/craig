@@ -311,6 +311,17 @@ describe("terminal shell control state", () => {
     expect(codex.selectedRunner).toBe("codex");
   });
 
+  test("r cycles only enabled runners while the new task row is focused", () => {
+    const state = {
+      ...seededState(),
+      selectedLeftItemId: "new-task:repo_bug_fixes",
+      selectedRunner: "cursor" as const,
+    };
+    const next = reduceMainKey(state, "r", { ...KEY_OPTIONS, enabledRunnerIds: ["cursor"] }).state;
+
+    expect(next.selectedRunner).toBe("cursor");
+  });
+
   test("enter on actions emits the current placeholder action message", () => {
     const focusedAction = reduceMainKey(
       reduceMainKey(reduceMainKey(seededState(), "TAB", KEY_OPTIONS).state, "TAB", KEY_OPTIONS).state,
