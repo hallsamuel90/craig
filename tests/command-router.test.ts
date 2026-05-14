@@ -39,6 +39,22 @@ describe("command routing", () => {
     });
   });
 
+  test("argv task new accepts explicit runner profiles", () => {
+    expect(parseArgv(["task", "new", "--repo", "repo_a", "ship default"]).command).toEqual({
+      kind: "createTask",
+      repoId: "repo_a",
+      prompt: "ship default",
+      runner: "codex",
+    });
+    expect(parseArgv(["task", "new", "--repo", "repo_a", "--runner", "claude", "ship claude"]).command).toEqual({
+      kind: "createTask",
+      repoId: "repo_a",
+      prompt: "ship claude",
+      runner: "claude",
+    });
+    expect(() => parseArgv(["task", "new", "--repo", "repo_a", "--runner", "vim", "ship"])).toThrow(/Unsupported runner/);
+  });
+
   test("shared executor registers a repo and creates a matching active workspace", async () => {
     const workspaceRoot = await createRepoRoot("craig-router-");
     const repoRoot = path.join(workspaceRoot, "repo-a");

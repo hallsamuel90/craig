@@ -20,6 +20,7 @@ describe("terminal app PTY attach flow", () => {
   const originalPath = process.env.PATH ?? "";
   const originalGhMode = process.env.CRAIG_TEST_GH_MODE;
   const originalGhViewFile = process.env.CRAIG_TEST_GH_VIEW_FILE;
+  const originalDisableCommandPathFallbacks = process.env.CRAIG_DISABLE_COMMAND_PATH_FALLBACKS;
   let stdinDescriptor: PropertyDescriptor | undefined;
   let stdoutDescriptor: PropertyDescriptor | undefined;
 
@@ -36,6 +37,7 @@ describe("terminal app PTY attach flow", () => {
     process.env.PATH = originalPath;
     process.env.CRAIG_TEST_GH_MODE = originalGhMode;
     process.env.CRAIG_TEST_GH_VIEW_FILE = originalGhViewFile;
+    process.env.CRAIG_DISABLE_COMMAND_PATH_FALLBACKS = originalDisableCommandPathFallbacks;
     await Promise.all(
       tempRoots.splice(0).map(async (root) => rm(root, { recursive: true, force: true, maxRetries: 3, retryDelay: 50 })),
     );
@@ -135,7 +137,7 @@ describe("terminal app PTY attach flow", () => {
     await expect(app).resolves.toBe(0);
   });
 
-    test("terminal mode treats wheel-generated up and down keys as viewport scroll", async () => {
+  test("terminal mode forwards up/down to PTY when not scrolled back, PAGE_UP starts scrollback", async () => {
     const root = await mkdtemp(join(tmpdir(), "craig-ui-app-"));
     tempRoots.push(root);
     const paths = await setupWorkspace(root);
@@ -147,16 +149,21 @@ describe("terminal app PTY attach flow", () => {
     terminal.emitKey("\r"); // boot start
     terminal.emitKey("ENTER");
     await vi.waitFor(() => expect(ptyRuntime.ensureSession).toHaveBeenCalled());
+
+    // UP/DOWN when not scrolled back go to PTY, not viewport scroll
     terminal.emitKey("UP");
     terminal.emitKey("DOWN");
-    terminal.emitKey("DOWN");
-    await vi.waitFor(() => expect(ptyRuntime.scrollViewport).toHaveBeenCalledWith(3));
+    await vi.waitFor(() => expect(ptyRuntime.writeKey).toHaveBeenCalledWith("UP"));
+    expect(ptyRuntime.writeKey).toHaveBeenCalledWith("DOWN");
+    expect(ptyRuntime.scrollViewport).not.toHaveBeenCalled();
+
+    // PAGE_UP always scrolls the viewport regardless of scroll state
+    terminal.emitKey("PAGE_UP");
+    await vi.waitFor(() => expect(ptyRuntime.scrollViewport).toHaveBeenCalledWith(-5));
+
     terminal.emitKey("\u001D");
     terminal.emitKey("q");
-
     await expect(app).resolves.toBe(0);
-    expect(ptyRuntime.writeKey).not.toHaveBeenCalledWith("UP");
-    expect(ptyRuntime.writeKey).not.toHaveBeenCalledWith("DOWN");
   });
 
   test("boot start hydrates and renders the restored selected PTY tab without attaching input", async () => {
@@ -193,7 +200,7 @@ describe("terminal app PTY attach flow", () => {
 
     await expect(app).resolves.toBe(0);
     expect(ptyRuntime.ensureSession).not.toHaveBeenCalled();
-    expect(terminal.frames.join("\n")).toContain("NORMAL   + new tab");
+    expect(terminal.frames.join("\n")).toContain("+ new tab");
   });
 
   test("raw terminal-kit unknown ctrl+] detaches from terminal mode", async () => {
@@ -254,7 +261,7 @@ describe("terminal app PTY attach flow", () => {
     await expect(app).resolves.toBe(0);
     expect(ptyRuntime.detach).toHaveBeenCalledTimes(1);
     await vi.waitFor(async () => expect(JSON.parse(await readFile(paths.uiStateFile, "utf8")).inputMode).toBe("control"));
-    expect(terminal.frames.join("\n")).toContain("NORMAL   + new tab");
+    expect(terminal.frames.join("\n")).toContain("+ new tab");
     expect(terminal.frames.join("\n")).not.toContain("terminal ▸ terminal mode");
   });
 
@@ -434,6 +441,8 @@ describe("terminal app PTY attach flow", () => {
     const root = await mkdtemp(join(tmpdir(), "craig-ui-app-"));
     tempRoots.push(root);
     const paths = await setupWorkspace(root);
+    const stubDir = await createStubCommands(root);
+    process.env.PATH = `${stubDir}:${originalPath}`;
     const terminal = new FakeTerminal();
     const ptyRuntime = new FakePtyRuntime();
     const app = startTerminalApp({ terminal, ptyRuntime, uiStateFile: paths.uiStateFile, workspaceRoot: root });
@@ -483,7 +492,7 @@ describe("terminal app PTY attach flow", () => {
     );
   });
 
-  test("center + creates a second terminal tab and enter attaches that concrete tab", async () => {
+  test("center + creates a second terminal tab and attaches that concrete tab", async () => {
     const root = await mkdtemp(join(tmpdir(), "craig-ui-app-"));
     tempRoots.push(root);
     const paths = await setupWorkspace(root);
@@ -494,8 +503,6 @@ describe("terminal app PTY attach flow", () => {
 
     terminal.emitKey("\r"); // boot start
     terminal.emitKey("+");
-    await vi.waitFor(() => expect(stripAnsi(terminal.frames.at(-1) ?? "")).toContain("TERMINAL 2"));
-    terminal.emitKey("ENTER");
     await vi.waitFor(() => expect(ptyRuntime.ensureSession).toHaveBeenCalledWith(
       "task_20260430_02",
       "task_20260430_02:terminal-2",
@@ -537,8 +544,6 @@ describe("terminal app PTY attach flow", () => {
     terminal.emitKey("\r"); // boot start
     await vi.waitFor(() => expect(ptyRuntime.hydrateSessions).toHaveBeenCalled());
     terminal.emitKey("+");
-    await vi.waitFor(() => expect(stripAnsi(terminal.frames.at(-1) ?? "")).toContain("CODEX 2"));
-    terminal.emitKey("ENTER");
     await vi.waitFor(() => expect(ptyRuntime.ensureSession).toHaveBeenCalledWith(
       "task_20260430_02",
       "task_20260430_02:agent-2",
@@ -589,8 +594,6 @@ describe("terminal app PTY attach flow", () => {
 
     terminal.emitKey("\r"); // boot start
     terminal.emitKey("a");
-    await vi.waitFor(() => expect(stripAnsi(terminal.frames.at(-1) ?? "")).toContain("Created tab: Codex"));
-    terminal.emitKey("ENTER");
     await vi.waitFor(() => expect(ptyRuntime.ensureSession).toHaveBeenCalledWith(
       "task_20260430_02",
       "task_20260430_02:agent",
@@ -608,6 +611,50 @@ describe("terminal app PTY attach flow", () => {
       title: "Codex",
     });
     expect(updatedTask.selectedPtyTabId).toBe("task_20260430_02:agent");
+  });
+
+  test("center t creates a terminal tab and attaches it immediately", async () => {
+    const root = await mkdtemp(join(tmpdir(), "craig-ui-app-"));
+    tempRoots.push(root);
+    const paths = await setupWorkspace(root);
+    await writeFile(
+      paths.uiStateFile,
+      JSON.stringify({
+        version: 1,
+        selectedRepoId: "repo_a",
+        selectedWorkspaceId: "workspace_repo_a",
+        selectedTaskId: "task_20260430_02",
+        selectedPtyTabId: "task_20260430_02:agent",
+        inputMode: "control",
+        focusedRegion: "center",
+        activeTab: "inspection",
+        preferredPtyTabKind: "agent",
+        selectedActionId: "commit",
+        updatedAt: "2026-05-04T00:00:00.000Z",
+      }),
+    );
+    const terminal = new FakeTerminal();
+    const ptyRuntime = new FakePtyRuntime();
+    const app = startTerminalApp({ terminal, ptyRuntime, uiStateFile: paths.uiStateFile, workspaceRoot: root });
+    await vi.waitFor(() => expect(terminal.hasKeyListener()).toBe(true));
+
+    terminal.emitKey("\r"); // boot start
+    terminal.emitKey("t");
+    await vi.waitFor(() => expect(ptyRuntime.ensureSession).toHaveBeenCalledWith(
+      "task_20260430_02",
+      "task_20260430_02:terminal-2",
+      expect.objectContaining({ columns: expect.any(Number) }),
+    ));
+    terminal.emitKey("\u001D");
+    terminal.emitKey("q");
+
+    await expect(app).resolves.toBe(0);
+    const updatedTask = await readTask(paths, "task_20260430_02");
+    expect(updatedTask.ptyTabs.find((tab) => tab.id === "task_20260430_02:terminal-2")).toMatchObject({
+      kind: "terminal",
+      title: "Terminal 2",
+    });
+    expect(updatedTask.selectedPtyTabId).toBe("task_20260430_02:terminal-2");
   });
 
   test("center + creates Codex by default when all task tabs are closed", async () => {
@@ -642,7 +689,12 @@ describe("terminal app PTY attach flow", () => {
 
     terminal.emitKey("\r"); // boot start
     terminal.emitKey("+");
-    await vi.waitFor(() => expect(stripAnsi(terminal.frames.at(-1) ?? "")).toContain("Created tab: Codex"));
+    await vi.waitFor(() => expect(ptyRuntime.ensureSession).toHaveBeenCalledWith(
+      "task_20260430_02",
+      "task_20260430_02:agent",
+      expect.objectContaining({ columns: expect.any(Number) }),
+    ));
+    terminal.emitKey("\u001D");
     terminal.emitKey("q");
 
     await expect(app).resolves.toBe(0);
@@ -652,7 +704,6 @@ describe("terminal app PTY attach flow", () => {
       kind: "agent",
       title: "Codex",
     });
-    expect(ptyRuntime.ensureSession).not.toHaveBeenCalled();
   });
 
   test("switching PTY tabs before creating another tab does not overwrite the new tab", async () => {
@@ -667,7 +718,12 @@ describe("terminal app PTY attach flow", () => {
     terminal.emitKey("\r"); // boot start
     terminal.emitKey("RIGHT"); // select terminal tab and trigger async selectedPtyTabId persistence
     terminal.emitKey("+"); // immediately create another terminal tab from that selection
-    await vi.waitFor(() => expect(stripAnsi(terminal.frames.at(-1) ?? "")).toContain("TERMINAL 2"));
+    await vi.waitFor(() => expect(ptyRuntime.ensureSession).toHaveBeenCalledWith(
+      "task_20260430_02",
+      "task_20260430_02:terminal-2",
+      expect.objectContaining({ columns: expect.any(Number) }),
+    ));
+    terminal.emitKey("\u001D");
     terminal.emitKey("q");
 
     await expect(app).resolves.toBe(0);
@@ -1143,6 +1199,13 @@ describe("terminal app PTY attach flow", () => {
     await vi.waitFor(() => expect(stripAnsi(terminal.frames.at(-1) ?? "")).toContain("  PR"));
     terminal.emitKey("R");
     await vi.waitFor(() => expect(stripAnsi(terminal.frames.at(-1) ?? "")).toContain("Refreshed checks: 2 reported"));
+    await vi.waitFor(async () => {
+      const refreshedTask = await readTask(paths, task.id);
+      expect(refreshedTask.pullRequest.requiredChecks.map((check) => `${check.name}:${check.status}`)).toEqual([
+        "ci:success",
+        "docs:skipped",
+      ]);
+    });
     terminal.emitKey("q");
 
     await expect(app).resolves.toBe(0);
@@ -1356,11 +1419,11 @@ describe("terminal app PTY attach flow", () => {
     terminal.emitKey("\r"); // boot start
     await vi.waitFor(() => expect(stripAnsi(terminal.frames.at(-1) ?? "")).toContain("TERMINAL  task_20260430_02"));
     terminal.emitKey("["); // focus left pane
-    await vi.waitFor(() => expect(stripAnsi(terminal.frames.at(-1) ?? "")).toContain("NORMAL   n new task"));
+    await vi.waitFor(() => expect(stripAnsi(terminal.frames.at(-1) ?? "")).toContain("n new task"));
     terminal.emitKey("x");
     await vi.waitFor(() => expect(stripAnsi(terminal.frames.at(-1) ?? "")).toContain("Archived task task_20260430_02"));
     await vi.waitFor(async () => expect((await readTask(paths, task.id)).status).toBe("closed"));
-    await vi.waitFor(() => expect(stripAnsi(terminal.frames.at(-1) ?? "")).toContain("└ no tasks yet"));
+    await vi.waitFor(() => expect(stripAnsi(terminal.frames.at(-1) ?? "")).toContain("· no tasks yet"));
     terminal.emitKey("q");
 
     await expect(app).resolves.toBe(0);
@@ -1522,6 +1585,8 @@ describe("terminal app PTY attach flow", () => {
     const root = await mkdtemp(join(tmpdir(), "craig-ui-app-"));
     tempRoots.push(root);
     const paths = await setupWorkspace(root);
+    const stubDir = await createStubCommands(root);
+    process.env.PATH = `${stubDir}:${originalPath}`;
     const terminal = new FakeTerminal();
     const ptyRuntime = new FakePtyRuntime();
     const app = startTerminalApp({ terminal, ptyRuntime, uiStateFile: paths.uiStateFile, workspaceRoot: root });
@@ -1545,6 +1610,82 @@ describe("terminal app PTY attach flow", () => {
     expect(ptyRuntime.ensureSession.mock.calls[0]?.[1]).toBe(`${createdTaskId}:agent`);
     const task = await readTask(paths, createdTaskId);
     expect(task.prompt.value).toBe("fix busted task launch");
+  });
+
+  test("creating a task from the left pane uses the selected runner profile", async () => {
+    const root = await mkdtemp(join(tmpdir(), "craig-ui-app-runner-"));
+    tempRoots.push(root);
+    const paths = await setupWorkspace(root);
+    const stubDir = await createStubCommands(root);
+    process.env.PATH = `${stubDir}:${originalPath}`;
+    const terminal = new FakeTerminal();
+    const ptyRuntime = new FakePtyRuntime();
+    const app = startTerminalApp({ terminal, ptyRuntime, uiStateFile: paths.uiStateFile, workspaceRoot: root });
+    await vi.waitFor(() => expect(terminal.hasKeyListener()).toBe(true));
+
+    terminal.emitKey("\r"); // boot start
+    terminal.emitKey("["); // focus left pane
+    terminal.emitKey("DOWN"); // + New Task
+    terminal.emitKey("r"); // Cursor
+    terminal.emitKey("r"); // Claude
+    terminal.emitKey("ENTER");
+    for (const char of "use claude runner") {
+      terminal.emitKey(char);
+    }
+    terminal.emitKey("ENTER");
+    await vi.waitFor(() => expect(ptyRuntime.ensureSession).toHaveBeenCalled());
+    terminal.emitKey("\u001D");
+    terminal.emitKey("q");
+
+    await expect(app).resolves.toBe(0);
+    const createdTaskId = String(ptyRuntime.ensureSession.mock.calls[0]?.[0] ?? "");
+    const task = await readTask(paths, createdTaskId);
+    expect(task.runner).toBe("claude");
+    expect(task.runnerSession.command).toEqual(["claude", "use claude runner"]);
+    expect(task.ptyTabs.find((tab) => tab.kind === "agent")).toMatchObject({
+      title: "Claude",
+      command: ["claude"],
+    });
+  });
+
+  test("missing selected runner binary leaves a durable failed task", async () => {
+    const root = await mkdtemp(join(tmpdir(), "craig-ui-app-missing-runner-"));
+    tempRoots.push(root);
+    const paths = await setupWorkspace(root);
+    const stubDir = await createStubCommands(root);
+    await rm(join(stubDir, "claude"), { force: true });
+    process.env.PATH = `${stubDir}:/bin:/usr/bin`;
+    process.env.CRAIG_DISABLE_COMMAND_PATH_FALLBACKS = "1";
+    const terminal = new FakeTerminal();
+    const ptyRuntime = new FakePtyRuntime();
+    const app = startTerminalApp({ terminal, ptyRuntime, uiStateFile: paths.uiStateFile, workspaceRoot: root });
+    await vi.waitFor(() => expect(terminal.hasKeyListener()).toBe(true));
+
+    terminal.emitKey("\r"); // boot start
+    terminal.emitKey("["); // focus left pane
+    terminal.emitKey("DOWN"); // + New Task
+    terminal.emitKey("r"); // Cursor
+    terminal.emitKey("r"); // Claude
+    terminal.emitKey("ENTER");
+    for (const char of "missing claude") {
+      terminal.emitKey(char);
+    }
+    terminal.emitKey("ENTER");
+    await vi.waitFor(async () => {
+      const tasks = await import("../src/services/list-tasks.js").then(({ listTasks }) => listTasks(paths));
+      expect(tasks.tasks.some((task) => task.runner === "claude" && task.runnerSession.lastKnownState === "failed")).toBe(true);
+    });
+    terminal.emitKey("q");
+
+    await expect(app).resolves.toBe(0);
+    expect(ptyRuntime.ensureSession).not.toHaveBeenCalled();
+    const taskIds = (await import("../src/services/list-tasks.js").then(({ listTasks }) => listTasks(paths))).tasks.map((task) => task.id);
+    const createdTaskId = taskIds.find((id) => id !== "task_20260430_02");
+    expect(createdTaskId).toBeDefined();
+    const task = await readTask(paths, createdTaskId!);
+    expect(task.runner).toBe("claude");
+    expect(task.runnerSession.lastKnownState).toBe("failed");
+    expect(task.lastFailureReason).toMatch(/claude/);
   });
 
   test("the left panel can open the new workspace browser and register a repo with arrow keys", async () => {
@@ -1649,6 +1790,7 @@ class FakeTerminal implements TerminalRuntime {
 
 class FakePtyRuntime implements PtyRuntimePort {
   private readonly hydratedTabIds = new Set<string>();
+  private scrollbackLines = 0;
   ensureSession = vi.fn((taskId: string, tabId: string): TerminalViewState => this.getRunningView(taskId, tabId));
   hydrateSessions = vi.fn((tabIds: string[]) => {
     for (const tabId of tabIds) {
@@ -1657,7 +1799,9 @@ class FakePtyRuntime implements PtyRuntimePort {
   });
   write = vi.fn();
   writeKey = vi.fn();
-  scrollViewport = vi.fn();
+  scrollViewport = vi.fn((lines: number) => {
+    this.scrollbackLines = Math.max(0, this.scrollbackLines - lines);
+  });
   resize = vi.fn();
   detach = vi.fn();
   disposeSession = vi.fn();
@@ -1672,6 +1816,7 @@ class FakePtyRuntime implements PtyRuntimePort {
       status: "idle",
       rows: [],
       error: null,
+      scrolledBack: false,
     };
   }
 
@@ -1680,6 +1825,7 @@ class FakePtyRuntime implements PtyRuntimePort {
       status: "running",
       rows: [{ segments: [{ text: `${taskId} ${tabId} $` }] }],
       error: null,
+      scrolledBack: this.scrollbackLines > 0,
     };
   }
 }

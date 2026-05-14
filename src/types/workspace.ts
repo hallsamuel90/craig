@@ -1,3 +1,5 @@
+import type { RunnerType } from "./task.js";
+
 export interface RepoRecord {
   id: string;
   name: string;
@@ -38,5 +40,6 @@ export interface CraigUiRuntime {
   selectedDiffPath?: string | null;
   collapsedFileTreePaths?: string[];
   selectedActionId?: "commit" | "push" | "create-pr" | "refresh-checks" | "merge" | "close-task";
+  selectedRunner?: RunnerType;
   updatedAt: string;
 }

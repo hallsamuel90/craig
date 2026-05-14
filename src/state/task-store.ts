@@ -1,9 +1,10 @@
 import { readFile } from "node:fs/promises";
 
-import type { RunnerSession, TaskPtyTabRecord, TaskRecord } from "../types/task.js";
+import type { RunnerSession, RunnerType, TaskPtyTabRecord, TaskRecord } from "../types/task.js";
 import type { CraigPaths } from "./craig-paths.js";
 import { atomicWriteJson } from "./atomic-write.js";
 import { readCraigIndex, writeCraigIndex } from "./state-store.js";
+import { buildRunnerCommand, getRunnerProfile, isRunnerType } from "../services/runner-profiles.js";
 
 export async function readTask(paths: CraigPaths, taskId: string): Promise<TaskRecord> {
   const raw = await readFile(getTaskFilePath(paths, taskId), "utf8");
@@ -64,6 +65,7 @@ function normalizeLegacyTaskRecord(value: unknown): unknown {
 
   return {
     ...candidate,
+    runner: normalizeRunner(candidate.runner),
     repoId: typeof candidate.repoId === "string" ? candidate.repoId : "legacy_repo",
     workspaceId: typeof candidate.workspaceId === "string" ? candidate.workspaceId : "legacy_workspace",
     sessionId:
@@ -86,12 +88,13 @@ function normalizeLegacyTaskRecord(value: unknown): unknown {
 }
 
 function buildLegacyRunnerSession(candidate: Partial<TaskRecord>): RunnerSession | null {
-  if (typeof candidate.runner !== "string" || typeof candidate.title !== "string") {
+  if (typeof candidate.title !== "string") {
     return null;
   }
+  const runner = normalizeRunner(candidate.runner);
 
   return {
-    command: [candidate.runner, "agent", candidate.title],
+    command: buildRunnerCommand(runner, candidate.title),
     pid: null,
     startedAt: null,
     lastKnownState: candidate.status === "running" ? "running" : "starting",
@@ -113,7 +116,7 @@ function isTaskRecord(value: unknown): value is TaskRecord {
     typeof candidate.slug === "string" &&
     candidate.type === "repo" &&
     typeof candidate.status === "string" &&
-    typeof candidate.runner === "string" &&
+    isRunnerType(candidate.runner ?? "") &&
     typeof candidate.repoId === "string" &&
     typeof candidate.workspaceId === "string" &&
     (typeof candidate.sessionId === "string" || candidate.sessionId === null) &&
@@ -149,16 +152,17 @@ function normalizeTaskPtyTabs(candidate: Partial<TaskRecord>): TaskPtyTabRecord[
   }
 
   const timestamp = typeof candidate.updatedAt === "string" ? candidate.updatedAt : new Date().toISOString();
-  return buildDefaultTaskPtyTabs(candidate.id, candidate.title, timestamp);
+  return buildDefaultTaskPtyTabs(candidate.id, candidate.title, timestamp, normalizeRunner(candidate.runner));
 }
 
-function buildDefaultTaskPtyTabs(taskId: string, _prompt: string, timestamp: string): TaskPtyTabRecord[] {
+function buildDefaultTaskPtyTabs(taskId: string, _prompt: string, timestamp: string, runner: RunnerType): TaskPtyTabRecord[] {
+  const profile = getRunnerProfile(runner);
   return [
     {
       id: `${taskId}:agent`,
       kind: "agent",
-      title: "Codex",
-      command: ["codex"],
+      title: profile.defaultAgentTitle,
+      command: buildRunnerCommand(runner),
       createdAt: timestamp,
       updatedAt: timestamp,
     },
@@ -171,6 +175,10 @@ function buildDefaultTaskPtyTabs(taskId: string, _prompt: string, timestamp: str
       updatedAt: timestamp,
     },
   ];
+}
+
+function normalizeRunner(value: string | null | undefined): RunnerType {
+  return value && isRunnerType(value) ? value : "codex";
 }
 
 function isTaskPtyTabs(value: TaskRecord["ptyTabs"] | undefined): value is TaskPtyTabRecord[] {

@@ -22,7 +22,7 @@ describe("terminal shell renderer", () => {
   test("renders the pause overlay with resume and exit actions", () => {
     const frame = renderPauseOverlayFrame(MIN_VIEWPORT, { color: false, menuIndex: 0 });
 
-    expect(frame).toContain("CRAIG paused");
+    expect(frame).toContain("Control mode is paused.");
     expect(frame).toContain("> Resume");
     expect(frame).toContain("  Options");
     expect(frame).toContain("  Exit");
@@ -41,7 +41,7 @@ describe("terminal shell renderer", () => {
     expect(frame).toContain("+ New Task");
     expect(frame).toContain("+ New Workspace");
     expect(frame).toContain("codex");
-    expect(frame).toContain("NORMAL   n new task");
+    expect(frame).toContain("n new task");
     expect(frame).toContain("▸ task_20260430_02");
     expect(frame).toContain("running ●");
     expect(frame).toContain("AGENT");
@@ -70,6 +70,43 @@ describe("terminal shell renderer", () => {
     expect(frame).toContain("TERMINAL  task_20260430_04");
     expect(frame).toContain("Press Enter on the TERMINAL");
     expect(frame).toContain("Mock action: push (phase 1.2).");
+  });
+
+  test("renders runner identity for tasks and the new-task selector", () => {
+    const codexTask = buildTaskRecord("/tmp/craig", {
+      id: "task_20260430_02",
+      repoId: "repo_bug_fixes",
+      workspaceId: "workspace_bug_fixes",
+    });
+    const claudeTask = buildTaskRecord("/tmp/craig", {
+      id: "task_20260430_03",
+      repoId: "repo_bug_fixes",
+      workspaceId: "workspace_bug_fixes",
+      runner: "claude",
+    });
+    const data = buildShellData(
+      {
+        ...createInitialShellState(null),
+        selectedRepoId: "repo_bug_fixes",
+        selectedTaskId: codexTask.id,
+        selectedLeftItemId: "new-task",
+        focusedRegion: "tasks",
+        selectedRunner: "claude",
+      },
+      {
+        workspaceRoot: "/tmp/craig",
+        repos: [{ id: "repo_bug_fixes", name: "bug-fixes", rootPath: "/tmp/craig", defaultBranch: "main", createdAt: "", updatedAt: "" }],
+        tasks: [codexTask, claudeTask],
+        inspection: null,
+      },
+    );
+
+    const frame = renderMainShellFrame(MIN_VIEWPORT, data, { color: false });
+
+    expect(frame).toContain("task_20260430_02 [codex]");
+    expect(frame).toContain("task_20260430_03 [claude]");
+    expect(frame).toContain("+ New Task [Claude]");
+    expect(frame).toContain("claude");
   });
 
   test("renders files tab with right-panel file tree and selected file content", () => {

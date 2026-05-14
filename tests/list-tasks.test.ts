@@ -98,7 +98,7 @@ describe("listTasks", () => {
     expect(result.missingTaskIds).toEqual([]);
     expect(result.tasks).toHaveLength(1);
     expect(result.tasks[0]?.runnerSession).toEqual({
-      command: ["cursor", "agent", "legacy task"],
+      command: ["cursor-agent", "legacy task"],
       pid: null,
       startedAt: null,
       lastKnownState: "running",

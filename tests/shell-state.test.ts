@@ -8,9 +8,10 @@ const LEFT_ITEM_IDS = [
   "repo:repo_bug_fixes",
   "task:task_20260430_02",
   "task:task_20260430_03",
+  "new-task:repo_bug_fixes",
   "repo:repo_testing",
   "task:task_20260430_04",
-  "new-task",
+  "new-task:repo_testing",
   "new-workspace",
 ];
 const CENTER_TAB_IDS = ["task_20260430_02:agent", "task_20260430_02:terminal", "inspection"];
@@ -287,13 +288,27 @@ describe("terminal shell control state", () => {
   test("enter on the new task row opens the task prompt from the left pane", () => {
     const state = {
       ...seededState(),
-      selectedLeftItemId: "new-task",
+      selectedLeftItemId: "new-task:repo_bug_fixes",
     };
     const result = reduceMainKey(state, "ENTER", KEY_OPTIONS);
 
     expect(result.beginTaskPrompt).toBe(true);
     expect(result.state.taskPromptInput).toBe("");
     expect(result.attachTerminal).toBe(false);
+  });
+
+  test("r cycles the selected runner while the new task row is focused", () => {
+    const state = {
+      ...seededState(),
+      selectedLeftItemId: "new-task:repo_bug_fixes",
+    };
+    const cursor = reduceMainKey(state, "r", KEY_OPTIONS).state;
+    const claude = reduceMainKey(cursor, "r", KEY_OPTIONS).state;
+    const codex = reduceMainKey(claude, "r", KEY_OPTIONS).state;
+
+    expect(cursor.selectedRunner).toBe("cursor");
+    expect(claude.selectedRunner).toBe("claude");
+    expect(codex.selectedRunner).toBe("codex");
   });
 
   test("enter on actions emits the current placeholder action message", () => {

@@ -8,7 +8,7 @@ export type TaskStatus =
   | "merge_ready"
   | "merged"
   | "closed";
-export type RunnerType = "cursor" | "codex";
+export type RunnerType = "codex" | "cursor" | "claude";
 
 export interface TaskPromptSource {
   source: "inline" | "file";
@@ -66,6 +66,7 @@ export type TaskPtyTabKind = "agent" | "terminal";
 export interface TaskPtyTabRecord {
   id: string;
   kind: TaskPtyTabKind;
+  runner?: RunnerType;
   title: string;
   command: string[];
   createdAt: string;

@@ -1,7 +1,8 @@
 import { getDefaultUiState } from "../state/ui-state-store.js";
-import type { TaskPtyTabKind, TaskRecord } from "../types/task.js";
+import type { RunnerType, TaskPtyTabKind, TaskRecord } from "../types/task.js";
 import type { RepoRecord } from "../types/workspace.js";
 import type { CraigUiRuntime } from "../types/workspace.js";
+import { RUNNER_IDS, isRunnerType } from "../services/runner-profiles.js";
 import type { TerminalScreenRow } from "./terminal-emulator.js";
 
 export const FOCUS_REGIONS = ["tasks", "center", "inspector", "actions"] as const;
@@ -42,6 +43,7 @@ export interface TerminalViewState {
   status: TerminalStatus;
   rows: TerminalScreenRow[];
   error: string | null;
+  scrolledBack?: boolean;
 }
 
 export interface ControlShellState {
@@ -63,6 +65,8 @@ export interface ControlShellState {
   fileScrollOffset: number;
   diffScrollOffset: number;
   selectedActionId: ActionId;
+  selectedRunner: RunnerType;
+  centerTabRunner: RunnerType | null;
   actionMessage: string | null;
   taskPromptInput: string | null;
   taskPromptError: string | null;
@@ -97,6 +101,7 @@ export interface MainKeyResult {
   openWorkspaceBrowser: boolean;
   createPtyTab: boolean;
   createPtyTabKind: TaskPtyTabKind | null;
+  createPtyTabRunner: RunnerType | null;
   closePtyTab: boolean;
   syncPullRequest: boolean;
   refreshPullRequestChecks: boolean;
@@ -143,6 +148,8 @@ export function createInitialShellState(runtime: CraigUiRuntime | null): Control
     fileScrollOffset: 0,
     diffScrollOffset: 0,
     selectedActionId: getValidValue(runtime?.selectedActionId, ACTION_IDS, "commit"),
+    selectedRunner: getValidRunner(runtime?.selectedRunner),
+    centerTabRunner: null,
     actionMessage: null,
     taskPromptInput: null,
     taskPromptError: null,
@@ -157,6 +164,7 @@ export function createDefaultTerminalViewState(): TerminalViewState {
     status: "idle",
     rows: [],
     error: null,
+    scrolledBack: false,
   };
 }
 
@@ -178,6 +186,7 @@ export function toPersistedUiState(runtime: CraigUiRuntime | null, state: Contro
     selectedDiffPath: state.selectedDiffPath,
     collapsedFileTreePaths: state.collapsedFileTreePaths,
     selectedActionId: state.selectedActionId,
+    selectedRunner: state.selectedRunner,
   };
 }
 
@@ -255,6 +264,18 @@ export function reduceMainKey(state: ControlShellState, key: string, options: Re
     });
   }
 
+  if ((key === "r" || key === "R") && state.focusedRegion === "tasks" && isNewTaskLeftItemId(state.selectedLeftItemId)) {
+    return result({
+      state: {
+        ...state,
+        selectedRunner: getNextRunner(state.selectedRunner),
+        actionMessage: null,
+        taskPromptError: null,
+      },
+      changed: true,
+    });
+  }
+
   if (key === "TAB" || key === "]") {
     return updateFocus(state, 1);
   }
@@ -302,6 +323,16 @@ export function reduceMainKey(state: ControlShellState, key: string, options: Re
     return scrollInspectionContent(state, 3, options);
   }
 
+  if (key === "r" && state.focusedRegion === "center" && state.selectedTaskId) {
+    const runners = RUNNER_IDS as readonly RunnerType[];
+    const currentIndex = state.centerTabRunner ? runners.indexOf(state.centerTabRunner) : -1;
+    const nextRunner: RunnerType | null = currentIndex === runners.length - 1 ? null : runners[currentIndex + 1]!;
+    return result({
+      state: { ...state, centerTabRunner: nextRunner, actionMessage: null },
+      changed: true,
+    });
+  }
+
   if ((key === "+" || key === "a" || key === "A" || key === "t" || key === "T") && state.focusedRegion === "center" && state.selectedTaskId) {
     const kind = getCreatePtyTabKind(state, key);
     return result({
@@ -309,6 +340,7 @@ export function reduceMainKey(state: ControlShellState, key: string, options: Re
       changed: true,
       createPtyTab: true,
       createPtyTabKind: kind,
+      createPtyTabRunner: kind === "agent" ? state.centerTabRunner : null,
     });
   }
 
@@ -379,10 +411,12 @@ export function reduceMainKey(state: ControlShellState, key: string, options: Re
   }
 
   if (isEnterKey(key)) {
-    if (state.focusedRegion === "tasks" && state.selectedLeftItemId === "new-task") {
+    if (state.focusedRegion === "tasks" && isNewTaskLeftItemId(state.selectedLeftItemId)) {
+      const repoId = getNewTaskRepoId(state.selectedLeftItemId);
       return result({
         state: {
           ...state,
+          selectedRepoId: repoId ?? state.selectedRepoId,
           actionMessage: null,
           taskPromptInput: "",
           taskPromptError: null,
@@ -693,6 +727,17 @@ function moveLeftSelection(state: ControlShellState, direction: -1 | 1, leftItem
         diffScrollOffset: 0,
       },
       refreshInspection: true,
+    };
+  }
+
+  const newTaskRepoId = getNewTaskRepoId(next.state.selectedLeftItemId);
+  if (newTaskRepoId) {
+    return {
+      ...next,
+      state: {
+        ...next.state,
+        selectedRepoId: newTaskRepoId,
+      },
     };
   }
 
@@ -1020,6 +1065,7 @@ function result(input: {
   openWorkspaceBrowser?: boolean;
   createPtyTab?: boolean;
   createPtyTabKind?: TaskPtyTabKind | null;
+  createPtyTabRunner?: RunnerType | null;
   closePtyTab?: boolean;
   syncPullRequest?: boolean;
   refreshPullRequestChecks?: boolean;
@@ -1038,6 +1084,7 @@ function result(input: {
     openWorkspaceBrowser: input.openWorkspaceBrowser ?? false,
     createPtyTab: input.createPtyTab ?? false,
     createPtyTabKind: input.createPtyTabKind ?? null,
+    createPtyTabRunner: input.createPtyTabRunner ?? null,
     closePtyTab: input.closePtyTab ?? false,
     syncPullRequest: input.syncPullRequest ?? false,
     refreshPullRequestChecks: input.refreshPullRequestChecks ?? false,
@@ -1085,6 +1132,15 @@ function getValidPtyTabKind(value: string | null | undefined): TaskPtyTabKind {
 
 function getValidInputMode(value: string | null | undefined): InputMode {
   return value === "terminal" ? "terminal" : "control";
+}
+
+function getValidRunner(value: string | null | undefined): RunnerType {
+  return value && isRunnerType(value) ? value : "codex";
+}
+
+export function getNextRunner(runner: RunnerType): RunnerType {
+  const index = RUNNER_IDS.indexOf(runner);
+  return RUNNER_IDS[(index + 1) % RUNNER_IDS.length] ?? "codex";
 }
 
 function getPtyTabKindFromId(tabId: string): TaskPtyTabKind | null {
@@ -1232,9 +1288,9 @@ function getLeftItemIds(model: RestoreShellModel): string[] {
     for (const task of model.tasks.filter((entry) => entry.repoId === repo.id)) {
       itemIds.push(`task:${task.id}`);
     }
+    itemIds.push(`new-task:${repo.id}`);
   }
 
-  itemIds.push("new-task");
   itemIds.push("new-workspace");
   return itemIds;
 }
@@ -1263,8 +1319,17 @@ function buildSelectedTaskLeftItemId(taskId: string | null): LeftNavItemId | nul
   return taskId ? `task:${taskId}` : null;
 }
 
-function isTaskLeftItemId(value: LeftNavItemId | null): boolean {
+export function isTaskLeftItemId(value: LeftNavItemId | null): boolean {
   return typeof value === "string" && value.startsWith("task:");
+}
+
+function isNewTaskLeftItemId(value: LeftNavItemId | null): boolean {
+  return typeof value === "string" && value.startsWith("new-task:");
+}
+
+function getNewTaskRepoId(value: LeftNavItemId | null): string | null {
+  if (!isNewTaskLeftItemId(value)) return null;
+  return (value as string).slice("new-task:".length);
 }
 
 function clamp(value: number, min: number, max: number): number {

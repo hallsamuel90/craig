@@ -1,5 +1,5 @@
 import type { SessionRecord } from "./session.js";
-import type { TaskRecord } from "./task.js";
+import type { RunnerType, TaskRecord } from "./task.js";
 import type { RepoRecord, WorkspaceRecord } from "./workspace.js";
 
 export type AppCommand =
@@ -9,7 +9,7 @@ export type AppCommand =
   | { kind: "listWorkspaces"; archived: boolean }
   | { kind: "archiveWorkspace"; workspaceId: string }
   | { kind: "restoreWorkspace"; workspaceId: string }
-  | { kind: "createTask"; repoId: string; prompt: string }
+  | { kind: "createTask"; repoId: string; prompt: string; runner?: RunnerType }
   | { kind: "listTasks"; repoId?: string }
   | { kind: "attachTask"; taskId: string }
   | { kind: "addTaskLink"; taskId: string; repoId: string }

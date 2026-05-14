@@ -66,14 +66,14 @@ describe("Craig terminal mode E2E", () => {
     try {
       await output.waitFor("> Start");
       child.write("\r");
-      await output.waitFor("NORMAL   + new tab");
+      await output.waitFor("+ new tab");
       child.write("\r");
       await output.waitFor("TERMINAL   ↑↓/PgUp/PgDn scroll");
 
       child.write(`printf '\\033[3;12H${cursorMarker}'\r`);
       await output.waitForLatestFrame(cursorMarker);
       child.write("\u001D");
-      await output.waitForLatestFrame("NORMAL   + new tab");
+      await output.waitForLatestFrame("+ new tab");
       child.write("\r");
       await output.waitForLatestFrame("TERMINAL   ↑↓/PgUp/PgDn scroll");
       await output.waitForLatestFrame(cursorMarker);
@@ -147,7 +147,7 @@ describe("Craig terminal mode E2E", () => {
     try {
       await output.waitFor("> Start");
       child.write("\r");
-      await output.waitFor("NORMAL   + new tab");
+      await output.waitFor("+ new tab");
       child.write("\r");
       await output.waitFor("codex_stub_started");
       await output.waitForLatestFrame("codex_stub_bottom_bar");
@@ -158,6 +158,83 @@ describe("Craig terminal mode E2E", () => {
       expect(frame).toContain("codex_stub_bottom_bar");
       expect(frame).toContain("48;2;42;42;42");
       expect(frame).toContain("codex_stub_task_dir:task_20260430_02");
+    } finally {
+      child.kill();
+      await rm(workspaceRoot, { recursive: true, force: true });
+    }
+  }, 15000);
+
+  test.each([
+    ["cursor", "cursor-agent"],
+    ["claude", "claude"],
+  ] as const)("attaching the selected %s agent task starts the runner in that task worktree", async (runner, executable) => {
+    const repoRoot = process.cwd();
+    const workspaceRoot = await mkdtemp(join(tmpdir(), `craig-terminal-e2e-${runner}-`)).then((value) => realpath(value));
+    await createCraigState(workspaceRoot, ["task_20260430_02"]);
+    const sourceRepo = join(workspaceRoot, "repo-a");
+    await mkdir(sourceRepo, { recursive: true });
+    await createGitRepo(sourceRepo);
+    await writeFile(join(sourceRepo, "README.md"), "# repo-a\n", "utf8");
+    await runCommand("git", ["add", "README.md"], { cwd: sourceRepo });
+    await runCommand("git", ["commit", "-m", "init"], { cwd: sourceRepo });
+    await writeRepoRecord(
+      workspaceRoot,
+      {
+        id: "repo_a",
+        name: "repo-a",
+        rootPath: sourceRepo,
+        defaultBranch: "main",
+        createdAt: "2026-05-04T00:00:00.000Z",
+        updatedAt: "2026-05-04T00:00:00.000Z",
+      },
+      {
+        id: "workspace_repo_a",
+        primaryRepoId: "repo_a",
+        branch: "main",
+        status: "active",
+        linkedRepoIds: [],
+        archivedAt: null,
+        createdAt: "2026-05-04T00:00:00.000Z",
+        updatedAt: "2026-05-04T00:00:00.000Z",
+      },
+    );
+    const taskWorktree = join(workspaceRoot, "worktrees", "repo-a", "task_20260430_02");
+    await mkdir(taskWorktree, { recursive: true });
+    await writeTaskRecord(workspaceRoot, {
+      id: "task_20260430_02",
+      repoId: "repo_a",
+      workspaceId: "workspace_repo_a",
+      runner,
+      worktreePath: taskWorktree,
+      selectedPtyTabId: "task_20260430_02:agent",
+    });
+    const stubDir = await createSimpleAgentHarnessStub(workspaceRoot, executable, runner);
+    await writeAgentUiState(workspaceRoot);
+    const output = new PtyOutputBuffer();
+
+    const child = spawn(resolve(repoRoot, "node_modules/.bin/tsx"), [resolve(repoRoot, "src/cli.ts")], {
+      cwd: workspaceRoot,
+      cols: 120,
+      rows: 36,
+      env: {
+        ...process.env,
+        PATH: `${stubDir}:${process.env.PATH ?? ""}`,
+        SHELL: process.env.SHELL ?? "/bin/zsh",
+        TERM: "xterm-256color",
+      },
+    });
+
+    child.onData((chunk) => output.append(chunk));
+
+    try {
+      await output.waitFor("> Start");
+      child.write("\r");
+      await output.waitFor("+ new tab");
+      child.write("\r");
+      await output.waitFor(`${runner}_stub_started`);
+      const frame = output.latestFrame();
+      expect(frame).toContain(`${runner}_stub_started`);
+      expect(output.value).toContain(`${runner}_stub_task_dir_ok`);
     } finally {
       child.kill();
       await rm(workspaceRoot, { recursive: true, force: true });
@@ -300,7 +377,7 @@ describe("Craig terminal mode E2E", () => {
       first.onData((chunk) => firstOutput.append(chunk));
       await firstOutput.waitFor("> Start");
       first.write("\r");
-      await firstOutput.waitFor("NORMAL   + new tab");
+      await firstOutput.waitFor("+ new tab");
       first.write("\r");
       await firstOutput.waitForLatestFrame("codex_stub_started");
       first.kill();
@@ -471,6 +548,32 @@ if [ "\${1:-}" = "--help" ]; then
   exit 0
 fi
 exec node "${probePath}" "$@"
+`,
+    "utf8",
+  );
+  await chmod(stubPath, 0o755);
+  return stubDir;
+}
+
+async function createSimpleAgentHarnessStub(workspaceRoot: string, executable: string, marker: string): Promise<string> {
+  const stubDir = join(workspaceRoot, `${marker}-harness`);
+  const stubPath = join(stubDir, executable);
+  await mkdir(stubDir, { recursive: true });
+  await writeFile(
+    stubPath,
+    `#!/bin/sh
+set -eu
+if [ "\${1:-}" = "--help" ]; then
+  exit 0
+fi
+echo "${marker}_stub_started"
+if [ "$(basename "$PWD")" = "task_20260430_02" ]; then
+  echo "${marker}_stub_task_dir_ok"
+else
+  echo "${marker}_stub_task_dir_bad:$(basename "$PWD")"
+fi
+echo "${marker}_stub_prompt:$*"
+sleep 5
 `,
     "utf8",
   );

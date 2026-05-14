@@ -3,6 +3,8 @@ import type { SessionRecord } from "../types/session.js";
 import type { TaskRecord } from "../types/task.js";
 import { runCommand } from "../utils/exec.js";
 import { shellEscape } from "../utils/shell-escape.js";
+import { requireExecutablePath, withDefaultCommandPath } from "../utils/command-path.js";
+import { buildRunnerCommand, getRunnerProfile } from "./runner-profiles.js";
 import { sendCommandToPane } from "./tmux-session.js";
 
 export interface RunnerAdapter {
@@ -13,15 +15,22 @@ export interface RunnerAdapter {
   collectArtifacts(...args: [TaskRecord, { session: SessionRecord }]): Promise<void>;
 }
 
-export const codexRunnerAdapter: RunnerAdapter = {
-  async prepare(_task, input) {
-    await runCommand("codex", ["--help"], { cwd: input.repoRoot });
+export const commandRunnerAdapter: RunnerAdapter = {
+  async prepare(task, input) {
+    const profile = getRunnerProfile(task.runner);
+    const env = withDefaultCommandPath();
+    await runCommand(requireExecutablePath(profile.executable, { cwd: input.repoRoot, env }), ["--help"], {
+      cwd: input.repoRoot,
+      env,
+    });
   },
 
   async launch(task, input) {
+    const command = buildRunnerCommand(task.runner, task.prompt.value);
+    const executable = requireExecutablePath(command[0]!, { cwd: task.worktreePath, env: withDefaultCommandPath() });
     await sendCommandToPane(
       input.session.paneId,
-      `codex ${shellEscape(task.prompt.value)}`,
+      [executable, ...command.slice(1)].map((part) => shellEscape(part)).join(" "),
       input.repoRoot,
     );
   },
@@ -38,3 +47,5 @@ export const codexRunnerAdapter: RunnerAdapter = {
     return;
   },
 };
+
+export const codexRunnerAdapter = commandRunnerAdapter;

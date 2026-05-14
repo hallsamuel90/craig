@@ -91,13 +91,17 @@ describe("PTY daemon", () => {
     const spawn = vi.fn()
       .mockReturnValueOnce(terminalPty)
       .mockReturnValueOnce(agentPty);
-    const daemon = servePtyDaemon(paths, { shell: "/bin/zsh", env: { TERM: "xterm-256color" }, spawn });
+    let daemon: Promise<void> | null = null;
+    const spawnDaemon = () => {
+      daemon = servePtyDaemon(paths, { shell: "/bin/zsh", env: { TERM: "xterm-256color" }, spawn });
+    };
 
     try {
       const first = await createDaemonPtyRuntime({
         paths,
         workspaceRoot: root,
         resolveSessionSpec: () => ({ cwd: root, command: [] }),
+        spawnDaemon,
       });
       await first.ensureSession("task_1", "task_1:terminal", { columns: 80, rows: 24 });
       await first.ensureSession("task_1", "task_1:agent", { columns: 80, rows: 24 });
@@ -109,6 +113,7 @@ describe("PTY daemon", () => {
         paths,
         workspaceRoot: root,
         resolveSessionSpec: () => ({ cwd: root, command: [] }),
+        spawnDaemon,
       });
       await second.hydrateSessions(["task_1:terminal", "task_1:agent"]);
       await second.ensureSession("task_1", "task_1:terminal", { columns: 90, rows: 30 });
@@ -122,7 +127,9 @@ describe("PTY daemon", () => {
       second.disposeAll();
     } finally {
       await requestDaemonShutdown(paths);
-      await daemon;
+      if (daemon) {
+        await daemon;
+      }
       await rm(root, { recursive: true, force: true });
     }
   }, DAEMON_TEST_TIMEOUT_MS);
