@@ -1,7 +1,9 @@
-import { readFile } from "node:fs/promises";
+import { mkdir, readFile, writeFile } from "node:fs/promises";
+import path from "node:path";
 
 import type { CraigConfig } from "../types/config.js";
 import type { CraigPaths } from "./craig-paths.js";
+import { RUNNER_IDS } from "../services/runner-profiles.js";
 
 export async function readCraigConfig(paths: CraigPaths): Promise<CraigConfig> {
   try {
@@ -24,12 +26,45 @@ export async function readCraigConfig(paths: CraigPaths): Promise<CraigConfig> {
   }
 }
 
+export async function writeCraigConfig(paths: CraigPaths, config: CraigConfig): Promise<void> {
+  validateCraigConfig(config, paths.configFile);
+  await mkdir(path.dirname(paths.configFile), { recursive: true });
+  await writeFile(paths.configFile, `${JSON.stringify(config, null, 2)}\n`, "utf8");
+}
+
 function validateCraigConfig(value: unknown, filePath: string): CraigConfig {
   if (typeof value !== "object" || value === null) {
     throw new Error(`Craig config at ${filePath} is invalid. Expected a JSON object.`);
   }
 
   const candidate = value as CraigConfig;
+
+  if (candidate.runners !== undefined) {
+    if (typeof candidate.runners !== "object" || candidate.runners === null || Array.isArray(candidate.runners)) {
+      throw new Error(`Craig config at ${filePath} is invalid. "runners" must be an object.`);
+    }
+
+    for (const [runner, runnerConfig] of Object.entries(candidate.runners)) {
+      if (!(RUNNER_IDS as readonly string[]).includes(runner)) {
+        throw new Error(
+          `Craig config at ${filePath} is invalid. "runners.${runner}" is not supported. Expected one of: ${RUNNER_IDS.join(", ")}.`,
+        );
+      }
+
+      if (typeof runnerConfig !== "object" || runnerConfig === null || Array.isArray(runnerConfig)) {
+        throw new Error(`Craig config at ${filePath} is invalid. "runners.${runner}" must be an object.`);
+      }
+
+      const settings = runnerConfig as { enabled?: unknown; path?: unknown };
+      if (settings.enabled !== undefined && typeof settings.enabled !== "boolean") {
+        throw new Error(`Craig config at ${filePath} is invalid. "runners.${runner}.enabled" must be a boolean.`);
+      }
+
+      if (settings.path !== undefined && (typeof settings.path !== "string" || settings.path.trim().length === 0)) {
+        throw new Error(`Craig config at ${filePath} is invalid. "runners.${runner}.path" must be a non-empty string.`);
+      }
+    }
+  }
 
   if (candidate.checks !== undefined) {
     if (

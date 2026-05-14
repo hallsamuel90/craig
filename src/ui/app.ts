@@ -5,6 +5,8 @@ import type * as TerminalKitModule from "terminal-kit";
 
 import { listRepos } from "../state/repo-store.js";
 import { getDefaultUiState, readUiState, writeUiState } from "../state/ui-state-store.js";
+import { readCraigConfig, writeCraigConfig } from "../state/config-store.js";
+import type { CraigConfig } from "../types/config.js";
 import { readTask, writeTask } from "../state/task-store.js";
 import { getCraigPaths } from "../state/craig-paths.js";
 import { ensureCraigState } from "../state/ensure-state.js";
@@ -16,7 +18,14 @@ import { loadTaskLocalInspection, type InspectionTreeRow } from "../services/tas
 import { openPullRequest, refreshPullRequestChecks } from "../services/open-pull-request.js";
 import { mergeTask } from "../services/merge-task.js";
 import { closeTask } from "../services/close-task.js";
-import { buildRunnerCommand, getRunnerProfile } from "../services/runner-profiles.js";
+import {
+  assertRunnerEnabled,
+  buildRunnerCommand,
+  getConfiguredRunnerProfile,
+  getDefaultRunner,
+  getEnabledRunnerIds,
+  getRunnerProfile,
+} from "../services/runner-profiles.js";
 import { runCommand } from "../utils/exec.js";
 import { requireExecutablePath, withDefaultCommandPath } from "../utils/command-path.js";
 import {
@@ -29,6 +38,14 @@ import { getViewport, SHELL_LAYOUT, type Viewport } from "./layout.js";
 import type { PtyRuntimeOptions, PtySize } from "./pty-runtime.js";
 import { createDaemonPtyRuntime } from "./pty-daemon.js";
 import { CENTER_TERMINAL_GUTTER, renderBootOverlayFrame, renderHelpOverlayFrame, renderMainShellFrame, renderOptionsOverlayFrame, renderPauseOverlayFrame } from "./render.js";
+import {
+  buildRunnersSubmenuItems,
+  getRunnersSubmenuMessage,
+  reduceOptionsMenuKey,
+  reduceRunnerOptionsKey,
+  OPTIONS_MENU_ITEMS,
+  type RunnerOptionsState,
+} from "./options.js";
 import {
   createInitialShellState,
   buildCenterTabIds,
@@ -46,9 +63,18 @@ import {
   type WorkspaceBrowserState,
 } from "./state.js";
 
-type OverlayVariant = "boot" | "pause" | "help" | "options";
+type OverlayVariant = "boot" | "pause" | "help" | "options" | "runners";
 type AppState =
-  | { mode: "overlay"; variant: OverlayVariant; menuIndex: number; optionsMessage: string | null; shell: ControlShellState; parentVariant?: "boot" | "pause"; viaOptions?: boolean }
+  | {
+      mode: "overlay";
+      variant: OverlayVariant;
+      menuIndex: number;
+      optionsMessage: string | null;
+      shell: ControlShellState;
+      parentVariant?: "boot" | "pause";
+      viaOptions?: boolean;
+      runnerOptions?: RunnerOptionsState;
+    }
   | { mode: "main"; shell: ControlShellState };
 
 /* eslint-disable no-unused-vars */
@@ -100,12 +126,14 @@ export async function startTerminalApp(options: TerminalAppOptions = {}): Promis
   const workspaceRoot = options.workspaceRoot ?? process.cwd();
   const paths = getCraigPaths(workspaceRoot);
   await ensureCraigState(workspaceRoot);
+  let config = await readCraigConfig(paths);
+  let enabledRunnerIds = getEnabledRunnerIds(config);
   let runtimeState = options.uiStateFile ? await readUiState({ uiStateFile: options.uiStateFile }) : null;
   let persistQueue = Promise.resolve();
   let taskMutationQueue = Promise.resolve();
-  let model = await loadWorkspaceShellModel(workspaceRoot);
-  const initialShell = restoreShellState(createInitialShellState(runtimeState), model);
-  model = await loadWorkspaceShellModel(workspaceRoot, initialShell);
+  let model = await loadWorkspaceShellModel(workspaceRoot, undefined, enabledRunnerIds);
+  const initialShell = restoreShellState(createInitialShellState(runtimeState, config), model);
+  model = await loadWorkspaceShellModel(workspaceRoot, initialShell, enabledRunnerIds);
   let handlePtyUpdate: () => void = () => undefined;
   const ptyOptions: PtyRuntimeOptions = {
     workspaceRoot,
@@ -227,7 +255,39 @@ export async function startTerminalApp(options: TerminalAppOptions = {}): Promis
         fileLineCount: selectedInspection?.selectedFile.lines.length ?? 0,
         diffLineCount: getCombinedDiffLineCount(selectedInspection),
         pageRows: Math.max(5, getViewport(activeTerminal.width, activeTerminal.height).height - SHELL_LAYOUT.topRailHeight - 8),
+        enabledRunnerIds,
       };
+    }
+
+    async function updateRunnerOptions(nextConfig: CraigConfig): Promise<void> {
+      await writeCraigConfig(paths, nextConfig);
+      config = nextConfig;
+      enabledRunnerIds = getEnabledRunnerIds(config);
+      model = {
+        ...model,
+        enabledRunnerIds,
+      };
+      if (state.mode === "main") {
+        state = {
+          mode: "main",
+          shell: syncShell({
+            ...state.shell,
+            selectedRunner: enabledRunnerIds.includes(state.shell.selectedRunner)
+              ? state.shell.selectedRunner
+              : getDefaultRunner(config),
+          }),
+        };
+      } else {
+        state = {
+          ...state,
+          shell: syncShell({
+            ...state.shell,
+            selectedRunner: enabledRunnerIds.includes(state.shell.selectedRunner)
+              ? state.shell.selectedRunner
+              : getDefaultRunner(config),
+          }),
+        };
+      }
     }
 
     async function persistTaskPtySelection(shell: ControlShellState): Promise<void> {
@@ -254,7 +314,7 @@ export async function startTerminalApp(options: TerminalAppOptions = {}): Promis
 
     async function reloadModel(): Promise<void> {
       const shell = state.mode === "main" ? state.shell : state.shell;
-      model = await loadWorkspaceShellModel(workspaceRoot, shell);
+      model = await loadWorkspaceShellModel(workspaceRoot, shell, enabledRunnerIds);
       if (state.mode === "main") {
         state = { mode: "main", shell: syncShell(state.shell) };
       } else {
@@ -263,7 +323,7 @@ export async function startTerminalApp(options: TerminalAppOptions = {}): Promis
     }
 
     async function refreshInspection(shell: ControlShellState): Promise<void> {
-      model = await loadWorkspaceShellModel(workspaceRoot, shell);
+      model = await loadWorkspaceShellModel(workspaceRoot, shell, enabledRunnerIds);
       if (state.mode === "main") {
         state = { mode: "main", shell: syncShell(shell) };
       }
@@ -375,7 +435,7 @@ export async function startTerminalApp(options: TerminalAppOptions = {}): Promis
       const updatedTask = await queueTaskMutation(async () => {
         const task = await readTask(paths, syncedShell.selectedTaskId!);
         const kind = requestedKind ?? resolveNewPtyTabKind(task, syncedShell.activeTab, syncedShell.preferredPtyTabKind);
-        const tab = createNextPtyTab(task, kind, requestedRunner ?? undefined);
+        const tab = createNextPtyTab(task, kind, requestedRunner ?? undefined, config);
         const nextTask: TaskRecord = {
           ...task,
           ptyTabs: [...task.ptyTabs, tab],
@@ -531,7 +591,7 @@ export async function startTerminalApp(options: TerminalAppOptions = {}): Promis
         return updatedTask;
       }
 
-      const tab = createNextPtyTab(task, "agent");
+      const tab = createNextPtyTab(task, "agent", undefined, config);
       const updatedTask = {
         ...task,
         ptyTabs: [...task.ptyTabs, tab],
@@ -568,8 +628,18 @@ export async function startTerminalApp(options: TerminalAppOptions = {}): Promis
             : state.variant === "pause"
               ? renderPauseOverlayFrame(viewport, { menuIndex: state.menuIndex, optionsMessage: state.optionsMessage })
               : state.variant === "options"
-                ? renderOptionsOverlayFrame(viewport, { menuIndex: state.menuIndex })
-                : renderHelpOverlayFrame(viewport);
+                ? renderOptionsOverlayFrame(viewport, {
+                    menuIndex: state.menuIndex,
+                    optionsMenuItems: OPTIONS_MENU_ITEMS,
+                  })
+                : state.variant === "runners"
+                  ? renderOptionsOverlayFrame(viewport, {
+                      menuIndex: getRunnerOptionsState(state).menuIndex,
+                      optionsMenuItems: buildRunnersSubmenuItems(config, getRunnerOptionsState(state)),
+                      optionsMessage: getRunnersSubmenuMessage(getRunnerOptionsState(state)),
+                      optionsSubtitle: "Runners",
+                    })
+                  : renderHelpOverlayFrame(viewport);
 
       activeTerminal.moveTo(1, 1);
       if (pendingClear) {
@@ -753,7 +823,7 @@ export async function startTerminalApp(options: TerminalAppOptions = {}): Promis
           mode: "main",
           shell: syncShell({
             ...shell,
-            selectedRunner: getNextRunner(shell.selectedRunner),
+            selectedRunner: getNextRunner(shell.selectedRunner, enabledRunnerIds),
             taskPromptError: null,
           }),
         };
@@ -1124,7 +1194,7 @@ export async function startTerminalApp(options: TerminalAppOptions = {}): Promis
 
       if (state.variant === "help") {
         if (state.viaOptions && state.parentVariant) {
-          state = { mode: "overlay", variant: "options", menuIndex: 0, optionsMessage: null, shell: state.shell, parentVariant: state.parentVariant };
+          state = { mode: "overlay", variant: "options", menuIndex: 1, optionsMessage: null, shell: state.shell, parentVariant: state.parentVariant };
         } else if (state.parentVariant) {
           state = { mode: "overlay", variant: state.parentVariant, menuIndex: 1, optionsMessage: null, shell: state.shell };
         } else {
@@ -1136,29 +1206,12 @@ export async function startTerminalApp(options: TerminalAppOptions = {}): Promis
       }
 
       if (state.variant === "options") {
-        if (key === "UP" || key === "k") {
-          state = { ...state, menuIndex: Math.max(0, state.menuIndex - 1) };
-          render();
-          return;
-        }
-        if (key === "DOWN" || key === "j") {
-          state = { ...state, menuIndex: Math.min(0, state.menuIndex + 1) };
-          render();
-          return;
-        }
-        if (isEnterKey(key) && state.menuIndex === 0) {
-          const parentVariant = state.parentVariant;
-          state = { mode: "overlay", variant: "help", menuIndex: 0, optionsMessage: null, shell: state.shell, viaOptions: true, ...(parentVariant !== undefined ? { parentVariant } : {}) };
-          pendingClear = true;
-          render();
-          return;
-        }
-        if (key === "ESCAPE" && state.parentVariant) {
-          state = { mode: "overlay", variant: state.parentVariant, menuIndex: 1, optionsMessage: null, shell: state.shell };
-          pendingClear = true;
-          render();
-          return;
-        }
+        handleOptionsMenuKey(key);
+        return;
+      }
+
+      if (state.variant === "runners") {
+        handleRunnersKey(key);
         return;
       }
 
@@ -1219,6 +1272,96 @@ export async function startTerminalApp(options: TerminalAppOptions = {}): Promis
 
       exit(0);
     };
+
+    function handleOptionsMenuKey(key: string): void {
+      if (state.mode !== "overlay" || state.variant !== "options") {
+        return;
+      }
+
+      const result = reduceOptionsMenuKey(state.menuIndex, key);
+
+      if (result.kind === "noop") {
+        return;
+      }
+
+      if (result.kind === "render") {
+        state = { ...state, menuIndex: result.menuIndex };
+        render();
+        return;
+      }
+
+      if (result.kind === "back") {
+        if (state.parentVariant) {
+          state = { mode: "overlay", variant: state.parentVariant, menuIndex: 1, optionsMessage: null, shell: state.shell };
+          pendingClear = true;
+          render();
+        }
+        return;
+      }
+
+      if (result.kind === "help") {
+        const parentVariant = state.parentVariant;
+        state = { mode: "overlay", variant: "help", menuIndex: 0, optionsMessage: null, shell: state.shell, viaOptions: true, ...(parentVariant !== undefined ? { parentVariant } : {}) };
+        pendingClear = true;
+        render();
+        return;
+      }
+
+      if (result.kind === "runners") {
+        const parentVariant = state.parentVariant;
+        state = { mode: "overlay", variant: "runners", menuIndex: 0, optionsMessage: null, shell: state.shell, ...(parentVariant !== undefined ? { parentVariant } : {}) };
+        pendingClear = true;
+        render();
+      }
+    }
+
+    function handleRunnersKey(key: string): void {
+      if (state.mode !== "overlay" || state.variant !== "runners") {
+        return;
+      }
+
+      const result = reduceRunnerOptionsKey(getRunnerOptionsState(state), config, key, enabledRunnerIds);
+      if (result.kind === "noop") {
+        return;
+      }
+
+      if (result.kind === "back") {
+        const parentVariant = state.parentVariant;
+        state = { mode: "overlay", variant: "options", menuIndex: 0, optionsMessage: null, shell: state.shell, ...(parentVariant !== undefined ? { parentVariant } : {}) };
+        pendingClear = true;
+        render();
+        return;
+      }
+
+      if (result.kind === "render") {
+        state = { ...state, runnerOptions: result.state };
+        render();
+        return;
+      }
+
+      void updateRunnerOptions(result.config)
+        .then(() => {
+          if (state.mode !== "overlay" || state.variant !== "runners") {
+            return;
+          }
+          state = { ...state, runnerOptions: result.state };
+          render();
+        })
+        .catch((error: unknown) => {
+          if (state.mode !== "overlay" || state.variant !== "runners") {
+            return;
+          }
+          const message = error instanceof Error ? error.message : "Failed to save runner option.";
+          state = {
+            ...state,
+            runnerOptions: {
+              ...getRunnerOptionsState(state),
+              message,
+            },
+          };
+          render();
+        });
+    }
 
     const onUnknown = (input: unknown) => {
       const raw = inputToString(input);
@@ -1355,7 +1498,11 @@ export async function startTerminalApp(options: TerminalAppOptions = {}): Promis
   });
 }
 
-async function loadWorkspaceShellModel(workspaceRoot: string, shell?: ControlShellState): Promise<WorkspaceShellModel> {
+async function loadWorkspaceShellModel(
+  workspaceRoot: string,
+  shell?: ControlShellState,
+  enabledRunnerIds?: RunnerType[],
+): Promise<WorkspaceShellModel> {
   const paths = getCraigPaths(workspaceRoot);
   const [repos, taskResult] = await Promise.all([listRepos(paths), listTasks(paths)]);
   const selectedTask = resolveSelectedTaskForInspection(taskResult.tasks, shell);
@@ -1371,6 +1518,7 @@ async function loadWorkspaceShellModel(workspaceRoot: string, shell?: ControlShe
     repos,
     tasks: taskResult.tasks,
     inspection,
+    ...(enabledRunnerIds ? { enabledRunnerIds } : {}),
   };
 }
 
@@ -1428,11 +1576,23 @@ function resolveAgentCommand(tab: TaskPtyTabRecord): string[] {
   return tab.command.length > 0 ? tab.command : ["codex"];
 }
 
+function getRunnerOptionsState(state: Extract<AppState, { mode: "overlay" }>): RunnerOptionsState {
+  return state.runnerOptions ?? {
+    menuIndex: state.menuIndex,
+    message: state.optionsMessage,
+  };
+}
+
 function resolveNewPtyTabKind(task: TaskRecord, activeTab: string, preferredKind: TaskPtyTabRecord["kind"]): TaskPtyTabRecord["kind"] {
   return task.ptyTabs.find((tab) => tab.id === activeTab)?.kind ?? preferredKind;
 }
 
-function createNextPtyTab(task: TaskRecord, kind: TaskPtyTabRecord["kind"], runner?: RunnerType): TaskPtyTabRecord {
+function createNextPtyTab(
+  task: TaskRecord,
+  kind: TaskPtyTabRecord["kind"],
+  runner?: RunnerType,
+  config: CraigConfig = {},
+): TaskPtyTabRecord {
   const effectiveRunner = runner ?? task.runner;
   const runnerProfile = getRunnerProfile(effectiveRunner);
   const baseTitle = kind === "agent" ? runnerProfile.defaultAgentTitle : "Terminal";
@@ -1455,17 +1615,19 @@ function createNextPtyTab(task: TaskRecord, kind: TaskPtyTabRecord["kind"], runn
     kind,
     ...(tabRunner ? { runner: tabRunner } : {}),
     title: ordinal === 1 ? baseTitle : `${baseTitle} ${ordinal}`,
-    command: kind === "agent" ? buildRunnerCommand(effectiveRunner) : [],
+    command: kind === "agent" ? buildRunnerCommand(effectiveRunner, undefined, config) : [],
     createdAt: timestamp,
     updatedAt: timestamp,
   };
 }
 
 async function createInteractiveTask(paths: ReturnType<typeof getCraigPaths>, repoId: string, prompt: string, runner: RunnerType): Promise<TaskRecord> {
-  const provisioned = await provisionTask(paths, repoId, prompt, { runner });
+  const config = await readCraigConfig(paths);
+  assertRunnerEnabled(runner, config);
+  const provisioned = await provisionTask(paths, repoId, prompt, { runner, config });
   try {
     const env = withDefaultCommandPath();
-    await runCommand(requireExecutablePath(getRunnerProfile(runner).executable, { cwd: provisioned.repoRoot, env }), ["--help"], {
+    await runCommand(requireExecutablePath(getConfiguredRunnerProfile(runner, config).executable, { cwd: provisioned.repoRoot, env }), ["--help"], {
       cwd: provisioned.repoRoot,
       env,
     });

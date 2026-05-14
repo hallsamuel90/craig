@@ -122,6 +122,7 @@ export interface WorkspaceShellModel {
   tasks: TaskRecord[];
   workspaceRoot: string;
   inspection: TaskLocalInspection | null;
+  enabledRunnerIds?: RunnerType[];
 }
 
 export interface DiffPathRange {
@@ -196,11 +197,7 @@ export function buildShellData(state: ControlShellState, model: WorkspaceShellMo
       liveLabel: selectedTask?.status === "running" ? "live" : "idle",
     },
     leftTree: buildLeftTree(state, model.repos, model.tasks),
-    runners: [
-      renderRunnerRow("codex", runnerCounts.codex),
-      renderRunnerRow("cursor", runnerCounts.cursor),
-      renderRunnerRow("claude", runnerCounts.claude),
-    ],
+    runners: (model.enabledRunnerIds ?? ["codex", "cursor", "claude"]).map((runner) => renderRunnerRow(runner, runnerCounts[runner])),
     centerHeader: {
       tabLabel: state.workspaceBrowser ? "BROWSER" : activeTab.label,
       taskId: state.workspaceBrowser ? "new workspace" : selectedTask?.id ?? "no task",

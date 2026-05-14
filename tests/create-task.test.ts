@@ -1,4 +1,4 @@
-import { mkdir, readFile, rm } from "node:fs/promises";
+import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import path from "node:path";
 
 import { afterEach, describe, expect, test } from "vitest";
@@ -109,6 +109,40 @@ describe("createTask", () => {
       command: [executable],
     });
     expect(tmuxCommands).toContain(`'${path.join(stubDir, executable)}' '${runner} task'`);
+  });
+
+  test("uses enabled runner config and custom executable paths", async () => {
+    const workspaceRoot = await createRepoRoot("craig-create-runner-config-");
+    const { paths, repoId } = await setupRegisteredRepo(workspaceRoot, "repo-a");
+    const stubDir = await createStubCommands(workspaceRoot);
+    const tmuxStateFile = `${workspaceRoot}/tmux-state`;
+    const tmuxCommandLog = `${workspaceRoot}/tmux-commands.log`;
+    const cursorPath = path.join(stubDir, "cursor-agent");
+
+    await writeFile(
+      paths.configFile,
+      JSON.stringify({
+        runners: {
+          codex: { enabled: false },
+          cursor: { enabled: true, path: cursorPath },
+          claude: { enabled: false },
+        },
+      }),
+      "utf8",
+    );
+    process.env.PATH = `${stubDir}:${originalPath}`;
+    process.env.CRAIG_TEST_TMUX_STATE_FILE = tmuxStateFile;
+    process.env.CRAIG_TEST_TMUX_COMMAND_LOG = tmuxCommandLog;
+
+    const result = await createTask(paths, repoId, "use cursor");
+    const task = await readTask(paths, result.taskId);
+    const tmuxCommands = await readFile(tmuxCommandLog, "utf8");
+
+    expect(result.runner).toBe("cursor");
+    expect(task.runnerSession.command).toEqual([cursorPath, "use cursor"]);
+    expect(task.ptyTabs.find((tab) => tab.kind === "agent")?.command).toEqual([cursorPath]);
+    expect(tmuxCommands).toContain(`'${cursorPath}' 'use cursor'`);
+    await expect(createTask(paths, repoId, "use codex", { runner: "codex" })).rejects.toThrow(/disabled/);
   });
 
   test("sizes a detached task session from the current terminal when available", async () => {

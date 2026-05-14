@@ -44,7 +44,6 @@ describe("command routing", () => {
       kind: "createTask",
       repoId: "repo_a",
       prompt: "ship default",
-      runner: "codex",
     });
     expect(parseArgv(["task", "new", "--repo", "repo_a", "--runner", "claude", "ship claude"]).command).toEqual({
       kind: "createTask",
