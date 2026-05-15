@@ -33,7 +33,7 @@ Goals for this RFC:
 - simplify the interaction model to explicit control mode versus terminal mode ownership
 - model the product around workspace -> repos -> tasks, with task = worktree = execution unit
 - preserve durable local state for repos, tasks, tabs, and session metadata
-- make agent execution, file inspection, diff review, checks, and next actions feel like one product
+- make agent execution, file inspection, change review, checks, and next actions feel like one product
 - replace the existing UI architecture rather than layering another shell on top of it
 
 ## Non-goals
@@ -78,15 +78,37 @@ Identity rules locked by this RFC:
 
 ### Product model
 
-- `workspace`: the Craig root and durable local state boundary
-- `repo`: one registered source repository inside the workspace
-- `workspace root`: one local filesystem root registered into Craig; after the multi-repo workspace phase this may be a parent directory such as `~/projects` that contains many child Git repos
-- `task`: one execution unit bound to one repo, one worktree, one branch, and one runner identity
+- `workspace`: one user-openable Craig context. A workspace may be a single Git repo root or a parent project root such as `~/projects`.
+- `repo`: one Git repository known to a workspace. In a project-root workspace, repos are discovered child directories beneath the workspace root.
+- `repo workspace`: a workspace whose root is one Git repo and whose tasks target that repo only.
+- `project workspace`: a workspace whose root is a parent directory and whose tasks may span the discovered child repos beneath that root.
+- `workspace root`: the local filesystem root selected by the user when opening or adding a workspace.
+- `task`: one execution unit bound to one workspace, one runner identity, and either one repo worktree or a coordinated set of repo worktrees when created from a project workspace.
 - `pty tab`: one task-scoped PTY-backed runtime surface such as an auto-booted `agent` tab or a plain `terminal` tab
-- `surface`: one center-panel view such as `agent`, `files`, `diff`, `terminal`, or `logs`
+- `surface`: one center-panel view such as `agent`, `files`, `changes`, `terminal`, or `logs`
 - `overlay`: one full-screen Craig-owned modal state such as boot, pause, or resize warning
 - `runner`: the agent/tool identity used for task PTY bootstrap, initially Codex and later Cursor or Claude
-- `workspace batch view`: a read-oriented multi-repo view that groups files, changes, and review state by child repo so a parent directory feels monorepo-like without collapsing real Git repo boundaries
+- `workspace batch view`: a multi-repo view that groups files, changes, and review state by child repo so a parent directory feels monorepo-like without collapsing real Git repo boundaries
+
+### Multi-root workspace journey
+
+The phase `5.2` product contract is the new-install journey:
+
+1. A user installs Craig and opens a workspace.
+2. The workspace picker allows selecting a parent directory such as `~/projects`, not only an individual Git repo.
+3. Craig opens that parent directory as a `project workspace`, discovers direct child Git repos, and presents the project root as the active workspace context.
+4. Creating a task while the project workspace is selected creates a project-level task. That task can work across the discovered repos in the project root instead of being forced into one primary repo.
+5. The `Files` panel shows a repo-grouped tree. The top-level rows are the child repos under the project root, and each repo can expand or collapse independently.
+6. The `Changes` panel follows the same grouping. It shows changed files under their owning repo and lets the user move through changes without losing repo identity.
+7. The `Review` panel follows the same grouping. It shows PR, check, and merge state for each repo touched by the task.
+8. Review actions can operate on one repo at a time, or on all eligible repos in the project task through an explicit batch action.
+
+Project workspaces and repo workspaces may overlap. A user may save both `~/projects` and `~/projects/craig` as separate workspaces. Craig must keep those workspace records separate:
+
+- selecting `~/projects` shows a project workspace whose child repo list includes `craig`
+- selecting `~/projects/craig` shows a single-repo workspace for Craig only
+- task state, selection state, collapse state, review actions, and terminal attach behavior are scoped to the selected workspace
+- path overlap must not cause Craig to hide the explicit repo workspace, merge the two workspace records, or route actions through the wrong context
 
 ### Interaction model
 
@@ -137,7 +159,7 @@ The center surface supports these tabs:
 
 - concrete task PTY tabs such as `Codex`, `Terminal`, `Codex 2`, and `Terminal 2`
 - `Files`
-- `Diff`
+- `Changes`
 - `Logs`
 - file tabs created dynamically from file-open actions
 
@@ -152,19 +174,19 @@ The right inspector is organized into these sections:
 
 Actions render as rows, not button widgets.
 
-Files and diff inspection use the right inspector as an index and the center panel as the detail surface:
+Files and changes inspection use the right inspector as an index and the center panel as the detail surface:
 
 - on `Files`, the right inspector shows a task worktree file tree; selecting a file opens that file in the center panel
-- on `Diff`, the right inspector shows a per-file change summary; selecting a changed file opens that file's diff in the center panel
+- on `Changes`, the right inspector shows a per-file change summary; selecting a changed file opens that file's change detail in the center panel
 - inspection navigation never implicitly attaches a PTY tab or changes input ownership
-- concrete PTY tabs remain separate center tabs and are unaffected by browsing files or diffs
+- concrete PTY tabs remain separate center tabs and are unaffected by browsing files or changes
 
-After the multi-repo workspace phase, `Files`, `Diff`, and `Review` each support two scopes:
+After the multi-repo workspace phase, `Files`/`Changes` and `Review` each support two scopes:
 
 - task scope: the current single-repo task view, where rows are rooted in the selected task worktree
 - workspace scope: a parent-directory view grouped by child repo, where each repo directory can expand/collapse to reveal that repo's files, changes, PRs, checks, and task state
 
-Workspace scope should feel like a monorepo browser for daily orientation, but it must preserve actual repo boundaries for Git, branch, PR, check, merge, and terminal commands. Read-only batch actions such as refresh all review state may operate across expanded or selected repos; mutating actions such as merge, cleanup, or branch deletion remain single-task unless a later RFC adds explicit batch confirmation semantics.
+Workspace scope should feel like a monorepo browser for daily orientation, but it must preserve actual repo boundaries for Git, branch, PR, check, merge, and terminal commands. Read-only batch actions such as refresh all review state may operate across expanded or selected repos. Mutating batch actions are allowed only when they are explicit, repo-enumerated, and confirm the exact affected repos before running. Phase `5.2` includes single-repo merge actions from the grouped Review view and an explicit merge-all-ready action for project tasks.
 
 ### Visual direction
 
@@ -174,7 +196,7 @@ The provided Craig renderings and the Superset screenshot establish a clear inte
 - the left column should read as a stacked workspace and task tree with strong scanability for status
 - the center panel should use a lightweight top tab strip and keep the active surface visually quiet
 - the right panel should read like an always-available operational sidebar rather than a modal review flow
-- status indicators should be sparse and legible: green for live or healthy, amber for pending, red only for failures or negative diff counts
+- status indicators should be sparse and legible: green for live or healthy, amber for pending, red only for failures or negative change counts
 - the overall shell should favor thin separators, restrained borders, and high information density over decorative framing
 - Superset is a useful structural influence for panel hierarchy and review-side density, but Craig should keep its own terminal-first look and not inherit desktop-window affordances such as rounded cards, browser chrome, or large inactive gutters
 
@@ -187,7 +209,7 @@ Current visual references available in-repo:
 
 Additional references supplied in the session and now treated as implementation guidance:
 
-- Craig shell variants covering agent, diff, terminal, files, and logs surfaces
+- Craig shell variants covering agent, changes, terminal, files, and logs surfaces
 - a Superset screenshot that reinforces the desired three-pane hierarchy and dense right-side review rail
 
 The attached references are not durable repo assets, so the concrete takeaways are captured directly in this RFC:
@@ -196,12 +218,12 @@ The attached references are not durable repo assets, so the concrete takeaways a
 - keep task rows dense and status-forward
 - keep tabs flat and text-led
 - keep the right inspector continuously visible during core workflows
-- keep diff and file views inside the center workspace rather than turning them into separate full-screen modes
+- keep changes and file views inside the center workspace rather than turning them into separate full-screen modes
 
 Additional durable repo references are still desirable for future polish work:
 
 - a dedicated right-panel detail reference
-- a dedicated diff or file-view reference produced from the chosen Craig direction
+- a dedicated changes or file-view reference produced from the chosen Craig direction
 
 These references drive layout and feel, not pixel-perfect reproduction.
 
@@ -266,7 +288,7 @@ Required durable concerns:
 - `3.2` Restore selected task, tabs, inspector state, and selected PTY tab across restarts: `implemented and verified`
 - `3.3` Add explicit multi-tab task runtime management on top of the multi-PTY task model: `implemented and verified`
 - `3.4` Add a background daemon that preserves live PTY sessions across Craig UI exits and restarts: `implemented and verified`
-- `4.1` Add local files and diff inspection with right-panel navigation and center-panel detail views: `implemented and verified`
+- `4.1` Add local files and changes inspection with right-panel navigation and center-panel detail views: `implemented and verified`
 - `4.2` Add PR creation and sync for task branches, including persisted PR metadata: `implemented and verified`
 - `4.3` Add checks and CI status reading for tracked PRs and head commits: `implemented and verified`
 - `4.4` Add guarded PR merge and task close flow from Craig: `implemented and verified`
@@ -286,11 +308,11 @@ Required durable concerns:
 - `2.2` Verified by adding an `@xterm/headless` emulator per process-local PTY session, feeding all PTY output into the emulator, resizing the emulator and PTY together, rendering styled emulator screen rows inside the center Terminal surface, and preserving the existing Craig control-mode versus terminal-mode ownership boundary. Follow-up hardening also makes reattach restart an exited PTY with a fresh shell and resolves each attached task shell to the recorded `worktreePath` when a task record exists, instead of always spawning in the workspace root. Automated verification covers SGR color cells, clear-screen behavior, carriage-return prompt redraw, cursor movement, wrapping, resize, styled renderer output, raw terminal-kit `unknown` Ctrl+] detach handling, detach/reattach session preservation, exited-session restart, exact task-worktree cwd resolution at spawn time, and a real PTY E2E that launches Craig, enters terminal mode, verifies the attached shell prompt is rooted in the selected task worktree, verifies color rendering, verifies `clear` removes prior visible terminal content, verifies cursor-addressed output, detaches with `Ctrl + ]`, re-enters the same live terminal surface, exits the shell process, and reattaches into a fresh shell successfully.
 - `3.1` Verified by replacing mock shell repo/task fixtures with real `.craig` repo and task records at startup; reconciling shell selection against persisted repo, task, and PTY-tab ids; adding a minimal in-shell task prompt flow; provisioning new tasks through real branch and worktree creation; persisting default `agent` and `terminal` PTY tab metadata on each task; auto-selecting the created task; and immediately booting the initial Codex agent PTY tab in that task worktree. Automated verification covers control-state resolution on real ids, renderer output on real task context, PTY runtime tab-keyed session reuse, app-level terminal attach on real task selection, app-level create-task auto-bootstrap into the `agent` PTY tab, command-mode task creation compatibility, and a real PTY E2E rooted in a persisted task worktree. `pnpm test`, `pnpm typecheck`, and `pnpm lint` passed locally.
 - `3.2` Verified by adding an explicit persisted `inspectorSection`, extracting a pure restore reconciliation path for real repo/task state, restoring valid selected repo, task, center tab, selected PTY tab, focus region, action row, and inspector orientation from `.craig/runtime/ui-state.json`, and falling back deterministically when persisted repo, task, or PTY-tab ids are stale. Startup restore now normalizes stale terminal-mode input ownership back to Craig control mode while ongoing in-app reconciliation preserves live terminal-mode attach state. Automated verification covers exact restore, stale fallback, missing inspector defaults, terminal-mode normalization on startup restore, restored terminal tab attach after boot Start, restored agent tab attach, and stale persisted app state rendering a usable shell. `pnpm test`, `pnpm typecheck`, `pnpm lint`, and `pnpm build` passed locally.
-- `3.3` Verified by replacing the fixed `Agent`/`Terminal` center-tab assumption with concrete task-scoped PTY tabs rendered alongside fixed `Files`, `Diff`, and `Logs` surfaces; adding `+` tab creation and `x` tab close while the center pane is focused; generating stable task-scoped ids and automatic titles such as `Codex 2` and `Terminal 2`; persisting concrete active PTY tab ids through task records and UI runtime state; migrating legacy persisted `agent` and `terminal` surfaces to the selected task's concrete tabs; disposing process-local PTY sessions when their tab closes; and keeping task-row Enter attach semantics pointed at the selected or default agent tab. Automated verification covers mixed center tab construction, create/close reducer intents, exact concrete-tab attach, second terminal and agent tab launch, runtime session disposal on close, stale/closed tab restore fallback, concrete tab restart restore, and the real terminal E2E attach contracts updated for the concrete-tab UX. `pnpm test`, `pnpm typecheck`, `pnpm lint`, and `pnpm build` passed locally.
+- `3.3` Verified by replacing the fixed `Agent`/`Terminal` center-tab assumption with concrete task-scoped PTY tabs rendered alongside fixed `Files`, `Changes`, and `Logs` surfaces; adding `+` tab creation and `x` tab close while the center pane is focused; generating stable task-scoped ids and automatic titles such as `Codex 2` and `Terminal 2`; persisting concrete active PTY tab ids through task records and UI runtime state; migrating legacy persisted `agent` and `terminal` surfaces to the selected task's concrete tabs; disposing process-local PTY sessions when their tab closes; and keeping task-row Enter attach semantics pointed at the selected or default agent tab. Automated verification covers mixed center tab construction, create/close reducer intents, exact concrete-tab attach, second terminal and agent tab launch, runtime session disposal on close, stale/closed tab restore fallback, concrete tab restart restore, and the real terminal E2E attach contracts updated for the concrete-tab UX. `pnpm test`, `pnpm typecheck`, `pnpm lint`, and `pnpm build` passed locally.
 - `3.4` Verified by adding a workspace-local Craig PTY daemon with hidden serve/shutdown CLI paths, short hashed Unix-socket IPC, `.craig/runtime` pid/log metadata, stale endpoint recovery, and a daemon-backed PTY client that preserves the existing app PTY port while moving live `node-pty` and xterm emulator ownership out of the foreground UI process. Foreground Craig startup now connects to the daemon before accepting shell input; foreground exit detaches from daemon sessions instead of killing them; explicit PTY tab close still terminates only the closed daemon session; and task-scoped `agent`/`terminal` tab ids continue to drive session identity and worktree/command resolution. Automated verification covers daemon reconnect without respawn, explicit per-tab disposal, stale pid recovery, app attach/close behavior, and real terminal restart reattach with a stub Codex process proving the agent was not relaunched. `pnpm test`, `pnpm typecheck`, `pnpm lint`, and `pnpm build` passed locally.
-- `4.1` Verified by adding a local inspection service that indexes Git-visible files, excludes ignored files, splits local changes into staged, unstaged, and untracked groups, and guards binary or oversized file/diff previews. The Craig shell now has four focus regions (`tasks`, `center`, `inspector`, `actions`), persists selected file and diff paths, restores stale inspection paths to valid rows, and renders `Files`/`Diff` as stable center tabs with right-panel navigation and center-panel detail content. Automated coverage includes file indexing, grouped diff summaries, guarded binary previews, reducer inspector navigation, renderer file/diff layouts, app-level file/diff selection without PTY attach, and existing terminal E2E attach contracts. `pnpm test`, `pnpm typecheck`, `pnpm lint`, and `pnpm build` passed locally.
-- `4.2` Verified by consolidating the right operational sidebar into `CHANGES FILES REVIEW`; mapping legacy `checks` and `actions` inspection modes to `review`; rendering tracked PR metadata, persisted check summary rows, synced timestamp, and synced head SHA in Review; wiring Review `Enter`/`P` to create or sync PRs through the existing Git/GitHub service path; and persisting `TaskPullRequest.lastSyncedHeadSha` after PR refresh. Automated coverage includes PR metadata normalization, PR create and sync service behavior, Review reducer intents, Review renderer output, app-level PR create, app-level PR sync after a newer local commit, GitHub auth failure display, and unchanged file/diff/PTY attach behavior. `pnpm test`, `pnpm typecheck`, `pnpm lint`, and `pnpm build` passed locally.
-- `4.3` Verified by extending persisted PR check state to distinguish passing, pending, failing, skipped, and unknown GitHub check results; treating skipped as non-blocking while keeping it visually distinct; adding an explicit Review `R` refresh action beside the existing `P` create/sync PR action; rendering tracked PR check rows and next-action guidance from persisted PR metadata; and keeping refresh in Craig control mode without attaching PTYs or changing file/diff orientation. Automated coverage includes GitHub check normalization, skipped/non-blocking readiness, failed and unknown states, refresh-without-PR failure, Review reducer intents for `P`/`R`/`Enter`, Review renderer guidance, and app-level check refresh/error behavior. `pnpm test`, `pnpm typecheck`, `pnpm lint`, and `pnpm build` passed locally.
+- `4.1` Verified by adding a local inspection service that indexes Git-visible files, excludes ignored files, splits local changes into staged, unstaged, and untracked groups, and guards binary or oversized change previews. The Craig shell now has four focus regions (`tasks`, `center`, `inspector`, `actions`), persists selected file and change paths, restores stale inspection paths to valid rows, and renders `Files`/`Changes` as stable center tabs with right-panel navigation and center-panel detail content. Automated coverage includes file indexing, grouped change summaries, guarded binary previews, reducer inspector navigation, renderer file/change layouts, app-level file/change selection without PTY attach, and existing terminal E2E attach contracts. `pnpm test`, `pnpm typecheck`, `pnpm lint`, and `pnpm build` passed locally.
+- `4.2` Verified by consolidating the right operational sidebar into `CHANGES FILES REVIEW`; mapping legacy `checks` and `actions` inspection modes to `review`; rendering tracked PR metadata, persisted check summary rows, synced timestamp, and synced head SHA in Review; wiring Review `Enter`/`P` to create or sync PRs through the existing Git/GitHub service path; and persisting `TaskPullRequest.lastSyncedHeadSha` after PR refresh. Automated coverage includes PR metadata normalization, PR create and sync service behavior, Review reducer intents, Review renderer output, app-level PR create, app-level PR sync after a newer local commit, GitHub auth failure display, and unchanged file/changes/PTY attach behavior. `pnpm test`, `pnpm typecheck`, `pnpm lint`, and `pnpm build` passed locally.
+- `4.3` Verified by extending persisted PR check state to distinguish passing, pending, failing, skipped, and unknown GitHub check results; treating skipped as non-blocking while keeping it visually distinct; adding an explicit Review `R` refresh action beside the existing `P` create/sync PR action; rendering tracked PR check rows and next-action guidance from persisted PR metadata; and keeping refresh in Craig control mode without attaching PTYs or changing file/changes orientation. Automated coverage includes GitHub check normalization, skipped/non-blocking readiness, failed and unknown states, refresh-without-PR failure, Review reducer intents for `P`/`R`/`Enter`, Review renderer guidance, and app-level check refresh/error behavior. `pnpm test`, `pnpm typecheck`, `pnpm lint`, and `pnpm build` passed locally.
 - `4.4` Verified by hardening the tracked PR merge service so it refreshes GitHub PR/check state immediately before merge, blocks missing PRs, missing commits, dirty worktrees, stale local/remote heads, missing check data, pending/failing/unknown checks, and non-mergeable GitHub states, then merges through the configured GitHub merge method while preserving the task worktree from the shell. The Review panel now exposes `P` create/sync, `R` refresh checks, `M` merge PR, and `X` close task actions; merged tasks can be marked `closed` as a recoverable persisted state without deleting worktrees or branch metadata, and shell close disposes live task PTY sessions. Automated coverage includes service blockers for stale heads, missing checks, and pending checks; close-task success and pre-merge failure; renderer Review merge/close rows and guidance; and app-level merge success, merge blocker, and close-task behavior without PTY attach. `pnpm test`, `pnpm typecheck`, `pnpm lint`, `pnpm build`, and `git diff --check` passed locally.
 - `5.1` Verified by adding durable runner profiles for Codex, Cursor, and Claude; extending task records, task provisioning, command-mode task creation, interactive new-task creation, PTY tab commands, runner summary rendering, and task context rendering to use explicit runner metadata; adding a left-panel runner selector for new interactive tasks; and preserving failed runner startup as recoverable task state when a selected runner binary is unavailable. Automated verification covers runner profile validation, runner-specific task records and tmux launch commands, `--runner` parsing, shell selector cycling, runner labels/counts, app-level selected-runner task creation, missing-runner failure state, and real terminal E2E attach flows for Codex, Cursor, and Claude stub binaries rooted in the selected task worktree. `pnpm typecheck`, `pnpm test`, `pnpm lint`, `pnpm build`, and `git diff --check` passed locally.
 - `5.2` Not yet verified.
@@ -331,21 +353,49 @@ The rewrite keeps command-mode entry points for automation and debugging, but in
 Expected command surface after the rewrite stabilizes:
 
 - `craig`
-- `craig repo add <path>`
-- `craig repo list`
-- `craig task new --repo <repo-id> "<prompt>"`
-- `craig task list [--repo <repo-id>]`
+- `craig workspace add <path>`
+- `craig workspace list`
+- `craig task new --workspace <workspace-id> "<prompt>"`
+- `craig task list [--workspace <workspace-id>]`
 - `craig task open <task-id>`
-- `craig task diff <task-id>`
+- `craig task changes <task-id>`
 - `craig task attach <task-id>`
 - `craig task check <task-id>`
 - `craig task pr <task-id>`
 
-This command surface is subordinate to the application model. Services should not depend on a REPL parser shape.
+This command surface is subordinate to the application model. Services should not depend on a REPL parser shape. `workspace add` is the single registration path: adding a Git repo path creates a repo workspace, while adding a parent directory creates a project workspace and discovers direct child repos. `repo add` and `repo list` are removed from the target command surface so repo registration cannot fork from workspace registration.
 
 ### Core record contracts
 
-Representative task record:
+Representative project workspace record:
+
+```json
+{
+  "id": "workspace_projects",
+  "kind": "project",
+  "name": "projects",
+  "rootPath": "/Users/sam/projects",
+  "discoveredRepoIds": ["repo_craig", "repo_api", "repo_web"],
+  "createdAt": "2026-05-14T19:00:00Z",
+  "updatedAt": "2026-05-14T19:00:00Z"
+}
+```
+
+Representative repo workspace record:
+
+```json
+{
+  "id": "workspace_craig",
+  "kind": "repo",
+  "name": "craig",
+  "rootPath": "/Users/sam/projects/craig",
+  "repoId": "repo_craig",
+  "createdAt": "2026-05-14T19:00:00Z",
+  "updatedAt": "2026-05-14T19:00:00Z"
+}
+```
+
+Representative single-repo task record:
 
 ```json
 {
@@ -374,13 +424,76 @@ Representative task record:
     "activeTab": "task_20260501_01:agent",
     "openFileTabs": [],
     "selectedFilePath": "src/app.ts",
-    "selectedDiffPath": "src/app.ts",
+    "selectedChangesPath": "src/app.ts",
     "inspectorSection": "task"
   },
   "createdAt": "2026-05-01T15:00:00Z",
   "updatedAt": "2026-05-01T15:00:00Z"
 }
 ```
+
+Representative project task record:
+
+```json
+{
+  "id": "task_20260514_01",
+  "workspaceId": "workspace_projects",
+  "kind": "project",
+  "title": "update shared auth flow",
+  "runner": "codex",
+  "bundlePath": "/Users/sam/projects/.craig/task-bundles/task_20260514_01",
+  "selectedRepoTargetId": "repo_craig",
+  "selectedPtyTabId": "task_20260514_01:agent",
+  "ptyTabs": [
+    {
+      "id": "task_20260514_01:agent",
+      "kind": "agent",
+      "title": "Codex",
+      "command": ["codex", "update shared auth flow"]
+    },
+    {
+      "id": "task_20260514_01:terminal",
+      "kind": "terminal",
+      "title": "Terminal",
+      "command": []
+    }
+  ],
+  "repoTargets": [
+    {
+      "repoId": "repo_craig",
+      "branch": "craig/update-shared-auth-flow",
+      "worktreePath": "/Users/sam/projects/.craig/worktrees/repo_craig/task_20260514_01",
+      "pullRequest": null,
+      "checks": null,
+      "mergeState": "not_ready"
+    },
+    {
+      "repoId": "repo_api",
+      "branch": "craig/update-shared-auth-flow",
+      "worktreePath": "/Users/sam/projects/.craig/worktrees/repo_api/task_20260514_01",
+      "pullRequest": null,
+      "checks": null,
+      "mergeState": "not_ready"
+    }
+  ],
+  "surfaceState": {
+    "activeTab": "task_20260514_01:agent",
+    "openFileTabs": [],
+    "selectedRepoTargetId": "repo_craig",
+    "selectedFilePath": "repo_craig/src/auth.ts",
+    "selectedChangesPath": "repo_craig/src/auth.ts",
+    "inspectorSection": "review"
+  },
+  "createdAt": "2026-05-14T19:00:00Z",
+  "updatedAt": "2026-05-14T19:00:00Z"
+}
+```
+
+Project task bundle rules:
+
+- `bundlePath` is the default cwd for the project task's agent PTY.
+- The bundle root contains a manifest of repo targets and stable links or directories that let the agent find each per-repo worktree without guessing from the user's source tree.
+- Per-repo terminal actions may open a PTY in a selected repo target's `worktreePath`, but the default project agent starts from `bundlePath` so it can coordinate work across repo targets.
 
 Representative UI state record:
 
@@ -402,11 +515,12 @@ State model decisions locked by this RFC:
 - UI restore state is explicit and versioned
 - task runtime state is PTY-oriented and Craig-owned
 - open file tabs and inspector selection are durable enough to restore orientation
-- files and diff inspection may persist selected file paths, but file contents and diff text are derived from the task worktree on demand
+- files and changes inspection may persist selected file paths, but file contents and change text are derived from the task worktree on demand
 - PR metadata, check snapshots, and merge/cleanup status are durable task concerns, but they land in separate phases after local inspection
 - runner identity and launch command metadata must be explicit so Codex, Cursor, and Claude tasks can coexist without guessing from tab titles
-- multi-repo workspace state must preserve discovered child repos, manually registered repos, and selected parent-directory roots so Craig can restore a monorepo-like workspace view without confusing which repo owns branch, PR, checks, and merge state
-- task records may link related repos for context, but every mutating task action still has one primary repo/worktree target unless explicitly expanded by a later phase
+- multi-repo workspace state must preserve saved workspace roots, discovered child repos, manually registered repo workspaces, and selected parent-directory roots so Craig can restore a monorepo-like workspace view without confusing which repo owns branch, PR, checks, and merge state
+- task records must distinguish single-repo tasks from project tasks. Both task kinds share runner, PTY-tab, surface-state, created-at, and updated-at fields. A project task additionally owns a set of per-repo task targets, where each target has its own repo id, branch, worktree path, PR metadata, checks, and merge state.
+- project tasks may have a primary repo only as a UI/default-terminal convenience, not as the exclusive write scope. Git mutations must target the selected repo target or an explicit batch of repo targets.
 - UX and sound preferences are workspace-local runtime settings and must be safe to disable for quiet terminals, CI, and accessibility needs
 - all state writes must remain atomic
 
@@ -440,8 +554,11 @@ State model decisions locked by this RFC:
 - if persisted selected tabs or inspector sections are no longer valid after an upgrade, Craig falls back to the default task summary view
 - if GitHub CLI is not installed, PR actions remain unavailable without blocking the rest of the workspace
 - if visual reference coverage is incomplete, implementation may proceed on core layout, but polish and acceptance for the affected surface stay open
-- if a parent-directory workspace contains non-Git folders, nested repos, hidden repos, or inaccessible directories, repo discovery must skip or report them without blocking already registered repos
+- if a parent-directory workspace contains non-Git folders, nested repos, hidden repos, or inaccessible directories, repo discovery must skip or report them without blocking already registered repos. Phase `5.2` discovers direct child Git repos only; nested repos below a child directory are ignored.
 - if multiple repos have similarly named branches, tasks, files, or PRs, every row and action message must retain enough repo identity to prevent wrong-repo commands
+- if a saved repo workspace is also discovered inside a saved project workspace, both workspaces remain visible and separately selectable; overlap is allowed and must not be treated as duplicate registration
+- if a project task touches only some child repos, Files, Changes, and Review should still show the project grouping but mark repos with no task worktree, no local changes, or no PR state clearly
+- if immediate project-task provisioning cannot create a worktree for a discovered direct child repo, Craig must keep the project task visible, mark that repo target as unavailable with the failure reason, and continue provisioning the remaining repo targets
 - if package publishing or static artifact checks fail, release workflows must fail closed rather than publishing a partial or source-leaking npm package
 
 ## Security and privacy
@@ -492,11 +609,11 @@ Deliver a Craig-owned background daemon that owns task PTY sessions independentl
 
 ### Phase 4: Inspection and review workflow
 
-Deliver the review path in separable vertical slices: local files/diff inspection first, PR creation and sync second, CI/check reading third, and guarded merge/close behavior last.
+Deliver the review path in separable vertical slices: local files/changes inspection first, PR creation and sync second, CI/check reading third, and guarded merge/close behavior last.
 
 ### Phase 5: Workspace and runner expansion
 
-Deliver broader task execution and repository topology support after the core Codex single-root workflow is stable. This phase adds Cursor and Claude as first-class runner identities, then adds a parent-directory multi-repo workspace mode for projects stored under roots such as `~/projects`. The multi-repo mode should feel like a monorepo in Files, Changes, and Review by grouping expandable rows by child repo, while preserving real repo boundaries for branch, worktree, PR, check, merge, and terminal actions.
+Deliver broader task execution and repository topology support after the core Codex single-root workflow is stable. This phase adds Cursor and Claude as first-class runner identities, then adds a parent-directory multi-repo workspace mode for projects stored under roots such as `~/projects`. The multi-repo mode should feel like a monorepo in Files, Changes, and Review by grouping expandable rows by child repo, while preserving real repo boundaries for branch, worktree, PR, check, merge, and terminal actions. Project-level task creation is in scope: creating a task from a project workspace immediately provisions a coordinated task bundle across all accessible direct child repos by default. Lazy repo-target creation is deferred because it would add more lifecycle and agent-routing complexity than the MVP needs.
 
 ### Phase 6: Product feel and delight
 
@@ -705,11 +822,11 @@ Deliver a public-facing site after package installation, privacy claims, and cor
 - implement the `Files` surface as local task worktree inspection
 - render a file tree for the selected task in the right inspector while `Files` is active
 - let keyboard selection in the right file tree open the selected file in the center panel
-- implement the `Diff` surface as local Git diff inspection for the selected task worktree
-- render a per-file change summary in the right inspector while `Diff` is active
-- let keyboard selection in the right diff summary open the selected file diff in the center panel
-- persist enough inspection orientation to restore the active files/diff surface and selected file when practical
-- keep file/diff browsing in Craig control mode; switching or selecting inspection rows must not attach PTYs
+- implement the `Changes` surface as local Git change inspection for the selected task worktree
+- render a per-file change summary in the right inspector while `Changes` is active
+- let keyboard selection in the right change summary open the selected file change detail in the center panel
+- persist enough inspection orientation to restore the active files/changes surface and selected file when practical
+- keep file/changes browsing in Craig control mode; switching or selecting inspection rows must not attach PTYs
 - leave PR creation, CI/check reading, and merge behavior out of scope for this phase
 
 #### Verification
@@ -718,13 +835,13 @@ Deliver a public-facing site after package installation, privacy claims, and cor
 - run `pnpm typecheck`
 - run `pnpm lint`
 - manually verify the `Files` tab shows a right-panel file tree and opens a selected file in the center panel
-- manually verify the `Diff` tab shows a right-panel per-file change summary and opens a selected file diff in the center panel
-- manually verify PTY tabs remain separate and browsing files/diffs does not enter terminal mode
+- manually verify the `Changes` tab shows a right-panel per-file change summary and opens a selected file change detail in the center panel
+- manually verify PTY tabs remain separate and browsing files/changes does not enter terminal mode
 
 #### Tracking update
 
-- keep `4.1` open if files or diff views rely on leaving the Craig shell for normal use
-- keep `4.1` open if the right inspector is not the navigation/index surface for files and diffs
+- keep `4.1` open if files or changes views rely on leaving the Craig shell for normal use
+- keep `4.1` open if the right inspector is not the navigation/index surface for files and changes
 
 ### 4.2 Handoff
 
@@ -733,7 +850,7 @@ Deliver a public-facing site after package installation, privacy claims, and cor
 - add PR creation for the selected task branch through the existing Git/GitHub integration path
 - push or update the task branch when creating or syncing the PR
 - persist tracked PR metadata on the task record, including PR number, URL, base branch, head branch, and last synced head commit when available
-- surface tracked PR metadata in the right inspector without blocking local file/diff inspection
+- surface tracked PR metadata in the right inspector without blocking local file/changes inspection
 - add an explicit PR sync action that updates the remote branch and refreshes tracked PR metadata
 - keep degraded behavior clear when GitHub tooling or authentication is unavailable
 
@@ -830,33 +947,50 @@ Deliver a public-facing site after package installation, privacy claims, and cor
 
 #### Implementation
 
-- allow a Craig workspace to register a parent directory such as `~/projects` and discover child Git repos beneath it
-- preserve manually registered repos and support parent-directory discovery without requiring every child repo to be added one by one
-- render the left navigation as a repo-grouped workspace tree when multiple repos are present
-- add workspace-scope `Files`, `Diff`/`Changes`, and `Review` views where each child repo directory can expand/collapse independently
-- keep task-scope inspection behavior intact for the selected task worktree
-- preserve primary repo semantics for task branch, PR, checks, merge, and terminal operations
-- allow tasks to record linked repo ids for context when work spans more than the primary repo
+- allow the workspace picker and command-mode registration path to accept a parent directory such as `~/projects`
+- create a durable `project workspace` record for the parent directory and discover direct child Git repos beneath it without requiring each child repo to be added one by one
+- ignore nested Git repos below those direct children for the `5.2` MVP; do not render subdirectory repo nesting
+- preserve separate explicit `repo workspace` records even when their repo path is also discovered inside a saved project workspace
+- render the left navigation as saved workspaces first, then the selected workspace's tasks and child repo context, so `~/projects` and `~/projects/craig` remain separately selectable
+- let creating a task from a project workspace immediately create a project-level task bundle with per-repo targets and worktrees for all accessible direct child repos by default
+- keep creating a task from a repo workspace as the existing single-repo task flow
+- add workspace-scope `Files`, `Changes`, and `Review` views where each child repo directory can expand/collapse independently
+- make `Files` show each repo under the project root, then that repo's task worktree files when the project task has a worktree for that repo
+- make `Changes` show each repo under the project root, then that repo's staged, unstaged, and untracked changes or an explicit clean/unavailable state
+- make `Review` show each repo target's PR, checks, readiness, and merge state without collapsing the repos into one synthetic PR
+- support one-at-a-time Review actions for a selected repo target, including PR create/sync, refresh checks, and guarded merge
+- support explicit batch Review actions for all eligible repo targets, including refresh-all and merge-all-ready, with a confirmation surface that lists the exact repos affected
+- define merge-all-ready eligibility per repo target: a tracked PR exists, the repo worktree is clean, local and remote heads match the tracked PR head, checks have been freshly refreshed, checks are passing or explicitly skipped/non-blocking, GitHub reports the PR mergeable, and the target has not already been merged or marked unavailable
 - make task creation, selection, restore, and command dispatch deterministic when multiple repos contain similar names, branches, files, or PRs
-- support read-only batch workspace actions such as refreshing review/check state across selected or expanded repos
-- defer destructive batch actions such as merge, cleanup, or branch deletion until a later phase with explicit confirmation semantics
+- persist project task row selection, repo-group expansion state, selected repo target, and active Files/Changes/Review row across Craig restart when practical
+- keep terminal attach behavior explicit: an agent PTY for a project task starts in the synthetic project task bundle root so the agent can operate across the repo worktrees, while per-repo terminal actions must target the selected repo worktree
 
 #### Verification
 
 - run `pnpm test`
 - run `pnpm typecheck`
 - run `pnpm lint`
-- manually register a parent directory containing multiple Git repos and verify child repo discovery
+- manually start from a clean Craig state, open `~/projects`, and verify Craig creates a project workspace with discovered child Git repos
+- manually create a task from the `~/projects` workspace and verify Craig immediately provisions worktrees for all accessible direct child repos
+- manually verify nested Git repos below direct children are ignored in the project workspace
+- manually verify the project task's agent PTY starts in the synthetic bundle root and can inspect the repo worktrees from there
 - manually verify Files, Changes, and Review can expand/collapse repo groups and preserve row selection
-- manually create tasks in at least two child repos and verify task-scope files/diffs/review still target the selected task
-- manually verify PR/check/merge actions still target only the selected task's primary repo
-- manually verify read-only batch refresh does not run mutating Git commands
+- manually verify Files shows each child repo and opens selected files from the correct repo worktree
+- manually verify Changes shows per-repo changed files and opens selected changes without losing repo identity
+- manually verify Review shows separate PR/check/merge state for each repo touched by the project task
+- manually verify PR/check/merge actions target only the selected repo target when run one at a time
+- manually verify refresh-all and merge-all-ready list the affected repos before running and skip ineligible repos with clear status
+- manually verify merge-all-ready does not merge repo targets with missing PRs, dirty worktrees, stale heads, missing or stale checks, pending/failing/unknown checks, unmergeable PR state, already-merged state, or unavailable worktrees
+- manually add both `~/projects` and `~/projects/craig` as saved workspaces and verify they are separately navigable, restorable, and task-capable
 
 #### Tracking update
 
 - keep `5.2` open if parent-directory discovery or workspace-scope panels make branch, PR, checks, merge, or terminal targets ambiguous
-- keep `5.2` open if repo-group expansion state, linked repo context, or selected rows cannot restore after Craig restart
-- keep `5.2` open if read-only batch actions can accidentally mutate child repos
+- keep `5.2` open if project-level task creation still creates only one primary repo worktree with passive linked repo context
+- keep `5.2` open if immediate project task provisioning does not create or explicitly mark unavailable every accessible direct child repo target
+- keep `5.2` open if repo-group expansion state, selected repo target, project task target state, or selected rows cannot restore after Craig restart
+- keep `5.2` open if overlapping project and repo workspaces are hidden, merged, or routed through the wrong workspace context
+- keep `5.2` open if batch Review actions can mutate repos that were not explicitly listed in the confirmation surface
 
 ### 6.1 Handoff
 
@@ -865,10 +999,10 @@ Deliver a public-facing site after package installation, privacy claims, and cor
 - audit and revise the Craig color palette for contrast, hierarchy, selection clarity, and reduced visual noise
 - introduce or consolidate renderer tokens for palette, focus, muted, success, pending, failure, and disabled states so colors are not scattered through rendering code
 - polish navigation affordances, focus styling, truncation, and dense-layout behavior across the shell
-- improve empty, loading, failure, and unavailable-tool states for tasks, files, diffs, PRs, checks, and runners
-- tune right-panel hierarchy so file/diff/PR/check navigation remains scannable during repeated daily use, including multi-repo grouped views from `5.2`
+- improve empty, loading, failure, and unavailable-tool states for tasks, files, changes, PRs, checks, and runners
+- tune right-panel hierarchy so file/changes/PR/check navigation remains scannable during repeated daily use, including multi-repo grouped views from `5.2`
 - tighten copy for action feedback, blocked states, and next-action guidance
-- improve ergonomics for common repeated workflows: task selection, PTY attach/detach, file browsing, diff review, PR refresh, merge, and close
+- improve ergonomics for common repeated workflows: task selection, PTY attach/detach, file browsing, change review, PR refresh, merge, and close
 - verify the shell does not become card-heavy, over-padded, or dominated by a one-note color family
 - preserve keyboard-first control-mode behavior and avoid adding hidden input ownership changes
 
@@ -975,12 +1109,14 @@ Deliver a public-facing site after package installation, privacy claims, and cor
 - `[3.2]` Restarting Craig restores the prior workspace orientation, including selected PTY tab when persisted state is still valid.
 - `[3.3]` One task can manage multiple PTY-backed `agent` and `terminal` tabs without reshaping the task/worktree model.
 - `[3.4]` Craig can preserve and reattach to live task PTY sessions across foreground UI exits through a Craig-owned background daemon.
-- `[4.1]` Files and diff inspection are available inside the Craig shell, with right-panel navigation and center-panel detail views for real task worktrees.
+- `[4.1]` Files and changes inspection are available inside the Craig shell, with right-panel navigation and center-panel detail views for real task worktrees.
 - `[4.2]` Craig can create and sync a PR for a task branch while persisting tracked PR metadata on the task.
 - `[4.3]` Craig can read CI/check state for a tracked PR or task head commit and explain whether it is passing, pending, failing, skipped, or unknown.
 - `[4.4]` Craig can merge a ready PR and close the task through guarded actions that preserve recovery state when cleanup is incomplete.
 - `[5.1]` Craig can create and run Codex, Cursor, and Claude tasks through explicit runner profiles without changing task/worktree semantics.
-- `[5.2]` Craig can open a parent-directory workspace such as `~/projects`, discover child Git repos, and present Files, Changes, and Review as repo-grouped expandable workspace views while preserving clear primary-repo targeting for task actions.
+- `[5.2]` Craig can open a parent-directory workspace such as `~/projects`, discover direct child Git repos, immediately create project-level tasks with per-repo worktree targets for accessible direct child repos, and present Files, Changes, and Review as repo-grouped expandable workspace views.
+- `[5.2]` Craig can save overlapping project and repo workspaces such as `~/projects` and `~/projects/craig` at the same time without hiding, merging, or misrouting either workspace.
+- `[5.2]` Project-task Review can operate on one selected repo target or run explicit batch refresh/merge-all-ready actions that list affected repos, skip ineligible repos, and only merge repo targets that satisfy the defined readiness checks.
 - `[6.1]` Craig's shell is polished enough for repeated daily use across normal terminal sizes, with a deliberate color palette, clear focus, truncation, empty states, grouped workspace scanability, and efficient next actions.
 - `[6.2]` Craig can play configurable video-game-like sound effects for important workflow events, and those effects can be fully muted without disrupting terminal operation.
 - `[7.1]` Craig can be packed and published to npm through an allowlisted artifact workflow with CI static analysis that fails on likely source, secret, local workspace, or task-artifact leakage.
