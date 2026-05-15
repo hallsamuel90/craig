@@ -658,7 +658,7 @@ export async function startTerminalApp(options: TerminalAppOptions = {}): Promis
       }
 
       inputCaptureMode = nextMode;
-      activeTerminal.grabInput(true);
+      activeTerminal.grabInput(nextMode === "terminal" ? { mouse: "button" } : true);
     }
 
     const cleanup = () => {
@@ -1379,6 +1379,12 @@ export async function startTerminalApp(options: TerminalAppOptions = {}): Promis
         return;
       }
 
+      const scrollLines = getTerminalScrollLinesForRawInput(raw);
+      if (scrollLines !== 0) {
+        scheduleTerminalViewportScroll(scrollLines);
+        return;
+      }
+
       if (suppressTerminalEnterOnAttach && raw !== "\r" && raw !== "\n" && raw !== "\r\n") {
         suppressTerminalEnterOnAttach = false;
       }
@@ -1779,6 +1785,24 @@ function getTerminalScrollLinesForMouseEvent(name: unknown): number {
   }
 
   if (name === "MOUSE_WHEEL_DOWN") {
+    return 3;
+  }
+
+  return 0;
+}
+
+function getTerminalScrollLinesForRawInput(raw: string): number {
+  const match = new RegExp(`${String.fromCharCode(27)}\\[<(\\d+);\\d+;\\d+[mM]`).exec(raw);
+  if (!match?.[1]) {
+    return 0;
+  }
+
+  const code = Number.parseInt(match[1], 10);
+  if (code === 64) {
+    return -3;
+  }
+
+  if (code === 65) {
     return 3;
   }
 

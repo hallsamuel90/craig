@@ -117,7 +117,7 @@ describe("terminal app PTY attach flow", () => {
     },
   );
 
-  test("terminal mode uses keyboard-only input capture without mouse", async () => {
+  test("terminal mode captures mouse button reporting for wheel scroll", async () => {
     const root = await mkdtemp(join(tmpdir(), "craig-ui-app-"));
     tempRoots.push(root);
     const paths = await setupWorkspace(root);
@@ -130,7 +130,7 @@ describe("terminal app PTY attach flow", () => {
     expect(terminal.grabInput).toHaveBeenLastCalledWith(true);
     terminal.emitKey("ENTER");
     await vi.waitFor(() => expect(ptyRuntime.ensureSession).toHaveBeenCalled());
-    expect(terminal.grabInput).toHaveBeenLastCalledWith(true);
+    expect(terminal.grabInput).toHaveBeenLastCalledWith({ mouse: "button" });
     terminal.emitKey("\u001D");
     expect(terminal.grabInput).toHaveBeenLastCalledWith(true);
     terminal.emitKey("q");
@@ -411,6 +411,32 @@ describe("terminal app PTY attach flow", () => {
     await expect(app).resolves.toBe(0);
     expect(ptyRuntime.scrollViewport).not.toHaveBeenCalled();
     expect(ptyRuntime.write).toHaveBeenCalledWith("some-raw-input");
+  });
+
+  test("raw mouse wheel escape input in terminal mode scrolls instead of leaking to the PTY", async () => {
+    const root = await mkdtemp(join(tmpdir(), "craig-ui-app-"));
+    tempRoots.push(root);
+    const paths = await setupWorkspace(root);
+    const terminal = new FakeTerminal();
+    const ptyRuntime = new FakePtyRuntime();
+    const app = startTerminalApp({ terminal, ptyRuntime, uiStateFile: paths.uiStateFile, workspaceRoot: root });
+    await vi.waitFor(() => expect(terminal.hasKeyListener()).toBe(true));
+
+    terminal.emitKey("\r"); // boot start
+    expect(stripAnsi(terminal.frames.at(-1) ?? "")).toContain("TERMINAL  task_20260430_02 · repo-a");
+    terminal.emitKey("ENTER");
+    await vi.waitFor(() => expect(ptyRuntime.ensureSession).toHaveBeenCalled());
+    terminal.emitUnknown("\u001B[<64;20;10M");
+    terminal.emitUnknown("\u001B[<65;20;10M");
+    terminal.emitUnknown("\u001B[<65;20;10M");
+    await vi.waitFor(() => expect(ptyRuntime.scrollViewport).toHaveBeenCalledWith(3));
+    terminal.emitKey("\u001D");
+    terminal.emitKey("q");
+
+    await expect(app).resolves.toBe(0);
+    expect(ptyRuntime.scrollViewport).toHaveBeenCalledWith(3);
+    expect(ptyRuntime.write).not.toHaveBeenCalledWith("\u001B[<64;20;10M");
+    expect(ptyRuntime.write).not.toHaveBeenCalledWith("\u001B[<65;20;10M");
   });
 
   test("rapid mouse wheel events are coalesced into one PTY scroll and one redraw", async () => {
