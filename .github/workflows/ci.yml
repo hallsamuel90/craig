@@ -38,3 +38,12 @@ jobs:
 
       - name: Build
         run: pnpm build
+
+      - name: Build npm package
+        run: pnpm build:npm
+
+      - name: Audit npm package
+        run: pnpm package:audit
+
+      - name: Smoke npm package
+        run: pnpm package:smoke

@@ -296,7 +296,7 @@ Required durable concerns:
 - `5.2` Add parent-directory multi-repo workspace mode with repo-grouped Files, Changes, and Review: `pending`
 - `6.1` Add a focused design and ergonomics pass across palette, navigation, density, empty states, and review workflows: `implemented and verified`
 - `6.2` Add configurable video-game-like sound effects for important Craig events: `pending`
-- `7.1` Add npm packaging, publish workflow, and CI source-leak prevention: `pending`
+- `7.1` Add npm packaging, publish workflow, and CI source-leak prevention: `implemented and verified`
 - `8.1` Add marketing site and public documentation entrypoint: `pending`
 
 ### Verification summary
@@ -318,12 +318,12 @@ Required durable concerns:
 - `5.2` Not yet verified.
 - `6.1` Verified by replacing the three-panel background differentiation approach with a unified flat Tokyo Night palette (`0a0a0a` base) divided by visible `│` dividers; introducing semantic color tokens for success, pending, error, muted, accent, and disabled states; adding Nerd Font file-tree icons with per-extension color; adding PR lifecycle and check-status icons to the inspection mode selector; converting the runner row to a full-width dynamic health bar (name flush-left, bar filling the remaining panel width, green at full health / red below 20%); adding a `?` global help overlay with a centered keybinding table and the CRAIG logo treatment; refactoring the boot and pause overlays from four-item to three-item menus (`Start/Resume`, `Options`, `Exit`) with Options navigating into a dedicated submenu; fixing overlay menu-item centering to eliminate layout shift during navigation; adding truncation via the shared `pad`/`truncate` helpers across all fixed-width columns; tightening empty-state copy to include actionable next steps; and widening the left panel from 38 to 42 characters to give the health bar meaningful visual weight. Automated verification passed via `pnpm test`, `pnpm typecheck`, `pnpm lint`, and `pnpm build`. Manual verification passed in a real TTY confirming palette, focus states, health bar, icons, overlays, and keybinding table render correctly across narrow and normal terminal sizes.
 - `6.2` Not yet verified.
-- `7.1` Not yet verified.
+- `7.1` Verified by pivoting release packaging to a single publishable `@craig/cli` package under `packages/cli`; adding an esbuild npm bundle that emits a minified, executable, sourcemap-free Node 22 ESM CLI at `packages/cli/dist/cli.js`; keeping `node-pty` and `terminal-kit` external runtime dependencies while bundling `@xterm/headless`; adding Changesets metadata for `@craig/cli` only; adding CI and release workflow gates for tests, typecheck, lint, TypeScript build, npm build, package audit, and package smoke; enabling Changesets Version Packages PR auto-merge after gates pass; and rewriting consumer-facing README/release guidance. Artifact verification passed with `pnpm package:audit`, confirming the packed tarball contains only `dist/cli.js`, `README.md`, and `package.json`. Smoke verification passed with `pnpm package:smoke`, which packed `packages/cli`, installed the tarball into a temporary git workspace, ran the installed `craig repo list`, and launched the installed `craig` under a PTY until the boot marker appeared. Full automated verification passed via `pnpm test`, `pnpm typecheck`, `pnpm lint`, `pnpm build`, `pnpm build:npm`, `pnpm package:audit`, and `pnpm package:smoke`.
 - `8.1` Not yet verified.
 
 ### Next resume point
 
-Resume at the first sub-phase that is not both implemented and verified on the primary track. The current primary resume point is `5.2`, which adds parent-directory multi-repo workspace mode with repo-grouped Files, Changes, and Review.
+Resume at the first sub-phase that is not both implemented and verified on the primary track. The current primary resume point remains `5.2`, which adds parent-directory multi-repo workspace mode with repo-grouped Files, Changes, and Review. Phase `7.1` was completed out of order and should be skipped on future resumes unless release packaging regresses.
 
 ### Parallelizable phases
 
@@ -559,7 +559,7 @@ State model decisions locked by this RFC:
 - if a saved repo workspace is also discovered inside a saved project workspace, both workspaces remain visible and separately selectable; overlap is allowed and must not be treated as duplicate registration
 - if a project task touches only some child repos, Files, Changes, and Review should still show the project grouping but mark repos with no task worktree, no local changes, or no PR state clearly
 - if immediate project-task provisioning cannot create a worktree for a discovered direct child repo, Craig must keep the project task visible, mark that repo target as unavailable with the failure reason, and continue provisioning the remaining repo targets
-- if package publishing or static artifact checks fail, release workflows must fail closed rather than publishing a partial or source-leaking npm package
+- if package publishing or static artifact checks fail, the continuous deployment workflow must fail closed rather than publishing a partial or source-leaking npm package
 
 ## Security and privacy
 
@@ -567,7 +567,7 @@ State model decisions locked by this RFC:
 - PTY sessions inherit the local developer environment, so Craig must avoid logging secrets from interactive output unless log capture is explicitly enabled
 - review metadata stored under `.craig/artifacts/` should be treated as local developer state and remain out of version control
 - command dispatch must keep repo, worktree, and branch targeting explicit to avoid running task actions in the wrong workspace
-- npm publish artifacts must be generated from an explicit allowlist and checked in CI so local source trees, `.context`, `.craig`, task artifacts, logs, env files, private repo paths, and generated workspace state cannot leak into the package
+- npm publish artifacts must be generated from an explicit allowlist and checked in CI so source trees, docs/RFCs, tests, repo guidance, `.codex`, `.context`, `.craig`, `.github`, task artifacts, logs, env files, source maps, lockfiles, private repo paths, and generated workspace state cannot leak into the package
 - source-leak checks must be conservative and fail the release path when they cannot determine whether a packed artifact is safe
 - the marketing site must not require or expose local Craig workspace state, task prompts, logs, or private repository metadata
 
@@ -621,7 +621,7 @@ Deliver a dedicated product-design pass after the core workflow is useful end to
 
 ### Phase 7: Packaging and publish safety
 
-Deliver npm packaging and release safety only after the local product has a stable command surface. This phase prepares Craig for npm distribution, adds a manual publish workflow, and adds CI checks that fail if package artifacts include local source trees, private workspace state, task artifacts, logs, `.context`, `.craig`, env files, or other accidental source/code leakage.
+Deliver npm packaging and release safety only after the local product has a stable command surface. This phase prepares Craig for npm distribution as the single `@craig/cli` package, replaces binary-platform packaging with a minified esbuild Node bundle, and makes Changesets continuous deployment the only publish path. CI checks must fail if package artifacts include source trees, docs/RFCs, tests, repo guidance, private workspace state, task artifacts, logs, `.codex`, `.context`, `.craig`, `.github`, env files, source maps, lockfiles, local paths, or other accidental source/code leakage.
 
 ### Phase 8: Marketing site and public docs
 
@@ -1051,12 +1051,16 @@ Deliver a public-facing site after package installation, privacy claims, and cor
 
 #### Implementation
 
-- prepare npm package metadata, bin entries, README install instructions, license metadata, and package exports for Craig distribution
-- define an explicit npm publish artifact allowlist, preferably through `package.json` `files`
-- add a CI job that runs the package build and `npm pack --dry-run` or equivalent artifact listing
-- add static artifact analysis that fails CI if packed files include `.context`, `.craig`, task artifacts, logs, env files, private workspace state, source maps or source files not intended for distribution, local absolute paths, or other denied patterns
-- add a local release/publish script or documented manual workflow that builds, audits, packs, smoke-tests install from the tarball, and only then publishes
-- make the publish workflow manual or approval-gated until release confidence is established
+- make the root package private and publish only `packages/cli` as `@craig/cli`
+- remove platform package and Bun binary build/publish assumptions from package metadata, workflows, and release guidance
+- add `esbuild` packaging that bundles `src/cli.ts` to `packages/cli/dist/cli.js` with `platform=node`, `format=esm`, `target=node22`, `bundle=true`, `minify=true`, `sourcemap=false`, a preserved shebang, executable mode, and externals for `node-pty` and `terminal-kit`
+- keep `node-pty` and `terminal-kit` as `@craig/cli` runtime dependencies while bundling safe JS dependencies such as `picocolors` and `@xterm/headless`
+- set `@craig/cli` `bin.craig` to `dist/cli.js` and keep its `files` allowlist to `dist/cli.js`, `README.md`, and `package.json`
+- add Changesets config and release metadata that reference only `@craig/cli`; do not support local publish or manual version edits
+- add a continuous deployment workflow on `main` that runs `pnpm test`, `pnpm typecheck`, `pnpm lint`, `pnpm build`, `pnpm build:npm`, `pnpm package:audit`, and `pnpm package:smoke` before `changesets/action`
+- configure `changesets/action` to open or update the generated Version Packages PR when changesets are present, publish `@craig/cli` after that PR lands on `main`, and enable auto-merge for the generated PR after required gates pass
+- add static artifact analysis that fails CI if packed files include source, docs/RFCs, tests, repo guidance, `.codex`, `.context`, `.craig`, `.github`, task artifacts, logs, env files, private workspace state, source maps, declarations, lockfiles, local absolute paths, or other denied patterns
+- rewrite the npm README as consumer-facing install/setup docs without private implementation language, RFC links, agent guidance, or local workspace paths
 
 #### Verification
 
@@ -1064,16 +1068,19 @@ Deliver a public-facing site after package installation, privacy claims, and cor
 - run `pnpm typecheck`
 - run `pnpm lint`
 - run `pnpm build`
-- run the package dry-run and inspect the included files
-- run the source-leak/static artifact check against the packed output
-- install Craig from the generated tarball in a temporary directory and verify the binary starts without requiring repo-local source files
+- run `pnpm build:npm`
+- verify `packages/cli/dist/cli.js` is minified, executable, has a shebang, and no `.map` files are produced
+- run `pnpm package:audit`
+- run `pnpm package:smoke`
+- verify the release workflow opens or updates the generated Version Packages PR when changesets are present, enables auto-merge for that PR after gates pass, and publishes only after the Version Packages PR lands on `main`
 - intentionally add a denied file to a local dry-run fixture or test and verify the leak check fails
 
 #### Tracking update
 
-- keep `7.1` open if npm artifacts are not allowlisted
-- keep `7.1` open if CI cannot fail closed on likely source, secret, workspace-state, or task-artifact leakage
+- keep `7.1` open if npm artifacts are not allowlisted to `dist/cli.js`, `README.md`, and `package.json`
+- keep `7.1` open if CI cannot fail closed on likely source, secret, workspace-state, source-map, private-metadata, or task-artifact leakage
 - keep `7.1` open if the packed package cannot be installed and smoke-tested outside the repo checkout
+- keep `7.1` open if Changesets CD is not the only publish path or if the generated Version Packages PR does not have auto-merge enabled after gates pass
 
 ### 8.1 Handoff
 

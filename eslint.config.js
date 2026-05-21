@@ -5,9 +5,18 @@ import parser from "@typescript-eslint/parser";
 
 export default [
   {
-    ignores: ["dist/**", "node_modules/**", ".craig/**"],
+    ignores: ["dist/**", "packages/*/dist/**", "node_modules/**", ".craig/**"],
   },
   js.configs.recommended,
+  {
+    files: ["scripts/**/*.mjs"],
+    languageOptions: {
+      sourceType: "module",
+      globals: {
+        ...globals.node,
+      },
+    },
+  },
   {
     files: ["**/*.ts"],
     languageOptions: {

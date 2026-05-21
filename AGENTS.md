@@ -21,6 +21,16 @@
 - When a session completes or verifies an RFC phase, update that RFC's tracker in the same change.
 - Update all three tracker sections together: status summary, verification summary, and next resume point.
 
+## Release packaging
+
+- Publish only `@craig/cli` from `packages/cli`; do not add platform packages or binary-only package targets.
+- Build the npm artifact with `pnpm build:npm`, which must emit a minified esbuild bundle at `packages/cli/dist/cli.js` without source maps.
+- Keep `packages/cli/package.json` on a strict `files` allowlist of `dist/cli.js`, `README.md`, and `package.json`.
+- Do not publish source, declarations, tests, docs/RFCs, repo guidance, `.codex`, `.context`, `.craig`, `.github`, lockfiles, logs, env files, local state, source maps, or private workspace paths.
+- Publishing is CI-only through Changesets. Do not publish locally and do not edit package versions manually.
+- Generated Changesets Version Packages PRs must have auto-merge enabled after required gates pass.
+- Release gates must include `pnpm test`, `pnpm typecheck`, `pnpm lint`, `pnpm build`, `pnpm build:npm`, `pnpm package:audit`, and `pnpm package:smoke`.
+
 ## Terminal harness
 
 - Preserve the shell launcher UX as a testable contract, not an informal behavior.
