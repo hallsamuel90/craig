@@ -1,7 +1,20 @@
 import path from "node:path";
 
 import type { InspectionDiffGroup, InspectionDiffRow, TaskLocalInspection } from "../services/task-local-inspection.js";
-import { DIR_ICON_CLOSED, DIR_ICON_OPEN, getFileIcon, getFileIconColor } from "./icons.js";
+import {
+  CHECK_ICON_FAILED,
+  CHECK_ICON_NONE,
+  CHECK_ICON_PENDING,
+  CHECK_ICON_SUCCESS,
+  DIR_ICON_CLOSED,
+  DIR_ICON_OPEN,
+  PR_ICON_CLOSED,
+  PR_ICON_MERGED,
+  PR_ICON_NONE,
+  PR_ICON_OPEN,
+  getFileIcon,
+  getFileIconColor,
+} from "./icons.js";
 import type { RunnerType, TaskPullRequest, TaskPullRequestCheck, TaskPtyTabRecord, TaskRecord } from "../types/task.js";
 import type { RepoRecord } from "../types/workspace.js";
 import { getRunnerDisplayName } from "../services/runner-profiles.js";
@@ -16,6 +29,8 @@ import type {
   TerminalViewState,
   WorkspaceBrowserState,
 } from "./state.js";
+
+const EMPTY_CENTER_TAB_ID = "empty";
 
 export interface ShellTopRail {
   workspacePath: string;
@@ -185,7 +200,9 @@ export function buildShellData(state: ControlShellState, model: WorkspaceShellMo
             ? "n new task   Enter attach   X close task"
             : "n new task   Enter select"
         : state.focusedRegion === "center"
-          ? activeTabId === INSPECTION_TAB_ID
+          ? selectedTask === null
+            ? "n new task   Tab tasks"
+            : activeTabId === INSPECTION_TAB_ID
             ? "↑↓/wheel/PgUp/PgDn scroll   ←/→ switch   Tab inspector"
             : `+ new tab   a ${getRunnerDisplayName(state.centerTabRunner ?? (selectedTask?.runner ?? state.selectedRunner))}   r runner   t Terminal   x close   Enter attach`
           : "n new task   ? help   / search   : command",
@@ -314,9 +331,9 @@ function buildCenterTranscript(
 
   if (!task) {
     return textLines([
-      `Repo ${repo.name} is ready.`,
+      `No tasks in ${repo.name}.`,
       "",
-      "Press n to create a task and boot the selected runner in its worktree.",
+      `Press n or choose + New Task to create one with ${getRunnerDisplayName(state.selectedRunner)}.`,
     ]);
   }
 
@@ -362,6 +379,16 @@ function buildCenterTabs(state: ControlShellState, task: TaskRecord | null, acti
       id: tab.id,
       label: formatPtyTabLabel(tab),
     })) ?? [];
+
+  if (!task) {
+    return [{
+      id: EMPTY_CENTER_TAB_ID,
+      label: "EMPTY",
+      active: activeTabId === EMPTY_CENTER_TAB_ID,
+      focused: state.focusedRegion === "center" && activeTabId === EMPTY_CENTER_TAB_ID,
+    }];
+  }
+
   const inspectionTab = state.openInspectionKind
     ? [{
         id: INSPECTION_TAB_ID,
@@ -378,7 +405,7 @@ function buildCenterTabs(state: ControlShellState, task: TaskRecord | null, acti
 
 function resolveDisplayActiveTab(state: ControlShellState, task: TaskRecord | null): string {
   if (!task) {
-    return state.activeTab === INSPECTION_TAB_ID ? state.activeTab : "agent";
+    return EMPTY_CENTER_TAB_ID;
   }
 
   if (
@@ -770,17 +797,17 @@ function renderInspectionModeRow(state: ControlShellState, task: TaskRecord | nu
 }
 
 function buildPrLifecycleSegment(pr: TaskPullRequest | null): TerminalRowSegment {
-  if (!pr || !pr.number) return { text: "○", style: { fg: "565f89" } };
-  if (pr.status === "merged") return { text: "⊕", style: { fg: "9d7cd8" } };
-  if (pr.status === "closed") return { text: "⊗", style: { fg: "f7768e" } };
-  return { text: "⊙", style: { fg: "9ece6a" } };
+  if (!pr || !pr.number) return { text: PR_ICON_NONE, style: { fg: "565f89" } };
+  if (pr.status === "merged") return { text: PR_ICON_MERGED, style: { fg: "9d7cd8" } };
+  if (pr.status === "closed") return { text: PR_ICON_CLOSED, style: { fg: "f7768e" } };
+  return { text: PR_ICON_OPEN, style: { fg: "9ece6a" } };
 }
 
 function buildPrChecksSegment(checks: TaskPullRequestCheck[] | null): TerminalRowSegment {
-  if (!checks || checks.length === 0) return { text: "—", style: { fg: "565f89" } };
-  if (checks.some((c) => c.status === "failed")) return { text: "✕", style: { fg: "f7768e" } };
-  if (checks.every((c) => c.status === "success")) return { text: "✓", style: { fg: "9ece6a" } };
-  return { text: "◌", style: { fg: "e0af68" } };
+  if (!checks || checks.length === 0) return { text: CHECK_ICON_NONE, style: { fg: "565f89" } };
+  if (checks.some((c) => c.status === "failed")) return { text: CHECK_ICON_FAILED, style: { fg: "f7768e" } };
+  if (checks.every((c) => c.status === "success")) return { text: CHECK_ICON_SUCCESS, style: { fg: "9ece6a" } };
+  return { text: CHECK_ICON_PENDING, style: { fg: "e0af68" } };
 }
 
 function buildActionRows(state: ControlShellState): ShellActionRow[] {
@@ -801,23 +828,18 @@ function buildReviewInspectionRows(
   }
 
   const pr = task.pullRequest;
-  const createPrAction = actions.find((action) => action.id === "create-pr");
   const refreshChecksAction = actions.find((action) => action.id === "refresh-checks");
-  const mergeAction = actions.find((action) => action.id === "merge");
   const closeTaskAction = actions.find((action) => action.id === "close-task");
-  const actionLabel = pr.number ? "sync pr" : "create pr";
   const reviewActionRows = [
-    renderReviewActionRow("create-pr", actionLabel, createPrAction?.shortcut ?? "P", state),
-    renderReviewActionRow("refresh-checks", "refresh checks", refreshChecksAction?.shortcut ?? "R", state, !pr.number),
-    renderReviewActionRow("merge", "merge pr", mergeAction?.shortcut ?? "M", state, !isReviewMergeActionAvailable(task)),
+    renderReviewActionRow("refresh-checks", "sync pr", refreshChecksAction?.shortcut ?? "R", state),
     renderReviewActionRow("close-task", "close task", closeTaskAction?.shortcut ?? "X", state, task.status === "closed"),
   ];
   const rows: ShellInspectionRow[] = [
     { id: "review-title", text: "PR", muted: true },
     pr.number
       ? { id: "pr-number", text: `#${pr.number} ${pr.status ?? "unknown"}` }
-      : { id: "pr-number", text: "No PR — press P to create one.", muted: true },
-    { id: "pr-url", text: pr.url ?? "not created", muted: pr.url === null },
+      : { id: "pr-number", text: "No PR linked.", muted: true },
+    renderPullRequestUrlRow(pr.url),
     { id: "pr-base", text: `base ${pr.baseBranch ?? "unknown"}`, muted: pr.baseBranch === null },
     { id: "pr-head", text: `head ${pr.headBranch ?? task.branch}`, muted: pr.headBranch === null },
     { id: "pr-merge", text: `merge ${pr.mergeable ? "ready" : pr.mergeStateStatus ?? "unknown"}` },
@@ -826,13 +848,24 @@ function buildReviewInspectionRows(
     { id: "review-spacer", text: "" },
     { id: "review-checks", text: "Checks", muted: true },
     ...buildPullRequestCheckRows(task),
-    { id: "review-guidance-spacer", text: "" },
-    renderReviewGuidance(task),
     { id: "review-action-spacer", text: "" },
     ...reviewActionRows,
   ];
 
   return rows;
+}
+
+function renderPullRequestUrlRow(url: string | null): ShellInspectionRow {
+  if (!url) {
+    return { id: "pr-url", text: "not created", muted: true };
+  }
+
+  const text = "Open in GitHub ↗";
+  return {
+    id: "pr-url",
+    text,
+    segments: [{ text, href: url, style: { fg: "7aa2f7", underline: true } }],
+  };
 }
 
 function renderReviewActionRow(
@@ -856,7 +889,7 @@ function renderReviewActionRow(
 
 function buildPullRequestCheckRows(task: TaskRecord): ShellInspectionRow[] {
   if (!task.pullRequest.number) {
-    return [{ id: "pr-checks-none", text: "No checks — create a PR first (P).", muted: true }];
+    return [{ id: "pr-checks-none", text: "No checks — sync after creating a PR.", muted: true }];
   }
 
   if (task.pullRequest.requiredChecks.length === 0) {
@@ -879,10 +912,10 @@ function renderPullRequestCheckRow(check: TaskPullRequestCheck): ShellInspection
 
 function formatCheckStatus(status: TaskPullRequestCheck["status"]): { icon: string; color: string } {
   switch (status) {
-    case "success": return { icon: "✓", color: "9ece6a" };
-    case "pending": return { icon: "⟳", color: "e0af68" };
-    case "failed":  return { icon: "✕", color: "f7768e" };
-    case "skipped": return { icon: "○", color: "565f89" };
+    case "success": return { icon: CHECK_ICON_SUCCESS, color: "9ece6a" };
+    case "pending": return { icon: CHECK_ICON_PENDING, color: "e0af68" };
+    case "failed":  return { icon: CHECK_ICON_FAILED, color: "f7768e" };
+    case "skipped": return { icon: CHECK_ICON_NONE, color: "565f89" };
     default:        return { icon: "?", color: "565f89" };
   }
 }
@@ -895,60 +928,6 @@ function formatPullRequestCheckStatus(status: TaskPullRequestCheck["status"]): s
     return "failing";
   }
   return status;
-}
-
-function renderReviewGuidance(task: TaskRecord): ShellInspectionRow {
-  const pr = task.pullRequest;
-
-  if (task.status === "closed") {
-    return { id: "review-guidance", text: "Task closed.", muted: true };
-  }
-
-  if (task.status === "merged") {
-    return { id: "review-guidance", text: "Next: close task.", accentPrefix: true };
-  }
-
-  if (!pr.number) {
-    return { id: "review-guidance", text: "Next: create PR.", muted: true };
-  }
-
-  if (task.lastCommit && pr.lastSyncedHeadSha !== task.lastCommit.sha) {
-    return { id: "review-guidance", text: "Next: sync PR head.", accentPrefix: true };
-  }
-
-  if (pr.requiredChecks.length === 0) {
-    return { id: "review-guidance", text: "Next: refresh checks.", muted: true };
-  }
-
-  if (pr.requiredChecks.some((check) => check.status === "failed")) {
-    return { id: "review-guidance", text: "Next: fix failing checks.", accentPrefix: true };
-  }
-
-  if (pr.requiredChecks.some((check) => check.status === "unknown")) {
-    return { id: "review-guidance", text: "Next: refresh unknown checks.", accentPrefix: true };
-  }
-
-  if (pr.requiredChecks.some((check) => check.status === "pending")) {
-    return { id: "review-guidance", text: "Next: waiting on CI.", muted: true };
-  }
-
-  if (pr.mergeable && pr.status === "open") {
-    return { id: "review-guidance", text: "Next: merge PR.", accentPrefix: true };
-  }
-
-  return { id: "review-guidance", text: "Next: review PR state.", muted: true };
-}
-
-function isReviewMergeActionAvailable(task: TaskRecord): boolean {
-  return (
-    task.status === "merge_ready" &&
-    task.pullRequest.status === "open" &&
-    task.pullRequest.mergeable &&
-    task.pullRequest.requiredChecks.length > 0 &&
-    task.pullRequest.requiredChecks.every((check) => check.status === "success" || check.status === "skipped") &&
-    task.lastCommit !== null &&
-    task.pullRequest.lastSyncedHeadSha === task.lastCommit.sha
-  );
 }
 
 function formatNullableValue(value: string | null): string {

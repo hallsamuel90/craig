@@ -388,6 +388,7 @@ pr_number="\${CRAIG_TEST_GH_PR_NUMBER:-17}"
 pr_url="\${CRAIG_TEST_GH_PR_URL:-https://github.com/example/repo/pull/17}"
 head_oid="\${CRAIG_TEST_GH_HEAD_OID:-abc1234}"
 view_file="\${CRAIG_TEST_GH_VIEW_FILE:-}"
+created_marker="$(dirname "$0")/.pr-created"
 if [ "$1" = "auth" ] && [ "$2" = "status" ]; then
   if [ "$mode" = "auth-fail" ]; then
     echo "gh auth failed" >&2
@@ -396,10 +397,15 @@ if [ "$1" = "auth" ] && [ "$2" = "status" ]; then
   exit 0
 fi
 if [ "$1" = "pr" ] && [ "$2" = "create" ]; then
+  : > "$created_marker"
   echo "$pr_url"
   exit 0
 fi
 if [ "$1" = "pr" ] && [ "$2" = "view" ]; then
+  if [ "$mode" = "no-pr" ] && [ ! -f "$created_marker" ]; then
+    echo "no pull requests found" >&2
+    exit 1
+  fi
   if [ -n "$view_file" ]; then
     cat "$view_file"
     exit 0

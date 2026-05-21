@@ -40,6 +40,7 @@ const LEFT_PANEL_GUTTER = 2;
 export const CENTER_TERMINAL_GUTTER = 2;
 const ANSI_ESCAPE_PATTERN = new RegExp(`${String.fromCharCode(27)}\\[[0-9;]*m`, "g");
 const ANSI_RESET_PATTERN = new RegExp(`${String.fromCharCode(27)}\\[(?:0)?m`, "g");
+const OSC8_PATTERN = new RegExp(`${String.fromCharCode(27)}\\]8;;[^${String.fromCharCode(27)}]*${String.fromCharCode(27)}\\\\`, "g");
 const URL_PATTERN = /https?:\/\/[^\s<>"']+/g;
 const RESET = "\u001B[0m";
 const OSC8_END = "\u001B]8;;\u001B\\";
@@ -87,9 +88,9 @@ const HELP_LINES = [
   "  GLOBAL                     CENTER PANEL              INSPECTOR",
   "  ?     help                 ←→ / hl   switch tab      ↑↓ / jk   navigate",
   "  Esc   pause / back         +         new tab          ←→ / hl   switch mode",
-  "  Tab   cycle panels         a         codex tab        P         create PR",
-  "  q     quit                 t         terminal tab     R         refresh checks",
-  "                             x         close tab        M         merge PR",
+  "  Tab   cycle panels         a         codex tab        R         sync PR",
+  "  q     quit                 t         terminal tab     R         sync PR",
+  "                             x         close tab        X         close task",
   "  TASKS                      Enter     attach PTY       X         close task",
   "  ↑↓ / jk   navigate",
   "  n          new task        TERMINAL MODE",
@@ -509,7 +510,9 @@ function renderFullBleedCenterLine(line: SurfaceLine, width: number, color: bool
 }
 
 function renderTerminalSegment(segment: TerminalRowSegment, color: boolean, base: PaletteColor): string {
-  const text = linkifyUrls(segment.text);
+  const text = segment.href
+    ? `${osc8Start(segment.href)}${segment.text}${OSC8_END}`
+    : linkifyUrls(segment.text);
   if (!color || !segment.style) {
     return text;
   }
@@ -666,7 +669,7 @@ function clamp(value: number, min: number, max: number): number {
 }
 
 function stripAnsi(value: string): string {
-  return value.replace(ANSI_ESCAPE_PATTERN, "");
+  return value.replace(OSC8_PATTERN, "").replace(ANSI_ESCAPE_PATTERN, "");
 }
 
 function segmentsToPlainText(segments: TerminalRowSegment[]): string {

@@ -18,6 +18,7 @@ export interface TerminalCellStyle {
 export interface TerminalRowSegment {
   text: string;
   style?: TerminalCellStyle;
+  href?: string;
 }
 
 export interface TerminalScreenRow {

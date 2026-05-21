@@ -7,7 +7,7 @@ import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 import { startTerminalApp, type PtyRuntimePort, type TerminalRuntime } from "../src/ui/app.js";
 import type { TerminalViewState } from "../src/ui/state.js";
 import { listRepos } from "../src/state/repo-store.js";
-import { runCommand } from "../src/utils/exec.js";
+import { runCommand, runCommandAllowingFailure } from "../src/utils/exec.js";
 import { readTask, writeTask } from "../src/state/task-store.js";
 import { readCraigConfig } from "../src/state/config-store.js";
 import { createCraigState, createGitRepo, createStubCommands, writeRepoRecord, writeTaskRecord } from "./test-helpers.js";
@@ -326,6 +326,30 @@ describe("terminal app PTY attach flow", () => {
     await expect(app).resolves.toBe(0);
     expect(ptyRuntime.writeKey).toHaveBeenCalledWith("n");
     expect(ptyRuntime.write).not.toHaveBeenCalledWith("n");
+  });
+
+  test("terminal mode preserves repeated characters in fast pasted printable key events", async () => {
+    const root = await mkdtemp(join(tmpdir(), "craig-ui-app-"));
+    tempRoots.push(root);
+    const paths = await setupWorkspace(root);
+    const terminal = new FakeTerminal();
+    const ptyRuntime = new FakePtyRuntime();
+    const app = startTerminalApp({ terminal, ptyRuntime, uiStateFile: paths.uiStateFile, workspaceRoot: root });
+    await vi.waitFor(() => expect(terminal.hasKeyListener()).toBe(true));
+
+    terminal.emitKey("\r"); // boot start
+    terminal.emitKey("ENTER");
+    await vi.waitFor(() => expect(ptyRuntime.ensureSession).toHaveBeenCalled());
+    const command = "curl -fsSL https://claude.ai/install.sh | bash";
+    for (const char of command) {
+      terminal.emitKey(char);
+    }
+    terminal.emitKey("\u001D");
+    terminal.emitKey("q");
+
+    await expect(app).resolves.toBe(0);
+    const forwarded = ptyRuntime.writeKey.mock.calls.map(([key]) => key).join("");
+    expect(forwarded).toContain(command);
   });
 
   test("terminal mode forwards shift+tab to the attached Codex PTY", async () => {
@@ -1032,12 +1056,14 @@ describe("terminal app PTY attach flow", () => {
     expect(ptyRuntime.ensureSession).not.toHaveBeenCalled();
   });
 
-  test("review create pr action records tracked PR metadata without attaching a PTY", async () => {
+  test("review P does not create a PR from the side panel", async () => {
     const root = await mkdtemp(join(tmpdir(), "craig-ui-app-"));
     tempRoots.push(root);
     const paths = await setupWorkspace(root);
     const { task, stubDir } = await preparePrTask(paths, tempRoots);
     process.env.PATH = `${stubDir}:${originalPath}`;
+    process.env.CRAIG_TEST_GH_MODE = "";
+    process.env.CRAIG_TEST_GH_MODE = "no-pr";
     const viewFile = join(root, "gh-view.json");
     await writeFile(
       viewFile,
@@ -1065,6 +1091,62 @@ describe("terminal app PTY attach flow", () => {
     terminal.emitKey("RIGHT"); // review
     await vi.waitFor(() => expect(stripAnsi(terminal.frames.at(-1) ?? "")).toContain("  PR"));
     terminal.emitKey("P");
+    terminal.emitKey("q");
+
+    await expect(app).resolves.toBe(0);
+    const updatedTask = await readTask(paths, task.id);
+    expect(updatedTask.pullRequest.number).toBeNull();
+    expect(updatedTask.pullRequest.url).toBeNull();
+    expect(updatedTask.pullRequest.lastSyncedHeadSha).toBeNull();
+    expect(ptyRuntime.ensureSession).not.toHaveBeenCalled();
+  });
+
+  test("actions-focused create pr records tracked PR metadata without attaching a PTY", async () => {
+    const root = await mkdtemp(join(tmpdir(), "craig-ui-app-"));
+    tempRoots.push(root);
+    const paths = await setupWorkspace(root);
+    const { task, stubDir } = await preparePrTask(paths, tempRoots);
+    process.env.PATH = `${stubDir}:${originalPath}`;
+    process.env.CRAIG_TEST_GH_MODE = "no-pr";
+    const viewFile = join(root, "gh-view.json");
+    await writeFile(
+      viewFile,
+      JSON.stringify({
+        number: 17,
+        url: "https://github.com/example/repo/pull/17",
+        baseRefName: "main",
+        headRefName: task.branch,
+        headRefOid: task.lastCommit?.sha,
+        state: "OPEN",
+        mergeable: "MERGEABLE",
+        mergeStateStatus: "CLEAN",
+        statusCheckRollup: [{ context: "ci", state: "SUCCESS", conclusion: "SUCCESS" }],
+      }),
+      "utf8",
+    );
+    process.env.CRAIG_TEST_GH_VIEW_FILE = viewFile;
+    await writeFile(
+      paths.uiStateFile,
+      JSON.stringify({
+        version: 1,
+        selectedRepoId: "repo_a",
+        selectedWorkspaceId: "workspace_repo_a",
+        selectedTaskId: task.id,
+        selectedPtyTabId: `${task.id}:terminal`,
+        inputMode: "control",
+        focusedRegion: "actions",
+        activeTab: `${task.id}:terminal`,
+        selectedActionId: "create-pr",
+        updatedAt: "2026-05-04T00:00:00.000Z",
+      }),
+    );
+    const terminal = new FakeTerminal();
+    const ptyRuntime = new FakePtyRuntime();
+    const app = startTerminalApp({ terminal, ptyRuntime, uiStateFile: paths.uiStateFile, workspaceRoot: root });
+    await vi.waitFor(() => expect(terminal.hasKeyListener()).toBe(true));
+
+    terminal.emitKey("\r"); // boot start
+    terminal.emitKey("ENTER");
     await vi.waitFor(() => expect(stripAnsi(terminal.frames.at(-1) ?? "")).toContain("Created PR: #17"));
     terminal.emitKey("q");
 
@@ -1072,11 +1154,91 @@ describe("terminal app PTY attach flow", () => {
     const updatedTask = await readTask(paths, task.id);
     expect(updatedTask.pullRequest.number).toBe(17);
     expect(updatedTask.pullRequest.url).toBe("https://github.com/example/repo/pull/17");
-    expect(updatedTask.pullRequest.lastSyncedHeadSha).toBe(task.lastCommit?.sha);
     expect(ptyRuntime.ensureSession).not.toHaveBeenCalled();
   });
 
-  test("review pr action shows GitHub errors and keeps Craig usable", async () => {
+  test("review refresh discovers an externally-created PR for the task branch", async () => {
+    const root = await mkdtemp(join(tmpdir(), "craig-ui-app-"));
+    tempRoots.push(root);
+    const paths = await setupWorkspace(root);
+    const { task, stubDir } = await preparePrTask(paths, tempRoots);
+    process.env.PATH = `${stubDir}:${originalPath}`;
+    const viewFile = join(root, "gh-view.json");
+    await writeFile(
+      viewFile,
+      JSON.stringify({
+        number: 23,
+        url: "https://github.com/example/repo/pull/23",
+        baseRefName: "main",
+        headRefName: task.branch,
+        headRefOid: task.lastCommit?.sha,
+        state: "OPEN",
+        mergeable: "MERGEABLE",
+        mergeStateStatus: "CLEAN",
+        statusCheckRollup: [{ context: "ci", state: "SUCCESS", conclusion: "SUCCESS" }],
+      }),
+      "utf8",
+    );
+    process.env.CRAIG_TEST_GH_VIEW_FILE = viewFile;
+    const terminal = new FakeTerminal();
+    const ptyRuntime = new FakePtyRuntime();
+    const app = startTerminalApp({ terminal, ptyRuntime, uiStateFile: paths.uiStateFile, workspaceRoot: root });
+    await vi.waitFor(() => expect(terminal.hasKeyListener()).toBe(true));
+
+    terminal.emitKey("\r"); // boot start
+    terminal.emitKey("TAB"); // inspector
+    terminal.emitKey("RIGHT"); // review
+    await vi.waitFor(() => expect(stripAnsi(terminal.frames.at(-1) ?? "")).toContain("  PR"));
+    terminal.emitKey("R");
+    await vi.waitFor(() => expect(stripAnsi(terminal.frames.at(-1) ?? "")).toContain("Discovered PR: #23"));
+    terminal.emitKey("q");
+
+    await expect(app).resolves.toBe(0);
+    const updatedTask = await readTask(paths, task.id);
+    expect(updatedTask.pullRequest.number).toBe(23);
+    expect(ptyRuntime.ensureSession).not.toHaveBeenCalled();
+  });
+
+  test("polling discovers an externally-created PR for the selected task", async () => {
+    const root = await mkdtemp(join(tmpdir(), "craig-ui-app-"));
+    tempRoots.push(root);
+    const paths = await setupWorkspace(root);
+    const { task, stubDir } = await preparePrTask(paths, tempRoots);
+    process.env.PATH = `${stubDir}:${originalPath}`;
+    await writeFile(paths.configFile, JSON.stringify({ github: { watchIntervalSeconds: 1 } }, null, 2), "utf8");
+    const viewFile = join(root, "gh-view.json");
+    await writeFile(
+      viewFile,
+      JSON.stringify({
+        number: 24,
+        url: "https://github.com/example/repo/pull/24",
+        baseRefName: "main",
+        headRefName: task.branch,
+        headRefOid: task.lastCommit?.sha,
+        state: "OPEN",
+        mergeable: "MERGEABLE",
+        mergeStateStatus: "CLEAN",
+        statusCheckRollup: [{ context: "ci", state: "SUCCESS", conclusion: "SUCCESS" }],
+      }),
+      "utf8",
+    );
+    process.env.CRAIG_TEST_GH_VIEW_FILE = viewFile;
+    const terminal = new FakeTerminal();
+    const ptyRuntime = new FakePtyRuntime();
+    const app = startTerminalApp({ terminal, ptyRuntime, uiStateFile: paths.uiStateFile, workspaceRoot: root });
+    await vi.waitFor(() => expect(terminal.hasKeyListener()).toBe(true));
+
+    terminal.emitKey("\r"); // boot start
+    await vi.waitFor(() => expect(stripAnsi(terminal.frames.at(-1) ?? "")).toContain("Discovered PR: #24"), { timeout: 2500 });
+    terminal.emitKey("q");
+
+    await expect(app).resolves.toBe(0);
+    const updatedTask = await readTask(paths, task.id);
+    expect(updatedTask.pullRequest.number).toBe(24);
+    expect(ptyRuntime.ensureSession).not.toHaveBeenCalled();
+  });
+
+  test("review sync PR action shows GitHub errors and keeps Craig usable", async () => {
     const root = await mkdtemp(join(tmpdir(), "craig-ui-app-"));
     tempRoots.push(root);
     const paths = await setupWorkspace(root);
@@ -1092,7 +1254,7 @@ describe("terminal app PTY attach flow", () => {
     terminal.emitKey("TAB"); // inspector
     terminal.emitKey("RIGHT"); // review
     await vi.waitFor(() => expect(stripAnsi(terminal.frames.at(-1) ?? "")).toContain("  PR"));
-    terminal.emitKey("P");
+    terminal.emitKey("R");
     await vi.waitFor(() => expect(stripAnsi(terminal.frames.at(-1) ?? "")).toContain("gh auth failed"));
     terminal.emitKey("q");
 
@@ -1102,7 +1264,7 @@ describe("terminal app PTY attach flow", () => {
     expect(ptyRuntime.ensureSession).not.toHaveBeenCalled();
   });
 
-  test("review sync pr action pushes a newer commit and refreshes metadata", async () => {
+  test("review sync PR action refreshes metadata without pushing new commits", async () => {
     const root = await mkdtemp(join(tmpdir(), "craig-ui-app-"));
     tempRoots.push(root);
     const paths = await setupWorkspace(root);
@@ -1160,15 +1322,15 @@ describe("terminal app PTY attach flow", () => {
     terminal.emitKey("TAB"); // inspector
     terminal.emitKey("RIGHT"); // review
     await vi.waitFor(() => expect(stripAnsi(terminal.frames.at(-1) ?? "")).toContain("  PR"));
-    terminal.emitKey("P");
-    await vi.waitFor(() => expect(stripAnsi(terminal.frames.at(-1) ?? "")).toContain("Synced PR: #17"));
+    terminal.emitKey("R");
+    await vi.waitFor(() => expect(stripAnsi(terminal.frames.at(-1) ?? "")).toContain("Refreshed checks: 0 reported"));
     terminal.emitKey("q");
 
     await expect(app).resolves.toBe(0);
     const updatedTask = await readTask(paths, task.id);
-    const remoteSha = (await runCommand("git", ["rev-parse", `refs/heads/${task.branch}`], { cwd: remoteRepo })).stdout.trim();
+    const remoteBranch = await runCommandAllowingFailure("git", ["rev-parse", `refs/heads/${task.branch}`], { cwd: remoteRepo });
     expect(updatedTask.pullRequest.lastSyncedHeadSha).toBe(nextSha);
-    expect(remoteSha).toBe(nextSha);
+    expect(remoteBranch.exitCode).not.toBe(0);
     expect(ptyRuntime.ensureSession).not.toHaveBeenCalled();
   });
 
@@ -1249,6 +1411,9 @@ describe("terminal app PTY attach flow", () => {
     const root = await mkdtemp(join(tmpdir(), "craig-ui-app-"));
     tempRoots.push(root);
     const paths = await setupWorkspace(root);
+    const { stubDir } = await preparePrTask(paths, tempRoots);
+    process.env.PATH = `${stubDir}:${originalPath}`;
+    process.env.CRAIG_TEST_GH_MODE = "no-pr";
     const terminal = new FakeTerminal();
     const ptyRuntime = new FakePtyRuntime();
     const app = startTerminalApp({ terminal, ptyRuntime, uiStateFile: paths.uiStateFile, workspaceRoot: root });
@@ -1259,14 +1424,14 @@ describe("terminal app PTY attach flow", () => {
     terminal.emitKey("RIGHT"); // review
     await vi.waitFor(() => expect(stripAnsi(terminal.frames.at(-1) ?? "")).toContain("  PR"));
     terminal.emitKey("R");
-    await vi.waitFor(() => expect(stripAnsi(terminal.frames.at(-1) ?? "")).toContain("no tracked PR"));
+    await vi.waitFor(() => expect(stripAnsi(terminal.frames.at(-1) ?? "")).toContain("No PR found for"));
     terminal.emitKey("q");
 
     await expect(app).resolves.toBe(0);
     expect(ptyRuntime.ensureSession).not.toHaveBeenCalled();
   });
 
-  test("review merge action merges a ready PR without attaching a PTY", async () => {
+  test("review M does not merge a ready PR from the side panel", async () => {
     const root = await mkdtemp(join(tmpdir(), "craig-ui-app-"));
     tempRoots.push(root);
     const paths = await setupWorkspace(root);
@@ -1316,18 +1481,17 @@ describe("terminal app PTY attach flow", () => {
     terminal.emitKey("RIGHT"); // review
     await vi.waitFor(() => expect(stripAnsi(terminal.frames.at(-1) ?? "")).toContain("  PR"));
     terminal.emitKey("M");
-    await vi.waitFor(() => expect(stripAnsi(terminal.frames.at(-1) ?? "")).toContain("Merged PR #17"));
     terminal.emitKey("q");
 
     await expect(app).resolves.toBe(0);
     const updatedTask = await readTask(paths, task.id);
-    expect(updatedTask.status).toBe("merged");
-    expect(updatedTask.pullRequest.status).toBe("merged");
-    expect(updatedTask.cleanup.preservedWorktree).toBe(true);
+    expect(updatedTask.status).toBe("merge_ready");
+    expect(updatedTask.pullRequest.status).toBe("open");
+    expect(updatedTask.cleanup.preservedWorktree).toBe(false);
     expect(ptyRuntime.ensureSession).not.toHaveBeenCalled();
   });
 
-  test("review merge action shows blocker errors and keeps Craig usable", async () => {
+  test("review M does not run merge blocker checks from the side panel", async () => {
     const root = await mkdtemp(join(tmpdir(), "craig-ui-app-"));
     tempRoots.push(root);
     const paths = await setupWorkspace(root);
@@ -1377,13 +1541,12 @@ describe("terminal app PTY attach flow", () => {
     terminal.emitKey("RIGHT"); // review
     await vi.waitFor(() => expect(stripAnsi(terminal.frames.at(-1) ?? "")).toContain("  PR"));
     terminal.emitKey("M");
-    await vi.waitFor(async () => expect((await readTask(paths, task.id)).pullRequest.requiredChecks[0]?.status).toBe("pending"));
-    expect(stripAnsi(terminal.frames.at(-1) ?? "")).toContain("pull requ");
     terminal.emitKey("q");
 
     await expect(app).resolves.toBe(0);
     const updatedTask = await readTask(paths, task.id);
-    expect(updatedTask.status).toBe("pr_open");
+    expect(updatedTask.status).toBe("merge_ready");
+    expect(updatedTask.pullRequest.requiredChecks[0]?.status).toBe("success");
     expect(ptyRuntime.ensureSession).not.toHaveBeenCalled();
   });
 

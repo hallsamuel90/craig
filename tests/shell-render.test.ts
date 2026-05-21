@@ -109,6 +109,36 @@ describe("terminal shell renderer", () => {
     expect(frame).toContain("claude");
   });
 
+  test("renders an actionable empty state when the selected repo has no tasks", () => {
+    const repo = { id: "repo_bug_fixes", name: "bug-fixes", rootPath: "/tmp/craig", defaultBranch: "main", createdAt: "", updatedAt: "" };
+    const data = buildShellData(
+      {
+        ...createInitialShellState(null),
+        selectedRepoId: repo.id,
+        selectedLeftItemId: `repo:${repo.id}`,
+        focusedRegion: "center",
+        selectedRunner: "claude",
+      },
+      {
+        workspaceRoot: "/tmp/craig",
+        repos: [repo],
+        tasks: [],
+        inspection: null,
+      },
+    );
+
+    const frame = renderMainShellFrame(MIN_VIEWPORT, data, { color: false });
+
+    expect(data.footerText).toBe("n new task   Tab tasks");
+    expect(data.tabs).toEqual([{ id: "empty", label: "EMPTY", active: true, focused: true }]);
+    expect(data.centerTranscript.map((line) => line.text)).toContain("Press n or choose + New Task to create one with Claude.");
+    expect(frame).toContain("EMPTY  no task · bug-fixes");
+    expect(frame).toContain("No tasks in bug-fixes.");
+    expect(frame).toContain("+ New Task [Claude]");
+    expect(frame).not.toContain("Enter attach");
+    expect(frame).not.toContain("Press Enter on the AGENT");
+  });
+
   test("renders files tab with right-panel file tree and selected file content", () => {
     const task = buildTaskRecord("/tmp/craig", {
       id: "task_20260430_02",
@@ -295,6 +325,7 @@ describe("terminal shell renderer", () => {
         requiredChecks: [
           { name: "ci", status: "success", conclusion: "SUCCESS" },
           { name: "docs", status: "skipped", conclusion: "SKIPPED" },
+          { name: "e2e", status: "pending", conclusion: null },
         ],
         lastSyncedAt: "2026-05-06T00:00:00.000Z",
         lastSyncedHeadSha: "abcdef123456",
@@ -320,15 +351,19 @@ describe("terminal shell renderer", () => {
     const frame = renderMainShellFrame(MIN_VIEWPORT, data, { color: false });
 
     expect(frame).toContain("CHANGES  FILES  REVIEW");
+    expect(frame).toContain("REVIEW   ●");
     expect(frame).toContain("#17 open");
+    expect(frame).toContain("Open in GitHub ↗");
+    expect(frame).toContain("\u001B]8;;https://github.com/example/repo/pull/17\u001B\\Open in GitHub ↗\u001B]8;;\u001B\\");
     expect(frame).toContain("sha abcdef1");
     expect(frame).toContain("✓ ci");
     expect(frame).toContain("○ docs");
-    expect(frame).toContain("Next: merge PR.");
+    expect(frame).toContain("● e2e");
     expect(frame).toContain("sync pr");
-    expect(frame).toContain("refresh checks");
-    expect(frame).toContain("merge pr");
     expect(frame).toContain("close task");
+    expect(frame).not.toContain("Next:");
+    expect(frame).not.toContain("create pr");
+    expect(frame).not.toContain("merge pr");
   });
 
   test("renders review guidance for failed and unknown checks", () => {
@@ -380,9 +415,61 @@ describe("terminal shell renderer", () => {
     );
 
     expect(failed).toContain("✕ ci");
-    expect(failed).toContain("Next: fix failing checks.");
     expect(unknown).toContain("? coverage");
-    expect(unknown).toContain("Next: refresh unknown checks.");
+    expect(failed).not.toContain("Next:");
+    expect(unknown).not.toContain("Next:");
+  });
+
+  test("renders distinct review header icons for missing, merged, and closed PR states", () => {
+    const baseTask = buildTaskRecord("/tmp/craig", {
+      id: "task_20260430_02",
+      repoId: "repo_bug_fixes",
+      workspaceId: "workspace_bug_fixes",
+    });
+    const model = {
+      workspaceRoot: "/tmp/craig",
+      repos: [{ id: "repo_bug_fixes", name: "bug-fixes", rootPath: "/tmp/craig", defaultBranch: "main", createdAt: "", updatedAt: "" }],
+      tasks: [baseTask],
+      inspection: null,
+    };
+    const state = {
+      ...createInitialShellState(null),
+      selectedRepoId: "repo_bug_fixes",
+      selectedTaskId: baseTask.id,
+      selectedLeftItemId: `task:${baseTask.id}`,
+      focusedRegion: "inspector" as const,
+      inspectionMode: "review" as const,
+    };
+    const renderTask = (task: typeof baseTask) => renderMainShellFrame(
+      MIN_VIEWPORT,
+      buildShellData(state, { ...model, tasks: [task] }),
+      { color: false },
+    );
+
+    const mergedTask = {
+      ...baseTask,
+      pullRequest: {
+        ...baseTask.pullRequest,
+        number: 17,
+        url: "https://github.com/example/repo/pull/17",
+        status: "merged" as const,
+        requiredChecks: [],
+      },
+    };
+    const closedTask = {
+      ...baseTask,
+      pullRequest: {
+        ...baseTask.pullRequest,
+        number: 18,
+        url: "https://github.com/example/repo/pull/18",
+        status: "closed" as const,
+        requiredChecks: [],
+      },
+    };
+
+    expect(renderTask(baseTask)).toContain("REVIEW  ○ ○");
+    expect(renderTask(mergedTask)).toContain("REVIEW   ○");
+    expect(renderTask(closedTask)).toContain("REVIEW   ○");
   });
 
   test("renders the PTY terminal surface and terminal-mode hint", () => {

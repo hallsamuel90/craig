@@ -90,26 +90,27 @@ export async function refreshPullRequestState(
   paths: CraigPaths,
   task: TaskRecord,
 ): Promise<TaskRecord> {
-  const result = await runCommand(
-    "gh",
-    [
-      "pr",
-      "view",
-      task.pullRequest.number ? String(task.pullRequest.number) : task.branch,
-      "--json",
-      "number,url,baseRefName,headRefName,headRefOid,state,mergeable,mergeStateStatus,statusCheckRollup",
-    ],
-    { cwd: task.worktreePath },
-  );
+  const result = await runCommand("gh", buildPrViewArgs(task.pullRequest.number ? String(task.pullRequest.number) : task.branch), {
+    cwd: task.worktreePath,
+  });
   const payload = JSON.parse(result.stdout) as GhPrView;
-  const normalized = normalizePullRequest(payload);
+  return persistPullRequestView(paths, task, payload);
+}
 
-  task.pullRequest = normalized;
-  task.status = deriveTaskStatusFromPullRequest(normalized);
-  await writePrStatusArtifact(paths, task);
-  await writeTask(paths, task);
+export async function discoverPullRequestState(
+  paths: CraigPaths,
+  task: TaskRecord,
+): Promise<{ discovered: boolean; task: TaskRecord }> {
+  const result = await runCommandAllowingFailure("gh", buildPrViewArgs(task.branch), { cwd: task.worktreePath });
 
-  return task;
+  if (result.exitCode !== 0) {
+    return { discovered: false, task };
+  }
+
+  const payload = JSON.parse(result.stdout) as GhPrView;
+  await persistPullRequestView(paths, task, payload);
+
+  return { discovered: true, task };
 }
 
 export async function waitForPullRequestState(
@@ -189,6 +190,31 @@ function deriveTaskStatusFromPullRequest(pullRequest: TaskPullRequest): TaskReco
   }
 
   return "checked";
+}
+
+function buildPrViewArgs(selector: string): string[] {
+  return [
+    "pr",
+    "view",
+    selector,
+    "--json",
+    "number,url,baseRefName,headRefName,headRefOid,state,mergeable,mergeStateStatus,statusCheckRollup",
+  ];
+}
+
+async function persistPullRequestView(
+  paths: CraigPaths,
+  task: TaskRecord,
+  view: GhPrView,
+): Promise<TaskRecord> {
+  const normalized = normalizePullRequest(view);
+
+  task.pullRequest = normalized;
+  task.status = deriveTaskStatusFromPullRequest(normalized);
+  await writePrStatusArtifact(paths, task);
+  await writeTask(paths, task);
+
+  return task;
 }
 
 function normalizePullRequest(view: GhPrView): TaskPullRequest {
