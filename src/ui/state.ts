@@ -12,7 +12,7 @@ export const FIXED_CENTER_TAB_IDS = [] as const;
 export const INSPECTION_TAB_ID = "inspection";
 export const CENTER_TAB_IDS = [...LEGACY_PTY_SURFACE_IDS, ...FIXED_CENTER_TAB_IDS] as const;
 export const ACTION_IDS = ["commit", "push", "create-pr", "refresh-checks", "merge", "close-task"] as const;
-const REVIEW_ACTION_IDS = ["create-pr", "refresh-checks", "merge", "close-task"] as const;
+const REVIEW_ACTION_IDS = ["refresh-checks", "close-task"] as const;
 export const INSPECTOR_SECTION_IDS = ["task", "checks", "pr", "setup-run", "actions", "next-action"] as const;
 export const INSPECTION_MODE_IDS = ["diff", "files", "review"] as const;
 
@@ -347,27 +347,11 @@ export function reduceMainKey(state: ControlShellState, key: string, options: Re
     });
   }
 
-  if ((key === "P" || key === "p") && state.focusedRegion === "inspector" && state.inspectionMode === "review") {
-    return result({
-      state: { ...state, selectedActionId: "create-pr", actionMessage: null },
-      changed: true,
-      syncPullRequest: true,
-    });
-  }
-
   if ((key === "R" || key === "r") && state.focusedRegion === "inspector" && state.inspectionMode === "review") {
     return result({
       state: { ...state, selectedActionId: "refresh-checks", actionMessage: null },
       changed: true,
       refreshPullRequestChecks: true,
-    });
-  }
-
-  if ((key === "M" || key === "m") && state.focusedRegion === "inspector" && state.inspectionMode === "review") {
-    return result({
-      state: { ...state, selectedActionId: "merge", actionMessage: null },
-      changed: true,
-      mergeTask: true,
     });
   }
 
@@ -528,17 +512,6 @@ export function reduceMainKey(state: ControlShellState, key: string, options: Re
         });
       }
 
-      if (state.selectedActionId === "merge") {
-        return result({
-          state: {
-            ...state,
-            actionMessage: null,
-          },
-          changed: true,
-          mergeTask: true,
-        });
-      }
-
       if (state.selectedActionId === "close-task") {
         return result({
           state: {
@@ -553,7 +526,22 @@ export function reduceMainKey(state: ControlShellState, key: string, options: Re
       return result({
         state: {
           ...state,
-          selectedActionId: "create-pr",
+          selectedActionId: "refresh-checks",
+          actionMessage: null,
+        },
+        changed: true,
+        refreshPullRequestChecks: true,
+      });
+    }
+
+    if (state.focusedRegion !== "actions") {
+      return result({ state });
+    }
+
+    if (state.selectedActionId === "create-pr") {
+      return result({
+        state: {
+          ...state,
           actionMessage: null,
         },
         changed: true,
@@ -561,8 +549,37 @@ export function reduceMainKey(state: ControlShellState, key: string, options: Re
       });
     }
 
-    if (state.focusedRegion !== "actions") {
-      return result({ state });
+    if (state.selectedActionId === "refresh-checks") {
+      return result({
+        state: {
+          ...state,
+          actionMessage: null,
+        },
+        changed: true,
+        refreshPullRequestChecks: true,
+      });
+    }
+
+    if (state.selectedActionId === "merge") {
+      return result({
+        state: {
+          ...state,
+          actionMessage: null,
+        },
+        changed: true,
+        mergeTask: true,
+      });
+    }
+
+    if (state.selectedActionId === "close-task") {
+      return result({
+        state: {
+          ...state,
+          actionMessage: null,
+        },
+        changed: true,
+        closeTask: true,
+      });
     }
 
     return result({
@@ -609,7 +626,7 @@ export function isPrintableKey(key: string): boolean {
 }
 
 export function isPtyTab(tabId: CenterTabId): boolean {
-  return tabId !== INSPECTION_TAB_ID && !isFixedCenterTab(tabId);
+  return isLegacyPtySurface(tabId) || /:(?:agent|terminal)(?:-\d+)?$/.test(tabId);
 }
 
 export function isFixedCenterTab(tabId: string): tabId is FixedCenterTabId {

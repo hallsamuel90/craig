@@ -4,6 +4,7 @@ import { writeTask } from "../state/task-store.js";
 import { ensureOriginRemote, isWorktreeClean, pushBranch } from "./git-task.js";
 import {
   createGitHubPullRequest,
+  discoverPullRequestState,
   ensureGhAuthenticated,
   ensurePrDraft,
   isMergeReady,
@@ -14,6 +15,8 @@ import {
 } from "./github-pr.js";
 import { assertTaskWorktreeExists, getTaskOrThrow } from "./task-inspection.js";
 
+export type PullRequestSyncDisposition = "created" | "discovered" | "synced" | "not_found";
+
 export async function openPullRequest(
   paths: CraigPaths,
   taskId: string,
@@ -21,6 +24,19 @@ export async function openPullRequest(
 ): Promise<CommandPullRequestResult> {
   const task = await getTaskOrThrow(paths, taskId);
   await assertTaskWorktreeExists(task);
+  await ensureOriginRemote(task.worktreePath);
+  await ensureGhAuthenticated(task.worktreePath);
+
+  const hadTrackedPr = Boolean(task.pullRequest.number);
+  if (!hadTrackedPr) {
+    const discovered = await discoverPullRequestState(paths, task);
+    if (discovered.discovered) {
+      if (options.watch && task.pullRequest.status !== "merged" && !isMergeReady(task.pullRequest)) {
+        await waitForPullRequestState(paths, task);
+      }
+      return buildPullRequestResult(task, options.watch, "discovered");
+    }
+  }
 
   if (task.status !== "checked" && task.status !== "pr_open" && task.status !== "merge_ready") {
     throw new Error(`Task ${task.id} cannot open a pull request from status "${task.status}".`);
@@ -33,9 +49,6 @@ export async function openPullRequest(
   if (!(await isWorktreeClean(task.worktreePath))) {
     throw new Error(`Task ${task.id} worktree must be clean before opening a pull request.`);
   }
-
-  await ensureOriginRemote(task.worktreePath);
-  await ensureGhAuthenticated(task.worktreePath);
 
   const prDraftPath = await ensurePrDraft(task, paths);
   await writeTask(paths, task);
@@ -54,16 +67,7 @@ export async function openPullRequest(
 
   await writePrStatusArtifact(paths, task);
 
-  return {
-    kind: "openPullRequest",
-    taskId: task.id,
-    watch: options.watch,
-    prNumber: task.pullRequest.number ?? 0,
-    url: task.pullRequest.url ?? "",
-    status: task.status,
-    mergeable: task.pullRequest.mergeable,
-    requiredChecksSummary: summarizeRequiredChecks(task.pullRequest),
-  };
+  return buildPullRequestResult(task, options.watch, hadTrackedPr ? "synced" : "created");
 }
 
 export async function refreshTrackedPullRequest(paths: CraigPaths, taskId: string) {
@@ -82,7 +86,14 @@ export async function refreshPullRequestChecks(paths: CraigPaths, taskId: string
   const task = await getTaskOrThrow(paths, taskId);
 
   if (!task.pullRequest.number) {
-    throw new Error("no tracked PR.");
+    await assertTaskWorktreeExists(task);
+    await ensureGhAuthenticated(task.worktreePath);
+    const discovered = await discoverPullRequestState(paths, task);
+    if (!discovered.discovered) {
+      throw new Error(`No PR found for ${task.branch}.`);
+    }
+    await writePrStatusArtifact(paths, task);
+    return task;
   }
 
   await assertTaskWorktreeExists(task);
@@ -90,4 +101,39 @@ export async function refreshPullRequestChecks(paths: CraigPaths, taskId: string
   await refreshPullRequestState(paths, task);
   await writePrStatusArtifact(paths, task);
   return task;
+}
+
+export async function discoverOrRefreshPullRequest(
+  paths: CraigPaths,
+  taskId: string,
+): Promise<{ disposition: PullRequestSyncDisposition; task: Awaited<ReturnType<typeof getTaskOrThrow>> }> {
+  const task = await getTaskOrThrow(paths, taskId);
+  await assertTaskWorktreeExists(task);
+  await ensureGhAuthenticated(task.worktreePath);
+
+  if (task.pullRequest.number) {
+    await refreshPullRequestState(paths, task);
+    return { disposition: "synced", task };
+  }
+
+  const discovered = await discoverPullRequestState(paths, task);
+  return { disposition: discovered.discovered ? "discovered" : "not_found", task };
+}
+
+function buildPullRequestResult(
+  task: Awaited<ReturnType<typeof getTaskOrThrow>>,
+  watch: boolean,
+  disposition: Exclude<PullRequestSyncDisposition, "not_found">,
+): CommandPullRequestResult {
+  return {
+    kind: "openPullRequest",
+    taskId: task.id,
+    watch,
+    disposition,
+    prNumber: task.pullRequest.number ?? 0,
+    url: task.pullRequest.url ?? "",
+    status: task.status,
+    mergeable: task.pullRequest.mergeable,
+    requiredChecksSummary: summarizeRequiredChecks(task.pullRequest),
+  };
 }

@@ -7,7 +7,7 @@ import { afterEach, describe, expect, test } from "vitest";
 import { commitTask } from "../src/services/commit-task.js";
 import { closeTask } from "../src/services/close-task.js";
 import { mergeTask } from "../src/services/merge-task.js";
-import { openPullRequest, refreshPullRequestChecks } from "../src/services/open-pull-request.js";
+import { discoverOrRefreshPullRequest, openPullRequest, refreshPullRequestChecks } from "../src/services/open-pull-request.js";
 import { runChecks } from "../src/services/run-checks.js";
 import { showTask } from "../src/services/show-task.js";
 import { readTask } from "../src/state/task-store.js";
@@ -114,6 +114,7 @@ describe("task lifecycle services", () => {
     tempRoots.push(repoRoot);
     const { paths, worktreePath, stubDir } = await createTrackedTaskRepo(repoRoot);
     process.env.PATH = `${stubDir}:${originalPath}`;
+    process.env.CRAIG_TEST_GH_MODE = "no-pr";
     const headSha = (await runCommand("git", ["rev-parse", "HEAD"], { cwd: worktreePath })).stdout.trim();
 
     const viewFile = path.join(repoRoot, "gh-view.json");
@@ -150,10 +151,114 @@ describe("task lifecycle services", () => {
     const task = await readTask(paths, "task_1");
 
     expect(result.prNumber).toBe(17);
+    expect(result.disposition).toBe("created");
     expect(task.pullRequest.number).toBe(17);
     expect(task.status).toBe("merge_ready");
     expect(task.pullRequest.requiredChecks[0]?.status).toBe("success");
     expect(task.pullRequest.lastSyncedHeadSha).toBe(headSha);
+  });
+
+  test("discoverOrRefreshPullRequest records an externally-created PR by branch", async () => {
+    const repoRoot = await createRepoRoot("craig-pr-discover-");
+    tempRoots.push(repoRoot);
+    const { paths, worktreePath, stubDir } = await createTrackedTaskRepo(repoRoot);
+    process.env.PATH = `${stubDir}:${originalPath}`;
+    const headSha = (await runCommand("git", ["rev-parse", "HEAD"], { cwd: worktreePath })).stdout.trim();
+
+    const viewFile = path.join(repoRoot, "gh-view.json");
+    await writeFile(
+      viewFile,
+      JSON.stringify({
+        number: 21,
+        url: "https://github.com/example/repo/pull/21",
+        baseRefName: "main",
+        headRefName: "craig/task_1",
+        headRefOid: headSha,
+        state: "OPEN",
+        mergeable: "MERGEABLE",
+        mergeStateStatus: "CLEAN",
+        statusCheckRollup: [{ context: "ci", state: "SUCCESS", conclusion: "SUCCESS" }],
+      }),
+      "utf8",
+    );
+    process.env.CRAIG_TEST_GH_VIEW_FILE = viewFile;
+
+    await writeTaskRecord(paths.repoRoot, {
+      id: "task_1",
+      status: "checked",
+      branch: "craig/task_1",
+      worktreePath,
+    });
+
+    const result = await discoverOrRefreshPullRequest(paths, "task_1");
+    const task = await readTask(paths, "task_1");
+
+    expect(result.disposition).toBe("discovered");
+    expect(task.pullRequest.number).toBe(21);
+    expect(task.pullRequest.url).toBe("https://github.com/example/repo/pull/21");
+    expect(task.pullRequest.lastSyncedHeadSha).toBe(headSha);
+    expect(task.status).toBe("merge_ready");
+  });
+
+  test("discoverOrRefreshPullRequest leaves task unchanged when no branch PR exists", async () => {
+    const repoRoot = await createRepoRoot("craig-pr-discover-miss-");
+    tempRoots.push(repoRoot);
+    const { paths, worktreePath, stubDir } = await createTrackedTaskRepo(repoRoot);
+    process.env.PATH = `${stubDir}:${originalPath}`;
+    process.env.CRAIG_TEST_GH_MODE = "no-pr";
+
+    await writeTaskRecord(paths.repoRoot, {
+      id: "task_1",
+      status: "checked",
+      branch: "craig/task_1",
+      worktreePath,
+    });
+
+    const result = await discoverOrRefreshPullRequest(paths, "task_1");
+    const task = await readTask(paths, "task_1");
+
+    expect(result.disposition).toBe("not_found");
+    expect(task.pullRequest.number).toBeNull();
+    expect(task.status).toBe("checked");
+  });
+
+  test("openPullRequest discovers an existing branch PR before creating a new one", async () => {
+    const repoRoot = await createRepoRoot("craig-pr-open-discovers-");
+    tempRoots.push(repoRoot);
+    const { paths, worktreePath, stubDir } = await createTrackedTaskRepo(repoRoot);
+    process.env.PATH = `${stubDir}:${originalPath}`;
+
+    const viewFile = path.join(repoRoot, "gh-view.json");
+    await writeFile(
+      viewFile,
+      JSON.stringify({
+        number: 22,
+        url: "https://github.com/example/repo/pull/22",
+        baseRefName: "main",
+        headRefName: "craig/task_1",
+        state: "OPEN",
+        mergeable: "CONFLICTING",
+        mergeStateStatus: "DIRTY",
+        statusCheckRollup: [],
+      }),
+      "utf8",
+    );
+    process.env.CRAIG_TEST_GH_VIEW_FILE = viewFile;
+
+    await writeTaskRecord(paths.repoRoot, {
+      id: "task_1",
+      status: "checked",
+      branch: "craig/task_1",
+      worktreePath,
+    });
+
+    const result = await openPullRequest(paths, "task_1", { watch: false });
+    const task = await readTask(paths, "task_1");
+
+    expect(result.disposition).toBe("discovered");
+    expect(result.prNumber).toBe(22);
+    expect(task.pullRequest.number).toBe(22);
+    expect(task.status).toBe("pr_open");
   });
 
   test("openPullRequest treats skipped required checks as non-blocking but distinct", async () => {
@@ -161,6 +266,7 @@ describe("task lifecycle services", () => {
     tempRoots.push(repoRoot);
     const { paths, worktreePath, stubDir } = await createTrackedTaskRepo(repoRoot);
     process.env.PATH = `${stubDir}:${originalPath}`;
+    process.env.CRAIG_TEST_GH_MODE = "no-pr";
 
     const viewFile = path.join(repoRoot, "gh-view.json");
     await writeFile(
@@ -204,6 +310,7 @@ describe("task lifecycle services", () => {
     tempRoots.push(repoRoot);
     const { paths, worktreePath, stubDir } = await createTrackedTaskRepo(repoRoot);
     process.env.PATH = `${stubDir}:${originalPath}`;
+    process.env.CRAIG_TEST_GH_MODE = "no-pr";
 
     const viewFile = path.join(repoRoot, "gh-view.json");
     await writeFile(
@@ -248,6 +355,7 @@ describe("task lifecycle services", () => {
     tempRoots.push(repoRoot);
     const { paths, worktreePath, stubDir } = await createTrackedTaskRepo(repoRoot);
     process.env.PATH = `${stubDir}:${originalPath}`;
+    process.env.CRAIG_TEST_GH_MODE = "no-pr";
 
     const viewFile = path.join(repoRoot, "gh-view.json");
     await writeFile(
@@ -348,19 +456,38 @@ describe("task lifecycle services", () => {
     expect(task.pullRequest.lastSyncedHeadSha).toBe("remote123");
   });
 
-  test("refreshPullRequestChecks fails clearly when no PR is tracked", async () => {
+  test("refreshPullRequestChecks discovers by branch when no PR is tracked", async () => {
     const repoRoot = await createRepoRoot("craig-pr-refresh-no-pr-");
     tempRoots.push(repoRoot);
-    const paths = await createCraigState(repoRoot);
-    await mkdir(path.join(repoRoot, "worktree"), { recursive: true });
+    const { paths, worktreePath, stubDir } = await createTrackedTaskRepo(repoRoot);
+    process.env.PATH = `${stubDir}:${originalPath}`;
+    process.env.CRAIG_TEST_GH_MODE = "";
+    const viewFile = path.join(repoRoot, "gh-view.json");
+    await writeFile(
+      viewFile,
+      JSON.stringify({
+        number: 17,
+        url: "https://github.com/example/repo/pull/17",
+        baseRefName: "main",
+        headRefName: "craig/task_1",
+        state: "OPEN",
+        mergeable: "MERGEABLE",
+        mergeStateStatus: "CLEAN",
+        statusCheckRollup: [],
+      }),
+      "utf8",
+    );
+    process.env.CRAIG_TEST_GH_VIEW_FILE = viewFile;
     await writeTaskRecord(paths.repoRoot, {
       id: "task_1",
       status: "checked",
-      worktreePath: path.join(repoRoot, "worktree"),
+      branch: "craig/task_1",
+      worktreePath,
     });
 
-    await expect(refreshPullRequestChecks(paths, "task_1")).rejects.toThrow(/no tracked PR/);
-    expect((await readTask(paths, "task_1")).pullRequest.number).toBeNull();
+    const task = await refreshPullRequestChecks(paths, "task_1");
+    expect(task.pullRequest.number).toBe(17);
+    expect((await readTask(paths, "task_1")).pullRequest.number).toBe(17);
   });
 
   test("openPullRequest pushes new commits when refreshing an existing PR", async () => {

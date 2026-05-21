@@ -51,6 +51,14 @@ export function getFileIcon(filename: string): string {
 
 export const DIR_ICON_CLOSED = "󰉋 ";
 export const DIR_ICON_OPEN = "󰷏 ";
+export const PR_ICON_NONE = "○";
+export const PR_ICON_OPEN = "";
+export const PR_ICON_MERGED = "";
+export const PR_ICON_CLOSED = "";
+export const CHECK_ICON_NONE = "○";
+export const CHECK_ICON_PENDING = "●";
+export const CHECK_ICON_SUCCESS = "✓";
+export const CHECK_ICON_FAILED = "✕";
 
 export function getFileIconColor(filename: string): string | undefined {
   const ext = filename.toLowerCase().split(".").pop() ?? "";

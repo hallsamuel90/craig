@@ -185,6 +185,7 @@ export interface CommandPullRequestResult {
   kind: "openPullRequest";
   taskId: string;
   watch: boolean;
+  disposition: "created" | "discovered" | "synced";
   prNumber: number;
   url: string;
   status: string;

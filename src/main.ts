@@ -121,7 +121,7 @@ export function formatCommandResult(result: CommandResult): string {
       ].join("\n");
     case "openPullRequest":
       return [
-        `${result.watch ? "Watched" : "Updated"} PR for ${result.taskId}`,
+        `${formatPullRequestDisposition(result.disposition, result.watch)} PR for ${result.taskId}`,
         `PR: #${result.prNumber} ${result.url}`,
         `Status: ${result.status}`,
         `Mergeable: ${result.mergeable}`,
@@ -137,6 +137,25 @@ export function formatCommandResult(result: CommandResult): string {
     default:
       return assertNever(result);
   }
+}
+
+function formatPullRequestDisposition(
+  disposition: Extract<CommandResult, { kind: "openPullRequest" }>["disposition"],
+  watch: boolean,
+): string {
+  if (watch) {
+    return "Watched";
+  }
+
+  if (disposition === "created") {
+    return "Created";
+  }
+
+  if (disposition === "discovered") {
+    return "Discovered";
+  }
+
+  return "Synced";
 }
 
 function buildShowWarnings(result: Extract<CommandResult, { kind: "showTask" }>): string[] {

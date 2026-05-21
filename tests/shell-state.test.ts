@@ -336,6 +336,39 @@ describe("terminal shell control state", () => {
     expect(result.state.actionMessage).toBe("Action queued: commit (inspection surfaces land in phase 4.1).");
   });
 
+  test("enter on PR lifecycle actions dispatches the real action while actions are focused", () => {
+    const base = {
+      ...seededState(),
+      focusedRegion: "actions" as const,
+      activeTab: "task_20260430_02:terminal",
+    };
+
+    expect(reduceMainKey({ ...base, selectedActionId: "create-pr" as const }, "ENTER", KEY_OPTIONS)).toMatchObject({
+      attachTerminal: false,
+      syncPullRequest: true,
+      state: { actionMessage: null },
+      changed: true,
+    });
+    expect(reduceMainKey({ ...base, selectedActionId: "refresh-checks" as const }, "ENTER", KEY_OPTIONS)).toMatchObject({
+      attachTerminal: false,
+      refreshPullRequestChecks: true,
+      state: { actionMessage: null },
+      changed: true,
+    });
+    expect(reduceMainKey({ ...base, selectedActionId: "merge" as const }, "ENTER", KEY_OPTIONS)).toMatchObject({
+      attachTerminal: false,
+      mergeTask: true,
+      state: { actionMessage: null },
+      changed: true,
+    });
+    expect(reduceMainKey({ ...base, selectedActionId: "close-task" as const }, "ENTER", KEY_OPTIONS)).toMatchObject({
+      attachTerminal: false,
+      closeTask: true,
+      state: { actionMessage: null },
+      changed: true,
+    });
+  });
+
   test("moves file and diff selections while inspector is focused", () => {
     const files = {
       ...seededState(),
@@ -486,7 +519,7 @@ describe("terminal shell control state", () => {
     });
   });
 
-  test("enter, P, and R on review request PR actions without attaching a PTY", () => {
+  test("enter and R on review sync PR state without attaching a PTY", () => {
     const review = {
       ...seededState(),
       focusedRegion: "inspector" as const,
@@ -499,14 +532,9 @@ describe("terminal shell control state", () => {
 
     expect(reduceMainKey(review, "ENTER", KEY_OPTIONS)).toMatchObject({
       attachTerminal: false,
-      syncPullRequest: true,
-      refreshPullRequestChecks: false,
-      changed: true,
-    });
-    expect(reduceMainKey(review, "P", KEY_OPTIONS)).toMatchObject({
-      attachTerminal: false,
-      syncPullRequest: true,
-      state: { selectedActionId: "create-pr" },
+      syncPullRequest: false,
+      refreshPullRequestChecks: true,
+      state: { selectedActionId: "refresh-checks" },
       changed: true,
     });
     expect(reduceMainKey(review, "R", KEY_OPTIONS)).toMatchObject({
@@ -523,19 +551,38 @@ describe("terminal shell control state", () => {
     });
   });
 
+  test("P and M do not trigger direct review actions from the inspector", () => {
+    const review = {
+      ...seededState(),
+      focusedRegion: "inspector" as const,
+      inspectionMode: "review" as const,
+    };
+
+    expect(reduceMainKey(review, "P", KEY_OPTIONS)).toMatchObject({
+      syncPullRequest: false,
+      mergeTask: false,
+      changed: false,
+    });
+    expect(reduceMainKey(review, "M", KEY_OPTIONS)).toMatchObject({
+      syncPullRequest: false,
+      mergeTask: false,
+      changed: false,
+    });
+  });
+
   test("up and down select review actions while review inspector is focused", () => {
     const review = {
       ...seededState(),
       focusedRegion: "inspector" as const,
       inspectionMode: "review" as const,
-      selectedActionId: "create-pr" as const,
+      selectedActionId: "refresh-checks" as const,
     };
 
-    const refresh = reduceMainKey(review, "DOWN", KEY_OPTIONS);
-    const sync = reduceMainKey(refresh.state, "UP", KEY_OPTIONS);
+    const close = reduceMainKey(review, "DOWN", KEY_OPTIONS);
+    const sync = reduceMainKey(close.state, "UP", KEY_OPTIONS);
 
-    expect(refresh.state.selectedActionId).toBe("refresh-checks");
-    expect(sync.state.selectedActionId).toBe("create-pr");
+    expect(close.state.selectedActionId).toBe("close-task");
+    expect(sync.state.selectedActionId).toBe("refresh-checks");
   });
 
   test("scrolls selected file and diff content while center is focused", () => {
@@ -807,17 +854,21 @@ describe("terminal shell control state", () => {
     expect(result.state.inputMode).toBe("control");
   });
 
-  test("enter still runs placeholder actions when actions are focused on the terminal tab", () => {
+  test("enter still runs placeholder commit and push actions when actions are focused on the terminal tab", () => {
     const state = {
       ...seededState(),
       focusedRegion: "actions" as const,
       activeTab: "task_20260430_02:terminal",
     };
-    const result = reduceMainKey(state, "ENTER", KEY_OPTIONS);
+    const commit = reduceMainKey(state, "ENTER", KEY_OPTIONS);
+    const push = reduceMainKey({ ...state, selectedActionId: "push" }, "ENTER", KEY_OPTIONS);
 
-    expect(result.attachTerminal).toBe(false);
-    expect(result.state.inputMode).toBe("control");
-    expect(result.state.actionMessage).toBe("Action queued: commit (inspection surfaces land in phase 4.1).");
+    expect(commit.attachTerminal).toBe(false);
+    expect(commit.state.inputMode).toBe("control");
+    expect(commit.state.actionMessage).toBe("Action queued: commit (inspection surfaces land in phase 4.1).");
+    expect(push.attachTerminal).toBe(false);
+    expect(push.state.inputMode).toBe("control");
+    expect(push.state.actionMessage).toBe("Action queued: push (inspection surfaces land in phase 4.1).");
   });
 
   test("ctrl+] detaches terminal mode without losing selected tab or task", () => {

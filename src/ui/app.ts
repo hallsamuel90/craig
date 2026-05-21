@@ -15,7 +15,7 @@ import { listTasks } from "../services/list-tasks.js";
 import { provisionTask } from "../services/task-provisioning.js";
 import { addRepo } from "../services/repo-registry.js";
 import { loadTaskLocalInspection, type InspectionTreeRow } from "../services/task-local-inspection.js";
-import { openPullRequest, refreshPullRequestChecks } from "../services/open-pull-request.js";
+import { discoverOrRefreshPullRequest, openPullRequest } from "../services/open-pull-request.js";
 import { mergeTask } from "../services/merge-task.js";
 import { closeTask } from "../services/close-task.js";
 import {
@@ -178,6 +178,8 @@ export async function startTerminalApp(options: TerminalAppOptions = {}): Promis
     let scrollRenderTimer: ReturnType<typeof setTimeout> | null = null;
     let inspectionScrollRenderTimer: ReturnType<typeof setTimeout> | null = null;
     let ptyRenderTimer: ReturnType<typeof setTimeout> | null = null;
+    let prPollTimer: ReturnType<typeof setInterval> | null = null;
+    let prPollInFlight = false;
     let pendingClear = true;
     let inputCaptureMode: "control" | "terminal" | null = null;
     let render: () => void = () => undefined;
@@ -498,11 +500,14 @@ export async function startTerminalApp(options: TerminalAppOptions = {}): Promis
         throw new Error("Select a task before creating or syncing a PR.");
       }
 
-      const beforeTask = await readTask(paths, syncedShell.selectedTaskId);
       const result = await openPullRequest(paths, syncedShell.selectedTaskId, { watch: false });
       await reloadModel();
 
-      const action = beforeTask.pullRequest.number ? "Synced PR" : "Created PR";
+      const action = result.disposition === "created"
+        ? "Created PR"
+        : result.disposition === "discovered"
+          ? "Discovered PR"
+          : "Synced PR";
       return syncShell({
         ...syncedShell,
         focusedRegion: "inspector",
@@ -517,16 +522,57 @@ export async function startTerminalApp(options: TerminalAppOptions = {}): Promis
         throw new Error("Select a task before refreshing PR checks.");
       }
 
-      const task = await refreshPullRequestChecks(paths, syncedShell.selectedTaskId);
+      const { disposition, task } = await discoverOrRefreshPullRequest(paths, syncedShell.selectedTaskId);
       await reloadModel();
+
+      const actionMessage = disposition === "not_found"
+        ? `No PR found for ${task.branch}`
+        : disposition === "discovered"
+          ? `Discovered PR: #${task.pullRequest.number} ${task.pullRequest.url ?? ""}`
+          : `Refreshed checks: ${task.pullRequest.requiredChecks.length} reported`;
 
       return syncShell({
         ...syncedShell,
         focusedRegion: "inspector",
         inspectionMode: "review",
         selectedActionId: "refresh-checks",
-        actionMessage: `Refreshed checks: ${task.pullRequest.requiredChecks.length} reported`,
+        actionMessage,
       });
+    }
+
+    async function pollSelectedPullRequest(): Promise<void> {
+      if (prPollInFlight || state.mode !== "main" || !state.shell.selectedTaskId) {
+        return;
+      }
+
+      const taskId = state.shell.selectedTaskId;
+      const previousTask = model.tasks.find((task) => task.id === taskId) ?? null;
+      const hadPr = Boolean(previousTask?.pullRequest.number);
+      prPollInFlight = true;
+
+      try {
+        const { disposition, task } = await discoverOrRefreshPullRequest(paths, taskId);
+
+        if (state.mode !== "main" || state.shell.selectedTaskId !== taskId) {
+          return;
+        }
+
+        model = await loadWorkspaceShellModel(workspaceRoot, state.shell, enabledRunnerIds);
+        state = {
+          mode: "main",
+          shell: syncShell({
+            ...state.shell,
+            actionMessage: disposition === "discovered" && !hadPr
+              ? `Discovered PR: #${task.pullRequest.number} ${task.pullRequest.url ?? ""}`
+              : state.shell.actionMessage,
+          }),
+        };
+        render();
+      } catch {
+        // Background PR discovery should never interrupt agent input or review work.
+      } finally {
+        prPollInFlight = false;
+      }
     }
 
     async function mergeTaskFromShell(shell: ControlShellState): Promise<ControlShellState> {
@@ -677,6 +723,10 @@ export async function startTerminalApp(options: TerminalAppOptions = {}): Promis
       if (ptyRenderTimer) {
         clearTimeout(ptyRenderTimer);
         ptyRenderTimer = null;
+      }
+      if (prPollTimer) {
+        clearInterval(prPollTimer);
+        prPollTimer = null;
       }
       ptyRuntime.disposeAll();
       activeTerminal.grabInput(false);
@@ -1016,10 +1066,6 @@ export async function startTerminalApp(options: TerminalAppOptions = {}): Promis
 
           if (suppressTerminalEnterOnAttach) {
             suppressTerminalEnterOnAttach = false;
-          }
-
-          if (isDuplicateTerminalKey(lastTerminalKey, key)) {
-            return;
           }
 
           lastTerminalKey = shouldTrackTerminalKey(key) ? { key, at: Date.now() } : null;
@@ -1500,6 +1546,9 @@ export async function startTerminalApp(options: TerminalAppOptions = {}): Promis
     activeTerminal.on("key", onKey);
     activeTerminal.on("unknown", onUnknown);
     activeTerminal.on("mouse", onMouse);
+    prPollTimer = setInterval(() => {
+      void pollSelectedPullRequest();
+    }, (config.github?.watchIntervalSeconds ?? 10) * 1000);
     render();
   });
 }
@@ -1737,14 +1786,6 @@ function inputToString(value: unknown): string {
 
 function shouldTrackTerminalKey(key: string): boolean {
   return key.length === 1 || isEnterKey(key) || key === "BACKSPACE" || key === "TAB";
-}
-
-function isDuplicateTerminalKey(previous: { key: string; at: number } | null, key: string): boolean {
-  if (!previous || previous.key !== key || !shouldTrackTerminalKey(key)) {
-    return false;
-  }
-
-  return Date.now() - previous.at < 30;
 }
 
 function isAgentTabId(tabId: string | null): boolean {
