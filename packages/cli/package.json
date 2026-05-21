@@ -1,0 +1,21 @@
+{
+  "name": "@craig/cli",
+  "version": "0.1.0",
+  "description": "Craig local control plane CLI",
+  "type": "module",
+  "bin": {
+    "craig": "dist/cli.js"
+  },
+  "files": [
+    "dist/cli.js",
+    "README.md",
+    "package.json"
+  ],
+  "engines": {
+    "node": ">=22.0.0"
+  },
+  "dependencies": {
+    "node-pty": "^0.10.1",
+    "terminal-kit": "^3.1.2"
+  }
+}

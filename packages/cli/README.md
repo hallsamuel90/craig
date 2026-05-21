@@ -52,8 +52,6 @@ craig task merge <task-id> [--preserve-worktree]
 
 Craig reads optional workspace-local config from `.craig/config.json`.
 
-`checks.commands` defines commands for `craig task check`. `runners.<id>` controls whether Codex, Cursor, or Claude appears as a task runner and can override that runner's executable path. Runner path changes apply to newly created task sessions.
-
 ```json
 {
   "runners": {

@@ -1,5 +1,4 @@
-import { createRequire } from "node:module";
-import type * as XtermHeadless from "@xterm/headless";
+import XtermHeadless from "@xterm/headless";
 import type { IBufferCell } from "@xterm/headless";
 import type { Terminal } from "@xterm/headless";
 
@@ -26,8 +25,6 @@ export interface TerminalScreenRow {
 }
 
 const DEFAULT_SCROLLBACK = 1_000;
-const require = createRequire(import.meta.url);
-const xtermHeadless = require("@xterm/headless") as typeof XtermHeadless;
 const ANSI_PALETTE = [
   "000000",
   "cd3131",
@@ -48,7 +45,7 @@ const ANSI_PALETTE = [
 ] as const;
 
 export function createTerminalEmulator(size: PtySize): Terminal {
-  return new xtermHeadless.Terminal({
+  return new XtermHeadless.Terminal({
     allowProposedApi: true,
     cols: size.columns,
     rows: size.rows,
