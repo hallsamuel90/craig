@@ -28,7 +28,7 @@
 - Keep `packages/cli/package.json` on a strict `files` allowlist of `dist/cli.js`, `README.md`, and `package.json`.
 - Do not publish source, declarations, tests, docs/RFCs, repo guidance, `.codex`, `.context`, `.craig`, `.github`, lockfiles, logs, env files, local state, source maps, or private workspace paths.
 - Publishing is CI-only through Changesets. Do not publish locally and do not edit package versions manually.
-- Generated Changesets Version Packages PRs must have auto-merge enabled after required gates pass.
+- The release workflow applies Changesets, runs gates, commits version/changelog updates back to `main` with `[skip ci]`, and publishes to npm from the same merge-triggered run.
 - Release gates must include `pnpm test`, `pnpm typecheck`, `pnpm lint`, `pnpm build`, `pnpm build:npm`, `pnpm package:audit`, and `pnpm package:smoke`.
 
 ## Terminal harness
