@@ -1953,6 +1953,7 @@ describe("terminal app PTY attach flow", () => {
       const repos = await listRepos(paths);
       expect(repos.map((repo) => repo.name)).toContain("repo-b");
     });
+    await vi.waitFor(() => expect(terminal.frames.join("\n")).toContain("Registered workspace: repo-b"));
     terminal.emitKey("q");
 
     await expect(app).resolves.toBe(0);
