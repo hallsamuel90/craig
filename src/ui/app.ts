@@ -599,8 +599,11 @@ export async function startTerminalApp(options: TerminalAppOptions = {}): Promis
         throw new Error("Select a task before closing it.");
       }
 
-      const taskBeforeClose = await readTask(paths, syncedShell.selectedTaskId);
-      const task = await closeTask(paths, syncedShell.selectedTaskId);
+      const { taskBeforeClose, task } = await queueTaskMutation(async () => {
+        const taskBeforeClose = await readTask(paths, syncedShell.selectedTaskId!);
+        const task = await closeTask(paths, syncedShell.selectedTaskId!);
+        return { taskBeforeClose, task };
+      });
       for (const tab of taskBeforeClose.ptyTabs) {
         ptyRuntime.disposeSession(tab.id);
       }
