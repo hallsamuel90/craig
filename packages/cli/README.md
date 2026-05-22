@@ -5,7 +5,7 @@ Craig is a local terminal control plane for repo-backed agent work.
 ## Install
 
 ```bash
-npm install -g @craig/cli
+npm install -g craig-cli
 ```
 
 Craig requires Node 22 or newer.

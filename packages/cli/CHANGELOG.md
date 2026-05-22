@@ -1,4 +1,4 @@
-# @craig/cli
+# craig-cli
 
 ## 0.2.0
 

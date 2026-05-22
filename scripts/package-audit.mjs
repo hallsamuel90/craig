@@ -64,7 +64,7 @@ try {
     }
   }
 
-  if (packResult.name !== "@craig/cli") {
+  if (packResult.name !== "craig-cli") {
     failures.push(`unexpected package name: ${packResult.name}`);
   }
 

@@ -23,7 +23,7 @@
 
 ## Release packaging
 
-- Publish only `@craig/cli` from `packages/cli`; do not add platform packages or binary-only package targets.
+- Publish only `craig-cli` from `packages/cli`; do not add platform packages or binary-only package targets.
 - Build the npm artifact with `pnpm build:npm`, which must emit a minified esbuild bundle at `packages/cli/dist/cli.js` without source maps.
 - Keep `packages/cli/package.json` on a strict `files` allowlist of `dist/cli.js`, `README.md`, and `package.json`.
 - Do not publish source, declarations, tests, docs/RFCs, repo guidance, `.codex`, `.context`, `.craig`, `.github`, lockfiles, logs, env files, local state, source maps, or private workspace paths.
