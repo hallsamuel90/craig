@@ -1,5 +1,11 @@
 # craig-cli
 
+## 0.2.1
+
+### Patch Changes
+
+- 0554da4: Add proprietary license metadata and update the README around TUI-first usage.
+
 ## 0.2.0
 
 ### Minor Changes
