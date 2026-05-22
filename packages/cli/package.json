@@ -1,5 +1,5 @@
 {
-  "name": "@craig/cli",
+  "name": "craig-cli",
   "version": "0.2.0",
   "description": "Craig local control plane CLI",
   "type": "module",
