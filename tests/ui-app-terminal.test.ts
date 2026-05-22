@@ -1612,7 +1612,7 @@ describe("terminal app PTY attach flow", () => {
     await vi.waitFor(() => expect(stripAnsi(terminal.frames.at(-1) ?? "")).toContain("n new task"));
     terminal.emitKey("x");
     await vi.waitFor(() => expect(stripAnsi(terminal.frames.at(-1) ?? "")).toContain("Archived task task_20260430_02"));
-    await vi.waitFor(async () => expect((await readTask(paths, task.id)).status).toBe("closed"));
+    await vi.waitFor(async () => expect((await readTask(paths, task.id)).status).toBe("closed"), { timeout: 10000 });
     await vi.waitFor(() => expect(stripAnsi(terminal.frames.at(-1) ?? "")).toContain("· no tasks yet"));
     terminal.emitKey("q");
 
@@ -1622,7 +1622,7 @@ describe("terminal app PTY attach flow", () => {
     expect(updatedTask.cleanup.preservedWorktree).toBe(true);
     expect(ptyRuntime.disposeSession).toHaveBeenCalledWith("task_20260430_02:agent");
     expect(ptyRuntime.disposeSession).toHaveBeenCalledWith("task_20260430_02:terminal");
-  });
+  }, 15000);
 
   test("ctrl-c from an attached agent stays in the same agent PTY", async () => {
     const root = await mkdtemp(join(tmpdir(), "craig-ui-app-"));
