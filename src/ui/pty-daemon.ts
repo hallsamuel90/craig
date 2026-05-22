@@ -413,7 +413,7 @@ async function ensureDaemonRunning(
   spawnDaemon?: (workspaceRoot: string) => void,
 ): Promise<void> {
   /* eslint-enable no-unused-vars */
-  if (await canConnectCompatible(endpoint.socketPath)) {
+  if (await waitForCompatibleDaemon(endpoint.socketPath, 1000)) {
     return;
   }
 
@@ -459,6 +459,19 @@ async function ensureDaemonRunning(
 async function canConnectCompatible(socketPath: string): Promise<boolean> {
   const response = await requestDaemonPing(socketPath).catch(() => null);
   return response?.ok === true && response.protocolVersion === DAEMON_PROTOCOL_VERSION;
+}
+
+async function waitForCompatibleDaemon(socketPath: string, timeoutMs: number): Promise<boolean> {
+  const started = Date.now();
+  while (Date.now() - started < timeoutMs) {
+    if (await canConnectCompatible(socketPath)) {
+      return true;
+    }
+
+    await delay(50);
+  }
+
+  return false;
 }
 
 function getDaemonSpawnCommand(workspaceRoot: string): { command: string; args: string[] } {
