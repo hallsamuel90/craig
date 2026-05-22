@@ -2,6 +2,7 @@
   "name": "craig-cli",
   "version": "0.2.0",
   "description": "Craig local control plane CLI",
+  "license": "UNLICENSED",
   "type": "module",
   "bin": {
     "craig": "dist/cli.js"
