@@ -256,7 +256,7 @@ export async function startTerminalApp(options: TerminalAppOptions = {}): Promis
         diffPathRanges: getCombinedDiffPathRanges(selectedInspection),
         fileLineCount: selectedInspection?.selectedFile.lines.length ?? 0,
         diffLineCount: getCombinedDiffLineCount(selectedInspection),
-        pageRows: Math.max(5, getViewport(activeTerminal.width, activeTerminal.height).height - SHELL_LAYOUT.topRailHeight - 8),
+        pageRows: Math.max(5, getViewport(activeTerminal.width, activeTerminal.height).height - SHELL_LAYOUT.topRailHeight - 9),
         enabledRunnerIds,
       };
     }
@@ -696,6 +696,8 @@ export async function startTerminalApp(options: TerminalAppOptions = {}): Promis
         pendingClear = false;
       }
       activeTerminal.noFormat(frame);
+
+      activeTerminal.hideCursor(true);
     };
 
     function syncInputCapture(): void {
@@ -1762,6 +1764,7 @@ function getPtySize(viewport: Viewport): PtySize {
   // 2. active-tab underline
   // 3. task header
   // 4. spacer before the PTY surface
+  // 5. full-width footer row
   return {
     columns: Math.max(
       20,
@@ -1771,7 +1774,7 @@ function getPtySize(viewport: Viewport): PtySize {
         SHELL_LAYOUT.dividerWidth -
         CENTER_TERMINAL_GUTTER * 2,
     ),
-    rows: Math.max(5, viewport.height - SHELL_LAYOUT.topRailHeight - 4),
+    rows: Math.max(5, viewport.height - SHELL_LAYOUT.topRailHeight - 5),
   };
 }
 

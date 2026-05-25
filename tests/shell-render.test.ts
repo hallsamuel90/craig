@@ -129,7 +129,7 @@ describe("terminal shell renderer", () => {
 
     const frame = renderMainShellFrame(MIN_VIEWPORT, data, { color: false });
 
-    expect(data.footerText).toBe("n new task   Tab tasks");
+    expect(data.footerText).toBe("n new task   Tab tasks   Esc pause   ? help");
     expect(data.tabs).toEqual([{ id: "empty", label: "EMPTY", active: true, focused: true }]);
     expect(data.centerTranscript.map((line) => line.text)).toContain("Press n or choose + New Task to create one with Claude.");
     expect(frame).toContain("EMPTY  no task · bug-fixes");
@@ -359,8 +359,8 @@ describe("terminal shell renderer", () => {
     expect(frame).toContain("✓ ci");
     expect(frame).toContain("○ docs");
     expect(frame).toContain("● e2e");
-    expect(frame).toContain("sync pr");
-    expect(frame).toContain("close task");
+    expect(frame).toContain("R sync PR");
+    expect(frame).toContain("X close task");
     expect(frame).not.toContain("Next:");
     expect(frame).not.toContain("create pr");
     expect(frame).not.toContain("merge pr");
@@ -492,7 +492,7 @@ describe("terminal shell renderer", () => {
     );
 
     expect(frame).toContain("TERMINAL  task_20260430_02 · bug-fixes");
-    expect(frame).toContain("TERMINAL   ↑↓/PgUp/PgDn scroll");
+    expect(frame).toContain("TERMINAL   ↑↓/PgUp/PgDn scroll   Ctrl+] return to control");
     expect(frame).toContain("$ pwd");
     expect(frame).toContain("/Users/samhall/conductor/workspaces/");
     expect(frame).not.toContain("terminal ▸ terminal mode");

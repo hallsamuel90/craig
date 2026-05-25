@@ -382,8 +382,6 @@ export function reduceMainKey(state: ControlShellState, key: string, options: Re
     if (state.focusedRegion === "inspector") {
       return moveInspectionMode(state, -1);
     }
-
-    return updateFocus(state, -1);
   }
 
   if (key === "RIGHT" || key === "l") {
@@ -393,8 +391,6 @@ export function reduceMainKey(state: ControlShellState, key: string, options: Re
     if (state.focusedRegion === "inspector") {
       return moveInspectionMode(state, 1);
     }
-
-    return updateFocus(state, 1);
   }
 
   if (isEnterKey(key)) {
@@ -644,19 +640,10 @@ export function buildCenterTabIds(task: TaskRecord | null, state?: Pick<ControlS
   ];
 }
 
-function updateFocus(state: ControlShellState, direction: -1 | 1): MainKeyResult {
-  const next = updateIndexedValue(state, "focusedRegion", FOCUS_REGIONS, direction);
-  if (next.state.focusedRegion !== "actions" || next.state.inspectorSection === "actions") {
-    return next;
-  }
+const NAVIGABLE_FOCUS_REGIONS: FocusRegion[] = ["tasks", "center", "inspector"];
 
-  return {
-    ...next,
-    state: {
-      ...next.state,
-      inspectorSection: "actions",
-    },
-  };
+function updateFocus(state: ControlShellState, direction: -1 | 1): MainKeyResult {
+  return updateIndexedValue(state, "focusedRegion", NAVIGABLE_FOCUS_REGIONS, direction);
 }
 
 function moveTab(state: ControlShellState, direction: -1 | 1, centerTabIds: CenterTabId[] | undefined): MainKeyResult {

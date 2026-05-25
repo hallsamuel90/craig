@@ -21,7 +21,6 @@ import { getRunnerDisplayName } from "../services/runner-profiles.js";
 import { INSPECTION_TAB_ID, isTaskLeftItemId } from "./state.js";
 import type { TerminalCellStyle, TerminalRowSegment } from "./terminal-emulator.js";
 import type {
-  ActionId,
   CenterTabId,
   ControlShellState,
   FocusRegion,
@@ -70,22 +69,6 @@ export interface ShellContextRow {
   mutedValue?: boolean;
 }
 
-export interface ShellCheckRow {
-  status: string;
-  label: string;
-  result: string;
-  duration: string;
-  success?: boolean;
-}
-
-export interface ShellActionRow {
-  id: ActionId;
-  label: string;
-  shortcut: string;
-  selected?: boolean;
-  focused?: boolean;
-}
-
 export interface ShellInspectionRow {
   id: string;
   text: string;
@@ -128,8 +111,6 @@ export interface ShellData {
   tabs: ShellTab[];
   rightContext: ShellContextRow[];
   rightInspection: ShellInspectionSection | null;
-  rightChecks: ShellCheckRow[];
-  rightActions: ShellActionRow[];
 }
 
 export interface WorkspaceShellModel {
@@ -146,14 +127,6 @@ export interface DiffPathRange {
   end: number;
 }
 
-const ACTION_FIXTURES: Array<{ id: ActionId; label: string; shortcut: string }> = [
-  { id: "commit", label: "commit", shortcut: "c" },
-  { id: "push", label: "push", shortcut: "p" },
-  { id: "create-pr", label: "create pr", shortcut: "P" },
-  { id: "refresh-checks", label: "refresh checks", shortcut: "R" },
-  { id: "merge", label: "merge", shortcut: "M" },
-  { id: "close-task", label: "close task", shortcut: "X" },
-];
 const SYNTAX_COLORS = {
   lineNumber: "3b4261",
   gutter:     "3b4261",
@@ -179,7 +152,6 @@ export function buildShellData(state: ControlShellState, model: WorkspaceShellMo
   const selectedInspection = model.inspection?.taskId === selectedTask?.id ? model.inspection : null;
   const repoLabel = selectedRepo?.name ?? "no repo";
   const agentLabel = selectedTask ? getRunnerDisplayName(selectedTask.runner) : getRunnerDisplayName(state.selectedRunner);
-  const checkRows = buildCheckRows(selectedTask);
 
   return {
     inputMode: state.inputMode,
@@ -188,24 +160,28 @@ export function buildShellData(state: ControlShellState, model: WorkspaceShellMo
     terminal: state.terminal,
     footerText:
       state.workspaceBrowser !== null
-        ? `BROWSE WORKSPACE ${state.workspaceBrowser.cwd}   ↑↓ move   → open   ← up   Enter add repo`
+        ? `BROWSE WORKSPACE ${state.workspaceBrowser.cwd}   ↑↓ move   → open   ← up   Enter add repo   Esc cancel`
         : state.taskPromptInput !== null
-        ? `NEW TASK ${selectedRepo ? `[${selectedRepo.name}]` : "[no repo]"} ${getRunnerDisplayName(state.selectedRunner)} Ctrl+R runner: ${state.taskPromptInput}${state.taskPromptError ? ` · ${state.taskPromptError}` : ""}`
+        ? `NEW TASK ${selectedRepo ? `[${selectedRepo.name}]` : "[no repo]"} · ${getRunnerDisplayName(state.selectedRunner)}   Ctrl+R switch runner   Enter create   Esc cancel   ›   ${state.taskPromptInput}${state.taskPromptError ? `   ✗ ${state.taskPromptError}` : ""}`
         : state.inputMode === "terminal"
-        ? "TERMINAL   ↑↓/PgUp/PgDn scroll   Ctrl+] detach"
+        ? "TERMINAL   ↑↓/PgUp/PgDn scroll   Ctrl+] return to control"
         : state.focusedRegion === "tasks"
           ? state.selectedLeftItemId?.startsWith("new-task:")
-            ? `r runner [${getRunnerDisplayName(state.selectedRunner)}]   Enter create task`
+            ? `r runner [${getRunnerDisplayName(state.selectedRunner)}]   Enter create task   Esc pause   ? help`
             : isTaskLeftItemId(state.selectedLeftItemId)
-            ? "n new task   Enter attach   X close task"
-            : "n new task   Enter select"
+            ? "n new task   Enter attach   X close task   Esc pause   ? help"
+            : "n new task   Enter select   Esc pause   ? help"
         : state.focusedRegion === "center"
           ? selectedTask === null
-            ? "n new task   Tab tasks"
+            ? "n new task   Tab tasks   Esc pause   ? help"
             : activeTabId === INSPECTION_TAB_ID
-            ? "↑↓/wheel/PgUp/PgDn scroll   ←/→ switch   Tab inspector"
-            : `+ new tab   a ${getRunnerDisplayName(state.centerTabRunner ?? (selectedTask?.runner ?? state.selectedRunner))}   r runner   t Terminal   x close   Enter attach`
-          : "n new task   ? help   / search   : command",
+            ? "↑↓/wheel/PgUp/PgDn scroll   ←/→ switch   Tab inspector   Esc pause   ? help"
+            : `+ new tab   a ${getRunnerDisplayName(state.centerTabRunner ?? (selectedTask?.runner ?? state.selectedRunner))}   r runner   t terminal   x close   Enter attach   Esc pause   ? help`
+          : state.inspectionMode === "review"
+          ? "R sync PR   X close task   ←/→ mode   Esc pause   ? help"
+          : state.inspectionMode === "files"
+          ? "↑↓ navigate   Enter open file   ←/→ mode   Esc pause   ? help"
+          : "↑↓ navigate   ←/→ mode   Esc pause   ? help",
     topRail: {
       workspacePath: path.relative(process.env.HOME ?? "", model.workspaceRoot).length > 0
         ? `~/${path.relative(process.env.HOME ?? "", model.workspaceRoot)}`
@@ -224,9 +200,7 @@ export function buildShellData(state: ControlShellState, model: WorkspaceShellMo
     centerTranscript: buildCenterTranscript(activeTabId, state, selectedRepo, selectedTask, state.workspaceBrowser, selectedInspection),
     tabs,
     rightContext: buildContextRows(selectedRepo, selectedTask),
-    rightInspection: buildInspectionSection(state, selectedTask, selectedInspection, buildActionRows(state)),
-    rightChecks: checkRows,
-    rightActions: buildActionRows(state),
+    rightInspection: buildInspectionSection(state, selectedTask, selectedInspection),
   };
 }
 
@@ -751,13 +725,12 @@ function buildInspectionSection(
   state: ControlShellState,
   task: TaskRecord | null,
   inspection: TaskLocalInspection | null,
-  actions: ShellActionRow[],
 ): ShellInspectionSection | null {
   const modeRows = [renderInspectionModeRow(state, task), { id: "mode-spacer", text: "", muted: true }];
   if (state.inspectionMode === "review") {
     return {
       title: "",
-      rows: [...modeRows, ...buildReviewInspectionRows(state, task, actions)],
+      rows: [...modeRows, ...buildReviewInspectionRows(state, task)],
     };
   }
 
@@ -810,31 +783,16 @@ function buildPrChecksSegment(checks: TaskPullRequestCheck[] | null): TerminalRo
   return { text: CHECK_ICON_PENDING, style: { fg: "e0af68" } };
 }
 
-function buildActionRows(state: ControlShellState): ShellActionRow[] {
-  return ACTION_FIXTURES.map((action) => ({
-    ...action,
-    selected: action.id === state.selectedActionId,
-    focused: state.focusedRegion === "actions" && action.id === state.selectedActionId,
-  }));
-}
-
 function buildReviewInspectionRows(
   state: ControlShellState,
   task: TaskRecord | null,
-  actions: ShellActionRow[],
 ): ShellInspectionRow[] {
   if (!task) {
     return [{ id: "review-empty", text: "No task selected.", muted: true }];
   }
 
   const pr = task.pullRequest;
-  const refreshChecksAction = actions.find((action) => action.id === "refresh-checks");
-  const closeTaskAction = actions.find((action) => action.id === "close-task");
-  const reviewActionRows = [
-    renderReviewActionRow("refresh-checks", "sync pr", refreshChecksAction?.shortcut ?? "R", state),
-    renderReviewActionRow("close-task", "close task", closeTaskAction?.shortcut ?? "X", state, task.status === "closed"),
-  ];
-  const rows: ShellInspectionRow[] = [
+  return [
     { id: "review-title", text: "PR", muted: true },
     pr.number
       ? { id: "pr-number", text: `#${pr.number} ${pr.status ?? "unknown"}` }
@@ -848,11 +806,7 @@ function buildReviewInspectionRows(
     { id: "review-spacer", text: "" },
     { id: "review-checks", text: "Checks", muted: true },
     ...buildPullRequestCheckRows(task),
-    { id: "review-action-spacer", text: "" },
-    ...reviewActionRows,
   ];
-
-  return rows;
 }
 
 function renderPullRequestUrlRow(url: string | null): ShellInspectionRow {
@@ -865,25 +819,6 @@ function renderPullRequestUrlRow(url: string | null): ShellInspectionRow {
     id: "pr-url",
     text,
     segments: [{ text, href: url, style: { fg: "7aa2f7", underline: true } }],
-  };
-}
-
-function renderReviewActionRow(
-  id: ActionId,
-  label: string,
-  shortcut: string,
-  state: ControlShellState,
-  muted = false,
-): ShellInspectionRow {
-  return {
-    id,
-    text: `${label.padEnd(18, " ")} ${shortcut}`,
-    selected: id === state.selectedActionId,
-    focused:
-      state.focusedRegion === "inspector" &&
-      state.inspectionMode === "review" &&
-      id === state.selectedActionId,
-    muted,
   };
 }
 
@@ -1060,29 +995,6 @@ function buildContextRows(repo: RepoRecord | null, task: TaskRecord | null): She
     { label: "Branch", value: task.branch },
     { label: "Status", value: task.status },
     { label: "Worktree", value: path.basename(task.worktreePath) },
-  ];
-}
-
-function buildCheckRows(task: TaskRecord | null): ShellCheckRow[] {
-  if (!task) {
-    return [{ status: "○", label: "Checks", result: "n/a", duration: "--" }];
-  }
-
-  return [
-    {
-      status: task.checks.status === "passed" ? "✓" : "○",
-      label: "Checks",
-      result: task.checks.status,
-      duration: task.checks.lastRunAt ? "done" : "--",
-      success: task.checks.status === "passed",
-    },
-    {
-      status: task.runnerSession.lastKnownState === "running" ? "✓" : "○",
-      label: "Runner",
-      result: task.runnerSession.lastKnownState,
-      duration: task.runnerSession.startedAt ? "live" : "--",
-      success: task.runnerSession.lastKnownState === "running",
-    },
   ];
 }
 

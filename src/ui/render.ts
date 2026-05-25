@@ -148,7 +148,7 @@ export function renderMainShellFrame(
   const dividerWidth = SHELL_LAYOUT.dividerWidth;
   const centerOnly = options.centerOnly ?? false;
   const centerWidth = centerOnly ? viewport.width : viewport.width - leftWidth - rightWidth - dividerWidth * 2;
-  const bodyHeight = viewport.height - SHELL_LAYOUT.topRailHeight;
+  const bodyHeight = viewport.height - SHELL_LAYOUT.topRailHeight - 1;
 
   const railText = `CRAIG  |  ${data.topRail.workspacePath}  |  ${data.topRail.agent}  ${green(
     `● ${data.topRail.liveLabel}`,
@@ -165,10 +165,7 @@ export function renderMainShellFrame(
 
   for (let index = 0; index < bodyHeight; index += 1) {
     if (centerOnly) {
-      const line = index === bodyHeight - 1
-        ? { text: data.footerText, tone: "muted" as const, fullBleed: true }
-        : centerLines[index] ?? emptyLine();
-      body.push(renderSurfaceSegment(line, centerWidth, color, "center"));
+      body.push(renderSurfaceSegment(centerLines[index] ?? emptyLine(), centerWidth, color, "center"));
       continue;
     }
 
@@ -180,7 +177,8 @@ export function renderMainShellFrame(
     body.push(`${left}${leftDivider}${center}${divider}${right}`);
   }
 
-  return [railTop, ...body].join("\n");
+  const footerLine = fillSurface(pad(`  ${data.footerText}`, viewport.width), color, PALETTE.panelMuted);
+  return [railTop, ...body, footerLine].join("\n");
 }
 
 function renderOverlayFrame(
@@ -227,13 +225,12 @@ function renderOverlayFrame(
 
 function toLeftLines(data: ShellData, width: number, height: number, color: boolean): SurfaceLine[] {
   const runnerLine = renderRunnersCompact(data.runners);
-  const reservedLines = 2; // runner line + footer
+  const reservedLines = 1; // runner line
   const treeLines = data.leftTree.map((row) => renderTreeRow(row, width, color));
   const fittedTree = fitLines(treeLines, height - reservedLines);
   return [
     ...fittedTree,
     runnerLine,
-    { text: data.footerText, tone: "muted", fullBleed: true },
   ];
 }
 

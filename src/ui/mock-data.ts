@@ -43,12 +43,12 @@ export function getMockShellData(state: MockShellStateInput = {}): ShellData {
     terminal: resolved.terminal,
     footerText:
       resolved.taskPromptInput !== null
-        ? `NEW TASK [${selectedRepo.name}]: ${resolved.taskPromptInput}${resolved.taskPromptError ? ` · ${resolved.taskPromptError}` : ""}`
+        ? `NEW TASK [${selectedRepo.name}] · codex   Ctrl+R switch runner   Enter create   Esc cancel   ›   ${resolved.taskPromptInput}${resolved.taskPromptError ? `   ✗ ${resolved.taskPromptError}` : ""}`
         : resolved.inputMode === "terminal"
-        ? "TERMINAL   ↑↓/PgUp/PgDn scroll   Ctrl+] detach"
+        ? "TERMINAL   ↑↓/PgUp/PgDn scroll   Ctrl+] return to control"
         : resolved.focusedRegion === "tasks"
-        ? "NORMAL   n new task   Enter attach   X close task"
-        : "NORMAL   n new task   ? help   / search   : command",
+        ? "n new task   Enter attach   X close task   Esc pause   ? help"
+        : "n new task   Esc pause   ? help",
     topRail: {
       workspacePath: "~/workspaces/craig/colombo",
       agent: "codex",
@@ -106,15 +106,6 @@ export function getMockShellData(state: MockShellStateInput = {}): ShellData {
       { label: "Worktree", value: selectedTask.id },
     ],
     rightInspection: null,
-    rightChecks: [
-      { status: "✓", label: "Checks", result: "passed", duration: "done", success: true },
-      { status: "✓", label: "Runner", result: "running", duration: "live", success: true },
-    ],
-    rightActions: ACTION_FIXTURES.map((action) => ({
-      ...action,
-      selected: action.id === resolved.selectedActionId,
-      focused: resolved.focusedRegion === "actions" && action.id === resolved.selectedActionId,
-    })),
   };
 }
 
@@ -179,15 +170,6 @@ const TASK_FIXTURES = [
 const TAB_FIXTURES = [
   { id: "agent", label: "AGENT" },
   { id: "terminal", label: "TERMINAL" },
-] as const;
-
-const ACTION_FIXTURES = [
-  { id: "commit", label: "commit", shortcut: "c" },
-  { id: "push", label: "push", shortcut: "p" },
-  { id: "create-pr", label: "create pr", shortcut: "P" },
-  { id: "refresh-checks", label: "refresh checks", shortcut: "R" },
-  { id: "merge", label: "merge", shortcut: "m" },
-  { id: "close-task", label: "close task", shortcut: "x" },
 ] as const;
 
 function taskTreeRow(
