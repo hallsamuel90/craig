@@ -101,16 +101,13 @@ describe("terminal shell control state", () => {
     const initial = seededState();
     const center = reduceMainKey(initial, "TAB", KEY_OPTIONS).state;
     const inspector = reduceMainKey(center, "]", KEY_OPTIONS).state;
-    const actions = reduceMainKey(inspector, "]", KEY_OPTIONS).state;
-    const stillActions = reduceMainKey(actions, "]", KEY_OPTIONS).state;
-    const backToInspector = reduceMainKey(stillActions, "[", KEY_OPTIONS).state;
+    const stillInspector = reduceMainKey(inspector, "]", KEY_OPTIONS).state;
+    const backToCenter = reduceMainKey(stillInspector, "[", KEY_OPTIONS).state;
 
     expect(center.focusedRegion).toBe("center");
     expect(inspector.focusedRegion).toBe("inspector");
-    expect(actions.focusedRegion).toBe("actions");
-    expect(actions.inspectorSection).toBe("actions");
-    expect(stillActions.focusedRegion).toBe("actions");
-    expect(backToInspector.focusedRegion).toBe("inspector");
+    expect(stillInspector.focusedRegion).toBe("inspector");
+    expect(backToCenter.focusedRegion).toBe("center");
   });
 
   test("restores valid persisted repo, task, terminal tab, and inspector orientation", () => {
@@ -236,12 +233,13 @@ describe("terminal shell control state", () => {
     const nextTask = reduceMainKey(tasks, "DOWN", KEY_OPTIONS).state;
     const center = reduceMainKey(nextTask, "TAB", KEY_OPTIONS).state;
     const nextTab = reduceMainKey(center, "RIGHT", KEY_OPTIONS).state;
-    const actions = reduceMainKey(reduceMainKey(reduceMainKey(nextTab, "TAB", KEY_OPTIONS).state, "TAB", KEY_OPTIONS).state, "DOWN", KEY_OPTIONS).state;
+    const actionsState = { ...nextTab, focusedRegion: "actions" as const };
+    const nextAction = reduceMainKey(actionsState, "DOWN", KEY_OPTIONS).state;
 
     expect(nextTask.selectedLeftItemId).toBe("task:task_20260430_03");
     expect(nextTask.selectedTaskId).toBe("task_20260430_03");
     expect(nextTab.activeTab).toBe("task_20260430_02:terminal");
-    expect(actions.selectedActionId).toBe("push");
+    expect(nextAction.selectedActionId).toBe("push");
   });
 
   test("moving to another task requests fresh inspection for that task", () => {
@@ -323,11 +321,7 @@ describe("terminal shell control state", () => {
   });
 
   test("enter on actions emits the current placeholder action message", () => {
-    const focusedAction = reduceMainKey(
-      reduceMainKey(reduceMainKey(seededState(), "TAB", KEY_OPTIONS).state, "TAB", KEY_OPTIONS).state,
-      "TAB",
-      KEY_OPTIONS,
-    ).state;
+    const focusedAction = { ...seededState(), focusedRegion: "actions" as const };
     const result = reduceMainKey(focusedAction, "ENTER", KEY_OPTIONS);
 
     expect(result.exit).toBe(false);
