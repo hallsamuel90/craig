@@ -23,6 +23,7 @@
 
 ## Release packaging
 
+- Add a Changeset for every user-visible `craig-cli` fix, feature, or behavior change before opening or updating a PR intended to ship; use `craig-cli` as the package name and choose `patch`, `minor`, or `major` according to the public CLI impact.
 - Publish only `craig-cli` from `packages/cli`; do not add platform packages or binary-only package targets.
 - Build the npm artifact with `pnpm build:npm`, which must emit a minified esbuild bundle at `packages/cli/dist/cli.js` without source maps.
 - Keep `packages/cli/package.json` on a strict `files` allowlist of `dist/cli.js`, `README.md`, and `package.json`.

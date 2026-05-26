@@ -622,7 +622,7 @@ export function isPrintableKey(key: string): boolean {
 }
 
 export function isPtyTab(tabId: CenterTabId): boolean {
-  return isLegacyPtySurface(tabId) || /:(?:agent|terminal)(?:-\d+)?$/.test(tabId);
+  return isLegacyPtySurface(tabId) || getPtyTabKindFromId(tabId) !== null;
 }
 
 export function isFixedCenterTab(tabId: string): tabId is FixedCenterTabId {
@@ -1156,7 +1156,8 @@ export function getNextRunner(runner: RunnerType, enabledRunnerIds: readonly Run
 }
 
 function getPtyTabKindFromId(tabId: string): TaskPtyTabKind | null {
-  if (/:agent(?:-\d+)?$/.test(tabId)) {
+  const runnerSuffixes = RUNNER_IDS.join("|");
+  if (new RegExp(`:(?:agent|${runnerSuffixes})(?:-\\d+)?$`).test(tabId)) {
     return "agent";
   }
 
