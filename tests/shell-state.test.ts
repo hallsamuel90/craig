@@ -780,6 +780,24 @@ describe("terminal shell control state", () => {
     expect(result.state.preferredPtyTabKind).toBe("terminal");
   });
 
+  test("+ treats runner-specific agent tabs as agent tabs", () => {
+    const center = {
+      ...reduceMainKey(seededState(), "TAB", KEY_OPTIONS).state,
+      activeTab: "task_20260430_02:cursor",
+      selectedPtyTabId: "task_20260430_02:cursor",
+      preferredPtyTabKind: "terminal" as const,
+    };
+    const result = reduceMainKey(center, "+", {
+      ...KEY_OPTIONS,
+      centerTabIds: ["task_20260430_02:cursor"],
+      ptyTabIds: ["task_20260430_02:cursor"],
+    });
+
+    expect(result.createPtyTab).toBe(true);
+    expect(result.createPtyTabKind).toBe("agent");
+    expect(result.state.preferredPtyTabKind).toBe("agent");
+  });
+
   test("x on a focused concrete PTY tab requests tab close", () => {
     const terminal = {
       ...reduceMainKey(seededState(), "TAB", KEY_OPTIONS).state,

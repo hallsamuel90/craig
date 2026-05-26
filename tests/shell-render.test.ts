@@ -548,6 +548,52 @@ describe("terminal shell renderer", () => {
     expect(frame).not.toContain("Press Enter on the TERMINAL tab");
   });
 
+  test("renders runner-specific agent tab ids as attached PTY surfaces", () => {
+    const task = buildTaskRecord("/tmp/craig", {
+      id: "task_20260430_02",
+      repoId: "repo_bug_fixes",
+      workspaceId: "workspace_bug_fixes",
+      ptyTabs: [{
+        id: "task_20260430_02:cursor",
+        kind: "agent",
+        runner: "cursor",
+        title: "Cursor",
+        command: ["cursor-agent"],
+        createdAt: "2026-05-04T00:00:00.000Z",
+        updatedAt: "2026-05-04T00:00:00.000Z",
+      }],
+      selectedPtyTabId: "task_20260430_02:cursor",
+    });
+    const data = buildShellData(
+      {
+        ...createInitialShellState(null),
+        inputMode: "terminal",
+        selectedRepoId: "repo_bug_fixes",
+        selectedTaskId: task.id,
+        selectedLeftItemId: `task:${task.id}`,
+        selectedPtyTabId: "task_20260430_02:cursor",
+        activeTab: "task_20260430_02:cursor",
+        focusedRegion: "center",
+        terminal: {
+          status: "running",
+          rows: [{ segments: [{ text: "cursor session attached" }] }],
+          error: null,
+        },
+      },
+      {
+        workspaceRoot: "/tmp/craig",
+        repos: [{ id: "repo_bug_fixes", name: "bug-fixes", rootPath: "/tmp/craig", defaultBranch: "main", createdAt: "", updatedAt: "" }],
+        tasks: [task],
+        inspection: null,
+      },
+    );
+
+    const frame = renderMainShellFrame(MIN_VIEWPORT, data, { color: false });
+
+    expect(frame).toContain("cursor session attached");
+    expect(frame).not.toContain("Press Enter to attach this PTY-backed agent session.");
+  });
+
   test("renders recoverable PTY startup errors", () => {
     const frame = renderMainShellFrame(
       MIN_VIEWPORT,

@@ -664,6 +664,55 @@ describe("terminal app PTY attach flow", () => {
     expect(updatedTask.selectedPtyTabId).toBe("task_20260430_02:agent");
   });
 
+  test("center a with a selected alternate runner opens and attaches that runner tab", async () => {
+    const root = await mkdtemp(join(tmpdir(), "craig-ui-app-"));
+    tempRoots.push(root);
+    const paths = await setupWorkspace(root);
+    await writeFile(
+      paths.uiStateFile,
+      JSON.stringify({
+        version: 1,
+        selectedRepoId: "repo_a",
+        selectedWorkspaceId: "workspace_repo_a",
+        selectedTaskId: "task_20260430_02",
+        selectedPtyTabId: "task_20260430_02:agent",
+        inputMode: "control",
+        focusedRegion: "center",
+        activeTab: "task_20260430_02:agent",
+        selectedActionId: "commit",
+        updatedAt: "2026-05-04T00:00:00.000Z",
+      }),
+    );
+    const terminal = new FakeTerminal();
+    const ptyRuntime = new FakePtyRuntime();
+    const app = startTerminalApp({ terminal, ptyRuntime, uiStateFile: paths.uiStateFile, workspaceRoot: root });
+    await vi.waitFor(() => expect(terminal.hasKeyListener()).toBe(true));
+
+    terminal.emitKey("\r"); // boot start
+    terminal.emitKey("r"); // codex
+    terminal.emitKey("r"); // cursor
+    terminal.emitKey("a");
+    await vi.waitFor(() => expect(ptyRuntime.ensureSession).toHaveBeenCalledWith(
+      "task_20260430_02",
+      "task_20260430_02:cursor",
+      expect.objectContaining({ columns: expect.any(Number) }),
+    ));
+    await vi.waitFor(() => expect(stripAnsi(terminal.frames.at(-1) ?? "")).toContain("TERMINAL   ↑↓/PgUp/PgDn scroll"));
+    expect(stripAnsi(terminal.frames.at(-1) ?? "")).not.toContain("Press Enter to attach this PTY-backed agent session.");
+    terminal.emitKey("\u001D");
+    terminal.emitKey("q");
+
+    await expect(app).resolves.toBe(0);
+    const updatedTask = await readTask(paths, "task_20260430_02");
+    expect(updatedTask.selectedPtyTabId).toBe("task_20260430_02:cursor");
+    expect(updatedTask.ptyTabs.find((tab) => tab.id === "task_20260430_02:cursor")).toMatchObject({
+      kind: "agent",
+      runner: "cursor",
+      title: "Cursor",
+      command: ["cursor-agent"],
+    });
+  });
+
   test("center t creates a terminal tab and attaches it immediately", async () => {
     const root = await mkdtemp(join(tmpdir(), "craig-ui-app-"));
     tempRoots.push(root);

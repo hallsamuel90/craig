@@ -25,6 +25,7 @@ import {
   getDefaultRunner,
   getEnabledRunnerIds,
   getRunnerProfile,
+  RUNNER_IDS,
 } from "../services/runner-profiles.js";
 import { runCommand } from "../utils/exec.js";
 import { requireExecutablePath, withDefaultCommandPath } from "../utils/command-path.js";
@@ -1795,7 +1796,7 @@ function shouldTrackTerminalKey(key: string): boolean {
 }
 
 function isAgentTabId(tabId: string | null): boolean {
-  return typeof tabId === "string" && /:agent(?:-\d+)?$/.test(tabId);
+  return typeof tabId === "string" && new RegExp(`:(?:agent|${RUNNER_IDS.join("|")})(?:-\\d+)?$`).test(tabId);
 }
 
 function getTerminalScrollLinesForKey(key: string, scrolledBack: boolean): number {
