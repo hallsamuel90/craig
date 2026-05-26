@@ -1,5 +1,11 @@
 # craig-cli
 
+## 0.3.1
+
+### Patch Changes
+
+- 3620dfb: Fix alternate-runner agent tabs so creating and attaching a second runner tab opens the live PTY instead of showing the attach prompt.
+
 ## 0.3.0
 
 ### Minor Changes
