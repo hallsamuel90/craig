@@ -374,7 +374,7 @@ Representative project workspace record:
   "id": "workspace_projects",
   "kind": "project",
   "name": "projects",
-  "rootPath": "/Users/sam/projects",
+  "rootPath": "/home/developer/projects",
   "discoveredRepoIds": ["repo_craig", "repo_api", "repo_web"],
   "createdAt": "2026-05-14T19:00:00Z",
   "updatedAt": "2026-05-14T19:00:00Z"
@@ -388,7 +388,7 @@ Representative repo workspace record:
   "id": "workspace_craig",
   "kind": "repo",
   "name": "craig",
-  "rootPath": "/Users/sam/projects/craig",
+  "rootPath": "/home/developer/projects/craig",
   "repoId": "repo_craig",
   "createdAt": "2026-05-14T19:00:00Z",
   "updatedAt": "2026-05-14T19:00:00Z"
@@ -441,7 +441,7 @@ Representative project task record:
   "kind": "project",
   "title": "update shared auth flow",
   "runner": "codex",
-  "bundlePath": "/Users/sam/projects/.craig/task-bundles/task_20260514_01",
+  "bundlePath": "/home/developer/projects/.craig/task-bundles/task_20260514_01",
   "selectedRepoTargetId": "repo_craig",
   "selectedPtyTabId": "task_20260514_01:agent",
   "ptyTabs": [
@@ -462,7 +462,7 @@ Representative project task record:
     {
       "repoId": "repo_craig",
       "branch": "craig/update-shared-auth-flow",
-      "worktreePath": "/Users/sam/projects/.craig/worktrees/repo_craig/task_20260514_01",
+      "worktreePath": "/home/developer/projects/.craig/worktrees/repo_craig/task_20260514_01",
       "pullRequest": null,
       "checks": null,
       "mergeState": "not_ready"
@@ -470,7 +470,7 @@ Representative project task record:
     {
       "repoId": "repo_api",
       "branch": "craig/update-shared-auth-flow",
-      "worktreePath": "/Users/sam/projects/.craig/worktrees/repo_api/task_20260514_01",
+      "worktreePath": "/home/developer/projects/.craig/worktrees/repo_api/task_20260514_01",
       "pullRequest": null,
       "checks": null,
       "mergeState": "not_ready"

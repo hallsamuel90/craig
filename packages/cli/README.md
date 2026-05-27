@@ -165,8 +165,38 @@ Craig writes local state under `.craig/`:
   worktrees/
 ```
 
-Treat `.craig/` as private developer state. It can contain task prompts, logs, local paths, PR metadata, and worktrees.
+Treat `.craig/` as private developer state. It can contain task prompts, terminal logs, local paths, branch names, PR metadata, runtime state, and worktrees. Do not commit `.craig/` or share it in public issues.
+
+Craig does not run a hosted service or upload `.craig/` state by itself. Commands that use external tools, such as `gh` or an agent CLI, follow the behavior and authentication model of those tools.
+
+## Open Source and Contributions
+
+Craig is open source under the MIT license, but it is not currently a community-maintained project.
+
+Issues are welcome for reproducible bugs, installation problems, and focused questions. Pull requests are not generally accepted unless they were discussed with the maintainer first, and unsolicited PRs may be closed without review.
+
+See the GitHub repository for the contribution policy and private vulnerability reporting guidance.
 
 ## License
 
-Craig is proprietary software. All rights reserved.
+MIT License
+
+Copyright (c) 2026 Sam Hall
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.

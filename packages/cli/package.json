@@ -2,7 +2,27 @@
   "name": "craig-cli",
   "version": "0.3.1",
   "description": "Craig local control plane CLI",
-  "license": "UNLICENSED",
+  "license": "MIT",
+  "keywords": [
+    "ai-coding",
+    "agent-orchestration",
+    "cli",
+    "coding-agents",
+    "developer-tools",
+    "git-worktree",
+    "local-first",
+    "terminal-ui",
+    "tui",
+    "worktree"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/hallsamuel90/craig.git"
+  },
+  "bugs": {
+    "url": "https://github.com/hallsamuel90/craig/issues"
+  },
+  "homepage": "https://github.com/hallsamuel90/craig#readme",
   "type": "module",
   "bin": {
     "craig": "dist/cli.js"
