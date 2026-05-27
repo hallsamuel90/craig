@@ -178,6 +178,54 @@ describe("terminal shell control state", () => {
     expect(state.selectedDiffPath).toBe("src/app.ts");
   });
 
+  test("restores workspace from the task's workspaceId when selectedWorkspaceId is stale", () => {
+    const state = restoreShellState(
+      createInitialShellState({
+        version: 1,
+        selectedRepoId: "repo_a",
+        selectedWorkspaceId: "workspace_repo_b",
+        selectedTaskId: "task_a_1",
+        selectedPtyTabId: "task_a_1:agent",
+        inputMode: "control",
+        focusedRegion: "tasks",
+        activeTab: "agent",
+        updatedAt: "2026-05-03T00:00:00.000Z",
+      }),
+      {
+        ...restoreModel(),
+        workspaces: [
+          {
+            id: "workspace_repo_a",
+            kind: "repo",
+            name: "repo-a",
+            primaryRepoId: "repo_a",
+            branch: "main",
+            status: "active",
+            linkedRepoIds: [],
+            archivedAt: null,
+            createdAt: "2026-05-03T00:00:00.000Z",
+            updatedAt: "2026-05-03T00:00:00.000Z",
+          },
+          {
+            id: "workspace_repo_b",
+            kind: "repo",
+            name: "repo-b",
+            primaryRepoId: "repo_b",
+            branch: "main",
+            status: "active",
+            linkedRepoIds: [],
+            archivedAt: null,
+            createdAt: "2026-05-03T00:00:00.000Z",
+            updatedAt: "2026-05-03T00:00:00.000Z",
+          },
+        ],
+      },
+    );
+
+    expect(state.selectedWorkspaceId).toBe("workspace_repo_a");
+    expect(state.selectedTaskId).toBe("task_a_1");
+  });
+
   test("falls back safely when persisted repo, task, and PTY tab ids are stale", () => {
     const state = restoreShellState(
       createInitialShellState({

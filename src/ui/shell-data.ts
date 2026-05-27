@@ -969,13 +969,6 @@ function buildProjectReviewInspectionRows(
   return rows;
 }
 
-function getCheckSummaryIcon(checks: TaskPullRequestCheck[]): string {
-  if (checks.length === 0) return CHECK_ICON_NONE;
-  if (checks.some((c) => c.status === "failed")) return CHECK_ICON_FAILED;
-  if (checks.every((c) => c.status === "success" || c.status === "skipped")) return CHECK_ICON_SUCCESS;
-  return CHECK_ICON_PENDING;
-}
-
 function buildPrDetailRows(
   idPrefix: string,
   title: string | null,

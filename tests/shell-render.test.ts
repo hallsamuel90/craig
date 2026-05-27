@@ -694,6 +694,139 @@ describe("terminal shell renderer", () => {
     expect(frame.split("\n").every((line) => line.length <= MIN_VIEWPORT.width)).toBe(true);
   });
 
+  test("renders project workspace left panel with icon, task rows, and repo summary", () => {
+    const task = buildTaskRecord("/tmp/craig", {
+      id: "task_proj_01",
+      title: "scaffold api",
+      type: "project",
+      repoId: "repo_projects",
+      workspaceId: "ws_projects",
+    });
+    const workspace = {
+      id: "ws_projects",
+      kind: "project" as const,
+      name: "projects",
+      primaryRepoId: "repo_projects",
+      rootPath: "/tmp/projects",
+      discoveredRepoIds: ["repo_alpha", "repo_beta", "repo_gamma"],
+      branch: "project",
+      status: "active" as const,
+      linkedRepoIds: ["repo_alpha", "repo_beta", "repo_gamma"],
+      archivedAt: null,
+      createdAt: "",
+      updatedAt: "",
+    };
+    const data = buildShellData(
+      {
+        ...createInitialShellState(null),
+        selectedWorkspaceId: "ws_projects",
+        selectedTaskId: task.id,
+        selectedLeftItemId: `task:${task.id}`,
+        focusedRegion: "tasks",
+      },
+      {
+        workspaceRoot: "/tmp/projects",
+        workspaces: [workspace],
+        repos: [
+          { id: "repo_alpha", name: "alpha", rootPath: "/tmp/projects/alpha", defaultBranch: "main", createdAt: "", updatedAt: "" },
+          { id: "repo_beta", name: "beta", rootPath: "/tmp/projects/beta", defaultBranch: "main", createdAt: "", updatedAt: "" },
+          { id: "repo_gamma", name: "gamma", rootPath: "/tmp/projects/gamma", defaultBranch: "main", createdAt: "", updatedAt: "" },
+        ],
+        tasks: [task],
+        inspection: null,
+      },
+    );
+
+    const frame = renderMainShellFrame(MIN_VIEWPORT, data, { color: false });
+
+    expect(frame).toContain("WORKSPACES");
+    expect(frame).toContain("▦ projects");
+    expect(frame).toContain("scaffold api");
+    expect(frame).toContain("Repos (3)");
+    expect(frame).toContain("· alpha");
+    expect(frame).toContain("· beta");
+    expect(frame).toContain("+ New Project Task");
+    expect(frame).not.toContain("+ New Task");
+  });
+
+  test("renders project task review panel with per-repo target rows", () => {
+    const makeTarget = (repoId: string, status: "ready" | "unavailable"): import("../src/types/task.js").ProjectTaskRepoTarget => ({
+      repoId,
+      branch: `craig/proj_01/${repoId}`,
+      repoRoot: `/tmp/projects/${repoId}`,
+      worktreePath: `/tmp/craig/.craig/worktrees/proj_01/${repoId}`,
+      status,
+      failureReason: status === "unavailable" ? "checkout failed" : null,
+      checks: { source: { type: "repo_config", path: ".craig/config.json" }, lastRunAt: null, status: "not_run", commands: [], results: [] },
+      lastCommit: null,
+      pullRequest: {
+        provider: "github",
+        number: null,
+        url: null,
+        baseBranch: null,
+        headBranch: null,
+        status: null,
+        mergeable: false,
+        mergeStateStatus: null,
+        requiredChecks: [],
+        lastSyncedAt: null,
+        lastSyncedHeadSha: null,
+      },
+      cleanup: { paneClosedAt: null, worktreeRemovedAt: null, preservedWorktree: false, warning: null },
+    });
+    const task = buildTaskRecord("/tmp/projects", {
+      id: "task_proj_01",
+      title: "scaffold api",
+      type: "project",
+      repoId: "repo_projects",
+      workspaceId: "ws_projects",
+      repoTargets: [makeTarget("repo_alpha", "ready"), makeTarget("repo_beta", "unavailable")],
+    });
+    const workspace = {
+      id: "ws_projects",
+      kind: "project" as const,
+      name: "projects",
+      primaryRepoId: "repo_projects",
+      rootPath: "/tmp/projects",
+      discoveredRepoIds: ["repo_alpha", "repo_beta"],
+      branch: "project",
+      status: "active" as const,
+      linkedRepoIds: ["repo_alpha", "repo_beta"],
+      archivedAt: null,
+      createdAt: "",
+      updatedAt: "",
+    };
+    const data = buildShellData(
+      {
+        ...createInitialShellState(null),
+        selectedWorkspaceId: "ws_projects",
+        selectedTaskId: task.id,
+        selectedLeftItemId: `task:${task.id}`,
+        focusedRegion: "inspector",
+        inspectionMode: "review",
+      },
+      {
+        workspaceRoot: "/tmp/projects",
+        workspaces: [workspace],
+        repos: [
+          { id: "repo_alpha", name: "alpha", rootPath: "/tmp/projects/alpha", defaultBranch: "main", createdAt: "", updatedAt: "" },
+          { id: "repo_beta", name: "beta", rootPath: "/tmp/projects/beta", defaultBranch: "main", createdAt: "", updatedAt: "" },
+        ],
+        tasks: [task],
+        inspection: null,
+      },
+    );
+
+    const frame = renderMainShellFrame(MIN_VIEWPORT, data, { color: false });
+
+    expect(frame).toContain("CHANGES  FILES  REVIEW");
+    expect(frame).toContain("alpha");
+    expect(frame).toContain("beta");
+    expect(frame).toContain("checkout faile");
+    expect(frame).not.toContain("P create pr");
+    expect(frame).not.toContain("M merge");
+  });
+
   test("renders PTY rows without reapplying Craig center-pane colors after ANSI resets", () => {
     const frame = renderMainShellFrame(
       MIN_VIEWPORT,
