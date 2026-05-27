@@ -1,6 +1,7 @@
 import { describe, expect, test } from "vitest";
 
 import type { TaskLocalInspection } from "../src/services/task-local-inspection.js";
+import type { ProjectTaskRepoTarget } from "../src/types/task.js";
 import { getMockShellData } from "../src/ui/mock-data.js";
 import { MIN_VIEWPORT } from "../src/ui/layout.js";
 import { renderBootOverlayFrame, renderMainShellFrame, renderPauseOverlayFrame } from "../src/ui/render.js";
@@ -750,7 +751,7 @@ describe("terminal shell renderer", () => {
   });
 
   test("renders project task review panel with per-repo target rows", () => {
-    const makeTarget = (repoId: string, status: "ready" | "unavailable"): import("../src/types/task.js").ProjectTaskRepoTarget => ({
+    const makeTarget = (repoId: string, status: "ready" | "unavailable"): ProjectTaskRepoTarget => ({
       repoId,
       branch: `craig/proj_01/${repoId}`,
       repoRoot: `/tmp/projects/${repoId}`,
