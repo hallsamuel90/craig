@@ -57,6 +57,21 @@ Craig stores task records, worktrees, runtime UI state, logs, and review metadat
 7. Use `Ctrl+]` to return from terminal mode to Craig control mode.
 8. Use the Files, Changes, and Review inspector modes to inspect work without leaving Craig.
 
+## Project Workspaces
+
+A project workspace spans multiple repos under a shared root directory. Craig discovers all direct child repos automatically and treats them as a single unit of work.
+
+When you create a task in a project workspace, Craig provisions a worktree for each repo and bundles them under a shared bundle root. The agent runs once with access to all worktrees simultaneously, making cross-repo changes in a single pass.
+
+```bash
+cd path/to/your/projects   # directory containing repo-a/, repo-b/, repo-c/
+craig                       # Craig discovers child repos on startup
+```
+
+In the TUI, project workspaces show a `▦` icon in the left panel with a `Repos (N)` summary beneath. Press `n` on a project workspace to create a project task.
+
+The Review panel for a project task shows per-repo PR and check state in a single view — one row per repo target with its PR lifecycle icon and check rollup. Action dispatch (creating PRs, merging) is handled by the agent, which has direct access to all worktrees through the bundle root.
+
 ## TUI Keys
 
 ```text
