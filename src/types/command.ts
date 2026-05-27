@@ -3,14 +3,15 @@ import type { RunnerType, TaskRecord } from "./task.js";
 import type { RepoRecord, WorkspaceRecord } from "./workspace.js";
 
 export type AppCommand =
+  | { kind: "addWorkspace"; path: string }
   | { kind: "addRepo"; path: string }
   | { kind: "listRepos" }
   | { kind: "removeRepo"; repoId: string }
   | { kind: "listWorkspaces"; archived: boolean }
   | { kind: "archiveWorkspace"; workspaceId: string }
   | { kind: "restoreWorkspace"; workspaceId: string }
-  | { kind: "createTask"; repoId: string; prompt: string; runner?: RunnerType }
-  | { kind: "listTasks"; repoId?: string }
+  | { kind: "createTask"; repoId?: string; workspaceId?: string; prompt: string; runner?: RunnerType }
+  | { kind: "listTasks"; repoId?: string; workspaceId?: string }
   | { kind: "attachTask"; taskId: string }
   | { kind: "addTaskLink"; taskId: string; repoId: string }
   | { kind: "listTaskLinks"; taskId: string }
@@ -40,11 +41,19 @@ export interface CommandCreateTaskResult {
   kind: "createTask";
   taskId: string;
   repoId: string;
+  workspaceId: string;
   sessionId: string;
   status: string;
   branch: string;
   worktreePath: string;
   runner: string;
+}
+
+export interface CommandCreateWorkspaceResult {
+  kind: "createWorkspace";
+  workspace: WorkspaceRecord;
+  repos: RepoRecord[];
+  created: boolean;
 }
 
 export interface CommandCreateRepoResult {
@@ -203,6 +212,7 @@ export interface CommandMergeResult {
 }
 
 export type CommandResult =
+  | CommandCreateWorkspaceResult
   | CommandCreateRepoResult
   | CommandListReposResult
   | CommandRemoveRepoResult

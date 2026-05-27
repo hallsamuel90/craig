@@ -1,15 +1,15 @@
-import { mkdir, writeFile } from "node:fs/promises";
+import { mkdir, symlink, writeFile } from "node:fs/promises";
 import path from "node:path";
 
 import type { CraigPaths } from "../state/craig-paths.js";
 import { readRepo } from "../state/repo-store.js";
 import { appendTaskId, writeTask } from "../state/task-store.js";
 import type { CraigConfig } from "../types/config.js";
-import type { RunnerType, TaskPtyTabRecord, TaskRecord } from "../types/task.js";
+import type { ProjectTaskRepoTarget, RunnerType, TaskChecks, TaskCleanup, TaskPullRequest, TaskPtyTabRecord, TaskRecord } from "../types/task.js";
 import { listWorkspaceRecords } from "../state/workspace-store.js";
 import { createWorktree } from "./git-task.js";
 import { buildRunnerCommand, getRunnerProfile } from "./runner-profiles.js";
-import { allocateTaskIdForRepo } from "./task-id.js";
+import { allocateProjectTaskId, allocateTaskIdForRepo } from "./task-id.js";
 
 export interface ProvisionedTask {
   repoId: string;
@@ -17,6 +17,11 @@ export interface ProvisionedTask {
   sessionId: string | null;
   workspaceId: string;
   task: TaskRecord;
+}
+
+export interface ProvisionedProjectTask extends ProvisionedTask {
+  bundlePath: string;
+  repoTargets: ProjectTaskRepoTarget[];
 }
 
 export async function provisionTask(
@@ -61,6 +66,137 @@ export async function provisionTask(
     sessionId,
     workspaceId: workspace.id,
     task: draftTask,
+  };
+}
+
+export async function provisionProjectTask(
+  paths: CraigPaths,
+  workspaceId: string,
+  prompt: string,
+  options: { sessionId?: string | null; runner?: RunnerType; config?: CraigConfig } = {},
+): Promise<ProvisionedProjectTask> {
+  const workspace = (await listWorkspaceRecords(paths)).find((entry) => entry.id === workspaceId && entry.status === "active");
+  if (!workspace) {
+    throw new Error(`Workspace ${workspaceId} does not exist or is archived.`);
+  }
+  if (workspace.kind !== "project") {
+    if (!workspace.primaryRepoId) {
+      throw new Error(`Workspace ${workspaceId} is not task-capable.`);
+    }
+    const repoTask = await provisionTask(paths, workspace.primaryRepoId, prompt, options);
+    return {
+      ...repoTask,
+      bundlePath: repoTask.task.worktreePath,
+      repoTargets: [],
+    };
+  }
+
+  const repoIds = workspace.discoveredRepoIds ?? [];
+  if (repoIds.length === 0) {
+    throw new Error(`Project workspace ${workspaceId} has no discovered repos.`);
+  }
+
+  const taskId = await allocateProjectTaskId(paths);
+  const timestamp = new Date().toISOString();
+  const runner = options.runner ?? "codex";
+  const sessionId = options.sessionId ?? null;
+  const branch = `craig/${taskId}`;
+  const bundlePath = path.join(paths.craigDir, "task-bundles", taskId);
+  const repoLinksDir = path.join(bundlePath, "repos");
+  const logPath = path.join(paths.logsDir, `${taskId}.log`);
+  const artifactDir = path.join(paths.artifactsDir, taskId);
+
+  await mkdir(repoLinksDir, { recursive: true });
+  await mkdir(artifactDir, { recursive: true });
+  await writeFile(logPath, "", "utf8");
+
+  const repoTargets = await Promise.all(repoIds.map((repoId) => provisionProjectRepoTarget(paths, repoId, taskId, branch)));
+  const readyTarget = repoTargets.find((target) => target.status === "ready") ?? repoTargets[0]!;
+
+  await Promise.all(repoTargets.map(async (target) => {
+    if (target.status !== "ready") {
+      return;
+    }
+    const linkPath = path.join(repoLinksDir, target.repoId);
+    await symlink(target.worktreePath, linkPath, "dir").catch(() => undefined);
+  }));
+
+  await writeFile(
+    path.join(bundlePath, "manifest.json"),
+    JSON.stringify({
+      taskId,
+      workspaceId,
+      prompt,
+      repos: repoTargets.map((target) => ({
+        repoId: target.repoId,
+        status: target.status,
+        worktreePath: target.worktreePath,
+        failureReason: target.failureReason,
+      })),
+    }, null, 2),
+    "utf8",
+  );
+
+  const ptyTabs = createDefaultTaskPtyTabs(taskId, prompt, timestamp, runner, options.config ?? {});
+  const task: TaskRecord = {
+    id: taskId,
+    title: prompt,
+    slug: slugify(prompt),
+    type: "project",
+    status: "draft",
+    runner,
+    repoId: readyTarget.repoId,
+    workspaceId: workspace.id,
+    sessionId,
+    selectedPtyTabId: ptyTabs[0]?.id ?? null,
+    linkedRepoIds: repoIds.filter((repoId) => repoId !== readyTarget.repoId),
+    repoRoot: bundlePath,
+    worktreePath: bundlePath,
+    branch,
+    bundlePath,
+    selectedRepoTargetId: readyTarget.repoId,
+    repoTargets,
+    ptyTabs,
+    runnerSession: {
+      command: buildRunnerCommand(runner, prompt, options.config ?? {}),
+      pid: null,
+      startedAt: null,
+      lastKnownState: "starting",
+      exitCode: null,
+      exitedAt: null,
+    },
+    prompt: {
+      source: "inline",
+      value: prompt,
+    },
+    checks: readyTarget.checks,
+    lastCommit: null,
+    pullRequest: readyTarget.pullRequest,
+    artifacts: {
+      logPath: path.relative(paths.workspaceRoot, logPath),
+      checkSummaryPath: path.relative(paths.workspaceRoot, path.join(artifactDir, "check-summary.json")),
+      prDraftPath: null,
+      prStatusPath: path.relative(paths.workspaceRoot, path.join(artifactDir, "pr-status.json")),
+    },
+    cleanup: buildDefaultCleanup(),
+    lastFailureReason: repoTargets.every((target) => target.status === "unavailable")
+      ? "No project repo targets could be provisioned."
+      : null,
+    createdAt: timestamp,
+    updatedAt: timestamp,
+  };
+
+  await writeTask(paths, task);
+  await appendTaskId(paths, taskId);
+
+  return {
+    repoId: readyTarget.repoId,
+    repoRoot: bundlePath,
+    sessionId,
+    workspaceId: workspace.id,
+    task,
+    bundlePath,
+    repoTargets,
   };
 }
 
@@ -125,44 +261,98 @@ function buildDraftTask(paths: CraigPaths, input: DraftTaskInput): TaskRecord {
       value: input.prompt,
     },
     checks: {
-      source: {
-        type: "repo_config",
-        path: path.relative(paths.workspaceRoot, paths.configFile),
-      },
-      lastRunAt: null,
-      status: "not_run",
-      commands: [],
-      results: [],
+      ...buildDefaultChecks(path.relative(paths.workspaceRoot, paths.configFile)),
     },
     lastCommit: null,
-    pullRequest: {
-      provider: "github",
-      number: null,
-      url: null,
-      baseBranch: null,
-      headBranch: null,
-      status: null,
-      mergeable: false,
-      mergeStateStatus: null,
-      requiredChecks: [],
-      lastSyncedAt: null,
-      lastSyncedHeadSha: null,
-    },
+    pullRequest: buildDefaultPullRequest(),
     artifacts: {
       logPath: path.relative(paths.workspaceRoot, path.join(paths.logsDir, `${input.taskId}.log`)),
       checkSummaryPath: path.relative(paths.workspaceRoot, path.join(paths.artifactsDir, input.taskId, "check-summary.json")),
       prDraftPath: null,
       prStatusPath: path.relative(paths.workspaceRoot, path.join(paths.artifactsDir, input.taskId, "pr-status.json")),
     },
-    cleanup: {
-      paneClosedAt: null,
-      worktreeRemovedAt: null,
-      preservedWorktree: false,
-      warning: null,
-    },
+    cleanup: buildDefaultCleanup(),
     lastFailureReason: null,
     createdAt: timestamp,
     updatedAt: timestamp,
+  };
+}
+
+async function provisionProjectRepoTarget(
+  paths: CraigPaths,
+  repoId: string,
+  taskId: string,
+  branch: string,
+): Promise<ProjectTaskRepoTarget> {
+  const repo = await readRepo(paths, repoId);
+  const worktreePath = path.join(paths.worktreesDir, repo.id, taskId);
+  await mkdir(path.dirname(worktreePath), { recursive: true });
+
+  try {
+    await createWorktree(repo.rootPath, branch, worktreePath);
+    return {
+      repoId: repo.id,
+      branch,
+      repoRoot: repo.rootPath,
+      worktreePath,
+      status: "ready",
+      failureReason: null,
+      checks: buildDefaultChecks(path.relative(paths.workspaceRoot, paths.configFile)),
+      lastCommit: null,
+      pullRequest: buildDefaultPullRequest(),
+      cleanup: buildDefaultCleanup(),
+    };
+  } catch (error) {
+    return {
+      repoId: repo.id,
+      branch,
+      repoRoot: repo.rootPath,
+      worktreePath,
+      status: "unavailable",
+      failureReason: error instanceof Error ? error.message : "Failed to create worktree.",
+      checks: buildDefaultChecks(path.relative(paths.workspaceRoot, paths.configFile)),
+      lastCommit: null,
+      pullRequest: buildDefaultPullRequest(),
+      cleanup: buildDefaultCleanup(),
+    };
+  }
+}
+
+function buildDefaultChecks(configPath: string): TaskChecks {
+  return {
+    source: {
+      type: "repo_config",
+      path: configPath,
+    },
+    lastRunAt: null,
+    status: "not_run",
+    commands: [],
+    results: [],
+  };
+}
+
+function buildDefaultPullRequest(): TaskPullRequest {
+  return {
+    provider: "github",
+    number: null,
+    url: null,
+    baseBranch: null,
+    headBranch: null,
+    status: null,
+    mergeable: false,
+    mergeStateStatus: null,
+    requiredChecks: [],
+    lastSyncedAt: null,
+    lastSyncedHeadSha: null,
+  };
+}
+
+function buildDefaultCleanup(): TaskCleanup {
+  return {
+    paneClosedAt: null,
+    worktreeRemovedAt: null,
+    preservedWorktree: false,
+    warning: null,
   };
 }
 
@@ -181,7 +371,7 @@ interface DraftTaskInput {
 
 async function resolveWorkspaceForRepo(paths: CraigPaths, repoId: string) {
   const workspaces = await listWorkspaceRecords(paths);
-  const workspace = workspaces.find((entry) => entry.primaryRepoId === repoId && entry.status === "active");
+  const workspace = workspaces.find((entry) => entry.kind !== "project" && entry.primaryRepoId === repoId && entry.status === "active");
 
   if (!workspace) {
     throw new Error(`Repo ${repoId} does not have an active workspace.`);

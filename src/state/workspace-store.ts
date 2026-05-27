@@ -39,27 +39,66 @@ function getWorkspaceFilePath(paths: CraigPaths, workspaceId: string): string {
 }
 
 export function validateWorkspaceRecord(value: unknown, filePath: string): WorkspaceRecord {
+  const normalized = normalizeWorkspaceRecord(value);
   if (
-    typeof value !== "object" ||
-    value === null ||
-    typeof (value as Partial<WorkspaceRecord>).id !== "string" ||
-    typeof (value as Partial<WorkspaceRecord>).primaryRepoId !== "string" ||
-    typeof (value as Partial<WorkspaceRecord>).branch !== "string" ||
-    ((value as Partial<WorkspaceRecord>).status !== "active" &&
-      (value as Partial<WorkspaceRecord>).status !== "archived") ||
-    !Array.isArray((value as Partial<WorkspaceRecord>).linkedRepoIds) ||
-    !((value as Partial<WorkspaceRecord>).linkedRepoIds ?? []).every((entry) => typeof entry === "string") ||
+    typeof normalized !== "object" ||
+    normalized === null ||
+    typeof (normalized as Partial<WorkspaceRecord>).id !== "string" ||
+    ((normalized as Partial<WorkspaceRecord>).kind !== "repo" &&
+      (normalized as Partial<WorkspaceRecord>).kind !== "project") ||
+    typeof (normalized as Partial<WorkspaceRecord>).name !== "string" ||
+    typeof (normalized as Partial<WorkspaceRecord>).rootPath !== "string" ||
+    typeof (normalized as Partial<WorkspaceRecord>).primaryRepoId !== "string" ||
+    typeof (normalized as Partial<WorkspaceRecord>).branch !== "string" ||
+    ((normalized as Partial<WorkspaceRecord>).status !== "active" &&
+      (normalized as Partial<WorkspaceRecord>).status !== "archived") ||
+    !Array.isArray((normalized as Partial<WorkspaceRecord>).linkedRepoIds) ||
+    !((normalized as Partial<WorkspaceRecord>).linkedRepoIds ?? []).every((entry) => typeof entry === "string") ||
     !(
-      (value as Partial<WorkspaceRecord>).archivedAt === null ||
-      typeof (value as Partial<WorkspaceRecord>).archivedAt === "string"
+      (normalized as Partial<WorkspaceRecord>).repoId === undefined ||
+      typeof (normalized as Partial<WorkspaceRecord>).repoId === "string"
     ) ||
-    typeof (value as Partial<WorkspaceRecord>).createdAt !== "string" ||
-    typeof (value as Partial<WorkspaceRecord>).updatedAt !== "string"
+    !Array.isArray((normalized as Partial<WorkspaceRecord>).discoveredRepoIds) ||
+    !((normalized as Partial<WorkspaceRecord>).discoveredRepoIds ?? []).every((entry) => typeof entry === "string") ||
+    !(
+      (normalized as Partial<WorkspaceRecord>).archivedAt === null ||
+      typeof (normalized as Partial<WorkspaceRecord>).archivedAt === "string"
+    ) ||
+    typeof (normalized as Partial<WorkspaceRecord>).createdAt !== "string" ||
+    typeof (normalized as Partial<WorkspaceRecord>).updatedAt !== "string"
   ) {
     throw new Error(
       `Craig workspace record at ${filePath} is invalid. Remove or repair the file before rerunning Craig.`,
     );
   }
 
-  return value as WorkspaceRecord;
+  return normalized as WorkspaceRecord;
+}
+
+function normalizeWorkspaceRecord(value: unknown): unknown {
+  if (typeof value !== "object" || value === null) {
+    return value;
+  }
+
+  const candidate = value as Partial<WorkspaceRecord>;
+  const repoId = candidate.repoId ?? candidate.primaryRepoId;
+
+  return {
+    ...candidate,
+    kind: candidate.kind ?? "repo",
+    name: candidate.name ?? repoId ?? candidate.id,
+    rootPath: candidate.rootPath ?? "",
+    primaryRepoId: candidate.primaryRepoId ?? repoId ?? "",
+    repoId: candidate.kind === "project" ? candidate.repoId : repoId,
+    discoveredRepoIds: Array.isArray(candidate.discoveredRepoIds)
+      ? candidate.discoveredRepoIds.filter((entry): entry is string => typeof entry === "string")
+      : candidate.kind === "project"
+        ? []
+        : repoId
+          ? [repoId]
+          : [],
+    linkedRepoIds: Array.isArray(candidate.linkedRepoIds)
+      ? candidate.linkedRepoIds.filter((entry): entry is string => typeof entry === "string")
+      : [],
+  };
 }

@@ -112,7 +112,7 @@ export function buildTaskRecord(
     id: task.id,
     title: task.title ?? "test task",
     slug: task.slug ?? "test-task",
-    type: "repo",
+    type: task.type ?? "repo",
     status: task.status ?? "running",
     runner,
     repoId: task.repoId ?? "repo_test",
@@ -173,6 +173,8 @@ export function buildTaskRecord(
       warning: null,
     },
     lastFailureReason: task.lastFailureReason ?? null,
+    ...(task.repoTargets !== undefined ? { repoTargets: task.repoTargets } : {}),
+    ...(task.bundlePath !== undefined ? { bundlePath: task.bundlePath } : {}),
     createdAt: task.createdAt ?? now,
     updatedAt: task.updatedAt ?? now,
   };

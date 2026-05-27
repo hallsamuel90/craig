@@ -6,7 +6,7 @@ import { readTask } from "../state/task-store.js";
 
 export async function listTasks(
   paths: CraigPaths,
-  options?: { repoId?: string; includeClosed?: boolean },
+  options?: { repoId?: string; workspaceId?: string; includeClosed?: boolean },
 ): Promise<CommandListResult> {
   const index = await readCraigIndex(paths);
   const tasks: TaskRecord[] = [];
@@ -28,7 +28,17 @@ export async function listTasks(
   );
 
   const activeTasks = options?.includeClosed ? tasks : tasks.filter((task) => task.status !== "closed");
-  const filteredTasks = options?.repoId ? activeTasks.filter((task) => task.repoId === options.repoId) : activeTasks;
+  const filteredTasks = activeTasks.filter((task) => {
+    if (options?.workspaceId && task.workspaceId !== options.workspaceId) {
+      return false;
+    }
+
+    if (options?.repoId && task.repoId !== options.repoId && !(task.repoTargets ?? []).some((target) => target.repoId === options.repoId)) {
+      return false;
+    }
+
+    return true;
+  });
 
   filteredTasks.sort((left, right) => left.id.localeCompare(right.id));
   missingTaskIds.sort();

@@ -23,6 +23,13 @@ export async function allocateTaskIdForRepo(paths: CraigPaths, repoRoot: string)
   }
 }
 
+export async function allocateProjectTaskId(paths: CraigPaths): Promise<string> {
+  const index = await readCraigIndex(paths);
+  const dateSegment = formatDate(new Date());
+  const sequence = nextSequence(index.taskIds, dateSegment);
+  return `task_${dateSegment}_${String(sequence).padStart(2, "0")}`;
+}
+
 function formatDate(date: Date): string {
   const year = date.getFullYear();
   const month = String(date.getMonth() + 1).padStart(2, "0");

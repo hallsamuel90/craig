@@ -101,7 +101,7 @@ The phase `5.2` product contract is the new-install journey:
 5. The `Files` panel shows a repo-grouped tree. The top-level rows are the child repos under the project root, and each repo can expand or collapse independently.
 6. The `Changes` panel follows the same grouping. It shows changed files under their owning repo and lets the user move through changes without losing repo identity.
 7. The `Review` panel follows the same grouping. It shows PR, check, and merge state for each repo touched by the task.
-8. Review actions can operate on one repo at a time, or on all eligible repos in the project task through an explicit batch action.
+8. Review is read-only for project tasks in Craig. PR creation, check refreshes, and merges for project tasks are handled by the agent itself, which has access to all repo worktrees through the bundle root.
 
 Project workspaces and repo workspaces may overlap. A user may save both `~/projects` and `~/projects/craig` as separate workspaces. Craig must keep those workspace records separate:
 
@@ -186,7 +186,7 @@ After the multi-repo workspace phase, `Files`/`Changes` and `Review` each suppor
 - task scope: the current single-repo task view, where rows are rooted in the selected task worktree
 - workspace scope: a parent-directory view grouped by child repo, where each repo directory can expand/collapse to reveal that repo's files, changes, PRs, checks, and task state
 
-Workspace scope should feel like a monorepo browser for daily orientation, but it must preserve actual repo boundaries for Git, branch, PR, check, merge, and terminal commands. Read-only batch actions such as refresh all review state may operate across expanded or selected repos. Mutating batch actions are allowed only when they are explicit, repo-enumerated, and confirm the exact affected repos before running. Phase `5.2` includes single-repo merge actions from the grouped Review view and an explicit merge-all-ready action for project tasks.
+Workspace scope should feel like a monorepo browser for daily orientation, but it must preserve actual repo boundaries for Git, branch, PR, check, merge, and terminal commands. For single-repo tasks, Craig dispatches review actions (PR create/sync, refresh checks, merge, close) as before. For project tasks, the Review panel is read-only: it displays per-repo PR, check, and merge state, but action dispatch is agent-owned. The agent has access to all repo worktrees through the bundle root and is better positioned to coordinate multi-repo operations than a Craig-owned confirmation surface would be.
 
 ### Visual direction
 
@@ -293,7 +293,7 @@ Required durable concerns:
 - `4.3` Add checks and CI status reading for tracked PRs and head commits: `implemented and verified`
 - `4.4` Add guarded PR merge and task close flow from Craig: `implemented and verified`
 - `5.1` Add Cursor and Claude runner support alongside Codex: `implemented and verified`
-- `5.2` Add parent-directory multi-repo workspace mode with repo-grouped Files, Changes, and Review: `pending`
+- `5.2` Add parent-directory multi-repo workspace mode with repo-grouped Files, Changes, and Review: `implemented, pending manual verification`
 - `6.1` Add a focused design and ergonomics pass across palette, navigation, density, empty states, and review workflows: `implemented and verified`
 - `6.2` Add configurable video-game-like sound effects for important Craig events: `pending`
 - `7.1` Add npm packaging, publish workflow, and CI source-leak prevention: `implemented and verified`
@@ -315,7 +315,7 @@ Required durable concerns:
 - `4.3` Verified by extending persisted PR check state to distinguish passing, pending, failing, skipped, and unknown GitHub check results; treating skipped as non-blocking while keeping it visually distinct; adding an explicit Review `R` refresh action beside the existing `P` create/sync PR action; rendering tracked PR check rows and next-action guidance from persisted PR metadata; and keeping refresh in Craig control mode without attaching PTYs or changing file/changes orientation. Automated coverage includes GitHub check normalization, skipped/non-blocking readiness, failed and unknown states, refresh-without-PR failure, Review reducer intents for `P`/`R`/`Enter`, Review renderer guidance, and app-level check refresh/error behavior. `pnpm test`, `pnpm typecheck`, `pnpm lint`, and `pnpm build` passed locally.
 - `4.4` Verified by hardening the tracked PR merge service so it refreshes GitHub PR/check state immediately before merge, blocks missing PRs, missing commits, dirty worktrees, stale local/remote heads, missing check data, pending/failing/unknown checks, and non-mergeable GitHub states, then merges through the configured GitHub merge method while preserving the task worktree from the shell. The Review panel now exposes `P` create/sync, `R` refresh checks, `M` merge PR, and `X` close task actions; merged tasks can be marked `closed` as a recoverable persisted state without deleting worktrees or branch metadata, and shell close disposes live task PTY sessions. Automated coverage includes service blockers for stale heads, missing checks, and pending checks; close-task success and pre-merge failure; renderer Review merge/close rows and guidance; and app-level merge success, merge blocker, and close-task behavior without PTY attach. `pnpm test`, `pnpm typecheck`, `pnpm lint`, `pnpm build`, and `git diff --check` passed locally.
 - `5.1` Verified by adding durable runner profiles for Codex, Cursor, and Claude; extending task records, task provisioning, command-mode task creation, interactive new-task creation, PTY tab commands, runner summary rendering, and task context rendering to use explicit runner metadata; adding a left-panel runner selector for new interactive tasks; and preserving failed runner startup as recoverable task state when a selected runner binary is unavailable. Automated verification covers runner profile validation, runner-specific task records and tmux launch commands, `--runner` parsing, shell selector cycling, runner labels/counts, app-level selected-runner task creation, missing-runner failure state, and real terminal E2E attach flows for Codex, Cursor, and Claude stub binaries rooted in the selected task worktree. `pnpm typecheck`, `pnpm test`, `pnpm lint`, `pnpm build`, and `git diff --check` passed locally.
-- `5.2` Not yet verified.
+- `5.2` Implemented by adding canonical `workspace add` registration for repo and parent-directory roots; durable project workspace records with direct child Git repo discovery; overlap-safe project and repo workspace records; project task provisioning with per-repo worktree targets, unavailable-target state, bundle roots, manifests, and repo links; workspace-first shell navigation; project task agent startup from the bundle root; repo-prefixed Files and Changes inspection for project tasks; and per-repo Review rows for project targets. Project-task Review is intentionally read-only in Craig — PR create/sync, refresh checks, and merge for project tasks are agent-owned. Automated verification passed via `pnpm test`, `pnpm typecheck`, `pnpm lint`, and `pnpm build`. Manual verification against a real project workspace is pending.
 - `6.1` Verified by replacing the three-panel background differentiation approach with a unified flat Tokyo Night palette (`0a0a0a` base) divided by visible `│` dividers; introducing semantic color tokens for success, pending, error, muted, accent, and disabled states; adding Nerd Font file-tree icons with per-extension color; adding PR lifecycle and check-status icons to the inspection mode selector; converting the runner row to a full-width dynamic health bar (name flush-left, bar filling the remaining panel width, green at full health / red below 20%); adding a `?` global help overlay with a centered keybinding table and the CRAIG logo treatment; refactoring the boot and pause overlays from four-item to three-item menus (`Start/Resume`, `Options`, `Exit`) with Options navigating into a dedicated submenu; fixing overlay menu-item centering to eliminate layout shift during navigation; adding truncation via the shared `pad`/`truncate` helpers across all fixed-width columns; tightening empty-state copy to include actionable next steps; and widening the left panel from 38 to 42 characters to give the health bar meaningful visual weight. Automated verification passed via `pnpm test`, `pnpm typecheck`, `pnpm lint`, and `pnpm build`. Manual verification passed in a real TTY confirming palette, focus states, health bar, icons, overlays, and keybinding table render correctly across narrow and normal terminal sizes.
 - `6.2` Not yet verified.
 - `7.1` Verified by pivoting release packaging to a single publishable `craig-cli` package under `packages/cli`; adding an esbuild npm bundle that emits a minified, executable, sourcemap-free Node 22 ESM CLI at `packages/cli/dist/cli.js`; keeping `node-pty` and `terminal-kit` external runtime dependencies while bundling `@xterm/headless`; adding Changesets metadata for `craig-cli` only; adding CI and release workflow gates for tests, typecheck, lint, TypeScript build, npm build, package audit, and package smoke; and rewriting consumer-facing README/release guidance. Follow-up release simplification removed the generated Version Packages PR flow: the release workflow now applies Changesets, runs gates, commits version/changelog updates back to `main` with `[skip ci]`, and publishes to npm from the same merge-triggered run. Artifact verification passed with `pnpm package:audit`, confirming the packed tarball contains only `dist/cli.js`, `README.md`, and `package.json`. Smoke verification passed with `pnpm package:smoke`, which packed `packages/cli`, installed the tarball into a temporary git workspace, ran the installed `craig repo list`, and launched the installed `craig` under a PTY until the boot marker appeared. Full automated verification passed via `pnpm test`, `pnpm typecheck`, `pnpm lint`, `pnpm build`, `pnpm build:npm`, `pnpm package:audit`, and `pnpm package:smoke`.
@@ -323,7 +323,7 @@ Required durable concerns:
 
 ### Next resume point
 
-Resume at the first sub-phase that is not both implemented and verified on the primary track. The current primary resume point remains `5.2`, which adds parent-directory multi-repo workspace mode with repo-grouped Files, Changes, and Review. Phase `7.1` was completed out of order and should be skipped on future resumes unless release packaging regresses.
+Resume at manual verification of `5.2`. All implementation items are complete. Project-task Review action dispatch is intentionally out of scope — PR create/sync, refresh checks, and merge for project tasks are agent-owned, not Craig-dispatched. The remaining work before marking `5.2` verified is to run the manual verification steps in the `5.2` handoff against a real project workspace. Phase `7.1` was completed out of order and should be skipped on future resumes unless release packaging regresses.
 
 ### Parallelizable phases
 
@@ -958,9 +958,7 @@ Deliver a public-facing site after package installation, privacy claims, and cor
 - make `Files` show each repo under the project root, then that repo's task worktree files when the project task has a worktree for that repo
 - make `Changes` show each repo under the project root, then that repo's staged, unstaged, and untracked changes or an explicit clean/unavailable state
 - make `Review` show each repo target's PR, checks, readiness, and merge state without collapsing the repos into one synthetic PR
-- support one-at-a-time Review actions for a selected repo target, including PR create/sync, refresh checks, and guarded merge
-- support explicit batch Review actions for all eligible repo targets, including refresh-all and merge-all-ready, with a confirmation surface that lists the exact repos affected
-- define merge-all-ready eligibility per repo target: a tracked PR exists, the repo worktree is clean, local and remote heads match the tracked PR head, checks have been freshly refreshed, checks are passing or explicitly skipped/non-blocking, GitHub reports the PR mergeable, and the target has not already been merged or marked unavailable
+- keep project-task Review read-only in Craig; PR create/sync, refresh checks, and merge for project tasks are handled by the agent, which has direct access to all repo worktrees through the bundle root
 - make task creation, selection, restore, and command dispatch deterministic when multiple repos contain similar names, branches, files, or PRs
 - persist project task row selection, repo-group expansion state, selected repo target, and active Files/Changes/Review row across Craig restart when practical
 - keep terminal attach behavior explicit: an agent PTY for a project task starts in the synthetic project task bundle root so the agent can operate across the repo worktrees, while per-repo terminal actions must target the selected repo worktree
@@ -978,9 +976,7 @@ Deliver a public-facing site after package installation, privacy claims, and cor
 - manually verify Files shows each child repo and opens selected files from the correct repo worktree
 - manually verify Changes shows per-repo changed files and opens selected changes without losing repo identity
 - manually verify Review shows separate PR/check/merge state for each repo touched by the project task
-- manually verify PR/check/merge actions target only the selected repo target when run one at a time
-- manually verify refresh-all and merge-all-ready list the affected repos before running and skip ineligible repos with clear status
-- manually verify merge-all-ready does not merge repo targets with missing PRs, dirty worktrees, stale heads, missing or stale checks, pending/failing/unknown checks, unmergeable PR state, already-merged state, or unavailable worktrees
+- manually verify Review is read-only for project tasks (no PR create/sync, refresh, merge, or batch actions dispatched from Craig)
 - manually add both `~/projects` and `~/projects/craig` as saved workspaces and verify they are separately navigable, restorable, and task-capable
 
 #### Tracking update
@@ -990,7 +986,7 @@ Deliver a public-facing site after package installation, privacy claims, and cor
 - keep `5.2` open if immediate project task provisioning does not create or explicitly mark unavailable every accessible direct child repo target
 - keep `5.2` open if repo-group expansion state, selected repo target, project task target state, or selected rows cannot restore after Craig restart
 - keep `5.2` open if overlapping project and repo workspaces are hidden, merged, or routed through the wrong workspace context
-- keep `5.2` open if batch Review actions can mutate repos that were not explicitly listed in the confirmation surface
+- keep `5.2` open if the Review panel dispatches mutating actions for project tasks (it should be read-only)
 
 ### 6.1 Handoff
 
@@ -1122,7 +1118,7 @@ Deliver a public-facing site after package installation, privacy claims, and cor
 - `[5.1]` Craig can create and run Codex, Cursor, and Claude tasks through explicit runner profiles without changing task/worktree semantics.
 - `[5.2]` Craig can open a parent-directory workspace such as `~/projects`, discover direct child Git repos, immediately create project-level tasks with per-repo worktree targets for accessible direct child repos, and present Files, Changes, and Review as repo-grouped expandable workspace views.
 - `[5.2]` Craig can save overlapping project and repo workspaces such as `~/projects` and `~/projects/craig` at the same time without hiding, merging, or misrouting either workspace.
-- `[5.2]` Project-task Review can operate on one selected repo target or run explicit batch refresh/merge-all-ready actions that list affected repos, skip ineligible repos, and only merge repo targets that satisfy the defined readiness checks.
+- `[5.2]` Project-task Review displays per-repo PR, check, and merge state read-only; action dispatch for project tasks is agent-owned.
 - `[6.1]` Craig's shell is polished enough for repeated daily use across normal terminal sizes, with a deliberate color palette, clear focus, truncation, empty states, grouped workspace scanability, and efficient next actions.
 - `[6.2]` Craig can play configurable video-game-like sound effects for important workflow events, and those effects can be fully muted without disrupting terminal operation.
 - `[7.1]` Craig can be packed and published to npm through an allowlisted artifact workflow with CI static analysis that fails on likely source, secret, local workspace, or task-artifact leakage.

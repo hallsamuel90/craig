@@ -1,4 +1,4 @@
-export type TaskType = "repo";
+export type TaskType = "repo" | "project";
 export type TaskStatus =
   | "draft"
   | "running"
@@ -95,6 +95,21 @@ export interface TaskCleanup {
   warning: string | null;
 }
 
+export type ProjectTaskRepoTargetStatus = "ready" | "unavailable" | "merged" | "closed";
+
+export interface ProjectTaskRepoTarget {
+  repoId: string;
+  branch: string;
+  repoRoot: string;
+  worktreePath: string;
+  status: ProjectTaskRepoTargetStatus;
+  failureReason: string | null;
+  checks: TaskChecks;
+  lastCommit: TaskLastCommit | null;
+  pullRequest: TaskPullRequest;
+  cleanup: TaskCleanup;
+}
+
 export interface TaskRecord {
   id: string;
   title: string;
@@ -111,6 +126,9 @@ export interface TaskRecord {
   worktreePath: string;
   branch: string;
   ptyTabs: TaskPtyTabRecord[];
+  bundlePath?: string | null;
+  selectedRepoTargetId?: string | null;
+  repoTargets?: ProjectTaskRepoTarget[];
   runnerSession: RunnerSession;
   prompt: TaskPromptSource;
   checks: TaskChecks;
