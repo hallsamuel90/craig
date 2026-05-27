@@ -10,27 +10,29 @@ import { readUiState, writeUiState, getDefaultUiState } from "../state/ui-state-
 import { commandRunnerAdapter } from "./codex-runner.js";
 import { assertRunnerEnabled, buildRunnerCommand, getDefaultRunner } from "./runner-profiles.js";
 import { tmuxSessionManager } from "./session-manager.js";
-import { provisionTask } from "./task-provisioning.js";
+import { provisionProjectTask, provisionTask } from "./task-provisioning.js";
 
 export async function createTask(
   paths: CraigPaths,
-  repoId: string,
+  repoIdOrWorkspaceId: string,
   prompt: string,
-  options: { runner?: RunnerType } = {},
+  options: { runner?: RunnerType; workspaceId?: string } = {},
 ): Promise<CommandCreateTaskResult> {
   const trimmedPrompt = prompt.trim();
   const config = await readCraigConfig(paths);
   const runner = options.runner ?? getDefaultRunner(config);
   assertRunnerEnabled(runner, config);
 
-  if (repoId.trim().length === 0) {
-    throw new Error("Repo id cannot be empty.");
+  if (repoIdOrWorkspaceId.trim().length === 0) {
+    throw new Error(options.workspaceId ? "Workspace id cannot be empty." : "Repo id cannot be empty.");
   }
 
   if (trimmedPrompt.length === 0) {
     throw new Error("Task prompt cannot be empty.");
   }
-  const provisioned = await provisionTask(paths, repoId, trimmedPrompt, { runner, config });
+  const provisioned = options.workspaceId
+    ? await provisionProjectTask(paths, options.workspaceId, trimmedPrompt, { runner, config })
+    : await provisionTask(paths, repoIdOrWorkspaceId, trimmedPrompt, { runner, config });
   const draftTask = provisioned.task;
   const runnerCommand = buildRunnerCommand(runner, trimmedPrompt, config);
   const sessionId = `session_${draftTask.id}`;
@@ -94,6 +96,7 @@ export async function createTask(
       kind: "createTask",
       taskId: runningTask.id,
       repoId: runningTask.repoId,
+      workspaceId: runningTask.workspaceId,
       sessionId: session.id,
       status: runningTask.status,
       branch: runningTask.branch,

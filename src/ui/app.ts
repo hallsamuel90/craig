@@ -4,6 +4,7 @@ import path from "node:path";
 import type * as TerminalKitModule from "terminal-kit";
 
 import { listRepos } from "../state/repo-store.js";
+import { listWorkspaceRecords } from "../state/workspace-store.js";
 import { getDefaultUiState, readUiState, writeUiState } from "../state/ui-state-store.js";
 import { readCraigConfig, writeCraigConfig } from "../state/config-store.js";
 import type { CraigConfig } from "../types/config.js";
@@ -12,10 +13,10 @@ import { getCraigPaths } from "../state/craig-paths.js";
 import { ensureCraigState } from "../state/ensure-state.js";
 import type { RunnerType, TaskPtyTabRecord, TaskRecord } from "../types/task.js";
 import { listTasks } from "../services/list-tasks.js";
-import { provisionTask } from "../services/task-provisioning.js";
-import { addRepo } from "../services/repo-registry.js";
-import { loadTaskLocalInspection, type InspectionTreeRow } from "../services/task-local-inspection.js";
-import { discoverOrRefreshPullRequest, openPullRequest } from "../services/open-pull-request.js";
+import { provisionProjectTask, provisionTask } from "../services/task-provisioning.js";
+import { addWorkspace } from "../services/workspace-registry.js";
+import { loadTaskLocalInspection, reloadSelectedContent, type InspectionTreeRow } from "../services/task-local-inspection.js";
+import { discoverOrRefreshAllProjectPullRequests, discoverOrRefreshPullRequest, openPullRequest } from "../services/open-pull-request.js";
 import { mergeTask } from "../services/merge-task.js";
 import { closeTask } from "../services/close-task.js";
 import {
@@ -28,12 +29,7 @@ import {
 } from "../services/runner-profiles.js";
 import { runCommand } from "../utils/exec.js";
 import { requireExecutablePath, withDefaultCommandPath } from "../utils/command-path.js";
-import {
-  buildShellData,
-  getCombinedDiffLineCount,
-  getCombinedDiffPathRanges,
-  type WorkspaceShellModel,
-} from "./shell-data.js";
+import { buildShellData, type WorkspaceShellModel } from "./shell-data.js";
 import { getViewport, SHELL_LAYOUT, type Viewport } from "./layout.js";
 import type { PtyRuntimeOptions, PtySize } from "./pty-runtime.js";
 import { createDaemonPtyRuntime } from "./pty-daemon.js";
@@ -180,6 +176,7 @@ export async function startTerminalApp(options: TerminalAppOptions = {}): Promis
     let ptyRenderTimer: ReturnType<typeof setTimeout> | null = null;
     let prPollTimer: ReturnType<typeof setInterval> | null = null;
     let prPollInFlight = false;
+    let inspectionRefreshSequence = 0;
     let pendingClear = true;
     let inputCaptureMode: "control" | "terminal" | null = null;
     let render: () => void = () => undefined;
@@ -253,11 +250,12 @@ export async function startTerminalApp(options: TerminalAppOptions = {}): Promis
         fileTreeFileIds: fileTreeRows.filter((row) => row.kind === "file").map((row) => row.path),
         fileTreeDirectoryIds: fileTreeRows.filter((row) => row.kind === "directory").map((row) => row.path),
         diffPathIds: selectedInspection?.diffPaths ?? [],
-        diffPathRanges: getCombinedDiffPathRanges(selectedInspection),
+        diffPathRanges: [],
         fileLineCount: selectedInspection?.selectedFile.lines.length ?? 0,
-        diffLineCount: getCombinedDiffLineCount(selectedInspection),
+        diffLineCount: selectedInspection?.selectedDiff.lines.length ?? 0,
         pageRows: Math.max(5, getViewport(activeTerminal.width, activeTerminal.height).height - SHELL_LAYOUT.topRailHeight - 9),
         enabledRunnerIds,
+        projectTargetIds: selectedTask?.repoTargets?.map((t) => t.repoId) ?? [],
       };
     }
 
@@ -325,12 +323,31 @@ export async function startTerminalApp(options: TerminalAppOptions = {}): Promis
     }
 
     async function refreshInspection(shell: ControlShellState): Promise<void> {
-      model = await loadWorkspaceShellModel(workspaceRoot, shell, enabledRunnerIds);
-      if (state.mode === "main") {
-        state = { mode: "main", shell: syncShell(shell) };
+      const refreshId = ++inspectionRefreshSequence;
+      const selectedTask = resolveSelectedTaskForInspection(model.tasks, shell);
+      const prevInspection = model.inspection;
+
+      let nextModel: WorkspaceShellModel;
+      if (selectedTask && prevInspection?.taskId === selectedTask.id) {
+        const selection = { selectedFilePath: shell.selectedFilePath, selectedDiffPath: shell.selectedDiffPath };
+        const nextInspection = await reloadSelectedContent(selectedTask, prevInspection, selection);
+        if (refreshId !== inspectionRefreshSequence) {
+          return;
+        }
+        nextModel = { ...model, inspection: nextInspection };
+      } else {
+        nextModel = await loadWorkspaceShellModel(workspaceRoot, shell, enabledRunnerIds);
+        if (refreshId !== inspectionRefreshSequence) {
+          return;
+        }
       }
-      persistShellState(state.shell);
-      render();
+
+      model = nextModel;
+      if (state.mode === "main") {
+        state = { mode: "main", shell: syncShell(state.shell) };
+        persistShellState(state.shell);
+        render();
+      }
     }
 
     async function openWorkspaceBrowser(rootPath: string): Promise<void> {
@@ -522,14 +539,25 @@ export async function startTerminalApp(options: TerminalAppOptions = {}): Promis
         throw new Error("Select a task before refreshing PR checks.");
       }
 
-      const { disposition, task } = await discoverOrRefreshPullRequest(paths, syncedShell.selectedTaskId);
-      await reloadModel();
+      const selectedTask = getSelectedTask(syncedShell);
+      let actionMessage: string;
 
-      const actionMessage = disposition === "not_found"
-        ? `No PR found for ${task.branch}`
-        : disposition === "discovered"
-          ? `Discovered PR: #${task.pullRequest.number} ${task.pullRequest.url ?? ""}`
-          : `Refreshed checks: ${task.pullRequest.requiredChecks.length} reported`;
+      if (selectedTask?.type === "project" && selectedTask.repoTargets?.length) {
+        const counts = await discoverOrRefreshAllProjectPullRequests(paths, syncedShell.selectedTaskId);
+        await reloadModel();
+        const total = counts.synced + counts.discovered + counts.notFound;
+        actionMessage = counts.discovered > 0
+          ? `Discovered ${counts.discovered} PR${counts.discovered !== 1 ? "s" : ""}  ·  ${counts.synced} refreshed`
+          : `Refreshed ${counts.synced}/${total} targets`;
+      } else {
+        const { disposition, task } = await discoverOrRefreshPullRequest(paths, syncedShell.selectedTaskId);
+        await reloadModel();
+        actionMessage = disposition === "not_found"
+          ? `No PR found for ${task.branch}`
+          : disposition === "discovered"
+            ? `Discovered PR: #${task.pullRequest.number} ${task.pullRequest.url ?? ""}`
+            : `Refreshed checks: ${task.pullRequest.requiredChecks.length} reported`;
+      }
 
       return syncShell({
         ...syncedShell,
@@ -752,8 +780,8 @@ export async function startTerminalApp(options: TerminalAppOptions = {}): Promis
       const shell = state.shell;
       const prompt = shell.taskPromptInput?.trim() ?? "";
 
-      if (!shell.selectedRepoId) {
-        state = { mode: "main", shell: syncShell({ ...shell, taskPromptError: "Select a repo first." }) };
+      if (!shell.selectedRepoId && !shell.selectedWorkspaceId) {
+        state = { mode: "main", shell: syncShell({ ...shell, taskPromptError: "Select a workspace first." }) };
         render();
         return;
       }
@@ -769,18 +797,19 @@ export async function startTerminalApp(options: TerminalAppOptions = {}): Promis
         mode: "main",
         shell: syncShell({
           ...shell,
-          actionMessage: `Creating ${shell.selectedRunner} task in ${shell.selectedRepoId}...`,
+          actionMessage: `Creating ${shell.selectedRunner} task in ${shell.selectedWorkspaceId ?? shell.selectedRepoId}...`,
         }),
       };
       render();
 
       let createdTask: TaskRecord | null = null;
       try {
-        createdTask = await createInteractiveTask(paths, shell.selectedRepoId, prompt, shell.selectedRunner);
+        createdTask = await createInteractiveTask(paths, shell.selectedRepoId, shell.selectedWorkspaceId, prompt, shell.selectedRunner);
         await reloadModel();
         const nextShell = syncShell({
           ...state.shell,
           selectedRepoId: createdTask.repoId,
+          selectedWorkspaceId: createdTask.workspaceId,
           selectedTaskId: createdTask.id,
           selectedPtyTabId: createdTask.selectedPtyTabId,
           selectedLeftItemId: `task:${createdTask.id}`,
@@ -976,7 +1005,7 @@ export async function startTerminalApp(options: TerminalAppOptions = {}): Promis
           return;
         }
 
-        if (selectedEntry.kind === "directory" || ((key === "RIGHT" || key === "l") && selectedEntry.kind === "repo")) {
+        if ((key === "RIGHT" || key === "l") && (selectedEntry.kind === "directory" || selectedEntry.kind === "repo")) {
           void openWorkspaceBrowser(selectedEntry.path).catch((error: unknown) => {
             const message = error instanceof Error ? error.message : "Failed to open directory.";
             state = {
@@ -994,17 +1023,19 @@ export async function startTerminalApp(options: TerminalAppOptions = {}): Promis
           return;
         }
 
-        void addRepo(paths, selectedEntry.path)
+        void addWorkspace(paths, selectedEntry.path)
           .then(async (result) => {
             await reloadModel();
+            const selectedRepo = result.repos[0] ?? null;
             const nextShell = syncShell({
               ...state.shell,
               workspaceBrowser: null,
-              selectedLeftItemId: `repo:${result.repo.id}`,
-              selectedRepoId: result.repo.id,
+              selectedLeftItemId: `workspace:${result.workspace.id}`,
+              selectedWorkspaceId: result.workspace.id,
+              selectedRepoId: selectedRepo?.id ?? null,
               selectedTaskId: null,
               selectedPtyTabId: null,
-              actionMessage: `Registered workspace: ${result.repo.name}`,
+              actionMessage: `Registered workspace: ${result.workspace.name ?? result.workspace.id}`,
             });
             state = { mode: "main", shell: nextShell };
             persistShellState(state.shell);
@@ -1226,9 +1257,12 @@ export async function startTerminalApp(options: TerminalAppOptions = {}): Promis
         }
 
         if (result.refreshInspection) {
-          void refreshInspection(result.state).catch((error: unknown) => {
+          state = { mode: "main", shell: syncShell(result.state) };
+          persistShellState(state.shell);
+          render();
+          void refreshInspection(state.shell).catch((error: unknown) => {
             const message = error instanceof Error ? error.message : "Failed to refresh inspection.";
-            state = { mode: "main", shell: syncShell({ ...result.state, actionMessage: message }) };
+            state = { mode: "main", shell: syncShell({ ...state.shell, actionMessage: message }) };
             render();
           });
           return;
@@ -1518,9 +1552,12 @@ export async function startTerminalApp(options: TerminalAppOptions = {}): Promis
         }
 
         if (result.refreshInspection) {
-          void refreshInspection(result.state).catch((error: unknown) => {
+          state = { mode: "main", shell: syncShell(result.state) };
+          persistShellState(state.shell);
+          render();
+          void refreshInspection(state.shell).catch((error: unknown) => {
             const message = error instanceof Error ? error.message : "Failed to refresh inspection.";
-            state = { mode: "main", shell: syncShell({ ...result.state, actionMessage: message }) };
+            state = { mode: "main", shell: syncShell({ ...state.shell, actionMessage: message }) };
             render();
           });
           return;
@@ -1564,7 +1601,7 @@ async function loadWorkspaceShellModel(
   enabledRunnerIds?: RunnerType[],
 ): Promise<WorkspaceShellModel> {
   const paths = getCraigPaths(workspaceRoot);
-  const [repos, taskResult] = await Promise.all([listRepos(paths), listTasks(paths)]);
+  const [repos, workspaces, taskResult] = await Promise.all([listRepos(paths), listWorkspaceRecords(paths), listTasks(paths)]);
   const selectedTask = resolveSelectedTaskForInspection(taskResult.tasks, shell);
   const selection = shell
     ? {
@@ -1575,6 +1612,7 @@ async function loadWorkspaceShellModel(
   const inspection = selectedTask ? await loadTaskLocalInspection(selectedTask, selection) : null;
   return {
     workspaceRoot,
+    workspaces: workspaces.filter((workspace) => workspace.status === "active"),
     repos,
     tasks: taskResult.tasks,
     inspection,
@@ -1610,12 +1648,27 @@ function getVisibleFileTreeRows(rows: InspectionTreeRow[], collapsedPaths: strin
 function getLeftItemIds(model: WorkspaceShellModel): string[] {
   const itemIds: string[] = [];
 
-  for (const repo of model.repos) {
-    itemIds.push(`repo:${repo.id}`);
-    for (const task of model.tasks.filter((entry) => entry.repoId === repo.id)) {
-      itemIds.push(`task:${task.id}`);
+  if (model.workspaces?.length) {
+    for (const workspace of model.workspaces) {
+      itemIds.push(`workspace:${workspace.id}`);
+      if (workspace.kind === "project") {
+        itemIds.push(`new-task-workspace:${workspace.id}`);
+      }
+      for (const task of model.tasks.filter((entry) => entry.workspaceId === workspace.id)) {
+        itemIds.push(`task:${task.id}`);
+      }
+      if (workspace.kind === "repo") {
+        itemIds.push(`new-task:${workspace.primaryRepoId}`);
+      }
     }
-    itemIds.push(`new-task:${repo.id}`);
+  } else {
+    for (const repo of model.repos) {
+      itemIds.push(`repo:${repo.id}`);
+      for (const task of model.tasks.filter((entry) => entry.repoId === repo.id)) {
+        itemIds.push(`task:${task.id}`);
+      }
+      itemIds.push(`new-task:${repo.id}`);
+    }
   }
 
   itemIds.push("new-workspace");
@@ -1681,10 +1734,18 @@ function createNextPtyTab(
   };
 }
 
-async function createInteractiveTask(paths: ReturnType<typeof getCraigPaths>, repoId: string, prompt: string, runner: RunnerType): Promise<TaskRecord> {
+async function createInteractiveTask(
+  paths: ReturnType<typeof getCraigPaths>,
+  repoId: string | null,
+  workspaceId: string | null,
+  prompt: string,
+  runner: RunnerType,
+): Promise<TaskRecord> {
   const config = await readCraigConfig(paths);
   assertRunnerEnabled(runner, config);
-  const provisioned = await provisionTask(paths, repoId, prompt, { runner, config });
+  const provisioned = workspaceId
+    ? await provisionProjectTask(paths, workspaceId, prompt, { runner, config })
+    : await provisionTask(paths, repoId ?? "", prompt, { runner, config });
   try {
     const env = withDefaultCommandPath();
     await runCommand(requireExecutablePath(getConfiguredRunnerProfile(runner, config).executable, { cwd: provisioned.repoRoot, env }), ["--help"], {

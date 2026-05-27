@@ -19,6 +19,26 @@ import { runCommand } from "../utils/exec.js";
 export async function addRepo(paths: CraigPaths, rawPath: string): Promise<CommandCreateRepoResult> {
   const rootPath = path.resolve(paths.workspaceRoot, rawPath);
   const stats = await stat(rootPath).catch(() => null);
+  if (!stats?.isDirectory()) {
+    throw new Error(`Repo path does not exist: ${rootPath}`);
+  }
+  const workspaceResult = await import("./workspace-registry.js").then(({ addWorkspace }) => addWorkspace(paths, rawPath));
+  const repo = workspaceResult.repos[0];
+  if (!repo || workspaceResult.workspace.kind === "project") {
+    throw new Error(`Repo path is not a git repository: ${rootPath}`);
+  }
+
+  return {
+    kind: "createRepo",
+    repo,
+    workspaceId: workspaceResult.workspace.id,
+    created: workspaceResult.created,
+  };
+}
+
+export async function addRepoLegacy(paths: CraigPaths, rawPath: string): Promise<CommandCreateRepoResult> {
+  const rootPath = path.resolve(paths.workspaceRoot, rawPath);
+  const stats = await stat(rootPath).catch(() => null);
 
   if (!stats?.isDirectory()) {
     throw new Error(`Repo path does not exist: ${rootPath}`);

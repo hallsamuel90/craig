@@ -1,6 +1,6 @@
 import { readFile } from "node:fs/promises";
 
-import type { RunnerSession, RunnerType, TaskPtyTabRecord, TaskRecord } from "../types/task.js";
+import type { ProjectTaskRepoTarget, RunnerSession, RunnerType, TaskPtyTabRecord, TaskRecord } from "../types/task.js";
 import type { CraigPaths } from "./craig-paths.js";
 import { atomicWriteJson } from "./atomic-write.js";
 import { readCraigIndex, writeCraigIndex } from "./state-store.js";
@@ -78,6 +78,12 @@ function normalizeLegacyTaskRecord(value: unknown): unknown {
       ? candidate.linkedRepoIds.filter((entry): entry is string => typeof entry === "string")
       : [],
     ptyTabs: normalizeTaskPtyTabs(candidate),
+    bundlePath: typeof candidate.bundlePath === "string" || candidate.bundlePath === null ? candidate.bundlePath : null,
+    selectedRepoTargetId:
+      typeof candidate.selectedRepoTargetId === "string" || candidate.selectedRepoTargetId === null
+        ? candidate.selectedRepoTargetId
+        : null,
+    repoTargets: normalizeProjectRepoTargets(candidate.repoTargets),
     runnerSession: candidate.runnerSession ?? buildLegacyRunnerSession(candidate),
     checks: normalizeLegacyChecks(candidate),
     lastCommit: candidate.lastCommit ?? null,
@@ -114,7 +120,7 @@ function isTaskRecord(value: unknown): value is TaskRecord {
     typeof candidate.id === "string" &&
     typeof candidate.title === "string" &&
     typeof candidate.slug === "string" &&
-    candidate.type === "repo" &&
+    (candidate.type === "repo" || candidate.type === "project") &&
     typeof candidate.status === "string" &&
     isRunnerType(candidate.runner ?? "") &&
     typeof candidate.repoId === "string" &&
@@ -127,6 +133,11 @@ function isTaskRecord(value: unknown): value is TaskRecord {
     typeof candidate.worktreePath === "string" &&
     typeof candidate.branch === "string" &&
     isTaskPtyTabs(candidate.ptyTabs) &&
+    (candidate.bundlePath === undefined || candidate.bundlePath === null || typeof candidate.bundlePath === "string") &&
+    (candidate.selectedRepoTargetId === undefined ||
+      candidate.selectedRepoTargetId === null ||
+      typeof candidate.selectedRepoTargetId === "string") &&
+    (candidate.repoTargets === undefined || isProjectRepoTargets(candidate.repoTargets)) &&
     isRunnerSession(candidate.runnerSession) &&
     isPromptSource(candidate.prompt) &&
     isChecks(candidate.checks) &&
@@ -139,6 +150,41 @@ function isTaskRecord(value: unknown): value is TaskRecord {
       typeof candidate.lastFailureReason === "string") &&
     typeof candidate.createdAt === "string" &&
     typeof candidate.updatedAt === "string"
+  );
+}
+
+function normalizeProjectRepoTargets(value: unknown): ProjectTaskRepoTarget[] | undefined {
+  if (!Array.isArray(value)) {
+    return undefined;
+  }
+
+  return value.filter(isProjectRepoTarget);
+}
+
+function isProjectRepoTargets(value: unknown): value is ProjectTaskRepoTarget[] {
+  return Array.isArray(value) && value.every(isProjectRepoTarget);
+}
+
+function isProjectRepoTarget(value: unknown): value is ProjectTaskRepoTarget {
+  if (typeof value !== "object" || value === null) {
+    return false;
+  }
+
+  const target = value as Partial<ProjectTaskRepoTarget>;
+  return (
+    typeof target.repoId === "string" &&
+    typeof target.branch === "string" &&
+    typeof target.repoRoot === "string" &&
+    typeof target.worktreePath === "string" &&
+    (target.status === "ready" ||
+      target.status === "unavailable" ||
+      target.status === "merged" ||
+      target.status === "closed") &&
+    (typeof target.failureReason === "string" || target.failureReason === null) &&
+    isChecks(target.checks) &&
+    isLastCommit(target.lastCommit) &&
+    isPullRequest(target.pullRequest) &&
+    isCleanup(target.cleanup)
   );
 }
 

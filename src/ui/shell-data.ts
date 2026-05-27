@@ -16,7 +16,7 @@ import {
   getFileIconColor,
 } from "./icons.js";
 import type { RunnerType, TaskPullRequest, TaskPullRequestCheck, TaskPtyTabRecord, TaskRecord } from "../types/task.js";
-import type { RepoRecord } from "../types/workspace.js";
+import type { RepoRecord, WorkspaceRecord } from "../types/workspace.js";
 import { getRunnerDisplayName } from "../services/runner-profiles.js";
 import { INSPECTION_TAB_ID, isTaskLeftItemId } from "./state.js";
 import type { TerminalCellStyle, TerminalRowSegment } from "./terminal-emulator.js";
@@ -114,6 +114,7 @@ export interface ShellData {
 }
 
 export interface WorkspaceShellModel {
+  workspaces?: WorkspaceRecord[];
   repos: RepoRecord[];
   tasks: TaskRecord[];
   workspaceRoot: string;
@@ -142,9 +143,16 @@ const SYNTAX_COLORS = {
 } as const;
 
 export function buildShellData(state: ControlShellState, model: WorkspaceShellModel): ShellData {
+  const selectedWorkspace = resolveSelectedWorkspace(model, state);
   const selectedRepo = model.repos.find((repo) => repo.id === state.selectedRepoId) ?? model.repos[0] ?? null;
-  const repoTasks = selectedRepo ? model.tasks.filter((task) => task.repoId === selectedRepo.id) : [];
+  const workspaceTasks = selectedWorkspace ? model.tasks.filter((task) => task.workspaceId === selectedWorkspace.id) : model.tasks;
+  const repoTasks = selectedWorkspace?.kind === "project"
+    ? workspaceTasks
+    : selectedRepo
+      ? workspaceTasks.filter((task) => task.repoId === selectedRepo.id)
+      : [];
   const selectedTask = repoTasks.find((task) => task.id === state.selectedTaskId) ?? repoTasks[0] ?? null;
+  const isProjectTask = selectedTask?.type === "project";
   const runnerCounts = countRunners(model.tasks);
   const activeTabId = resolveDisplayActiveTab(state, selectedTask);
   const tabs = buildCenterTabs(state, selectedTask, activeTabId);
@@ -167,6 +175,7 @@ export function buildShellData(state: ControlShellState, model: WorkspaceShellMo
         ? "TERMINAL   ↑↓/PgUp/PgDn scroll   Ctrl+] return to control"
         : state.focusedRegion === "tasks"
           ? state.selectedLeftItemId?.startsWith("new-task:")
+            || state.selectedLeftItemId?.startsWith("new-task-workspace:")
             ? `r runner [${getRunnerDisplayName(state.selectedRunner)}]   Enter create task   Esc pause   ? help`
             : isTaskLeftItemId(state.selectedLeftItemId)
             ? "n new task   Enter attach   X close task   Esc pause   ? help"
@@ -178,7 +187,9 @@ export function buildShellData(state: ControlShellState, model: WorkspaceShellMo
             ? "↑↓/wheel/PgUp/PgDn scroll   ←/→ switch   Tab inspector   Esc pause   ? help"
             : `+ new tab   a ${getRunnerDisplayName(state.centerTabRunner ?? (selectedTask?.runner ?? state.selectedRunner))}   r runner   t terminal   x close   Enter attach   Esc pause   ? help`
           : state.inspectionMode === "review"
-          ? "R sync PR   X close task   ←/→ mode   Esc pause   ? help"
+          ? isProjectTask
+            ? "↑↓ navigate targets   R refresh checks   X close task   ←/→ mode   Esc pause   ? help"
+            : "R refresh checks   X close task   ←/→ mode   Esc pause   ? help"
           : state.inspectionMode === "files"
           ? "↑↓ navigate   Enter open file   ←/→ mode   Esc pause   ? help"
           : "↑↓ navigate   ←/→ mode   Esc pause   ? help",
@@ -189,7 +200,7 @@ export function buildShellData(state: ControlShellState, model: WorkspaceShellMo
       agent: agentLabel,
       liveLabel: selectedTask?.status === "running" ? "live" : "idle",
     },
-    leftTree: buildLeftTree(state, model.repos, model.tasks),
+    leftTree: buildLeftTree(state, model),
     runners: (model.enabledRunnerIds ?? ["codex", "cursor", "claude"]).map((runner) => renderRunnerRow(runner, runnerCounts[runner])),
     centerHeader: {
       tabLabel: state.workspaceBrowser ? "BROWSER" : activeTab.label,
@@ -197,16 +208,108 @@ export function buildShellData(state: ControlShellState, model: WorkspaceShellMo
       repo: repoLabel,
       agent: agentLabel,
     },
-    centerTranscript: buildCenterTranscript(activeTabId, state, selectedRepo, selectedTask, state.workspaceBrowser, selectedInspection),
+    centerTranscript: buildCenterTranscript(activeTabId, state, selectedRepo, selectedTask, state.workspaceBrowser, selectedInspection, selectedWorkspace),
     tabs,
     rightContext: buildContextRows(selectedRepo, selectedTask),
     rightInspection: buildInspectionSection(state, selectedTask, selectedInspection),
   };
 }
 
-function buildLeftTree(state: ControlShellState, repos: RepoRecord[], tasks: TaskRecord[]): ShellTreeRow[] {
+function buildLeftTree(state: ControlShellState, model: WorkspaceShellModel): ShellTreeRow[] {
   const rows: ShellTreeRow[] = [{ text: "WORKSPACES", muted: true, focused: state.focusedRegion === "tasks" }];
 
+  if (!model.workspaces) {
+    return buildLegacyRepoLeftTree(rows, state, model.repos, model.tasks);
+  }
+
+  const workspaces = model.workspaces;
+
+  if (workspaces.length === 0) {
+    rows.push({ text: "No workspaces registered.", indent: 2, muted: true });
+  } else {
+    for (const workspace of workspaces) {
+      const workspaceSelected = state.selectedLeftItemId === `workspace:${workspace.id}`;
+      rows.push({
+        id: `workspace:${workspace.id}`,
+        text: `${workspace.kind === "project" ? "▦" : "▾"} ${workspace.name ?? workspace.id}`,
+        selected: workspaceSelected,
+        focused: workspaceSelected && state.focusedRegion === "tasks",
+      });
+      const workspaceRepoIds = workspace.kind === "project" ? workspace.discoveredRepoIds ?? [] : [workspace.primaryRepoId];
+      if (workspace.kind === "project") {
+        const newTaskId = `new-task-workspace:${workspace.id}`;
+        const newTaskSelected = state.selectedLeftItemId === newTaskId;
+        rows.push({
+          id: newTaskId,
+          text: `+ New Project Task [${getRunnerDisplayName(state.selectedRunner)}]`,
+          indent: 2,
+          selected: newTaskSelected,
+          focused: newTaskSelected && state.focusedRegion === "tasks",
+          muted: !newTaskSelected,
+        });
+      }
+      const repoTasks = model.tasks.filter((task) => task.workspaceId === workspace.id);
+
+      if (repoTasks.length === 0) {
+        rows.push({ text: "  · no tasks yet", indent: 0, muted: true });
+      } else {
+        for (const task of repoTasks) {
+          const selected = state.selectedLeftItemId === `task:${task.id}`;
+          const prefix = selected ? "▸" : "•";
+          const displayTitle = task.title.length > 28 ? `${task.title.slice(0, 25)}…` : task.title;
+          const row: ShellTreeRow = {
+            id: `task:${task.id}`,
+            taskId: task.id,
+            text: `${prefix} ${displayTitle}`,
+            indent: 2,
+            selected,
+            focused: selected && state.focusedRegion === "tasks",
+            accentDot: task.status === "running",
+          };
+          if (selected) {
+            row.status = task.status;
+          }
+          rows.push(row);
+        }
+      }
+
+      if (workspace.kind === "repo") {
+        const newTaskId = `new-task:${workspace.primaryRepoId}`;
+        const newTaskSelected = state.selectedLeftItemId === newTaskId;
+        rows.push({
+          id: newTaskId,
+          text: `+ New Task [${getRunnerDisplayName(state.selectedRunner)}]`,
+          indent: 2,
+          selected: newTaskSelected,
+          focused: newTaskSelected && state.focusedRegion === "tasks",
+          muted: !newTaskSelected,
+        });
+      } else {
+        rows.push({ text: `  Repos (${workspaceRepoIds.length})`, indent: 0, muted: true });
+        for (const repoId of workspaceRepoIds.slice(0, 6)) {
+          const repo = model.repos.find((entry) => entry.id === repoId);
+          rows.push({ text: `  · ${repo?.name ?? repoId}`, indent: 0, muted: true });
+        }
+        if (workspaceRepoIds.length > 6) {
+          rows.push({ text: `  · ${workspaceRepoIds.length - 6} more`, indent: 0, muted: true });
+        }
+      }
+    }
+  }
+
+  const newWorkspaceSelected = state.selectedLeftItemId === "new-workspace";
+  rows.push({ text: "", muted: true });
+  rows.push({
+    id: "new-workspace",
+    text: "+ New Workspace",
+    selected: newWorkspaceSelected,
+    focused: newWorkspaceSelected && state.focusedRegion === "tasks",
+  });
+
+  return rows;
+}
+
+function buildLegacyRepoLeftTree(rows: ShellTreeRow[], state: ControlShellState, repos: RepoRecord[], tasks: TaskRecord[]): ShellTreeRow[] {
   if (repos.length === 0) {
     rows.push({ text: "No repos registered.", indent: 2, muted: true });
   } else {
@@ -226,19 +329,17 @@ function buildLeftTree(state: ControlShellState, repos: RepoRecord[], tasks: Tas
         for (const task of repoTasks) {
           const selected = state.selectedLeftItemId === `task:${task.id}`;
           const prefix = selected ? "▸" : "•";
-          const row: ShellTreeRow = {
+          const displayTitle = task.title.length > 28 ? `${task.title.slice(0, 25)}…` : task.title;
+          rows.push({
             id: `task:${task.id}`,
             taskId: task.id,
-            text: `${prefix} ${task.id} [${task.runner}]`,
+            text: `${prefix} ${displayTitle}`,
             indent: 2,
             selected,
             focused: selected && state.focusedRegion === "tasks",
             accentDot: task.status === "running",
-          };
-          if (selected) {
-            row.status = task.status;
-          }
-          rows.push(row);
+            ...(selected ? { status: task.status } : {}),
+          });
         }
       }
 
@@ -263,8 +364,22 @@ function buildLeftTree(state: ControlShellState, repos: RepoRecord[], tasks: Tas
     selected: newWorkspaceSelected,
     focused: newWorkspaceSelected && state.focusedRegion === "tasks",
   });
-
   return rows;
+}
+
+function resolveSelectedWorkspace(model: WorkspaceShellModel, state: ControlShellState): WorkspaceRecord | null {
+  const workspaces = model.workspaces ?? [];
+  if (!model.workspaces) {
+    return null;
+  }
+  const selectedTask = model.tasks.find((task) => task.id === state.selectedTaskId) ?? null;
+  if (selectedTask) {
+    return workspaces.find((workspace) => workspace.id === selectedTask.workspaceId) ?? null;
+  }
+  if (state.selectedWorkspaceId) {
+    return workspaces.find((workspace) => workspace.id === state.selectedWorkspaceId) ?? null;
+  }
+  return workspaces[0] ?? null;
 }
 
 function buildCenterTranscript(
@@ -274,6 +389,7 @@ function buildCenterTranscript(
   task: TaskRecord | null,
   browser: WorkspaceBrowserState | null,
   inspection: TaskLocalInspection | null = null,
+  workspace: WorkspaceRecord | null = null,
 ): ShellCenterLine[] {
   if (browser) {
     const entryLines =
@@ -304,10 +420,13 @@ function buildCenterTranscript(
   }
 
   if (!task) {
+    const isProjectWorkspace = workspace?.kind === "project";
+    const contextLabel = isProjectWorkspace ? (workspace.name ?? "this workspace") : repo.name;
+    const taskKind = isProjectWorkspace ? "Project Task" : "Task";
     return textLines([
-      `No tasks in ${repo.name}.`,
+      `No tasks in ${contextLabel}.`,
       "",
-      `Press n or choose + New Task to create one with ${getRunnerDisplayName(state.selectedRunner)}.`,
+      `Press n or choose + New ${taskKind} to create one with ${getRunnerDisplayName(state.selectedRunner)}.`,
     ]);
   }
 
@@ -363,7 +482,7 @@ function buildCenterTabs(state: ControlShellState, task: TaskRecord | null, acti
     }];
   }
 
-  const inspectionTab = state.openInspectionKind
+  const inspectionTab = state.openInspectionKind || activeTabId === INSPECTION_TAB_ID
     ? [{
         id: INSPECTION_TAB_ID,
         label: formatInspectionTabLabel(state),
@@ -404,7 +523,7 @@ function formatPtyTabLabel(tab: TaskPtyTabRecord): string {
 
 function formatInspectionTabLabel(state: ControlShellState): string {
   const selectedPath = state.openInspectionKind === "diff" ? state.selectedDiffPath : state.selectedFilePath;
-  const base = selectedPath ? path.basename(selectedPath) : "Inspect";
+  const base = selectedPath ? path.basename(selectedPath) : state.inspectionMode.toUpperCase();
   return state.openInspectionKind === "diff" ? `${base} Δ` : base;
 }
 
@@ -436,16 +555,16 @@ function buildDiffTranscript(task: TaskRecord | null, inspection: TaskLocalInspe
     return textLines(["Diff unavailable.", "", inspection?.error ?? "Craig has not loaded diff inspection for this task yet."]);
   }
 
-  const diffRows = buildCombinedDiffLines(inspection);
-  const start = Math.max(0, Math.min(scrollOffset, Math.max(0, diffRows.length - 1)));
+  const content = inspection.selectedDiff;
+  const language = detectLanguage(content.path ?? content.title);
   return [
-    { text: "All changes" },
+    { text: content.title },
     {
-      text: `${inspection.diffPaths.length} files · ${diffRows.length} rows · PgUp/PgDn or wheel scroll`,
+      text: `${inspection.diffPaths.length} changed files · ${content.lines.length} rows · PgUp/PgDn or wheel scroll`,
       tone: "muted",
     },
     { text: "" },
-    ...diffRows.slice(start),
+    ...renderUnifiedDiffLines(content.lines, scrollOffset, language),
   ];
 }
 
@@ -466,19 +585,6 @@ export function getCombinedDiffPathRanges(inspection: TaskLocalInspection | null
 
 export function getCombinedDiffLineCount(inspection: TaskLocalInspection | null): number {
   return getCombinedDiffPathRanges(inspection).at(-1)?.end ?? 0;
-}
-
-function buildCombinedDiffLines(inspection: TaskLocalInspection): ShellCenterLine[] {
-  const rows: ShellCenterLine[] = [];
-  for (const diffPath of inspection.diffPaths) {
-    const content = inspection.diffContents[diffPath] ?? inspection.selectedDiff;
-    const language = detectLanguage(content.path ?? content.title);
-    rows.push({ text: content.title, tone: "muted" });
-    rows.push(...renderUnifiedDiffLines(content.lines, 0, language));
-    rows.push({ text: "" });
-  }
-
-  return rows.length > 0 ? rows : textLines(["No local changes."]);
 }
 
 function textLines(lines: string[]): ShellCenterLine[] {
@@ -726,7 +832,12 @@ function buildInspectionSection(
   task: TaskRecord | null,
   inspection: TaskLocalInspection | null,
 ): ShellInspectionSection | null {
-  const modeRows = [renderInspectionModeRow(state, task), { id: "mode-spacer", text: "", muted: true }];
+  const effectiveTargetId = state.selectedProjectTargetId ?? task?.repoTargets?.[0]?.repoId ?? null;
+  const selectedTarget = task?.type === "project" && effectiveTargetId
+    ? task.repoTargets?.find((t) => t.repoId === effectiveTargetId) ?? null
+    : null;
+  const effectivePr = selectedTarget?.pullRequest ?? task?.pullRequest ?? null;
+  const modeRows = [renderInspectionModeRow(state, effectivePr), { id: "mode-spacer", text: "", muted: true }];
   if (state.inspectionMode === "review") {
     return {
       title: "",
@@ -747,7 +858,7 @@ function buildInspectionSection(
   };
 }
 
-function renderInspectionModeRow(state: ControlShellState, task: TaskRecord | null): ShellInspectionRow {
+function renderInspectionModeRow(state: ControlShellState, pr: TaskPullRequest | null): ShellInspectionRow {
   const mode = state.inspectionMode;
   const modes = [
     { label: "CHANGES", active: mode === "diff" },
@@ -761,8 +872,8 @@ function renderInspectionModeRow(state: ControlShellState, task: TaskRecord | nu
     segments.push({ text: m.label, style: { fg: m.active ? "7aa2f7" : "565f89" } });
   }
 
-  const prSegment = buildPrLifecycleSegment(task?.pullRequest ?? null);
-  const checksSegment = buildPrChecksSegment(task?.pullRequest?.requiredChecks ?? null);
+  const prSegment = buildPrLifecycleSegment(pr);
+  const checksSegment = buildPrChecksSegment(pr?.requiredChecks ?? null);
   segments.push({ text: "  " }, prSegment, { text: " " }, checksSegment);
 
   const text = segments.map((s) => s.text).join("");
@@ -791,55 +902,154 @@ function buildReviewInspectionRows(
     return [{ id: "review-empty", text: "No task selected.", muted: true }];
   }
 
-  const pr = task.pullRequest;
-  return [
-    { id: "review-title", text: "PR", muted: true },
-    pr.number
-      ? { id: "pr-number", text: `#${pr.number} ${pr.status ?? "unknown"}` }
-      : { id: "pr-number", text: "No PR linked.", muted: true },
-    renderPullRequestUrlRow(pr.url),
-    { id: "pr-base", text: `base ${pr.baseBranch ?? "unknown"}`, muted: pr.baseBranch === null },
-    { id: "pr-head", text: `head ${pr.headBranch ?? task.branch}`, muted: pr.headBranch === null },
-    { id: "pr-merge", text: `merge ${pr.mergeable ? "ready" : pr.mergeStateStatus ?? "unknown"}` },
-    { id: "pr-synced", text: `synced ${formatNullableValue(pr.lastSyncedAt)}`, muted: pr.lastSyncedAt === null },
-    { id: "pr-sha", text: `sha ${formatNullableSha(pr.lastSyncedHeadSha)}`, muted: pr.lastSyncedHeadSha === null },
-    { id: "review-spacer", text: "" },
-    { id: "review-checks", text: "Checks", muted: true },
-    ...buildPullRequestCheckRows(task),
-  ];
+  if (task.type === "project" && task.repoTargets?.length) {
+    return buildProjectReviewInspectionRows(state, task);
+  }
+
+  return buildPrDetailRows("pr", task.title, task.branch, task.pullRequest);
 }
 
-function renderPullRequestUrlRow(url: string | null): ShellInspectionRow {
-  if (!url) {
-    return { id: "pr-url", text: "not created", muted: true };
+const TARGET_ROW_WIDTH = 32;
+
+function buildProjectReviewInspectionRows(
+  state: ControlShellState,
+  task: TaskRecord,
+): ShellInspectionRow[] {
+  const rows: ShellInspectionRow[] = [];
+  const targets = task.repoTargets ?? [];
+  const selectedTargetId = state.selectedProjectTargetId ?? targets[0]?.repoId ?? null;
+
+  for (const target of targets) {
+    const selected = selectedTargetId === target.repoId;
+    const focused = state.focusedRegion === "inspector" && selected;
+    const repoLabel = target.repoId.startsWith("repo_") ? target.repoId.slice(5) : target.repoId;
+
+    if (target.status !== "ready") {
+      const statusText = target.failureReason ? target.failureReason.slice(0, 14) : target.status;
+      const right = statusText;
+      const maxLeft = TARGET_ROW_WIDTH - right.length - 1;
+      const label = repoLabel.length > maxLeft ? repoLabel.slice(0, maxLeft - 1) + "…" : repoLabel;
+      const spaces = TARGET_ROW_WIDTH - label.length - right.length;
+      rows.push({
+        id: `project-review:${target.repoId}`,
+        text: label + " ".repeat(Math.max(1, spaces)) + right,
+        selected,
+        focused,
+        muted: true,
+      });
+    } else {
+      const prIcon = buildPrLifecycleSegment(target.pullRequest);
+      const checkIcon = buildPrChecksSegment(target.pullRequest.requiredChecks);
+      const right = `${prIcon.text} ${checkIcon.text}`;
+      const maxLeft = TARGET_ROW_WIDTH - right.length - 1;
+      const label = repoLabel.length > maxLeft ? repoLabel.slice(0, maxLeft - 1) + "…" : repoLabel;
+      const spaces = TARGET_ROW_WIDTH - label.length - right.length;
+      const leftPadded = label + " ".repeat(Math.max(1, spaces));
+      rows.push({
+        id: `project-review:${target.repoId}`,
+        text: leftPadded + right,
+        selected,
+        focused,
+        segments: [
+          { text: leftPadded },
+          { ...prIcon, text: prIcon.text },
+          { text: " " },
+          { ...checkIcon, text: checkIcon.text },
+        ],
+      });
+    }
   }
 
-  const text = "Open in GitHub ↗";
-  return {
-    id: "pr-url",
-    text,
-    segments: [{ text, href: url, style: { fg: "7aa2f7", underline: true } }],
-  };
+  const selectedTarget = targets.find((t) => t.repoId === selectedTargetId) ?? null;
+  if (selectedTarget?.status === "ready" && selectedTarget.pullRequest.number) {
+    rows.push({ id: "target-detail-spacer", text: "" });
+    rows.push(...buildPrDetailRows("target", null, selectedTarget.branch, selectedTarget.pullRequest));
+  }
+
+  return rows;
 }
 
-function buildPullRequestCheckRows(task: TaskRecord): ShellInspectionRow[] {
-  if (!task.pullRequest.number) {
-    return [{ id: "pr-checks-none", text: "No checks — sync after creating a PR.", muted: true }];
+function getCheckSummaryIcon(checks: TaskPullRequestCheck[]): string {
+  if (checks.length === 0) return CHECK_ICON_NONE;
+  if (checks.some((c) => c.status === "failed")) return CHECK_ICON_FAILED;
+  if (checks.every((c) => c.status === "success" || c.status === "skipped")) return CHECK_ICON_SUCCESS;
+  return CHECK_ICON_PENDING;
+}
+
+function buildPrDetailRows(
+  idPrefix: string,
+  title: string | null,
+  fallbackBranch: string,
+  pr: TaskPullRequest,
+): ShellInspectionRow[] {
+  const id = (suffix: string) => `${idPrefix}-${suffix}`;
+
+  if (!pr.number) {
+    return [{ id: id("no-pr"), text: fallbackBranch, muted: true }];
   }
 
-  if (task.pullRequest.requiredChecks.length === 0) {
-    return [{ id: "pr-checks-empty", text: "No GitHub checks reported.", muted: true }];
+  const rows: ShellInspectionRow[] = [];
+  const statusText = `#${pr.number}  ${pr.status ?? "open"}`;
+  rows.push(
+    pr.url
+      ? {
+          id: id("pr-number"),
+          text: `${statusText}    Open in GitHub ↗`,
+          segments: [
+            { text: statusText },
+            { text: "    Open in GitHub ↗", style: { fg: "7aa2f7", underline: true }, href: pr.url },
+          ],
+        }
+      : { id: id("pr-number"), text: statusText },
+  );
+
+  if (title) {
+    const display = title.length > 34 ? `${title.slice(0, 31)}…` : title;
+    rows.push({ id: id("pr-title"), text: display });
   }
 
-  return task.pullRequest.requiredChecks.map(renderPullRequestCheckRow);
+  const base = pr.baseBranch ?? "?";
+  const head = pr.headBranch ?? fallbackBranch;
+  rows.push({ id: id("pr-branches"), text: `← ${base}  → ${head}`, muted: true });
+
+  const mergeText = pr.mergeable
+    ? "merge ready"
+    : pr.mergeStateStatus
+      ? `merge ${pr.mergeStateStatus}`
+      : "merge unknown";
+  rows.push({ id: id("pr-meta"), text: `${mergeText}  ·  synced ${formatRelativeTime(pr.lastSyncedAt)}`, muted: true });
+
+  rows.push({ id: id("checks-spacer"), text: "" });
+  rows.push({ id: id("checks-header"), text: "Checks", muted: true });
+
+  if (!pr.requiredChecks.length) {
+    rows.push({ id: id("checks-none"), text: pr.number ? "No GitHub checks reported." : "No checks — sync after creating a PR.", muted: true });
+  } else {
+    rows.push(...pr.requiredChecks.map(renderPullRequestCheckRow));
+  }
+
+  return rows;
+}
+
+
+function formatRelativeTime(isoString: string | null): string {
+  if (!isoString) return "--";
+  const diffMs = Date.now() - new Date(isoString).getTime();
+  const seconds = Math.floor(diffMs / 1000);
+  if (seconds < 60) return `${seconds}s ago`;
+  const minutes = Math.floor(seconds / 60);
+  if (minutes < 60) return `${minutes}m ago`;
+  const hours = Math.floor(minutes / 60);
+  if (hours < 24) return `${hours}h ago`;
+  return `${Math.floor(hours / 24)}d ago`;
 }
 
 function renderPullRequestCheckRow(check: TaskPullRequestCheck): ShellInspectionRow {
   const { icon, color } = formatCheckStatus(check.status);
-  const label = check.name.length > 16 ? `${check.name.slice(0, 15)}…` : check.name;
+  const label = check.name.length > 22 ? `${check.name.slice(0, 21)}…` : check.name;
   return {
     id: `pr-check:${check.name}`,
-    text: `${icon} ${label.padEnd(16, " ")} ${formatPullRequestCheckStatus(check.status)}`,
+    text: `${icon} ${label.padEnd(22, " ")} ${formatPullRequestCheckStatus(check.status)}`,
     color,
     muted: false,
   };
@@ -865,13 +1075,6 @@ function formatPullRequestCheckStatus(status: TaskPullRequestCheck["status"]): s
   return status;
 }
 
-function formatNullableValue(value: string | null): string {
-  return value ?? "--";
-}
-
-function formatNullableSha(value: string | null): string {
-  return value ? value.slice(0, 7) : "--";
-}
 
 function buildFileInspectionRows(state: ControlShellState, inspection: TaskLocalInspection | null): ShellInspectionRow[] {
   if (!inspection) {
@@ -939,7 +1142,14 @@ function buildDiffInspectionRows(state: ControlShellState, inspection: TaskLocal
   }
 
   if (inspection.diffRows.length === 0) {
-    return [{ id: "empty", text: "No local changes.", muted: true }];
+    const projectHint = inspection.filePaths.some((filePath) => filePath.startsWith("repo_"))
+      ? "No changes in project task worktrees. Edits in the original repos are outside this task."
+      : "No local changes.";
+    return [{ id: "empty", text: projectHint, muted: true }];
+  }
+
+  if (isProjectInspection(inspection)) {
+    return buildProjectDiffInspectionRows(state, inspection);
   }
 
   const rows: ShellInspectionRow[] = [];
@@ -956,19 +1166,48 @@ function buildDiffInspectionRows(state: ControlShellState, inspection: TaskLocal
   return rows;
 }
 
+function isProjectInspection(inspection: TaskLocalInspection): boolean {
+  return inspection.filePaths.some((filePath) => filePath.startsWith("repo_")) ||
+    inspection.diffRows.some((row) => row.path.startsWith("repo_"));
+}
+
+function buildProjectDiffInspectionRows(state: ControlShellState, inspection: TaskLocalInspection): ShellInspectionRow[] {
+  const rows: ShellInspectionRow[] = [];
+  const repoIds = [...new Set(inspection.diffRows.map((row) => row.path.split("/")[0]).filter((repoId): repoId is string => typeof repoId === "string" && repoId.length > 0))].sort();
+
+  for (const repoId of repoIds) {
+    const repoRows = inspection.diffRows.filter((row) => row.path.startsWith(`${repoId}/`));
+    const repoLabel = repoId.startsWith("repo_") ? repoId.slice(5) : repoId;
+    rows.push({ id: `repo-diff:${repoId}`, text: repoLabel, muted: true });
+
+    for (const group of ["branch", "staged", "unstaged", "untracked"] as InspectionDiffGroup[]) {
+      const groupRows = repoRows.filter((row) => row.group === group);
+      if (groupRows.length === 0) {
+        continue;
+      }
+      rows.push({ id: `repo-diff:${repoId}:${group}`, text: `  ${group}`, muted: true });
+      rows.push(...groupRows.map((row) => renderDiffInspectionRow(row, state, inspection, repoId.length + 1)));
+    }
+  }
+
+  return rows;
+}
+
 function renderDiffInspectionRow(
   row: InspectionDiffRow,
   state: ControlShellState,
   inspection: TaskLocalInspection,
+  trimPrefixLength = 0,
 ): ShellInspectionRow {
   const additions = row.additions === null ? "-" : `+${row.additions}`;
   const deletions = row.deletions === null ? "-" : `-${row.deletions}`;
   const color = row.status === "A" || row.group === "untracked" ? "9ece6a"
     : row.status === "D" ? "f7768e"
     : "e0af68";
+  const displayPath = trimPrefixLength > 0 ? row.path.slice(trimPrefixLength) : row.path;
   return {
     id: `${row.group}:${row.path}`,
-    text: `  ${row.status.padEnd(2, " ")} ${row.path} ${additions}/${deletions}`,
+    text: `  ${row.status.padEnd(2, " ")} ${displayPath} ${additions}/${deletions}`,
     selected: row.path === (state.selectedDiffPath ?? inspection.selectedDiffPath),
     focused: row.path === (state.selectedDiffPath ?? inspection.selectedDiffPath) && state.focusedRegion === "inspector",
     color,

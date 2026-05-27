@@ -202,6 +202,41 @@ describe("terminal shell control state", () => {
     expect(state.inspectorSection).toBe("task");
   });
 
+  test("restore keeps a newly selected file path while inspection refresh is pending", () => {
+    const state = restoreShellState(
+      {
+        ...createInitialShellState({
+          version: 1,
+          selectedRepoId: "repo_a",
+          selectedWorkspaceId: "workspace_repo_a",
+          selectedTaskId: "task_a_1",
+          selectedPtyTabId: "task_a_1:agent",
+          inputMode: "control",
+          focusedRegion: "inspector",
+          activeTab: "inspection",
+          openInspectionKind: "file",
+          selectedFilePath: "src/app.ts",
+          selectedDiffPath: "src/app.ts",
+          updatedAt: "2026-05-03T00:00:00.000Z",
+        }),
+      },
+      {
+        ...restoreModel(),
+        inspection: {
+          taskId: "task_a_1",
+          fileRows: [],
+          filePaths: ["README.md", "src/app.ts"],
+          diffPaths: ["README.md", "src/app.ts"],
+          selectedFilePath: "README.md",
+          selectedDiffPath: "README.md",
+        },
+      },
+    );
+
+    expect(state.selectedFilePath).toBe("src/app.ts");
+    expect(state.selectedDiffPath).toBe("src/app.ts");
+  });
+
   test("restores terminal mode requests as control mode", () => {
     const state = restoreShellState(
       {
@@ -295,6 +330,33 @@ describe("terminal shell control state", () => {
     expect(result.attachTerminal).toBe(false);
   });
 
+  test("project workspace arrows move directly to the project task row", () => {
+    const state = {
+      ...seededState(),
+      selectedWorkspaceId: "workspace_projects",
+      selectedRepoId: "repo_a",
+      selectedTaskId: null,
+      selectedPtyTabId: null,
+      selectedLeftItemId: "workspace:workspace_projects",
+    };
+    const projectOptions = {
+      ...KEY_OPTIONS,
+      leftItemIds: [
+        "workspace:workspace_projects",
+        "new-task-workspace:workspace_projects",
+        "new-workspace",
+      ],
+    };
+
+    const moved = reduceMainKey(state, "DOWN", projectOptions);
+    const entered = reduceMainKey(moved.state, "ENTER", projectOptions);
+
+    expect(moved.state.selectedLeftItemId).toBe("new-task-workspace:workspace_projects");
+    expect(moved.state.selectedWorkspaceId).toBe("workspace_projects");
+    expect(entered.beginTaskPrompt).toBe(true);
+    expect(entered.state.taskPromptInput).toBe("");
+  });
+
   test("r cycles the selected runner while the new task row is focused", () => {
     const state = {
       ...seededState(),
@@ -380,8 +442,12 @@ describe("terminal shell control state", () => {
     const nextDiff = reduceMainKey(diff, "DOWN", KEY_OPTIONS);
 
     expect(nextFile.state.selectedFilePath).toBe("src/app.ts");
+    expect(nextFile.state.activeTab).toBe("inspection");
+    expect(nextFile.state.openInspectionKind).toBe("file");
     expect(nextFile.refreshInspection).toBe(true);
     expect(nextDiff.state.selectedDiffPath).toBe("src/app.ts");
+    expect(nextDiff.state.activeTab).toBe("inspection");
+    expect(nextDiff.state.openInspectionKind).toBe("diff");
     expect(nextDiff.refreshInspection).toBe(true);
   });
 
@@ -675,6 +741,8 @@ describe("terminal shell control state", () => {
     expect(nextFile.changed).toBe(true);
     expect(nextFile.refreshInspection).toBe(true);
     expect(nextFile.state.selectedDiffPath).toBe("tests/app.test.ts");
+    expect(nextFile.state.activeTab).toBe("inspection");
+    expect(nextFile.state.openInspectionKind).toBe("diff");
     expect(nextFile.state.diffScrollOffset).toBe(0);
     expect(previousFile.changed).toBe(true);
     expect(previousFile.refreshInspection).toBe(true);

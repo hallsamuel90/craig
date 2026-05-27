@@ -15,7 +15,7 @@ import { openPullRequest } from "../services/open-pull-request.js";
 import { mergeTask } from "../services/merge-task.js";
 import { addRepo, listRegisteredRepos, removeRepo } from "../services/repo-registry.js";
 import { addTaskLink, listTaskLinks } from "../services/task-links.js";
-import { archiveWorkspace, listWorkspaces, restoreWorkspace } from "../services/workspace-registry.js";
+import { addWorkspace, archiveWorkspace, listWorkspaces, restoreWorkspace } from "../services/workspace-registry.js";
 
 export interface CommandContext {
   paths: CraigPaths;
@@ -27,6 +27,8 @@ export async function executeCommand(
   context: CommandContext,
 ): Promise<CommandResult> {
   switch (command.kind) {
+    case "addWorkspace":
+      return addWorkspace(context.paths, command.path);
     case "addRepo":
       return addRepo(context.paths, command.path);
     case "listRepos":
@@ -42,12 +44,14 @@ export async function executeCommand(
     case "createTask":
       return createTask(
         context.paths,
-        command.repoId,
+        command.repoId ?? command.workspaceId ?? "",
         command.prompt,
-        command.runner ? { runner: command.runner } : {},
+        { ...(command.runner ? { runner: command.runner } : {}), ...(command.workspaceId ? { workspaceId: command.workspaceId } : {}) },
       );
     case "listTasks":
-      return command.repoId ? listTasks(context.paths, { repoId: command.repoId }) : listTasks(context.paths);
+      return command.repoId || command.workspaceId
+        ? listTasks(context.paths, { ...(command.repoId ? { repoId: command.repoId } : {}), ...(command.workspaceId ? { workspaceId: command.workspaceId } : {}) })
+        : listTasks(context.paths);
     case "attachTask":
       return attachTask(context.paths, command.taskId);
     case "addTaskLink":

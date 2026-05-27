@@ -27,6 +27,16 @@ export function parseArgv(argv: string[]): ParsedArgvCommand {
     return { mode: "command", command: { kind: "addRepo", path: repoPath } };
   }
 
+  if (trimmedArgv.length >= 3 && trimmedArgv[0] === "workspace" && trimmedArgv[1] === "add") {
+    const workspacePath = trimmedArgv.slice(2).join(" ").trim();
+
+    if (workspacePath.length === 0) {
+      throw new Error("Workspace path cannot be empty.\n\n" + getHelpText());
+    }
+
+    return { mode: "command", command: { kind: "addWorkspace", path: workspacePath } };
+  }
+
   if (trimmedArgv.length === 2 && trimmedArgv[0] === "repo" && trimmedArgv[1] === "list") {
     return { mode: "command", command: { kind: "listRepos" } };
   }
@@ -60,13 +70,19 @@ export function parseArgv(argv: string[]): ParsedArgvCommand {
 
   if (trimmedArgv.length >= 2 && trimmedArgv[0] === "task" && trimmedArgv[1] === "new") {
     const repoFlagIndex = trimmedArgv.indexOf("--repo");
+    const workspaceFlagIndex = trimmedArgv.indexOf("--workspace");
     const runnerFlagIndex = trimmedArgv.indexOf("--runner");
 
-    if (repoFlagIndex === -1) {
-      throw new Error("Task creation now requires '--repo <repo-id>'.\n\n" + getHelpText());
+    if (repoFlagIndex === -1 && workspaceFlagIndex === -1) {
+      throw new Error("Task creation now requires '--repo <repo-id>' or '--workspace <workspace-id>'.\n\n" + getHelpText());
     }
 
-    const repoId = trimmedArgv[repoFlagIndex + 1]?.trim() ?? "";
+    if (repoFlagIndex !== -1 && workspaceFlagIndex !== -1) {
+      throw new Error("Task creation accepts either '--repo' or '--workspace', not both.\n\n" + getHelpText());
+    }
+
+    const repoId = repoFlagIndex === -1 ? undefined : trimmedArgv[repoFlagIndex + 1]?.trim() ?? "";
+    const workspaceId = workspaceFlagIndex === -1 ? undefined : trimmedArgv[workspaceFlagIndex + 1]?.trim() ?? "";
     const runner = runnerFlagIndex === -1
       ? undefined
       : parseRunnerType(trimmedArgv[runnerFlagIndex + 1]?.trim() ?? "");
@@ -75,20 +91,29 @@ export function parseArgv(argv: string[]): ParsedArgvCommand {
         index > 1 &&
         index !== repoFlagIndex &&
         index !== repoFlagIndex + 1 &&
+        index !== workspaceFlagIndex &&
+        index !== workspaceFlagIndex + 1 &&
         index !== runnerFlagIndex &&
         index !== runnerFlagIndex + 1,
     );
     const prompt = promptParts.join(" ").trim();
 
-    if (repoId.length === 0) {
+    if (repoId !== undefined && repoId.length === 0) {
       throw new Error("Repo id cannot be empty.\n\n" + getHelpText());
+    }
+
+    if (workspaceId !== undefined && workspaceId.length === 0) {
+      throw new Error("Workspace id cannot be empty.\n\n" + getHelpText());
     }
 
     if (prompt.length === 0) {
       throw new Error("Task prompt cannot be empty.\n\n" + getHelpText());
     }
 
-    return { mode: "command", command: { kind: "createTask", repoId, prompt, ...(runner ? { runner } : {}) } };
+    return {
+      mode: "command",
+      command: { kind: "createTask", ...(repoId ? { repoId } : {}), ...(workspaceId ? { workspaceId } : {}), prompt, ...(runner ? { runner } : {}) },
+    };
   }
 
   if (
@@ -226,13 +251,15 @@ export function getHelpText(): string {
     "Craig commands:",
     "  craig              Show the Craig phase 0 placeholder",
     "  craig repo add     Register a repo in the current Craig workspace",
+    "  craig workspace add <path>  Register a repo or parent-directory workspace",
     "  craig repo list    List registered repos",
     "  craig repo remove  Remove a registered repo",
     "  craig workspace list      List active workspaces",
     "  craig workspace list --archived  List archived workspaces",
     "  craig workspace archive   Archive a workspace",
     "  craig workspace restore   Restore an archived workspace",
-    "  craig task new --repo <repo-id> [--runner codex|cursor|claude] <prompt>  Create a new Craig task",
+    "  craig task new --repo <repo-id> [--runner codex|cursor|claude] <prompt>  Create a new Craig repo task",
+    "  craig task new --workspace <workspace-id> [--runner codex|cursor|claude] <prompt>  Create a new Craig workspace task",
     "  craig task list [--repo <repo-id>]  List known Craig tasks",
     "  craig task show    Show details for a Craig task",
     "  craig task logs    Stream Craig-managed logs for a task",

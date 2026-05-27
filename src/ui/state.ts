@@ -2,6 +2,7 @@ import { getDefaultUiState } from "../state/ui-state-store.js";
 import type { CraigConfig } from "../types/config.js";
 import type { RunnerType, TaskPtyTabKind, TaskRecord } from "../types/task.js";
 import type { RepoRecord } from "../types/workspace.js";
+import type { WorkspaceRecord } from "../types/workspace.js";
 import type { CraigUiRuntime } from "../types/workspace.js";
 import { RUNNER_IDS, getDefaultRunner, getEnabledRunnerIds, isRunnerType } from "../services/runner-profiles.js";
 import type { TerminalScreenRow } from "./terminal-emulator.js";
@@ -51,6 +52,7 @@ export interface ControlShellState {
   inputMode: InputMode;
   focusedRegion: FocusRegion;
   selectedRepoId: string | null;
+  selectedWorkspaceId: string | null;
   selectedTaskId: string | null;
   selectedPtyTabId: string | null;
   selectedLeftItemId: LeftNavItemId | null;
@@ -66,6 +68,7 @@ export interface ControlShellState {
   fileScrollOffset: number;
   diffScrollOffset: number;
   selectedActionId: ActionId;
+  selectedProjectTargetId: string | null;
   selectedRunner: RunnerType;
   centerTabRunner: RunnerType | null;
   actionMessage: string | null;
@@ -90,6 +93,7 @@ export interface ReduceMainKeyOptions {
   diffLineCount?: number;
   pageRows?: number;
   enabledRunnerIds?: RunnerType[];
+  projectTargetIds?: string[];
 }
 
 export interface MainKeyResult {
@@ -101,6 +105,7 @@ export interface MainKeyResult {
   detachTerminal: boolean;
   beginTaskPrompt: boolean;
   openWorkspaceBrowser: boolean;
+  createWorkspaceTask: boolean;
   createPtyTab: boolean;
   createPtyTabKind: TaskPtyTabKind | null;
   createPtyTabRunner: RunnerType | null;
@@ -113,12 +118,14 @@ export interface MainKeyResult {
 }
 
 export interface RestoreShellModel {
+  workspaces?: WorkspaceRecord[];
   repos: RepoRecord[];
   tasks: TaskRecord[];
   inspection?: {
     taskId: string;
     selectedFilePath: string | null;
     selectedDiffPath: string | null;
+    filePaths?: string[];
     diffPaths?: string[];
     fileRows?: Array<{ kind: string; path: string }>;
   } | null;
@@ -136,6 +143,7 @@ export function createInitialShellState(runtime: CraigUiRuntime | null, config: 
     inputMode: getValidInputMode(runtime?.inputMode),
     focusedRegion: getValidFocusRegion(runtime?.focusedRegion),
     selectedRepoId: optionalString(runtime?.selectedRepoId),
+    selectedWorkspaceId: optionalString(runtime?.selectedWorkspaceId),
     selectedTaskId: optionalString(runtime?.selectedTaskId),
     selectedPtyTabId: optionalString(runtime?.selectedPtyTabId),
     selectedLeftItemId: buildSelectedTaskLeftItemId(optionalString(runtime?.selectedTaskId)),
@@ -151,6 +159,7 @@ export function createInitialShellState(runtime: CraigUiRuntime | null, config: 
     fileScrollOffset: 0,
     diffScrollOffset: 0,
     selectedActionId: getValidValue(runtime?.selectedActionId, ACTION_IDS, "commit"),
+    selectedProjectTargetId: null,
     selectedRunner: getValidRunner(runtime?.selectedRunner, enabledRunnerIds, getDefaultRunner(config)),
     centerTabRunner: null,
     actionMessage: null,
@@ -175,6 +184,7 @@ export function toPersistedUiState(runtime: CraigUiRuntime | null, state: Contro
   return {
     ...(runtime ?? getDefaultUiState()),
     selectedRepoId: state.selectedRepoId,
+    selectedWorkspaceId: state.selectedWorkspaceId,
     selectedTaskId: state.selectedTaskId,
     selectedPtyTabId: state.selectedPtyTabId,
     inputMode: state.inputMode,
@@ -200,17 +210,33 @@ export function restoreShellState(
 ): ControlShellState {
   const selectedLeftItemId = resolveLeftItemId(state, model);
   const leftSelection = parseLeftItemId(selectedLeftItemId);
+  const selectedWorkspace =
+    (leftSelection?.kind === "workspace" ? model.workspaces?.find((workspace) => workspace.id === leftSelection.id) ?? null : null) ??
+    (leftSelection?.kind === "task"
+      ? model.workspaces?.find((workspace) => workspace.id === model.tasks.find((task) => task.id === leftSelection.id)?.workspaceId) ?? null
+      : null) ??
+    model.workspaces?.find((workspace) => workspace.id === state.selectedWorkspaceId) ??
+    model.workspaces?.[0] ??
+    null;
   const selectedRepo =
     (leftSelection?.kind === "repo"
       ? model.repos.find((repo) => repo.id === leftSelection.id) ?? null
       : leftSelection?.kind === "task"
         ? model.repos.find((repo) => repo.id === model.tasks.find((task) => task.id === leftSelection.id)?.repoId) ?? null
         : null) ??
+    (selectedWorkspace?.kind === "project"
+      ? model.repos.find((repo) => repo.id === state.selectedRepoId && selectedWorkspace.discoveredRepoIds?.includes(repo.id)) ?? null
+      : null) ??
+    (selectedWorkspace?.kind !== "project" ? model.repos.find((repo) => repo.id === selectedWorkspace?.primaryRepoId) ?? null : null) ??
     model.repos.find((repo) => repo.id === state.selectedRepoId) ??
     model.repos[0] ??
     null;
   const repoId = selectedRepo?.id ?? null;
-  const repoTasks = repoId ? model.tasks.filter((task) => task.repoId === repoId) : [];
+  const repoTasks = selectedWorkspace
+    ? model.tasks.filter((task) => task.workspaceId === selectedWorkspace.id)
+    : repoId
+      ? model.tasks.filter((task) => task.repoId === repoId)
+      : [];
   const selectedTask =
     (leftSelection?.kind === "task" ? repoTasks.find((task) => task.id === leftSelection.id) ?? null : null) ??
     repoTasks.find((task) => task.id === state.selectedTaskId) ??
@@ -221,11 +247,11 @@ export function restoreShellState(
     ...state,
     inputMode: options.resetInputMode ? "control" : state.inputMode,
     selectedLeftItemId,
+    selectedWorkspaceId: selectedWorkspace?.id ?? null,
     selectedRepoId: repoId,
     selectedTaskId: selectedTask?.id ?? null,
     ...resolveTaskTabs(selectedTask, state.activeTab, state.selectedPtyTabId),
-    selectedFilePath:
-      model.inspection && model.inspection.taskId === selectedTask?.id ? model.inspection.selectedFilePath : state.selectedFilePath,
+    selectedFilePath: resolveSelectedFilePath(state, model, selectedTask?.id ?? null),
     ...resolveFileTreeState(state, model, selectedTask?.id ?? null),
     selectedDiffPath: resolveSelectedDiffPath(state, model, selectedTask?.id ?? null),
     inspectorSection: getValidValue(state.inspectorSection, INSPECTOR_SECTION_IDS, "task"),
@@ -267,7 +293,7 @@ export function reduceMainKey(state: ControlShellState, key: string, options: Re
     });
   }
 
-  if ((key === "r" || key === "R") && state.focusedRegion === "tasks" && isNewTaskLeftItemId(state.selectedLeftItemId)) {
+  if ((key === "r" || key === "R") && state.focusedRegion === "tasks" && (isNewTaskLeftItemId(state.selectedLeftItemId) || isNewTaskWorkspaceLeftItemId(state.selectedLeftItemId))) {
     return result({
       state: {
         ...state,
@@ -394,12 +420,14 @@ export function reduceMainKey(state: ControlShellState, key: string, options: Re
   }
 
   if (isEnterKey(key)) {
-    if (state.focusedRegion === "tasks" && isNewTaskLeftItemId(state.selectedLeftItemId)) {
+    if (state.focusedRegion === "tasks" && (isNewTaskLeftItemId(state.selectedLeftItemId) || isNewTaskWorkspaceLeftItemId(state.selectedLeftItemId))) {
       const repoId = getNewTaskRepoId(state.selectedLeftItemId);
+      const workspaceId = getNewTaskWorkspaceId(state.selectedLeftItemId);
       return result({
         state: {
           ...state,
           selectedRepoId: repoId ?? state.selectedRepoId,
+          selectedWorkspaceId: workspaceId ?? state.selectedWorkspaceId,
           actionMessage: null,
           taskPromptInput: "",
           taskPromptError: null,
@@ -687,9 +715,23 @@ function moveSelection(state: ControlShellState, direction: -1 | 1, options: Red
 
     if (state.inspectionMode === "diff") {
       const next = updateDynamicValue(state, "selectedDiffPath", options.diffPathIds ?? [], direction, true);
-      return next.changed ? { ...next, state: { ...next.state, diffScrollOffset: 0 } } : next;
+      return next.changed
+        ? {
+            ...next,
+            state: {
+              ...next.state,
+              activeTab: INSPECTION_TAB_ID,
+              openInspectionKind: "diff",
+              diffScrollOffset: 0,
+            },
+            refreshInspection: true,
+          }
+        : next;
     }
 
+    if (options.projectTargetIds?.length) {
+      return updateDynamicValue(state, "selectedProjectTargetId", options.projectTargetIds, direction);
+    }
     return updateIndexedValue(state, "selectedActionId", REVIEW_ACTION_IDS, direction);
   }
 
@@ -703,6 +745,23 @@ function moveLeftSelection(state: ControlShellState, direction: -1 | 1, leftItem
   }
 
   const selection = parseLeftItemId(next.state.selectedLeftItemId);
+  if (selection?.kind === "workspace") {
+    return {
+      ...next,
+      state: {
+        ...next.state,
+        selectedWorkspaceId: selection.id,
+        selectedTaskId: null,
+        selectedPtyTabId: null,
+        selectedFilePath: null,
+        selectedFileTreePath: null,
+        selectedDiffPath: null,
+        fileScrollOffset: 0,
+        diffScrollOffset: 0,
+      },
+      refreshInspection: true,
+    };
+  }
   if (selection?.kind === "task") {
     return {
       ...next,
@@ -744,6 +803,17 @@ function moveLeftSelection(state: ControlShellState, direction: -1 | 1, leftItem
       state: {
         ...next.state,
         selectedRepoId: newTaskRepoId,
+      },
+    };
+  }
+
+  const newTaskWorkspaceId = getNewTaskWorkspaceId(next.state.selectedLeftItemId);
+  if (newTaskWorkspaceId) {
+    return {
+      ...next,
+      state: {
+        ...next.state,
+        selectedWorkspaceId: newTaskWorkspaceId,
       },
     };
   }
@@ -832,6 +902,8 @@ function moveFileTreeSelection(state: ControlShellState, delta: number, options:
       ...state,
       selectedFileTreePath: nextPath,
       selectedFilePath: isFile ? nextPath : state.selectedFilePath,
+      activeTab: isFile ? INSPECTION_TAB_ID : state.activeTab,
+      openInspectionKind: isFile ? "file" : state.openInspectionKind,
       fileScrollOffset: isFile ? 0 : state.fileScrollOffset,
       actionMessage: null,
     },
@@ -923,7 +995,7 @@ function scrollDiffContent(state: ControlShellState, delta: number, options: Red
     }
 
     return result({
-      state: { ...state, selectedDiffPath: nextPath, diffScrollOffset: 0, actionMessage: null },
+      state: { ...state, selectedDiffPath: nextPath, activeTab: INSPECTION_TAB_ID, openInspectionKind: "diff", diffScrollOffset: 0, actionMessage: null },
       changed: true,
       refreshInspection: true,
     });
@@ -944,6 +1016,8 @@ function scrollDiffContent(state: ControlShellState, delta: number, options: Red
       state: {
         ...state,
         selectedDiffPath: previousPath,
+        activeTab: INSPECTION_TAB_ID,
+        openInspectionKind: "diff",
         diffScrollOffset: Number.MAX_SAFE_INTEGER,
         actionMessage: null,
       },
@@ -999,6 +1073,22 @@ function resolveSelectedDiffPath(
   return model.inspection.selectedDiffPath;
 }
 
+function resolveSelectedFilePath(
+  state: ControlShellState,
+  model: RestoreShellModel,
+  selectedTaskId: string | null,
+): string | null {
+  if (!model.inspection || model.inspection.taskId !== selectedTaskId) {
+    return state.selectedFilePath;
+  }
+
+  if (state.selectedFilePath && (model.inspection.filePaths ?? []).includes(state.selectedFilePath)) {
+    return state.selectedFilePath;
+  }
+
+  return model.inspection.selectedFilePath;
+}
+
 function resolveDiffPathForOffset(
   ranges: Array<{ path: string; start: number; end: number }>,
   offset: number,
@@ -1026,7 +1116,7 @@ function updateIndexedValue<Key extends "focusedRegion" | "activeTab" | "selecte
   });
 }
 
-function updateDynamicValue<Key extends "selectedTaskId" | "selectedLeftItemId" | "selectedFilePath" | "selectedDiffPath">(
+function updateDynamicValue<Key extends "selectedTaskId" | "selectedLeftItemId" | "selectedFilePath" | "selectedDiffPath" | "selectedProjectTargetId">(
   state: ControlShellState,
   key: Key,
   values: string[],
@@ -1070,6 +1160,7 @@ function result(input: {
   detachTerminal?: boolean;
   beginTaskPrompt?: boolean;
   openWorkspaceBrowser?: boolean;
+  createWorkspaceTask?: boolean;
   createPtyTab?: boolean;
   createPtyTabKind?: TaskPtyTabKind | null;
   createPtyTabRunner?: RunnerType | null;
@@ -1089,6 +1180,7 @@ function result(input: {
     detachTerminal: input.detachTerminal ?? false,
     beginTaskPrompt: input.beginTaskPrompt ?? false,
     openWorkspaceBrowser: input.openWorkspaceBrowser ?? false,
+    createWorkspaceTask: input.createWorkspaceTask ?? false,
     createPtyTab: input.createPtyTab ?? false,
     createPtyTabKind: input.createPtyTabKind ?? null,
     createPtyTabRunner: input.createPtyTabRunner ?? null,
@@ -1281,6 +1373,10 @@ function resolveLeftItemId(state: ControlShellState, model: RestoreShellModel): 
     return state.selectedLeftItemId;
   }
 
+  if (state.selectedWorkspaceId && leftItemIds.includes(`workspace:${state.selectedWorkspaceId}`)) {
+    return `workspace:${state.selectedWorkspaceId}`;
+  }
+
   if (state.selectedTaskId && leftItemIds.includes(`task:${state.selectedTaskId}`)) {
     return `task:${state.selectedTaskId}`;
   }
@@ -1295,21 +1391,40 @@ function resolveLeftItemId(state: ControlShellState, model: RestoreShellModel): 
 function getLeftItemIds(model: RestoreShellModel): string[] {
   const itemIds: string[] = [];
 
-  for (const repo of model.repos) {
-    itemIds.push(`repo:${repo.id}`);
-    for (const task of model.tasks.filter((entry) => entry.repoId === repo.id)) {
-      itemIds.push(`task:${task.id}`);
+  if (model.workspaces?.length) {
+    for (const workspace of model.workspaces) {
+      itemIds.push(`workspace:${workspace.id}`);
+      if (workspace.kind === "project") {
+        itemIds.push(`new-task-workspace:${workspace.id}`);
+      }
+      for (const task of model.tasks.filter((entry) => entry.workspaceId === workspace.id)) {
+        itemIds.push(`task:${task.id}`);
+      }
+      if (workspace.kind === "repo") {
+        itemIds.push(`new-task:${workspace.primaryRepoId}`);
+      }
     }
-    itemIds.push(`new-task:${repo.id}`);
+  } else {
+    for (const repo of model.repos) {
+      itemIds.push(`repo:${repo.id}`);
+      for (const task of model.tasks.filter((entry) => entry.repoId === repo.id)) {
+        itemIds.push(`task:${task.id}`);
+      }
+      itemIds.push(`new-task:${repo.id}`);
+    }
   }
 
   itemIds.push("new-workspace");
   return itemIds;
 }
 
-function parseLeftItemId(value: string | null): { kind: "repo" | "task"; id: string } | null {
+function parseLeftItemId(value: string | null): { kind: "workspace" | "repo" | "task"; id: string } | null {
   if (!value) {
     return null;
+  }
+
+  if (value.startsWith("workspace:")) {
+    return { kind: "workspace", id: value.slice("workspace:".length) };
   }
 
   if (value.startsWith("repo:")) {
@@ -1339,9 +1454,18 @@ function isNewTaskLeftItemId(value: LeftNavItemId | null): boolean {
   return typeof value === "string" && value.startsWith("new-task:");
 }
 
+function isNewTaskWorkspaceLeftItemId(value: LeftNavItemId | null): boolean {
+  return typeof value === "string" && value.startsWith("new-task-workspace:");
+}
+
 function getNewTaskRepoId(value: LeftNavItemId | null): string | null {
   if (!isNewTaskLeftItemId(value)) return null;
   return (value as string).slice("new-task:".length);
+}
+
+function getNewTaskWorkspaceId(value: LeftNavItemId | null): string | null {
+  if (!isNewTaskWorkspaceLeftItemId(value)) return null;
+  return (value as string).slice("new-task-workspace:".length);
 }
 
 function clamp(value: number, min: number, max: number): number {

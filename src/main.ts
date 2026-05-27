@@ -2,6 +2,12 @@ import type { CommandResult } from "./types/command.js";
 
 export function formatCommandResult(result: CommandResult): string {
   switch (result.kind) {
+    case "createWorkspace":
+      return [
+        `${result.created ? "Registered" : "Updated"} ${result.workspace.kind ?? "repo"} workspace ${result.workspace.id}`,
+        `Path: ${result.workspace.rootPath ?? ""}`,
+        `Repos: ${result.repos.map((repo) => repo.id).join(", ")}`,
+      ].join("\n");
     case "createRepo":
       return [
         `${result.created ? "Registered" : "Already registered"} repo ${result.repo.id}`,
@@ -23,12 +29,12 @@ export function formatCommandResult(result: CommandResult): string {
       if (result.workspaces.length === 0) {
         return result.archivedOnly
           ? "No archived workspaces."
-          : "No active workspaces yet. Register a repo with 'craig repo add <path>'.";
+          : "No active workspaces yet. Register one with 'craig workspace add <path>'.";
       }
 
       return [
-        "ID\tSTATUS\tREPO\tBRANCH",
-        ...result.workspaces.map((workspace) => `${workspace.id}\t${workspace.status}\t${workspace.primaryRepoId}\t${workspace.branch}`),
+        "ID\tKIND\tSTATUS\tREPOS\tPATH",
+        ...result.workspaces.map((workspace) => `${workspace.id}\t${workspace.kind ?? "repo"}\t${workspace.status}\t${(workspace.discoveredRepoIds ?? [workspace.primaryRepoId]).join(",")}\t${workspace.rootPath ?? ""}`),
       ].join("\n");
     case "archiveWorkspace":
       return `Archived workspace ${result.workspaceId} on branch ${result.branch}`;
@@ -38,6 +44,7 @@ export function formatCommandResult(result: CommandResult): string {
       return [
         `Created task ${result.taskId}`,
         `Repo: ${result.repoId}`,
+        `Workspace: ${result.workspaceId}`,
         `Session: ${result.sessionId}`,
         `Status: ${result.status}`,
         `Branch: ${result.branch}`,

@@ -8,6 +8,7 @@ import {
   ensureGhAuthenticated,
   ensurePrDraft,
   isMergeReady,
+  refreshOrDiscoverTargetPullRequest,
   refreshPullRequestState,
   summarizeRequiredChecks,
   waitForPullRequestState,
@@ -101,6 +102,22 @@ export async function refreshPullRequestChecks(paths: CraigPaths, taskId: string
   await refreshPullRequestState(paths, task);
   await writePrStatusArtifact(paths, task);
   return task;
+}
+
+export async function discoverOrRefreshAllProjectPullRequests(
+  paths: CraigPaths,
+  taskId: string,
+): Promise<{ synced: number; discovered: number; notFound: number }> {
+  const task = await getTaskOrThrow(paths, taskId);
+  const targets = (task.repoTargets ?? []).filter((t) => t.status === "ready");
+  await ensureGhAuthenticated(task.worktreePath);
+
+  const counts = { synced: 0, discovered: 0, notFound: 0 };
+  for (const target of targets) {
+    const disposition = await refreshOrDiscoverTargetPullRequest(paths, task, target).catch(() => "not_found" as const);
+    counts[disposition === "not_found" ? "notFound" : disposition]++;
+  }
+  return counts;
 }
 
 export async function discoverOrRefreshPullRequest(

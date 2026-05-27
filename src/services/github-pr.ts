@@ -1,7 +1,7 @@
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
 
-import type { TaskPullRequest, TaskPullRequestCheck, TaskRecord } from "../types/task.js";
+import type { ProjectTaskRepoTarget, TaskPullRequest, TaskPullRequestCheck, TaskRecord } from "../types/task.js";
 import type { CraigPaths } from "../state/craig-paths.js";
 import { atomicWriteJson } from "../state/atomic-write.js";
 import { writeTask } from "../state/task-store.js";
@@ -111,6 +111,27 @@ export async function discoverPullRequestState(
   await persistPullRequestView(paths, task, payload);
 
   return { discovered: true, task };
+}
+
+export async function refreshOrDiscoverTargetPullRequest(
+  paths: CraigPaths,
+  task: TaskRecord,
+  target: ProjectTaskRepoTarget,
+): Promise<"synced" | "discovered" | "not_found"> {
+  const selector = target.pullRequest.number ? String(target.pullRequest.number) : target.branch;
+  if (target.pullRequest.number) {
+    const result = await runCommand("gh", buildPrViewArgs(selector), { cwd: target.worktreePath });
+    target.pullRequest = normalizePullRequest(JSON.parse(result.stdout) as GhPrView);
+    await writeTask(paths, task);
+    return "synced";
+  }
+  const result = await runCommandAllowingFailure("gh", buildPrViewArgs(selector), { cwd: target.worktreePath });
+  if (result.exitCode !== 0) {
+    return "not_found";
+  }
+  target.pullRequest = normalizePullRequest(JSON.parse(result.stdout) as GhPrView);
+  await writeTask(paths, task);
+  return "discovered";
 }
 
 export async function waitForPullRequestState(

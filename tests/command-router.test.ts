@@ -1,4 +1,4 @@
-import { readFile, rm } from "node:fs/promises";
+import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import path from "node:path";
 
 import { afterEach, describe, expect, test } from "vitest";
@@ -7,9 +7,12 @@ import { executeCommand } from "../src/commands/command-router.js";
 import { parseArgv } from "../src/commands/parse-argv.js";
 import { getCraigPaths } from "../src/state/craig-paths.js";
 import { readRepo } from "../src/state/repo-store.js";
+import { readTask } from "../src/state/task-store.js";
 import { readUiState } from "../src/state/ui-state-store.js";
 import { readWorkspace } from "../src/state/workspace-store.js";
 import { createCraigState, createGitRepo, createRepoRoot } from "./test-helpers.js";
+import { runCommand } from "../src/utils/exec.js";
+import { provisionProjectTask } from "../src/services/task-provisioning.js";
 
 const tempRoots: string[] = [];
 
@@ -105,6 +108,70 @@ describe("command routing", () => {
     }
 
     expect(result.repos.map((repo) => repo.name)).toEqual(["alpha", "zebra"]);
+  });
+
+  test("workspace add registers a project workspace with direct child repos and preserves overlap", async () => {
+    const workspaceRoot = await createRepoRoot("craig-router-project-");
+    tempRoots.push(workspaceRoot);
+    await createCraigState(workspaceRoot);
+    const paths = getCraigPaths(workspaceRoot);
+
+    for (const name of ["repo-a", "repo-b"]) {
+      const repoRoot = path.join(workspaceRoot, name);
+      await mkdir(repoRoot, { recursive: true });
+      await createGitRepo(repoRoot);
+    }
+    const nestedRepo = path.join(workspaceRoot, "repo-a", "nested");
+    await mkdir(nestedRepo, { recursive: true });
+    await createGitRepo(nestedRepo);
+
+    const project = await executeCommand({ kind: "addWorkspace", path: "." }, { paths });
+    const explicitRepo = await executeCommand({ kind: "addWorkspace", path: "./repo-a" }, { paths });
+
+    expect(project.kind).toBe("createWorkspace");
+    expect(explicitRepo.kind).toBe("createWorkspace");
+    if (project.kind !== "createWorkspace" || explicitRepo.kind !== "createWorkspace") {
+      throw new Error("Expected workspace registration results.");
+    }
+
+    expect(project.workspace.kind).toBe("project");
+    expect(project.repos.map((repo) => repo.name)).toEqual(["repo-a", "repo-b"]);
+    expect(project.workspace.discoveredRepoIds).toEqual(project.repos.map((repo) => repo.id));
+    expect(project.repos.some((repo) => repo.rootPath === nestedRepo)).toBe(false);
+    expect(explicitRepo.workspace.kind).toBe("repo");
+    expect(explicitRepo.workspace.id).not.toBe(project.workspace.id);
+    expect(explicitRepo.workspace.rootPath).toBe(path.join(workspaceRoot, "repo-a"));
+  });
+
+  test("task new with a project workspace provisions per-repo targets and a bundle root", async () => {
+    const workspaceRoot = await createRepoRoot("craig-router-project-task-");
+    tempRoots.push(workspaceRoot);
+    await createCraigState(workspaceRoot);
+    const paths = getCraigPaths(workspaceRoot);
+
+    for (const name of ["repo-a", "repo-b"]) {
+      const repoRoot = path.join(workspaceRoot, name);
+      await mkdir(repoRoot, { recursive: true });
+      await createGitRepo(repoRoot);
+      await writeFile(path.join(repoRoot, "README.md"), `${name}\n`, "utf8");
+      await runCommand("git", ["add", "README.md"], { cwd: repoRoot });
+      await runCommand("git", ["commit", "-m", "seed"], { cwd: repoRoot });
+    }
+
+    const project = await executeCommand({ kind: "addWorkspace", path: "." }, { paths });
+    if (project.kind !== "createWorkspace") {
+      throw new Error("Expected project workspace.");
+    }
+
+    const provisioned = await provisionProjectTask(paths, project.workspace.id, "ship project");
+    const task = await readTask(paths, provisioned.task.id);
+    expect(task.type).toBe("project");
+    expect(task.workspaceId).toBe(project.workspace.id);
+    expect(task.bundlePath).toBe(path.join(paths.craigDir, "task-bundles", task.id));
+    expect(task.worktreePath).toBe(task.bundlePath);
+    expect(task.repoTargets?.map((target) => target.repoId).sort()).toEqual(project.workspace.discoveredRepoIds?.slice().sort());
+    expect(task.repoTargets?.every((target) => target.status === "ready")).toBe(true);
+    await expect(readFile(path.join(task.bundlePath ?? "", "manifest.json"), "utf8")).resolves.toContain("ship project");
   });
 
   test("workspace archive and restore update state and persisted UI selection", async () => {
