@@ -47,6 +47,7 @@ export interface ShellTreeRow {
   accentDot?: boolean;
   status?: string;
   muted?: boolean;
+  prBadge?: TerminalRowSegment[];
 }
 
 export interface ShellRunnerRow {
@@ -264,10 +265,9 @@ function buildLeftTree(state: ControlShellState, model: WorkspaceShellModel): Sh
             indent: 2,
             selected,
             focused: selected && state.focusedRegion === "tasks",
-            accentDot: task.status === "running",
           };
-          if (selected) {
-            row.status = task.status;
+          if (task.pullRequest.number) {
+            row.prBadge = buildPrBadgeSegments(task.pullRequest);
           }
           rows.push(row);
         }
@@ -330,16 +330,18 @@ function buildLegacyRepoLeftTree(rows: ShellTreeRow[], state: ControlShellState,
           const selected = state.selectedLeftItemId === `task:${task.id}`;
           const prefix = selected ? "▸" : "•";
           const displayTitle = task.title.length > 28 ? `${task.title.slice(0, 25)}…` : task.title;
-          rows.push({
+          const legacyRow: ShellTreeRow = {
             id: `task:${task.id}`,
             taskId: task.id,
             text: `${prefix} ${displayTitle}`,
             indent: 2,
             selected,
             focused: selected && state.focusedRegion === "tasks",
-            accentDot: task.status === "running",
-            ...(selected ? { status: task.status } : {}),
-          });
+          };
+          if (task.pullRequest.number) {
+            legacyRow.prBadge = buildPrBadgeSegments(task.pullRequest);
+          }
+          rows.push(legacyRow);
         }
       }
 
@@ -878,6 +880,15 @@ function renderInspectionModeRow(state: ControlShellState, pr: TaskPullRequest |
 
   const text = segments.map((s) => s.text).join("");
   return { id: "inspection-mode", text, segments };
+}
+
+function buildPrBadgeSegments(pr: TaskPullRequest): TerminalRowSegment[] {
+  return [
+    { text: " " },
+    buildPrLifecycleSegment(pr),
+    { text: " " },
+    buildPrChecksSegment(pr.requiredChecks ?? null),
+  ];
 }
 
 function buildPrLifecycleSegment(pr: TaskPullRequest | null): TerminalRowSegment {
