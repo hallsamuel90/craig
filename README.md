@@ -13,6 +13,14 @@
 
          crAIg is that you?
 </pre>
+
+<p>
+  <a href="https://github.com/hallsamuel90/craig/actions/workflows/ci.yml"><img alt="CI" src="https://img.shields.io/github/actions/workflow/status/hallsamuel90/craig/ci.yml?branch=main&style=for-the-badge&label=ci"></a>
+  <a href="https://www.npmjs.com/package/craig-cli"><img alt="npm version" src="https://img.shields.io/npm/v/craig-cli?style=for-the-badge&color=cb3837"></a>
+  <a href="https://www.npmjs.com/package/craig-cli"><img alt="Node.js >=22" src="https://img.shields.io/badge/node-%3E%3D22-339933?style=for-the-badge&logo=node.js&logoColor=white"></a>
+  <a href="https://pnpm.io/"><img alt="pnpm 10.7.1" src="https://img.shields.io/badge/pnpm-10.7.1-f69220?style=for-the-badge&logo=pnpm&logoColor=white"></a>
+  <a href="https://www.typescriptlang.org/"><img alt="TypeScript" src="https://img.shields.io/badge/typescript-5.8-3178c6?style=for-the-badge&logo=typescript&logoColor=white"></a>
+</p>
 </div>
 
 # Craig
