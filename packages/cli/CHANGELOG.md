@@ -1,5 +1,11 @@
 # craig-cli
 
+## 0.4.4
+
+### Patch Changes
+
+- e9fd244: Provision project task repo worktrees directly inside the task bundle root, beside `manifest.json`, so agents can immediately see checked-out project repos from the launch directory.
+
 ## 0.4.3
 
 ### Patch Changes
