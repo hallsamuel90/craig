@@ -68,6 +68,10 @@ export function parseArgv(argv: string[]): ParsedArgvCommand {
     return { mode: "command", command: { kind: "restoreWorkspace", workspaceId: trimmedArgv[2]!.trim() } };
   }
 
+  if (trimmedArgv.length === 3 && trimmedArgv[0] === "workspace" && trimmedArgv[1] === "remove") {
+    return { mode: "command", command: { kind: "removeWorkspace", workspaceId: trimmedArgv[2]!.trim() } };
+  }
+
   if (trimmedArgv.length >= 2 && trimmedArgv[0] === "task" && trimmedArgv[1] === "new") {
     const repoFlagIndex = trimmedArgv.indexOf("--repo");
     const workspaceFlagIndex = trimmedArgv.indexOf("--workspace");
@@ -258,6 +262,7 @@ export function getHelpText(): string {
     "  craig workspace list --archived  List archived workspaces",
     "  craig workspace archive   Archive a workspace",
     "  craig workspace restore   Restore an archived workspace",
+    "  craig workspace remove    Remove an archived workspace",
     "  craig task new --repo <repo-id> [--runner codex|cursor|claude] <prompt>  Create a new Craig repo task",
     "  craig task new --workspace <workspace-id> [--runner codex|cursor|claude] <prompt>  Create a new Craig workspace task",
     "  craig task list [--repo <repo-id>]  List known Craig tasks",

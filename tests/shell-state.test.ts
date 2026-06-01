@@ -366,6 +366,22 @@ describe("terminal shell control state", () => {
     expect(result.state.selectedActionId).toBe("close-task");
   });
 
+  test("x on a focused workspace row requests workspace removal", () => {
+    const state = {
+      ...seededState(),
+      selectedLeftItemId: "workspace:workspace_repo_a",
+      selectedWorkspaceId: "workspace_repo_a",
+      selectedTaskId: null,
+    };
+    const result = reduceMainKey(state, "x", {
+      ...KEY_OPTIONS,
+      leftItemIds: ["workspace:workspace_repo_a", "new-task:repo_a", "new-workspace"],
+    });
+
+    expect(result.removeWorkspace).toBe(true);
+    expect(result.closeTask).toBe(false);
+  });
+
   test("enter on the new task row opens the task prompt from the left pane", () => {
     const state = {
       ...seededState(),
