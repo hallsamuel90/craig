@@ -555,8 +555,126 @@ describe("task lifecycle services", () => {
 
     expect(counts).toEqual({ synced: 0, discovered: 1, notFound: 0 });
     expect(task.status).toBe("merge_ready");
+    expect(task.pullRequest.number).toBe(51);
+    expect(task.pullRequest.requiredChecks.map((check) => `${check.name}:${check.status}`)).toEqual(["ci:success"]);
     expect(task.repoTargets?.[0]?.pullRequest.number).toBe(51);
     expect(task.repoTargets?.[0]?.pullRequest.requiredChecks.map((check) => `${check.name}:${check.status}`)).toEqual(["ci:success"]);
+  });
+
+  test("refreshPullRequestChecks refreshes project target PRs", async () => {
+    const workspaceRoot = await createRepoRoot("craig-project-check-refresh-");
+    tempRoots.push(workspaceRoot);
+    const paths = await createCraigState(workspaceRoot);
+    const stubDir = await createStubCommands(workspaceRoot);
+    process.env.PATH = `${stubDir}:${originalPath}`;
+    const taskWorktree = path.join(paths.worktreesDir, "project", "task_1");
+    const targetWorktree = path.join(paths.worktreesDir, "project", "task_1", "repo_a");
+    await mkdir(taskWorktree, { recursive: true });
+    await mkdir(targetWorktree, { recursive: true });
+    const viewFile = path.join(workspaceRoot, "gh-view.json");
+    await writeFile(
+      viewFile,
+      JSON.stringify({
+        number: 52,
+        url: "https://github.com/example/repo-a/pull/52",
+        baseRefName: "main",
+        headRefName: "craig/task_1",
+        headRefOid: "abc52",
+        state: "OPEN",
+        mergeable: "MERGEABLE",
+        mergeStateStatus: "CLEAN",
+        statusCheckRollup: [{ context: "ci", state: "SUCCESS", conclusion: "SUCCESS" }],
+      }),
+      "utf8",
+    );
+    process.env.CRAIG_TEST_GH_VIEW_FILE = viewFile;
+    await writeTaskRecord(paths.repoRoot, {
+      id: "task_1",
+      type: "project",
+      status: "pr_open",
+      worktreePath: taskWorktree,
+      selectedRepoTargetId: "repo_a",
+      repoTargets: [
+        {
+          repoId: "repo_a",
+          branch: "craig/task_1",
+          repoRoot: path.join(workspaceRoot, "repo-a"),
+          worktreePath: targetWorktree,
+          status: "ready",
+          failureReason: null,
+          checks: { source: { type: "repo_config", path: ".craig/config.json" }, lastRunAt: null, status: "not_run", commands: [], results: [] },
+          lastCommit: null,
+          pullRequest: {
+            provider: "github",
+            number: 52,
+            url: "https://github.com/example/repo-a/pull/52",
+            baseBranch: "main",
+            headBranch: "craig/task_1",
+            status: "open",
+            mergeable: false,
+            mergeStateStatus: "UNKNOWN",
+            requiredChecks: [{ name: "ci", status: "pending", conclusion: null }],
+            lastSyncedAt: "2026-04-21T00:00:00.000Z",
+            lastSyncedHeadSha: null,
+          },
+          cleanup: { paneClosedAt: null, worktreeRemovedAt: null, preservedWorktree: false, warning: null },
+        },
+      ],
+    });
+
+    const task = await refreshPullRequestChecks(paths, "task_1");
+
+    expect(task.status).toBe("merge_ready");
+    expect(task.pullRequest.number).toBe(52);
+    expect(task.pullRequest.requiredChecks.map((check) => `${check.name}:${check.status}`)).toEqual(["ci:success"]);
+    expect(task.repoTargets?.[0]?.pullRequest.requiredChecks.map((check) => `${check.name}:${check.status}`)).toEqual(["ci:success"]);
+  });
+
+  test("discoverOrRefreshAllProjectPullRequests surfaces tracked target refresh failures", async () => {
+    const workspaceRoot = await createRepoRoot("craig-project-pr-refresh-fail-");
+    tempRoots.push(workspaceRoot);
+    const paths = await createCraigState(workspaceRoot);
+    const stubDir = await createStubCommands(workspaceRoot);
+    process.env.PATH = `${stubDir}:${originalPath}`;
+    process.env.CRAIG_TEST_GH_MODE = "no-pr";
+    const taskWorktree = path.join(paths.worktreesDir, "project", "task_1");
+    const targetWorktree = path.join(paths.worktreesDir, "project", "task_1", "repo_a");
+    await mkdir(taskWorktree, { recursive: true });
+    await mkdir(targetWorktree, { recursive: true });
+    await writeTaskRecord(paths.repoRoot, {
+      id: "task_1",
+      type: "project",
+      status: "pr_open",
+      worktreePath: taskWorktree,
+      repoTargets: [
+        {
+          repoId: "repo_a",
+          branch: "craig/task_1",
+          repoRoot: path.join(workspaceRoot, "repo-a"),
+          worktreePath: targetWorktree,
+          status: "ready",
+          failureReason: null,
+          checks: { source: { type: "repo_config", path: ".craig/config.json" }, lastRunAt: null, status: "not_run", commands: [], results: [] },
+          lastCommit: null,
+          pullRequest: {
+            provider: "github",
+            number: 52,
+            url: "https://github.com/example/repo-a/pull/52",
+            baseBranch: "main",
+            headBranch: "craig/task_1",
+            status: "open",
+            mergeable: false,
+            mergeStateStatus: "UNKNOWN",
+            requiredChecks: [],
+            lastSyncedAt: "2026-04-21T00:00:00.000Z",
+            lastSyncedHeadSha: null,
+          },
+          cleanup: { paneClosedAt: null, worktreeRemovedAt: null, preservedWorktree: false, warning: null },
+        },
+      ],
+    });
+
+    await expect(discoverOrRefreshAllProjectPullRequests(paths, "task_1")).rejects.toThrow(/no pull requests found/);
   });
 
   test("openPullRequest pushes new commits when refreshing an existing PR", async () => {
