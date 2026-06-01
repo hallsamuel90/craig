@@ -38,7 +38,7 @@ const PAUSE_MENU = ["Resume", "Options", "Exit"];
 const LEFT_PANEL_INSET = 2;
 const LEFT_PANEL_GUTTER = 2;
 export const CENTER_TERMINAL_GUTTER = 2;
-const ANSI_ESCAPE_PATTERN = new RegExp(`${String.fromCharCode(27)}\\[[0-9;]*m`, "g");
+const ANSI_ESCAPE_PATTERN = new RegExp(`${String.fromCharCode(27)}\\[[0-?]*[ -/]*[@-~]`, "g");
 const ANSI_RESET_PATTERN = new RegExp(`${String.fromCharCode(27)}\\[(?:0)?m`, "g");
 const OSC8_PATTERN = new RegExp(`${String.fromCharCode(27)}\\]8;;[^${String.fromCharCode(27)}]*${String.fromCharCode(27)}\\\\`, "g");
 const URL_PATTERN = /https?:\/\/[^\s<>"']+/g;
@@ -558,10 +558,13 @@ function clipTerminalSegmentsToWidth(segments: TerminalRowSegment[], width: numb
       continue;
     }
 
-    clipped.push({
-      ...segment,
-      text: segment.text.slice(0, remaining),
-    });
+    const text = clipStringToWidth(segment.text, remaining);
+    if (text.length > 0) {
+      clipped.push({
+        ...segment,
+        text,
+      });
+    }
     remaining = 0;
   }
 
@@ -649,16 +652,84 @@ function pad(value: string, width: number): string {
 }
 
 function truncate(value: string, width: number): string {
+  if (width <= 0) {
+    return "";
+  }
+
   if (stringWidth(value) <= width) {
     return value;
   }
 
   const plain = stripAnsi(value);
-  return plain.slice(0, Math.max(0, width - 1)) + "…";
+  return clipStringToWidth(plain, Math.max(0, width - 1)) + "…";
 }
 
 function stringWidth(value: string): number {
-  return stripAnsi(value).length;
+  let width = 0;
+  for (const character of Array.from(stripAnsi(value))) {
+    width += characterWidth(character);
+  }
+
+  return width;
+}
+
+function clipStringToWidth(value: string, width: number): string {
+  let clipped = "";
+  let used = 0;
+
+  for (const character of Array.from(value)) {
+    const next = characterWidth(character);
+    if (used + next > width) {
+      break;
+    }
+
+    clipped += character;
+    used += next;
+  }
+
+  return clipped;
+}
+
+function characterWidth(character: string): number {
+  const codePoint = character.codePointAt(0);
+  if (codePoint === undefined) {
+    return 0;
+  }
+
+  if (codePoint === 0 || codePoint < 32 || (codePoint >= 0x7f && codePoint < 0xa0)) {
+    return 0;
+  }
+
+  if (
+    (codePoint >= 0x0300 && codePoint <= 0x036f) ||
+    (codePoint >= 0x1ab0 && codePoint <= 0x1aff) ||
+    (codePoint >= 0x1dc0 && codePoint <= 0x1dff) ||
+    (codePoint >= 0x20d0 && codePoint <= 0x20ff) ||
+    (codePoint >= 0xfe00 && codePoint <= 0xfe0f)
+  ) {
+    return 0;
+  }
+
+  if (
+    codePoint >= 0x1100 && (
+      codePoint <= 0x115f ||
+      codePoint === 0x2329 ||
+      codePoint === 0x232a ||
+      (codePoint >= 0x2e80 && codePoint <= 0xa4cf && codePoint !== 0x303f) ||
+      (codePoint >= 0xac00 && codePoint <= 0xd7a3) ||
+      (codePoint >= 0xf900 && codePoint <= 0xfaff) ||
+      (codePoint >= 0xfe10 && codePoint <= 0xfe19) ||
+      (codePoint >= 0xfe30 && codePoint <= 0xfe6f) ||
+      (codePoint >= 0xff00 && codePoint <= 0xff60) ||
+      (codePoint >= 0xffe0 && codePoint <= 0xffe6) ||
+      (codePoint >= 0x1f300 && codePoint <= 0x1faff) ||
+      (codePoint >= 0x20000 && codePoint <= 0x3fffd)
+    )
+  ) {
+    return 2;
+  }
+
+  return 1;
 }
 
 function clamp(value: number, min: number, max: number): number {
