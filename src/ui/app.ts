@@ -569,20 +569,41 @@ export async function startTerminalApp(options: TerminalAppOptions = {}): Promis
       });
     }
 
-    async function pollSelectedPullRequest(): Promise<void> {
-      if (prPollInFlight || state.mode !== "main" || !state.shell.selectedTaskId) {
+    async function pollPullRequests(): Promise<void> {
+      if (prPollInFlight || state.mode !== "main") {
         return;
       }
 
-      const taskId = state.shell.selectedTaskId;
-      const previousTask = model.tasks.find((task) => task.id === taskId) ?? null;
-      const hadPr = Boolean(previousTask?.pullRequest.number);
+      const selectedTaskId = state.shell.selectedTaskId;
+      const tasksToPoll = model.tasks;
       prPollInFlight = true;
 
       try {
-        const { disposition, task } = await discoverOrRefreshPullRequest(paths, taskId);
+        let actionMessage = state.shell.actionMessage;
 
-        if (state.mode !== "main" || state.shell.selectedTaskId !== taskId) {
+        for (const previousTask of tasksToPoll) {
+          try {
+            const hadPr = previousTask.type === "project"
+              ? Boolean(previousTask.repoTargets?.some((target) => target.pullRequest.number))
+              : Boolean(previousTask.pullRequest.number);
+
+            if (previousTask.type === "project" && previousTask.repoTargets?.length) {
+              const counts = await discoverOrRefreshAllProjectPullRequests(paths, previousTask.id);
+              if (previousTask.id === selectedTaskId && !hadPr && counts.discovered > 0) {
+                actionMessage = `Discovered ${counts.discovered} PR${counts.discovered !== 1 ? "s" : ""}`;
+              }
+            } else {
+              const { disposition, task } = await discoverOrRefreshPullRequest(paths, previousTask.id);
+              if (previousTask.id === selectedTaskId && disposition === "discovered" && !hadPr) {
+                actionMessage = `Discovered PR: #${task.pullRequest.number} ${task.pullRequest.url ?? ""}`;
+              }
+            }
+          } catch {
+            // Background PR discovery should not let one stale task block other task badges.
+          }
+        }
+
+        if (state.mode !== "main") {
           return;
         }
 
@@ -591,9 +612,7 @@ export async function startTerminalApp(options: TerminalAppOptions = {}): Promis
           mode: "main",
           shell: syncShell({
             ...state.shell,
-            actionMessage: disposition === "discovered" && !hadPr
-              ? `Discovered PR: #${task.pullRequest.number} ${task.pullRequest.url ?? ""}`
-              : state.shell.actionMessage,
+            actionMessage,
           }),
         };
         render();
@@ -1631,8 +1650,8 @@ export async function startTerminalApp(options: TerminalAppOptions = {}): Promis
     activeTerminal.on("unknown", onUnknown);
     activeTerminal.on("mouse", onMouse);
     prPollTimer = setInterval(() => {
-      void pollSelectedPullRequest();
-    }, (config.github?.watchIntervalSeconds ?? 10) * 1000);
+      void pollPullRequests();
+    }, (config.github?.watchIntervalSeconds ?? 5) * 1000);
     render();
   });
 }

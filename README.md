@@ -163,7 +163,7 @@ Craig reads optional workspace-local config from `.craig/config.json`.
   },
   "github": {
     "mergeMethod": "squash",
-    "watchIntervalSeconds": 10
+    "watchIntervalSeconds": 5
   }
 }
 ```

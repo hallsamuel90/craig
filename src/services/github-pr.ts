@@ -139,7 +139,7 @@ export async function waitForPullRequestState(
   task: TaskRecord,
 ): Promise<TaskRecord> {
   const config = await readCraigConfig(paths);
-  const interval = (config.github?.watchIntervalSeconds ?? 10) * 1000;
+  const interval = (config.github?.watchIntervalSeconds ?? 5) * 1000;
 
   while (true) {
     await refreshPullRequestState(paths, task);

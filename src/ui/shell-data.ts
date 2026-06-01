@@ -15,7 +15,7 @@ import {
   getFileIcon,
   getFileIconColor,
 } from "./icons.js";
-import type { RunnerType, TaskPullRequest, TaskPullRequestCheck, TaskPtyTabRecord, TaskRecord } from "../types/task.js";
+import type { ProjectTaskRepoTarget, RunnerType, TaskPullRequest, TaskPullRequestCheck, TaskPtyTabRecord, TaskRecord } from "../types/task.js";
 import type { RepoRecord, WorkspaceRecord } from "../types/workspace.js";
 import { getRunnerDisplayName } from "../services/runner-profiles.js";
 import { INSPECTION_TAB_ID, isTaskLeftItemId } from "./state.js";
@@ -268,8 +268,9 @@ function buildLeftTree(state: ControlShellState, model: WorkspaceShellModel): Sh
             selected,
             focused: selected && state.focusedRegion === "tasks",
           };
-          if (task.pullRequest.number) {
-            row.prBadge = buildPrBadgeSegments(task.pullRequest);
+          const prBadge = buildTaskPrBadgeSegments(task);
+          if (prBadge) {
+            row.prBadge = prBadge;
           }
           rows.push(row);
         }
@@ -340,8 +341,9 @@ function buildLegacyRepoLeftTree(rows: ShellTreeRow[], state: ControlShellState,
             selected,
             focused: selected && state.focusedRegion === "tasks",
           };
-          if (task.pullRequest.number) {
-            legacyRow.prBadge = buildPrBadgeSegments(task.pullRequest);
+          const prBadge = buildTaskPrBadgeSegments(task);
+          if (prBadge) {
+            legacyRow.prBadge = prBadge;
           }
           rows.push(legacyRow);
         }
@@ -840,7 +842,9 @@ function buildInspectionSection(
   const selectedTarget = task?.type === "project" && effectiveTargetId
     ? task.repoTargets?.find((t) => t.repoId === effectiveTargetId) ?? null
     : null;
-  const effectivePr = selectedTarget?.pullRequest ?? task?.pullRequest ?? null;
+  const effectivePr = task?.type === "project"
+    ? buildAggregateProjectPullRequest(task.repoTargets ?? [])
+    : selectedTarget?.pullRequest ?? task?.pullRequest ?? null;
   const modeRows = [renderInspectionModeRow(state, effectivePr), { id: "mode-spacer", text: "", muted: true }];
   if (state.inspectionMode === "review") {
     return {
@@ -893,6 +897,54 @@ function buildPrBadgeSegments(pr: TaskPullRequest): TerminalRowSegment[] {
   ];
 }
 
+function buildTaskPrBadgeSegments(task: TaskRecord): TerminalRowSegment[] | null {
+  if (task.type === "project" && task.repoTargets?.length) {
+    const aggregatePr = buildAggregateProjectPullRequest(task.repoTargets);
+    return aggregatePr ? buildPrBadgeSegments(aggregatePr) : null;
+  }
+
+  return task.pullRequest.number ? buildPrBadgeSegments(task.pullRequest) : null;
+}
+
+function buildAggregateProjectPullRequest(targets: ProjectTaskRepoTarget[]): TaskPullRequest | null {
+  const readyTargets = targets.filter((target) => target.status === "ready");
+  const prs = readyTargets.map((target) => target.pullRequest).filter((pr) => Boolean(pr.number));
+  if (prs.length === 0) {
+    return null;
+  }
+
+  return {
+    provider: "github",
+    number: -1,
+    url: null,
+    baseBranch: null,
+    headBranch: null,
+    status: deriveAggregateProjectPrStatus(prs),
+    mergeable: prs.length === readyTargets.length && prs.every((pr) => pr.mergeable),
+    mergeStateStatus: null,
+    requiredChecks: prs.flatMap((pr) => pr.requiredChecks),
+    lastSyncedAt: prs
+      .map((pr) => pr.lastSyncedAt)
+      .filter((value): value is string => Boolean(value))
+      .sort()
+      .at(-1) ?? null,
+    lastSyncedHeadSha: null,
+  };
+}
+
+function deriveAggregateProjectPrStatus(prs: TaskPullRequest[]): TaskPullRequest["status"] {
+  if (prs.some((pr) => pr.status === "open")) {
+    return "open";
+  }
+  if (prs.every((pr) => pr.status === "merged")) {
+    return "merged";
+  }
+  if (prs.some((pr) => pr.status === "closed")) {
+    return "closed";
+  }
+  return prs[0]?.status ?? null;
+}
+
 function buildPrLifecycleSegment(pr: TaskPullRequest | null): TerminalRowSegment {
   if (!pr || !pr.number) return { text: PR_ICON_NONE, style: { fg: "565f89" } };
   if (pr.status === "merged") return { text: PR_ICON_MERGED, style: { fg: "9d7cd8" } };
@@ -903,7 +955,7 @@ function buildPrLifecycleSegment(pr: TaskPullRequest | null): TerminalRowSegment
 function buildPrChecksSegment(checks: TaskPullRequestCheck[] | null): TerminalRowSegment {
   if (!checks || checks.length === 0) return { text: CHECK_ICON_NONE, style: { fg: "565f89" } };
   if (checks.some((c) => c.status === "failed")) return { text: CHECK_ICON_FAILED, style: { fg: "f7768e" } };
-  if (checks.every((c) => c.status === "success")) return { text: CHECK_ICON_SUCCESS, style: { fg: "9ece6a" } };
+  if (checks.every((c) => c.status === "success" || c.status === "skipped")) return { text: CHECK_ICON_SUCCESS, style: { fg: "9ece6a" } };
   return { text: CHECK_ICON_PENDING, style: { fg: "e0af68" } };
 }
 

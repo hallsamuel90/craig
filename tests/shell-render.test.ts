@@ -828,15 +828,15 @@ describe("terminal shell renderer", () => {
       lastCommit: null,
       pullRequest: {
         provider: "github",
-        number: null,
-        url: null,
+        number: repoId === "repo_alpha" ? 12 : null,
+        url: repoId === "repo_alpha" ? "https://github.com/example/alpha/pull/12" : null,
         baseBranch: null,
         headBranch: null,
-        status: null,
-        mergeable: false,
+        status: repoId === "repo_alpha" ? "open" : null,
+        mergeable: repoId === "repo_alpha",
         mergeStateStatus: null,
-        requiredChecks: [],
-        lastSyncedAt: null,
+        requiredChecks: repoId === "repo_alpha" ? [{ name: "ci", status: "success", conclusion: "SUCCESS" }] : [],
+        lastSyncedAt: repoId === "repo_alpha" ? "2026-05-04T00:00:00.000Z" : null,
         lastSyncedHeadSha: null,
       },
       cleanup: { paneClosedAt: null, worktreeRemovedAt: null, preservedWorktree: false, warning: null },
@@ -885,11 +885,17 @@ describe("terminal shell renderer", () => {
     );
 
     const frame = renderMainShellFrame(MIN_VIEWPORT, data, { color: false });
+    const taskRow = data.leftTree.find((row) => row.taskId === "task_proj_01");
+    const modeRow = data.rightInspection?.rows.find((row) => row.id === "inspection-mode");
 
     expect(frame).toContain("CHANGES  FILES  REVIEW");
     expect(frame).toContain("alpha");
     expect(frame).toContain("beta");
+    expect(frame).toContain("#12");
+    expect(frame).toContain("✓ ci");
     expect(frame).toContain("checkout faile");
+    expect(taskRow?.prBadge?.map((segment) => segment.text).join("")).toContain("✓");
+    expect(modeRow?.segments?.map((segment) => segment.text).join("")).toContain("✓");
     expect(frame).not.toContain("P create pr");
     expect(frame).not.toContain("M merge");
   });

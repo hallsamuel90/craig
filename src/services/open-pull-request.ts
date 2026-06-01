@@ -1,4 +1,5 @@
 import type { CommandPullRequestResult } from "../types/command.js";
+import type { TaskPullRequest, TaskRecord } from "../types/task.js";
 import type { CraigPaths } from "../state/craig-paths.js";
 import { writeTask } from "../state/task-store.js";
 import { ensureOriginRemote, isWorktreeClean, pushBranch } from "./git-task.js";
@@ -117,6 +118,8 @@ export async function discoverOrRefreshAllProjectPullRequests(
     const disposition = await refreshOrDiscoverTargetPullRequest(paths, task, target).catch(() => "not_found" as const);
     counts[disposition === "not_found" ? "notFound" : disposition]++;
   }
+  task.status = deriveProjectTaskStatus(task);
+  await writeTask(paths, task);
   return counts;
 }
 
@@ -153,4 +156,31 @@ function buildPullRequestResult(
     mergeable: task.pullRequest.mergeable,
     requiredChecksSummary: summarizeRequiredChecks(task.pullRequest),
   };
+}
+
+function deriveProjectTaskStatus(task: TaskRecord): TaskRecord["status"] {
+  const readyTargets = (task.repoTargets ?? []).filter((target) => target.status === "ready");
+  const prs = readyTargets.map((target) => target.pullRequest).filter((pr) => Boolean(pr.number));
+
+  if (prs.length === 0) {
+    return task.status;
+  }
+  if (prs.every((pr) => pr.status === "merged")) {
+    return "merged";
+  }
+  if (prs.length === readyTargets.length && prs.every(isProjectTargetMergeReady)) {
+    return "merge_ready";
+  }
+  if (prs.some((pr) => pr.status === "open")) {
+    return "pr_open";
+  }
+  return "checked";
+}
+
+function isProjectTargetMergeReady(pullRequest: TaskPullRequest): boolean {
+  return (
+    pullRequest.mergeable &&
+    pullRequest.requiredChecks.length > 0 &&
+    pullRequest.requiredChecks.every((check) => check.status === "success" || check.status === "skipped")
+  );
 }
