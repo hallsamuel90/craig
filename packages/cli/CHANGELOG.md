@@ -1,5 +1,11 @@
 # craig-cli
 
+## 0.4.6
+
+### Patch Changes
+
+- 3f2d0c3: Avoid injecting OSC color query responses into embedded terminal sessions so interactive prompts such as `gh auth login` do not receive unexpected escape sequences as input.
+
 ## 0.4.5
 
 ### Patch Changes
