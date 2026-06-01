@@ -1,5 +1,11 @@
 # craig-cli
 
+## 0.4.7
+
+### Patch Changes
+
+- 479d21b: Fix project workspace PR tracking so polyrepo task refresh and polling surface per-repo PR/check state in the task list and review header.
+
 ## 0.4.6
 
 ### Patch Changes
