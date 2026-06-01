@@ -1,4 +1,4 @@
-import { mkdir, symlink, writeFile } from "node:fs/promises";
+import { mkdir, writeFile } from "node:fs/promises";
 import path from "node:path";
 
 import type { CraigPaths } from "../state/craig-paths.js";
@@ -6,6 +6,7 @@ import { readRepo } from "../state/repo-store.js";
 import { appendTaskId, writeTask } from "../state/task-store.js";
 import type { CraigConfig } from "../types/config.js";
 import type { ProjectTaskRepoTarget, RunnerType, TaskChecks, TaskCleanup, TaskPullRequest, TaskPtyTabRecord, TaskRecord } from "../types/task.js";
+import type { RepoRecord } from "../types/workspace.js";
 import { listWorkspaceRecords } from "../state/workspace-store.js";
 import { createWorktree } from "./git-task.js";
 import { buildRunnerCommand, getRunnerProfile } from "./runner-profiles.js";
@@ -102,24 +103,19 @@ export async function provisionProjectTask(
   const sessionId = options.sessionId ?? null;
   const branch = `craig/${taskId}`;
   const bundlePath = path.join(paths.craigDir, "task-bundles", taskId);
-  const repoLinksDir = path.join(bundlePath, "repos");
   const logPath = path.join(paths.logsDir, `${taskId}.log`);
   const artifactDir = path.join(paths.artifactsDir, taskId);
 
-  await mkdir(repoLinksDir, { recursive: true });
+  await mkdir(bundlePath, { recursive: true });
   await mkdir(artifactDir, { recursive: true });
   await writeFile(logPath, "", "utf8");
 
-  const repoTargets = await Promise.all(repoIds.map((repoId) => provisionProjectRepoTarget(paths, repoId, taskId, branch)));
+  const repos = await Promise.all(repoIds.map((repoId) => readRepo(paths, repoId)));
+  const repoDirectoryNames = allocateProjectRepoDirectoryNames(repos);
+  const repoTargets = await Promise.all(
+    repos.map((repo) => provisionProjectRepoTarget(paths, repo, taskId, branch, path.join(bundlePath, repoDirectoryNames.get(repo.id)!))),
+  );
   const readyTarget = repoTargets.find((target) => target.status === "ready") ?? repoTargets[0]!;
-
-  await Promise.all(repoTargets.map(async (target) => {
-    if (target.status !== "ready") {
-      return;
-    }
-    const linkPath = path.join(repoLinksDir, target.repoId);
-    await symlink(target.worktreePath, linkPath, "dir").catch(() => undefined);
-  }));
 
   await writeFile(
     path.join(bundlePath, "manifest.json"),
@@ -129,6 +125,8 @@ export async function provisionProjectTask(
       prompt,
       repos: repoTargets.map((target) => ({
         repoId: target.repoId,
+        repoName: repos.find((repo) => repo.id === target.repoId)?.name ?? target.repoId,
+        path: path.relative(bundlePath, target.worktreePath),
         status: target.status,
         worktreePath: target.worktreePath,
         failureReason: target.failureReason,
@@ -280,12 +278,11 @@ function buildDraftTask(paths: CraigPaths, input: DraftTaskInput): TaskRecord {
 
 async function provisionProjectRepoTarget(
   paths: CraigPaths,
-  repoId: string,
+  repo: RepoRecord,
   taskId: string,
   branch: string,
+  worktreePath: string,
 ): Promise<ProjectTaskRepoTarget> {
-  const repo = await readRepo(paths, repoId);
-  const worktreePath = path.join(paths.worktreesDir, repo.id, taskId);
   await mkdir(path.dirname(worktreePath), { recursive: true });
 
   try {
@@ -316,6 +313,27 @@ async function provisionProjectRepoTarget(
       cleanup: buildDefaultCleanup(),
     };
   }
+}
+
+function allocateProjectRepoDirectoryNames(repos: RepoRecord[]): Map<string, string> {
+  const usedNames = new Set(["manifest.json"]);
+  const names = new Map<string, string>();
+
+  for (const repo of repos) {
+    const baseName = repo.name === "manifest.json" ? `${repo.name}-repo` : repo.name;
+    let candidate = baseName;
+    let suffix = 2;
+
+    while (usedNames.has(candidate)) {
+      candidate = `${baseName}-${suffix}`;
+      suffix += 1;
+    }
+
+    usedNames.add(candidate);
+    names.set(repo.id, candidate);
+  }
+
+  return names;
 }
 
 function buildDefaultChecks(configPath: string): TaskChecks {

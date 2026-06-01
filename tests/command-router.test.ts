@@ -1,4 +1,4 @@
-import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
+import { lstat, mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import path from "node:path";
 
 import { afterEach, describe, expect, test } from "vitest";
@@ -175,7 +175,24 @@ describe("command routing", () => {
     expect(task.worktreePath).toBe(task.bundlePath);
     expect(task.repoTargets?.map((target) => target.repoId).sort()).toEqual(project.workspace.discoveredRepoIds?.slice().sort());
     expect(task.repoTargets?.every((target) => target.status === "ready")).toBe(true);
-    await expect(readFile(path.join(task.bundlePath ?? "", "manifest.json"), "utf8")).resolves.toContain("ship project");
+    for (const target of task.repoTargets ?? []) {
+      const repo = project.repos.find((entry) => entry.id === target.repoId);
+      expect(repo).toBeDefined();
+      expect(target.worktreePath).toBe(path.join(task.bundlePath ?? "", repo?.name ?? ""));
+      const targetStats = await lstat(target.worktreePath);
+      expect(targetStats.isDirectory()).toBe(true);
+      expect(targetStats.isSymbolicLink()).toBe(false);
+      await expect(readFile(path.join(target.worktreePath, "README.md"), "utf8")).resolves.toContain("repo-");
+    }
+    await expect(lstat(path.join(task.bundlePath ?? "", "repos"))).rejects.toThrow();
+    const manifest = JSON.parse(await readFile(path.join(task.bundlePath ?? "", "manifest.json"), "utf8")) as {
+      prompt: string;
+      repos: Array<{ repoId: string; repoName: string; path: string; worktreePath: string }>;
+    };
+    expect(manifest.prompt).toBe("ship project");
+    expect(manifest.repos.map((repo) => repo.path).sort()).toEqual(["repo-a", "repo-b"]);
+    expect(manifest.repos.map((repo) => repo.repoName).sort()).toEqual(["repo-a", "repo-b"]);
+    expect(manifest.repos.every((repo) => repo.worktreePath === path.join(task.bundlePath ?? "", repo.path))).toBe(true);
   });
 
   test("workspace archive and restore update state and persisted UI selection", async () => {
