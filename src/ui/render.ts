@@ -363,20 +363,20 @@ function renderTreeRow(row: ShellTreeRow, width: number, color: boolean): Surfac
   const dot = row.accentDot ? " ●" : "";
   const status = row.status ? ` ${row.status}` : "";
   const accentDot = row.accentDot ? ` ${green("●", color, row.selected ? PALETTE.panelSelected : PALETTE.panelBg)}` : "";
-  const visibleWidth = width - stringWidth(status) - stringWidth(dot);
+  const badgeWidth = row.prBadge ? row.prBadge.reduce((acc, seg) => acc + stringWidth(seg.text), 0) : 0;
+  const visibleWidth = width - stringWidth(status) - stringWidth(dot) - badgeWidth;
   const label = row.focused && !row.selected ? sectionTitle(row.text, true, color, PALETTE.panelBg) : row.text;
   const base = pad(`${indent}${label}`, Math.max(0, visibleWidth));
+  const tone: SurfaceLine["tone"] = row.selected ? "selected" : row.muted ? "muted" : "default";
+
+  if (row.prBadge) {
+    const segments: TerminalRowSegment[] = [{ text: `${base}${status}${accentDot}` }, ...row.prBadge];
+    const plainText = `${base}${status}${row.prBadge.map((s) => s.text).join("")}`;
+    return { text: plainText, segments, tone };
+  }
+
   const text = `${base}${status}${accentDot}`;
-
-  if (row.selected) {
-    return { text, tone: "selected" };
-  }
-
-  if (row.muted) {
-    return { text, tone: "muted" };
-  }
-
-  return { text };
+  return { text, tone };
 }
 
 function renderRunnersCompact(runners: ShellRunnerRow[]): SurfaceLine {
