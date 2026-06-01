@@ -1307,6 +1307,67 @@ describe("terminal app PTY attach flow", () => {
     expect(ptyRuntime.ensureSession).not.toHaveBeenCalled();
   });
 
+  test("polling refreshes unselected task badges without navigation", async () => {
+    const root = await mkdtemp(join(tmpdir(), "craig-ui-app-"));
+    tempRoots.push(root);
+    const paths = await setupWorkspace(root);
+    const { task, stubDir } = await preparePrTask(paths, tempRoots);
+    process.env.PATH = `${stubDir}:${originalPath}`;
+    await writeFile(paths.configFile, JSON.stringify({ github: { watchIntervalSeconds: 1 } }, null, 2), "utf8");
+    const unselectedTask = await writeTaskRecord(root, {
+      id: "task_20260430_03",
+      title: "background poll",
+      status: "checked",
+      repoId: "repo_a",
+      workspaceId: "workspace_repo_a",
+      branch: "craig/task_20260430_03",
+      worktreePath: join(root, "worktrees", "repo_a", "task_20260430_03"),
+      lastCommit: {
+        sha: "background-sha",
+        message: "ship background task",
+        committedAt: "2026-05-04T00:00:00.000Z",
+      },
+    });
+    await mkdir(unselectedTask.worktreePath, { recursive: true });
+    const index = JSON.parse(await readFile(paths.indexFile, "utf8")) as { taskIds: string[] };
+    await writeFile(paths.indexFile, JSON.stringify({ ...index, taskIds: [...index.taskIds, unselectedTask.id] }, null, 2), "utf8");
+    const viewFile = join(root, "gh-view.json");
+    await writeFile(
+      viewFile,
+      JSON.stringify({
+        number: 25,
+        url: "https://github.com/example/repo/pull/25",
+        baseRefName: "main",
+        headRefName: unselectedTask.branch,
+        headRefOid: unselectedTask.lastCommit?.sha,
+        state: "OPEN",
+        mergeable: "MERGEABLE",
+        mergeStateStatus: "CLEAN",
+        statusCheckRollup: [{ context: "ci", state: "SUCCESS", conclusion: "SUCCESS" }],
+      }),
+      "utf8",
+    );
+    process.env.CRAIG_TEST_GH_VIEW_FILE = viewFile;
+    const terminal = new FakeTerminal();
+    const ptyRuntime = new FakePtyRuntime();
+    const app = startTerminalApp({ terminal, ptyRuntime, uiStateFile: paths.uiStateFile, workspaceRoot: root });
+    await vi.waitFor(() => expect(terminal.hasKeyListener()).toBe(true));
+
+    terminal.emitKey("\r"); // boot start
+    await vi.waitFor(async () => expect((await readTask(paths, unselectedTask.id)).pullRequest.number).toBe(25), { timeout: 2500 });
+    await vi.waitFor(() => {
+      const frame = stripAnsi(terminal.frames.at(-1) ?? "");
+      expect(frame).toContain("background poll");
+      expect(frame).toContain("✓");
+    });
+    terminal.emitKey("q");
+
+    await expect(app).resolves.toBe(0);
+    const selectedTask = await readTask(paths, task.id);
+    expect(selectedTask.pullRequest.number).toBe(25);
+    expect(ptyRuntime.ensureSession).not.toHaveBeenCalled();
+  });
+
   test("review sync PR action shows GitHub errors and keeps Craig usable", async () => {
     const root = await mkdtemp(join(tmpdir(), "craig-ui-app-"));
     tempRoots.push(root);

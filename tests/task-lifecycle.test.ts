@@ -7,7 +7,7 @@ import { afterEach, describe, expect, test } from "vitest";
 import { commitTask } from "../src/services/commit-task.js";
 import { closeTask } from "../src/services/close-task.js";
 import { mergeTask } from "../src/services/merge-task.js";
-import { discoverOrRefreshPullRequest, openPullRequest, refreshPullRequestChecks } from "../src/services/open-pull-request.js";
+import { discoverOrRefreshAllProjectPullRequests, discoverOrRefreshPullRequest, openPullRequest, refreshPullRequestChecks } from "../src/services/open-pull-request.js";
 import { runChecks } from "../src/services/run-checks.js";
 import { showTask } from "../src/services/show-task.js";
 import { readTask } from "../src/state/task-store.js";
@@ -488,6 +488,75 @@ describe("task lifecycle services", () => {
     const task = await refreshPullRequestChecks(paths, "task_1");
     expect(task.pullRequest.number).toBe(17);
     expect((await readTask(paths, "task_1")).pullRequest.number).toBe(17);
+  });
+
+  test("discoverOrRefreshAllProjectPullRequests refreshes target PRs and parent status", async () => {
+    const workspaceRoot = await createRepoRoot("craig-project-pr-refresh-");
+    tempRoots.push(workspaceRoot);
+    const paths = await createCraigState(workspaceRoot);
+    const stubDir = await createStubCommands(workspaceRoot);
+    process.env.PATH = `${stubDir}:${originalPath}`;
+    const taskWorktree = path.join(paths.worktreesDir, "project", "task_1");
+    const targetWorktree = path.join(paths.worktreesDir, "project", "task_1", "repo_a");
+    await mkdir(taskWorktree, { recursive: true });
+    await mkdir(targetWorktree, { recursive: true });
+    const viewFile = path.join(workspaceRoot, "gh-view.json");
+    await writeFile(
+      viewFile,
+      JSON.stringify({
+        number: 51,
+        url: "https://github.com/example/repo-a/pull/51",
+        baseRefName: "main",
+        headRefName: "craig/task_1/repo_a",
+        headRefOid: "abc51",
+        state: "OPEN",
+        mergeable: "MERGEABLE",
+        mergeStateStatus: "CLEAN",
+        statusCheckRollup: [{ context: "ci", state: "SUCCESS", conclusion: "SUCCESS" }],
+      }),
+      "utf8",
+    );
+    process.env.CRAIG_TEST_GH_VIEW_FILE = viewFile;
+    await writeTaskRecord(paths.repoRoot, {
+      id: "task_1",
+      type: "project",
+      status: "checked",
+      worktreePath: taskWorktree,
+      repoTargets: [
+        {
+          repoId: "repo_a",
+          branch: "craig/task_1/repo_a",
+          repoRoot: path.join(workspaceRoot, "repo-a"),
+          worktreePath: targetWorktree,
+          status: "ready",
+          failureReason: null,
+          checks: { source: { type: "repo_config", path: ".craig/config.json" }, lastRunAt: null, status: "not_run", commands: [], results: [] },
+          lastCommit: null,
+          pullRequest: {
+            provider: "github",
+            number: null,
+            url: null,
+            baseBranch: null,
+            headBranch: null,
+            status: null,
+            mergeable: false,
+            mergeStateStatus: null,
+            requiredChecks: [],
+            lastSyncedAt: null,
+            lastSyncedHeadSha: null,
+          },
+          cleanup: { paneClosedAt: null, worktreeRemovedAt: null, preservedWorktree: false, warning: null },
+        },
+      ],
+    });
+
+    const counts = await discoverOrRefreshAllProjectPullRequests(paths, "task_1");
+    const task = await readTask(paths, "task_1");
+
+    expect(counts).toEqual({ synced: 0, discovered: 1, notFound: 0 });
+    expect(task.status).toBe("merge_ready");
+    expect(task.repoTargets?.[0]?.pullRequest.number).toBe(51);
+    expect(task.repoTargets?.[0]?.pullRequest.requiredChecks.map((check) => `${check.name}:${check.status}`)).toEqual(["ci:success"]);
   });
 
   test("openPullRequest pushes new commits when refreshing an existing PR", async () => {
