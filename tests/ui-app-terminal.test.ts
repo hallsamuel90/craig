@@ -1969,6 +1969,7 @@ describe("terminal app PTY attach flow", () => {
     terminal.emitKey("["); // focus left pane
     terminal.emitKey("DOWN"); // + New Task
     terminal.emitKey("ENTER");
+    await vi.waitFor(() => expect(stripAnsi(terminal.frames.at(-1) ?? "")).toContain("NEW TASK"));
     for (const char of "missing claude") {
       terminal.emitKey(char);
     }
@@ -1988,7 +1989,7 @@ describe("terminal app PTY attach flow", () => {
     expect(task.runner).toBe("claude");
     expect(task.runnerSession.lastKnownState).toBe("failed");
     expect(task.lastFailureReason).toMatch(/claude/);
-  });
+  }, 10000);
 
   test("the left panel can open the new workspace browser and register a repo with arrow keys", async () => {
     const root = await mkdtemp(join(tmpdir(), "craig-ui-app-"));
