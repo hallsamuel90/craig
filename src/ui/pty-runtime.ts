@@ -48,10 +48,6 @@ const CONTROL_KEY_PATTERN = /^CTRL_([A-Z])$/;
 const DEVICE_STATUS_REPORT_QUERY = "\u001B[6n";
 const PRIMARY_DEVICE_ATTRIBUTES_QUERY = "\u001B[c";
 const KITTY_KEYBOARD_QUERY = "\u001B[?u";
-const OSC_FOREGROUND_QUERY_ST = "\u001B]10;?\u001B\\";
-const OSC_FOREGROUND_QUERY_BEL = "\u001B]10;?\u0007";
-const OSC_BACKGROUND_QUERY_ST = "\u001B]11;?\u001B\\";
-const OSC_BACKGROUND_QUERY_BEL = "\u001B]11;?\u0007";
 const SPECIAL_KEY_INPUT: Record<string, string> = {
   ENTER: "\r",
   KP_ENTER: "\r",
@@ -322,18 +318,6 @@ function respondToTerminalQueries(pty: NodePty.IPty, chunk: string): void {
 
   for (let index = 0; index < countSubstring(chunk, KITTY_KEYBOARD_QUERY); index += 1) {
     pty.write("\u001B[?0u");
-  }
-
-  const foregroundQueryCount =
-    countSubstring(chunk, OSC_FOREGROUND_QUERY_ST) + countSubstring(chunk, OSC_FOREGROUND_QUERY_BEL);
-  for (let index = 0; index < foregroundQueryCount; index += 1) {
-    pty.write("\u001B]10;rgb:e6e6/e6e6/e6e6\u001B\\");
-  }
-
-  const backgroundQueryCount =
-    countSubstring(chunk, OSC_BACKGROUND_QUERY_ST) + countSubstring(chunk, OSC_BACKGROUND_QUERY_BEL);
-  for (let index = 0; index < backgroundQueryCount; index += 1) {
-    pty.write("\u001B]11;rgb:0a0a/0a0a/0a0a\u001B\\");
   }
 }
 

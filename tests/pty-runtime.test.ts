@@ -70,7 +70,7 @@ describe("PTY runtime", () => {
     expect(updated.rows[0]?.segments[0]?.text).toContain("ok");
   });
 
-  test("answers terminal capability probes so runner CLIs can finish bootstrapping", () => {
+  test("answers core terminal capability probes so runner CLIs can finish bootstrapping", () => {
     const fakePty = createFakePty();
     const runtime = new PtyRuntime({
       workspaceRoot: "/tmp/craig",
@@ -86,9 +86,29 @@ describe("PTY runtime", () => {
       "\u001B[1;1R",
       "\u001B[?1;2c",
       "\u001B[?0u",
-      "\u001B]10;rgb:e6e6/e6e6/e6e6\u001B\\",
-      "\u001B]11;rgb:0a0a/0a0a/0a0a\u001B\\",
     ]);
+  });
+
+  test("does not inject OSC color responses into interactive tabs", () => {
+    const agentPty = createFakePty();
+    const terminalPty = createFakePty();
+    const spawn = vi.fn()
+      .mockReturnValueOnce(agentPty)
+      .mockReturnValueOnce(terminalPty);
+    const runtime = new PtyRuntime({
+      workspaceRoot: "/tmp/craig",
+      shell: "/bin/zsh",
+      env: { TERM: "xterm-256color" },
+      spawn,
+    });
+
+    runtime.ensureSession("task_20260430_02", "task_20260430_02:agent", { columns: 80, rows: 24 });
+    runtime.ensureSession("task_20260430_02", "task_20260430_02:terminal", { columns: 80, rows: 24 });
+    agentPty.emitData("\u001B]10;?\u001B\\\u001B]11;?\u001B\\");
+    terminalPty.emitData("\u001B]10;?\u001B\\\u001B]11;?\u001B\\");
+
+    expect(agentPty.writes).toEqual([]);
+    expect(terminalPty.writes).toEqual([]);
   });
 
   test("restarts an exited PTY session when the task is reattached", async () => {
