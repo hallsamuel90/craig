@@ -1,5 +1,11 @@
 # craig-cli
 
+## 0.4.2
+
+### Patch Changes
+
+- 9170984: Fix terminal rendering so rich PTY output cannot shift Craig's frame down.
+
 ## 0.4.1
 
 ### Patch Changes
