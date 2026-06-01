@@ -40,6 +40,8 @@ export function formatCommandResult(result: CommandResult): string {
       return `Archived workspace ${result.workspaceId} on branch ${result.branch}`;
     case "restoreWorkspace":
       return `Restored workspace ${result.workspaceId} on branch ${result.branch}`;
+    case "removeWorkspace":
+      return `Removed workspace ${result.workspaceId} (${result.rootPath})`;
     case "createTask":
       return [
         `Created task ${result.taskId}`,

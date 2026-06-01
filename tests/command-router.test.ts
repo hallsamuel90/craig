@@ -40,6 +40,10 @@ describe("command routing", () => {
       kind: "restoreWorkspace",
       workspaceId: "workspace_repo_one",
     });
+    expect(parseArgv(["workspace", "remove", "workspace_repo_one"]).command).toEqual({
+      kind: "removeWorkspace",
+      workspaceId: "workspace_repo_one",
+    });
   });
 
   test("argv task new accepts explicit runner profiles", () => {
@@ -231,6 +235,106 @@ describe("command routing", () => {
     expect(removed.kind).toBe("removeRepo");
     await expect(readFile(path.join(paths.reposDir, `${created.repo.id}.json`), "utf8")).rejects.toThrow();
     await expect(readFile(path.join(paths.workspacesDir, `${created.workspaceId}.json`), "utf8")).rejects.toThrow();
+  });
+
+  test("workspace remove requires archive first and removes only the workspace record", async () => {
+    const workspaceRoot = await createRepoRoot("craig-router-workspace-remove-");
+    const repoRoot = path.join(workspaceRoot, "repo-a");
+    tempRoots.push(workspaceRoot);
+    await createCraigState(workspaceRoot);
+    await import("node:fs/promises").then(({ mkdir }) => mkdir(repoRoot, { recursive: true }));
+    await createGitRepo(repoRoot);
+    const paths = getCraigPaths(workspaceRoot);
+
+    const created = await executeCommand({ kind: "addWorkspace", path: "./repo-a" }, { paths });
+    if (created.kind !== "createWorkspace") {
+      throw new Error("Expected createWorkspace result.");
+    }
+
+    await expect(executeCommand({ kind: "removeWorkspace", workspaceId: created.workspace.id }, { paths })).rejects.toThrow(
+      /Archive it first/,
+    );
+
+    await executeCommand({ kind: "archiveWorkspace", workspaceId: created.workspace.id }, { paths });
+    const removed = await executeCommand({ kind: "removeWorkspace", workspaceId: created.workspace.id }, { paths });
+
+    expect(removed.kind).toBe("removeWorkspace");
+    await expect(readFile(path.join(paths.workspacesDir, `${created.workspace.id}.json`), "utf8")).rejects.toThrow();
+    await expect(readFile(path.join(paths.reposDir, `${created.repos[0]!.id}.json`), "utf8")).resolves.toContain(repoRoot);
+  });
+
+  test("workspace remove rejects workspaces with task records", async () => {
+    const workspaceRoot = await createRepoRoot("craig-router-workspace-remove-task-");
+    const repoRoot = path.join(workspaceRoot, "repo-a");
+    tempRoots.push(workspaceRoot);
+    await createCraigState(workspaceRoot);
+    await import("node:fs/promises").then(({ mkdir }) => mkdir(repoRoot, { recursive: true }));
+    await createGitRepo(repoRoot);
+    const paths = getCraigPaths(workspaceRoot);
+
+    const created = await executeCommand({ kind: "addWorkspace", path: "./repo-a" }, { paths });
+    if (created.kind !== "createWorkspace") {
+      throw new Error("Expected createWorkspace result.");
+    }
+
+    await writeFile(
+      path.join(paths.tasksDir, "task_has_workspace.json"),
+      JSON.stringify({
+        id: "task_has_workspace",
+        title: "Has workspace",
+        slug: "has-workspace",
+        type: "repo",
+        repoId: created.repos[0]!.id,
+        repoRoot,
+        workspaceId: created.workspace.id,
+        branch: "craig/has-workspace",
+        worktreePath: path.join(paths.worktreesDir, "repo-a", "task_has_workspace"),
+        status: "closed",
+        prompt: { source: "inline", value: "test" },
+        runner: "codex",
+        runnerSession: { command: ["codex"], pid: null, lastKnownState: "exited", startedAt: null, exitedAt: null, exitCode: null },
+        linkedRepoIds: [],
+        repoTargets: [],
+        sessionId: null,
+        selectedPtyTabId: null,
+        ptyTabs: [],
+        artifacts: { logPath: "logs/task_has_workspace.log", checkSummaryPath: null, prDraftPath: null, prStatusPath: null },
+        checks: {
+          source: { type: "repo_config", path: ".craig/config.json" },
+          lastRunAt: null,
+          status: "not_run",
+          commands: [],
+          results: [],
+        },
+        lastCommit: null,
+        pullRequest: {
+          provider: "github",
+          number: null,
+          url: null,
+          baseBranch: null,
+          headBranch: null,
+          status: null,
+          mergeable: false,
+          mergeStateStatus: null,
+          requiredChecks: [],
+          lastSyncedAt: null,
+          lastSyncedHeadSha: null,
+        },
+        cleanup: { paneClosedAt: null, worktreeRemovedAt: null, preservedWorktree: false, warning: null },
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+      }),
+      "utf8",
+    );
+
+    const indexPath = path.join(paths.craigDir, "index.json");
+    const index = JSON.parse(await readFile(indexPath, "utf8")) as { taskIds: string[] };
+    await writeFile(indexPath, JSON.stringify({ ...index, taskIds: ["task_has_workspace"] }, null, 2), "utf8");
+    await executeCommand({ kind: "archiveWorkspace", workspaceId: created.workspace.id }, { paths });
+
+    await expect(executeCommand({ kind: "removeWorkspace", workspaceId: created.workspace.id }, { paths })).rejects.toThrow(
+      /task records still reference it/,
+    );
   });
 
   test("invalid repo registrations are rejected", async () => {

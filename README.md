@@ -92,6 +92,9 @@ Tasks
   Enter         attach selected task PTY
   X             close selected task
 
+Workspaces
+  X             remove selected empty workspace
+
 Center panel
   Enter         attach PTY
   +             new tab
@@ -125,6 +128,7 @@ craig workspace list
 craig workspace list --archived
 craig workspace archive <workspace-id>
 craig workspace restore <workspace-id>
+craig workspace remove <workspace-id>
 
 craig task new --repo <repo-id> [--runner codex|cursor|claude] "<task>"
 craig task list

@@ -2030,6 +2030,59 @@ describe("terminal app PTY attach flow", () => {
     expect(repos.map((repo) => repo.name)).toContain("repo-b");
     expect(terminal.frames.join("\n")).toContain("Registered workspace: repo-b");
   });
+
+  test("the left panel can remove an empty workspace", async () => {
+    const root = await mkdtemp(join(tmpdir(), "craig-ui-app-"));
+    tempRoots.push(root);
+    const paths = await setupWorkspace(root);
+    const repoBRoot = join(root, "repo-b");
+    await mkdir(repoBRoot, { recursive: true });
+    await createGitRepo(repoBRoot);
+    await writeRepoRecord(
+      root,
+      {
+        id: "repo_b",
+        name: "repo-b",
+        rootPath: repoBRoot,
+        defaultBranch: "main",
+        createdAt: "2026-05-04T00:00:00.000Z",
+        updatedAt: "2026-05-04T00:00:00.000Z",
+      },
+      {
+        id: "workspace_repo_b",
+        kind: "repo",
+        name: "repo-b",
+        rootPath: repoBRoot,
+        primaryRepoId: "repo_b",
+        repoId: "repo_b",
+        discoveredRepoIds: ["repo_b"],
+        branch: "main",
+        status: "active",
+        linkedRepoIds: [],
+        archivedAt: null,
+        createdAt: "2026-05-04T00:00:00.000Z",
+        updatedAt: "2026-05-04T00:00:00.000Z",
+      },
+    );
+
+    const terminal = new FakeTerminal();
+    const ptyRuntime = new FakePtyRuntime();
+    const app = startTerminalApp({ terminal, ptyRuntime, uiStateFile: paths.uiStateFile, workspaceRoot: root });
+    await vi.waitFor(() => expect(terminal.hasKeyListener()).toBe(true));
+
+    terminal.emitKey("\r"); // boot start
+    terminal.emitKey("["); // focus left pane
+    terminal.emitKey("DOWN"); // + New Task under repo-a
+    terminal.emitKey("DOWN"); // repo-b workspace
+    terminal.emitKey("x");
+
+    await vi.waitFor(() => expect(stripAnsi(terminal.frames.join("\n"))).toContain("Removed workspace"));
+    await expect(readFile(join(paths.workspacesDir, "workspace_repo_b.json"), "utf8")).rejects.toThrow();
+    await expect(readFile(join(paths.reposDir, "repo_b.json"), "utf8")).resolves.toContain(repoBRoot);
+
+    terminal.emitKey("q");
+    await expect(app).resolves.toBe(0);
+  });
 });
 
 class FakeTerminal implements TerminalRuntime {

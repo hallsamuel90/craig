@@ -15,7 +15,7 @@ import { openPullRequest } from "../services/open-pull-request.js";
 import { mergeTask } from "../services/merge-task.js";
 import { addRepo, listRegisteredRepos, removeRepo } from "../services/repo-registry.js";
 import { addTaskLink, listTaskLinks } from "../services/task-links.js";
-import { addWorkspace, archiveWorkspace, listWorkspaces, restoreWorkspace } from "../services/workspace-registry.js";
+import { addWorkspace, archiveWorkspace, listWorkspaces, removeWorkspace, restoreWorkspace } from "../services/workspace-registry.js";
 
 export interface CommandContext {
   paths: CraigPaths;
@@ -41,6 +41,8 @@ export async function executeCommand(
       return archiveWorkspace(context.paths, command.workspaceId);
     case "restoreWorkspace":
       return restoreWorkspace(context.paths, command.workspaceId);
+    case "removeWorkspace":
+      return removeWorkspace(context.paths, command.workspaceId);
     case "createTask":
       return createTask(
         context.paths,

@@ -180,6 +180,8 @@ export function buildShellData(state: ControlShellState, model: WorkspaceShellMo
             ? `r runner [${getRunnerDisplayName(state.selectedRunner)}]   Enter create task   Esc pause   ? help`
             : isTaskLeftItemId(state.selectedLeftItemId)
             ? "n new task   Enter attach   X close task   Esc pause   ? help"
+            : state.selectedLeftItemId?.startsWith("workspace:")
+            ? "n new task   Enter select   X remove workspace   Esc pause   ? help"
             : "n new task   Enter select   Esc pause   ? help"
         : state.focusedRegion === "center"
           ? selectedTask === null

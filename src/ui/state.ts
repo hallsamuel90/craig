@@ -114,6 +114,7 @@ export interface MainKeyResult {
   refreshPullRequestChecks: boolean;
   mergeTask: boolean;
   closeTask: boolean;
+  removeWorkspace: boolean;
   refreshInspection: boolean;
 }
 
@@ -394,6 +395,14 @@ export function reduceMainKey(state: ControlShellState, key: string, options: Re
       state: { ...state, selectedActionId: "close-task", actionMessage: null },
       changed: true,
       closeTask: true,
+    });
+  }
+
+  if ((key === "X" || key === "x") && state.focusedRegion === "tasks" && isWorkspaceLeftItemId(state.selectedLeftItemId) && state.selectedWorkspaceId) {
+    return result({
+      state: { ...state, actionMessage: null },
+      changed: true,
+      removeWorkspace: true,
     });
   }
 
@@ -1169,6 +1178,7 @@ function result(input: {
   refreshPullRequestChecks?: boolean;
   mergeTask?: boolean;
   closeTask?: boolean;
+  removeWorkspace?: boolean;
   refreshInspection?: boolean;
 }): MainKeyResult {
   return {
@@ -1189,6 +1199,7 @@ function result(input: {
     refreshPullRequestChecks: input.refreshPullRequestChecks ?? false,
     mergeTask: input.mergeTask ?? false,
     closeTask: input.closeTask ?? false,
+    removeWorkspace: input.removeWorkspace ?? false,
     refreshInspection: input.refreshInspection ?? false,
   };
 }
@@ -1457,6 +1468,10 @@ function isNewTaskLeftItemId(value: LeftNavItemId | null): boolean {
 
 function isNewTaskWorkspaceLeftItemId(value: LeftNavItemId | null): boolean {
   return typeof value === "string" && value.startsWith("new-task-workspace:");
+}
+
+function isWorkspaceLeftItemId(value: LeftNavItemId | null): boolean {
+  return typeof value === "string" && value.startsWith("workspace:");
 }
 
 function getNewTaskRepoId(value: LeftNavItemId | null): string | null {

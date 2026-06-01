@@ -10,6 +10,7 @@ export type AppCommand =
   | { kind: "listWorkspaces"; archived: boolean }
   | { kind: "archiveWorkspace"; workspaceId: string }
   | { kind: "restoreWorkspace"; workspaceId: string }
+  | { kind: "removeWorkspace"; workspaceId: string }
   | { kind: "createTask"; repoId?: string; workspaceId?: string; prompt: string; runner?: RunnerType }
   | { kind: "listTasks"; repoId?: string; workspaceId?: string }
   | { kind: "attachTask"; taskId: string }
@@ -92,6 +93,12 @@ export interface CommandRestoreWorkspaceResult {
   workspaceId: string;
   status: "active";
   branch: string;
+}
+
+export interface CommandRemoveWorkspaceResult {
+  kind: "removeWorkspace";
+  workspaceId: string;
+  rootPath: string;
 }
 
 export interface CommandHelpResult {
@@ -219,6 +226,7 @@ export type CommandResult =
   | CommandListWorkspacesResult
   | CommandArchiveWorkspaceResult
   | CommandRestoreWorkspaceResult
+  | CommandRemoveWorkspaceResult
   | CommandCreateTaskResult
   | CommandAttachTaskResult
   | CommandAddTaskLinkResult

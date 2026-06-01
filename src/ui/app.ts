@@ -14,7 +14,7 @@ import { ensureCraigState } from "../state/ensure-state.js";
 import type { RunnerType, TaskPtyTabRecord, TaskRecord } from "../types/task.js";
 import { listTasks } from "../services/list-tasks.js";
 import { provisionProjectTask, provisionTask } from "../services/task-provisioning.js";
-import { addWorkspace } from "../services/workspace-registry.js";
+import { addWorkspace, archiveWorkspace, removeWorkspace } from "../services/workspace-registry.js";
 import { loadTaskLocalInspection, reloadSelectedContent, type InspectionTreeRow } from "../services/task-local-inspection.js";
 import { discoverOrRefreshAllProjectPullRequests, discoverOrRefreshPullRequest, openPullRequest } from "../services/open-pull-request.js";
 import { mergeTask } from "../services/merge-task.js";
@@ -647,6 +647,32 @@ export async function startTerminalApp(options: TerminalAppOptions = {}): Promis
       });
     }
 
+    async function removeWorkspaceFromShell(shell: ControlShellState): Promise<ControlShellState> {
+      const syncedShell = syncShell(shell);
+      if (!syncedShell.selectedWorkspaceId) {
+        throw new Error("Select a workspace before removing it.");
+      }
+
+      const taskResult = await listTasks(paths, { workspaceId: syncedShell.selectedWorkspaceId, includeClosed: true });
+      if (taskResult.tasks.length > 0) {
+        throw new Error(`Cannot remove workspace ${syncedShell.selectedWorkspaceId} while task records still reference it.`);
+      }
+
+      await archiveWorkspace(paths, syncedShell.selectedWorkspaceId);
+      const removed = await removeWorkspace(paths, syncedShell.selectedWorkspaceId);
+      await reloadModel();
+
+      return syncShell({
+        ...syncedShell,
+        selectedWorkspaceId: null,
+        selectedRepoId: null,
+        selectedTaskId: null,
+        selectedPtyTabId: null,
+        selectedLeftItemId: null,
+        actionMessage: `Removed workspace ${removed.workspaceId}`,
+      });
+    }
+
     async function ensureDefaultAgentTab(task: TaskRecord): Promise<TaskRecord> {
       const agentTab = task.ptyTabs.find((tab) => tab.kind === "agent") ?? null;
       if (agentTab) {
@@ -1246,6 +1272,21 @@ export async function startTerminalApp(options: TerminalAppOptions = {}): Promis
             })
             .catch((error: unknown) => {
               const message = error instanceof Error ? error.message : "Failed to close task.";
+              state = { mode: "main", shell: syncShell({ ...result.state, actionMessage: message }) };
+              render();
+            });
+          return;
+        }
+
+        if (result.removeWorkspace) {
+          void removeWorkspaceFromShell(result.state)
+            .then((nextShell) => {
+              state = { mode: "main", shell: nextShell };
+              persistShellState(state.shell);
+              render();
+            })
+            .catch((error: unknown) => {
+              const message = error instanceof Error ? error.message : "Failed to remove workspace.";
               state = { mode: "main", shell: syncShell({ ...result.state, actionMessage: message }) };
               render();
             });
