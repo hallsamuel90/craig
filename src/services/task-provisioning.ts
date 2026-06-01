@@ -1,4 +1,4 @@
-import { mkdir, writeFile } from "node:fs/promises";
+import { mkdir, rm, writeFile } from "node:fs/promises";
 import path from "node:path";
 
 import type { CraigPaths } from "../state/craig-paths.js";
@@ -59,7 +59,7 @@ export async function provisionTask(
 
   await writeTask(paths, draftTask);
   await appendTaskId(paths, taskId);
-  await createWorktree(repo.rootPath, branch, worktreePath);
+  await createWorktree(repo.rootPath, branch, worktreePath, repo.defaultBranch);
 
   return {
     repoId: repo.id,
@@ -116,6 +116,12 @@ export async function provisionProjectTask(
     repos.map((repo) => provisionProjectRepoTarget(paths, repo, taskId, branch, path.join(bundlePath, repoDirectoryNames.get(repo.id)!))),
   );
   const readyTarget = repoTargets.find((target) => target.status === "ready") ?? repoTargets[0]!;
+  if (!repoTargets.some((target) => target.status === "ready")) {
+    await rm(bundlePath, { recursive: true, force: true });
+    throw new Error(
+      `No project repo targets could be provisioned for ${workspaceId}: ${repoTargets.map((target) => `${target.repoId}: ${target.failureReason ?? "unknown error"}`).join("; ")}`,
+    );
+  }
 
   await writeFile(
     path.join(bundlePath, "manifest.json"),
@@ -286,7 +292,7 @@ async function provisionProjectRepoTarget(
   await mkdir(path.dirname(worktreePath), { recursive: true });
 
   try {
-    await createWorktree(repo.rootPath, branch, worktreePath);
+    await createWorktree(repo.rootPath, branch, worktreePath, repo.defaultBranch);
     return {
       repoId: repo.id,
       branch,

@@ -50,4 +50,24 @@ describe("git-task", () => {
     expect(worktreeHead).toBe(remoteHead);
     expect(readme.stdout).toContain("remote update");
   });
+
+  test("createWorktree uses the requested base branch when the repo does not have local main", async () => {
+    const root = await mkdtemp(path.join(os.tmpdir(), "craig-git-task-base-"));
+    tempRoots.push(root);
+    const repoRoot = path.join(root, "repo");
+    const worktreePath = path.join(root, "task-worktree");
+
+    await runCommand("git", ["init", "-b", "trunk", repoRoot]);
+    await runCommand("git", ["config", "user.name", "Craig Tests"], { cwd: repoRoot });
+    await runCommand("git", ["config", "user.email", "craig@example.com"], { cwd: repoRoot });
+    await writeFile(path.join(repoRoot, "README.md"), "trunk\n", "utf8");
+    await runCommand("git", ["add", "README.md"], { cwd: repoRoot });
+    await runCommand("git", ["commit", "-m", "seed"], { cwd: repoRoot });
+
+    await createWorktree(repoRoot, "craig/task_1", worktreePath, "trunk");
+
+    const readme = await runCommand("git", ["show", "HEAD:README.md"], { cwd: worktreePath });
+
+    expect(readme.stdout).toContain("trunk");
+  });
 });
