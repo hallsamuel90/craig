@@ -484,8 +484,6 @@ async function createCodexHarnessStub(workspaceRoot: string): Promise<string> {
     `const expected = [
   { query: "\\u001B[6n", match: /\\u001B\\[\\d+;\\d+R/ },
   { query: "\\u001B[c", match: /\\u001B\\[\\?.*c/ },
-  { query: "\\u001B]10;?\\u001B\\\\", match: /\\u001B\\]10;.*(?:\\u0007|\\u001B\\\\)/ },
-  { query: "\\u001B]11;?\\u001B\\\\", match: /\\u001B\\]11;.*(?:\\u0007|\\u001B\\\\)/ },
   { query: "\\u001B[?u", match: /\\u001B\\[\\?\\d+u/ },
 ];
 

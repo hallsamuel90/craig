@@ -1978,6 +1978,7 @@ describe("terminal app PTY attach flow", () => {
       const tasks = await import("../src/services/list-tasks.js").then(({ listTasks }) => listTasks(paths));
       expect(tasks.tasks.some((task) => task.runner === "claude" && task.runnerSession.lastKnownState === "failed")).toBe(true);
     });
+    await vi.waitFor(() => expect(stripAnsi(terminal.frames.at(-1) ?? "")).toContain("▸ missing claude"));
     terminal.emitKey("q");
 
     await expect(app).resolves.toBe(0);
