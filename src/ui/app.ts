@@ -719,12 +719,12 @@ export async function startTerminalApp(options: TerminalAppOptions = {}): Promis
                     })
                   : renderHelpOverlayFrame(viewport);
 
-      activeTerminal.moveTo(1, 1);
       if (pendingClear) {
+        activeTerminal.moveTo(1, 1);
         activeTerminal.eraseDisplayBelow();
         pendingClear = false;
       }
-      activeTerminal.noFormat(frame);
+      activeTerminal.noFormat(positionFrameRows(frame));
 
       activeTerminal.hideCursor(true);
     };
@@ -1838,6 +1838,13 @@ function getPtySize(viewport: Viewport): PtySize {
     ),
     rows: Math.max(5, viewport.height - SHELL_LAYOUT.topRailHeight - 5),
   };
+}
+
+function positionFrameRows(frame: string): string {
+  return frame
+    .split("\n")
+    .map((line, index) => `\u001B[${index + 1};1H${line}`)
+    .join("");
 }
 
 function inputToString(value: unknown): string {

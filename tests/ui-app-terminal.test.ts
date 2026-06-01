@@ -44,6 +44,26 @@ describe("terminal app PTY attach flow", () => {
     );
   });
 
+  test("renders shell frames with absolute row positioning instead of newlines", async () => {
+    const root = await mkdtemp(join(tmpdir(), "craig-ui-app-"));
+    tempRoots.push(root);
+    const paths = await setupWorkspace(root);
+    const terminal = new FakeTerminal();
+    const ptyRuntime = new FakePtyRuntime();
+    const app = startTerminalApp({ terminal, ptyRuntime, uiStateFile: paths.uiStateFile, workspaceRoot: root });
+    await vi.waitFor(() => expect(terminal.hasKeyListener()).toBe(true));
+
+    const frame = terminal.frames.at(-1) ?? "";
+    expect(frame).not.toContain("\n");
+    expect(frame).toContain("\u001B[1;1H");
+    expect(frame).toContain(`\u001B[${terminal.height};1H`);
+
+    terminal.emitKey("\r");
+    await vi.waitFor(() => expect(stripAnsi(terminal.frames.at(-1) ?? "")).toContain("CRAIG"));
+    terminal.emitKey("q");
+    await expect(app).resolves.toBe(0);
+  });
+
   test.each(["ENTER", "CTRL_M", "RETURN"])(
     "%s on the focused terminal center pane attaches and forwards later keys to the PTY",
     async (enterKey) => {
