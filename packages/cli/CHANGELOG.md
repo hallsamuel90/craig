@@ -1,5 +1,11 @@
 # craig-cli
 
+## 0.4.5
+
+### Patch Changes
+
+- 25f5f16: Fix project task bundle creation for repositories whose default branch is not `main`, and fail cleanly instead of creating a manifest-only bundle when every repo target cannot be provisioned.
+
 ## 0.4.4
 
 ### Patch Changes
