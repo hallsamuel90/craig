@@ -22,48 +22,50 @@ export async function createWorktree(
   repoRoot: string,
   branch: string,
   worktreePath: string,
+  baseBranch = "main",
 ): Promise<void> {
+  const normalizedBaseBranch = baseBranch.trim() || "main";
   const baseBranchExists = await runCommandAllowingFailure(
     "git",
-    ["show-ref", "--verify", "--quiet", "refs/heads/main"],
+    ["show-ref", "--verify", "--quiet", `refs/heads/${normalizedBaseBranch}`],
     { cwd: repoRoot },
   );
 
   if (baseBranchExists.exitCode !== 0) {
-    throw new Error("Base branch 'main' does not exist locally.");
+    throw new Error(`Base branch '${normalizedBaseBranch}' does not exist locally.`);
   }
 
-  const baseRef = await resolveWorktreeBaseRef(repoRoot);
+  const baseRef = await resolveWorktreeBaseRef(repoRoot, normalizedBaseBranch);
 
   await runCommand("git", ["worktree", "add", "-b", branch, worktreePath, baseRef], {
     cwd: repoRoot,
   });
 }
 
-async function resolveWorktreeBaseRef(repoRoot: string): Promise<string> {
+async function resolveWorktreeBaseRef(repoRoot: string, baseBranch: string): Promise<string> {
   const hasOrigin = await runCommandAllowingFailure("git", ["remote", "get-url", "origin"], {
     cwd: repoRoot,
   });
 
   if (hasOrigin.exitCode !== 0) {
-    return "main";
+    return baseBranch;
   }
 
-  const fetchOriginMain = await runCommandAllowingFailure("git", ["fetch", "origin", "main"], {
+  const fetchOriginBranch = await runCommandAllowingFailure("git", ["fetch", "origin", baseBranch], {
     cwd: repoRoot,
   });
 
-  if (fetchOriginMain.exitCode !== 0) {
-    return "main";
+  if (fetchOriginBranch.exitCode !== 0) {
+    return baseBranch;
   }
 
-  const hasRemoteMain = await runCommandAllowingFailure(
+  const hasRemoteBaseBranch = await runCommandAllowingFailure(
     "git",
-    ["show-ref", "--verify", "--quiet", "refs/remotes/origin/main"],
+    ["show-ref", "--verify", "--quiet", `refs/remotes/origin/${baseBranch}`],
     { cwd: repoRoot },
   );
 
-  return hasRemoteMain.exitCode === 0 ? "refs/remotes/origin/main" : "main";
+  return hasRemoteBaseBranch.exitCode === 0 ? `refs/remotes/origin/${baseBranch}` : baseBranch;
 }
 
 export async function hasUncommittedDiff(worktreePath: string): Promise<boolean> {

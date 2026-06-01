@@ -1,4 +1,4 @@
-import { lstat, mkdir, readFile, rm, writeFile } from "node:fs/promises";
+import { lstat, mkdir, readFile, readdir, rm, writeFile } from "node:fs/promises";
 import path from "node:path";
 
 import { afterEach, describe, expect, test } from "vitest";
@@ -6,7 +6,7 @@ import { afterEach, describe, expect, test } from "vitest";
 import { executeCommand } from "../src/commands/command-router.js";
 import { parseArgv } from "../src/commands/parse-argv.js";
 import { getCraigPaths } from "../src/state/craig-paths.js";
-import { readRepo } from "../src/state/repo-store.js";
+import { readRepo, writeRepo } from "../src/state/repo-store.js";
 import { readTask } from "../src/state/task-store.js";
 import { readUiState } from "../src/state/ui-state-store.js";
 import { readWorkspace } from "../src/state/workspace-store.js";
@@ -195,6 +195,61 @@ describe("command routing", () => {
     expect(manifest.repos.every((repo) => repo.worktreePath === path.join(task.bundlePath ?? "", repo.path))).toBe(true);
   });
 
+  test("project task provisioning uses each repo default branch instead of requiring main", async () => {
+    const workspaceRoot = await createRepoRoot("craig-router-project-trunk-");
+    tempRoots.push(workspaceRoot);
+    await createCraigState(workspaceRoot);
+    const paths = getCraigPaths(workspaceRoot);
+
+    for (const name of ["repo-a", "repo-b"]) {
+      const repoRoot = path.join(workspaceRoot, name);
+      await mkdir(repoRoot, { recursive: true });
+      await createGitRepoOnBranch(repoRoot, "trunk", `${name}\n`);
+    }
+
+    const project = await executeCommand({ kind: "addWorkspace", path: "." }, { paths });
+    if (project.kind !== "createWorkspace") {
+      throw new Error("Expected project workspace.");
+    }
+
+    const provisioned = await provisionProjectTask(paths, project.workspace.id, "ship from trunk");
+    const task = await readTask(paths, provisioned.task.id);
+
+    expect(task.repoTargets?.every((target) => target.status === "ready")).toBe(true);
+    for (const target of task.repoTargets ?? []) {
+      await expect(readFile(path.join(target.worktreePath, "README.md"), "utf8")).resolves.toContain("repo-");
+    }
+  });
+
+  test("project task provisioning fails instead of leaving a manifest-only bundle when every target fails", async () => {
+    const workspaceRoot = await createRepoRoot("craig-router-project-fail-");
+    tempRoots.push(workspaceRoot);
+    await createCraigState(workspaceRoot);
+    const paths = getCraigPaths(workspaceRoot);
+
+    for (const name of ["repo-a", "repo-b"]) {
+      const repoRoot = path.join(workspaceRoot, name);
+      await mkdir(repoRoot, { recursive: true });
+      await createGitRepoOnBranch(repoRoot, "trunk", `${name}\n`);
+    }
+
+    const project = await executeCommand({ kind: "addWorkspace", path: "." }, { paths });
+    if (project.kind !== "createWorkspace") {
+      throw new Error("Expected project workspace.");
+    }
+
+    await Promise.all(
+      project.repos.map(async (repo) => {
+        await writeRepo(paths, { ...repo, defaultBranch: "missing" });
+      }),
+    );
+
+    await expect(provisionProjectTask(paths, project.workspace.id, "ship nothing")).rejects.toThrow(
+      /No project repo targets could be provisioned/,
+    );
+    await expect(readdir(path.join(paths.craigDir, "task-bundles"))).resolves.toEqual([]);
+  });
+
   test("workspace archive and restore update state and persisted UI selection", async () => {
     const workspaceRoot = await createRepoRoot("craig-router-archive-");
     const repoRoot = path.join(workspaceRoot, "repo-a");
@@ -369,3 +424,12 @@ describe("command routing", () => {
     expect(() => parseArgv(["repo", "unknown"])).toThrow(/Unsupported command/);
   });
 });
+
+async function createGitRepoOnBranch(repoRoot: string, branch: string, readme: string): Promise<void> {
+  await runCommand("git", ["init", "-b", branch], { cwd: repoRoot });
+  await runCommand("git", ["config", "user.name", "Craig Tests"], { cwd: repoRoot });
+  await runCommand("git", ["config", "user.email", "craig@example.com"], { cwd: repoRoot });
+  await writeFile(path.join(repoRoot, "README.md"), readme, "utf8");
+  await runCommand("git", ["add", "README.md"], { cwd: repoRoot });
+  await runCommand("git", ["commit", "-m", "seed"], { cwd: repoRoot });
+}
