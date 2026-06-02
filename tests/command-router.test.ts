@@ -147,6 +147,31 @@ describe("command routing", () => {
     expect(explicitRepo.workspace.rootPath).toBe(path.join(workspaceRoot, "repo-a"));
   });
 
+  test("workspace add records trunk branch instead of checked-out feature branch", async () => {
+    const workspaceRoot = await createRepoRoot("craig-router-project-default-");
+    tempRoots.push(workspaceRoot);
+    await createCraigState(workspaceRoot);
+    const paths = getCraigPaths(workspaceRoot);
+    const repoRoot = path.join(workspaceRoot, "repo-a");
+
+    await mkdir(repoRoot, { recursive: true });
+    await createGitRepo(repoRoot);
+    await writeFile(path.join(repoRoot, "README.md"), "main\n", "utf8");
+    await runCommand("git", ["add", "README.md"], { cwd: repoRoot });
+    await runCommand("git", ["commit", "-m", "seed main"], { cwd: repoRoot });
+    await runCommand("git", ["checkout", "-b", "feature/readme"], { cwd: repoRoot });
+    await writeFile(path.join(repoRoot, "README.md"), "feature\n", "utf8");
+    await runCommand("git", ["commit", "-am", "feature readme"], { cwd: repoRoot });
+
+    const project = await executeCommand({ kind: "addWorkspace", path: "." }, { paths });
+    if (project.kind !== "createWorkspace") {
+      throw new Error("Expected project workspace.");
+    }
+
+    const repo = await readRepo(paths, project.repos[0]!.id);
+    expect(repo.defaultBranch).toBe("main");
+  });
+
   test("task new with a project workspace provisions per-repo targets and a bundle root", async () => {
     const workspaceRoot = await createRepoRoot("craig-router-project-task-");
     tempRoots.push(workspaceRoot);

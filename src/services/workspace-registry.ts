@@ -19,7 +19,7 @@ import {
   writeWorkspace,
 } from "../state/workspace-store.js";
 import { getDefaultUiState, readUiState, writeUiState } from "../state/ui-state-store.js";
-import { runCommand } from "../utils/exec.js";
+import { runCommand, runCommandAllowingFailure } from "../utils/exec.js";
 import { listTasks } from "./list-tasks.js";
 
 export async function addWorkspace(paths: CraigPaths, rawPath: string): Promise<CommandCreateWorkspaceResult> {
@@ -121,10 +121,10 @@ export async function removeWorkspace(paths: CraigPaths, workspaceId: string): P
 }
 
 async function addRepoWorkspace(paths: CraigPaths, rootPath: string): Promise<CommandCreateWorkspaceResult> {
-  const defaultBranch = await getCurrentBranch(rootPath);
+  const defaultBranch = await getDefaultBranch(rootPath);
   const existingRepos = await listRepos(paths);
   const existingRepo = existingRepos.find((repo) => repo.rootPath === rootPath) ?? null;
-  const repo = existingRepo ?? buildRepo(existingRepos, rootPath, defaultBranch);
+  const repo = existingRepo ? refreshRepo(existingRepo, defaultBranch) : buildRepo(existingRepos, rootPath, defaultBranch);
   const workspaceId = `workspace_${repo.id}`;
   const workspaces = await listWorkspaceRecords(paths);
   const existingWorkspace = workspaces.find((workspace) => workspace.id === workspaceId) ?? null;
@@ -145,9 +145,7 @@ async function addRepoWorkspace(paths: CraigPaths, rootPath: string): Promise<Co
     updatedAt: timestamp,
   };
 
-  if (!existingRepo) {
-    await writeRepo(paths, repo);
-  }
+  await writeRepo(paths, repo);
   if (!existingWorkspace) {
     await writeWorkspace(paths, workspace);
   }
@@ -231,7 +229,8 @@ async function discoverDirectChildRepos(paths: CraigPaths, rootPath: string): Pr
     }
 
     const existing = existingRepos.find((repo) => repo.rootPath === childPath) ?? repos.find((repo) => repo.rootPath === childPath);
-    repos.push(existing ?? buildRepo([...existingRepos, ...repos], childPath, await getCurrentBranch(childPath)));
+    const defaultBranch = await getDefaultBranch(childPath);
+    repos.push(existing ? refreshRepo(existing, defaultBranch) : buildRepo([...existingRepos, ...repos], childPath, defaultBranch));
   }
 
   return repos.sort((left, right) => left.name.localeCompare(right.name) || left.id.localeCompare(right.id));
@@ -246,6 +245,18 @@ function buildRepo(existingRepos: RepoRecord[], rootPath: string, defaultBranch:
     defaultBranch,
     createdAt: timestamp,
     updatedAt: timestamp,
+  };
+}
+
+function refreshRepo(repo: RepoRecord, defaultBranch: string): RepoRecord {
+  if (repo.defaultBranch === defaultBranch) {
+    return repo;
+  }
+
+  return {
+    ...repo,
+    defaultBranch,
+    updatedAt: new Date().toISOString(),
   };
 }
 
@@ -310,7 +321,24 @@ async function isGitRepo(rootPath: string): Promise<boolean> {
   }
 }
 
-async function getCurrentBranch(rootPath: string): Promise<string> {
+async function getDefaultBranch(rootPath: string): Promise<string> {
+  const originHead = await runCommandAllowingFailure("git", ["symbolic-ref", "--quiet", "--short", "refs/remotes/origin/HEAD"], {
+    cwd: rootPath,
+  });
+  const originHeadBranch = originHead.stdout.trim().replace(/^origin\//, "");
+  if (originHead.exitCode === 0 && originHeadBranch.length > 0) {
+    return originHeadBranch;
+  }
+
+  for (const branchName of ["main", "master", "trunk"]) {
+    const branchExists = await runCommandAllowingFailure("git", ["show-ref", "--verify", "--quiet", `refs/heads/${branchName}`], {
+      cwd: rootPath,
+    });
+    if (branchExists.exitCode === 0) {
+      return branchName;
+    }
+  }
+
   const result = await runCommand("git", ["branch", "--show-current"], { cwd: rootPath });
   const branch = result.stdout.trim();
   return branch.length > 0 ? branch : "HEAD";
