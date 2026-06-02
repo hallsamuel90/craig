@@ -1,5 +1,11 @@
 # craig-cli
 
+## 0.4.10
+
+### Patch Changes
+
+- bfc7fc3: Generate an `AGENTS.md` guide in project task bundles so agents can identify the child repo worktrees and avoid running repo Git commands from the bundle root.
+
 ## 0.4.9
 
 ### Patch Changes
