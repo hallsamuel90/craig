@@ -234,23 +234,11 @@ function buildLeftTree(state: ControlShellState, model: WorkspaceShellModel): Sh
       const workspaceSelected = state.selectedLeftItemId === `workspace:${workspace.id}`;
       rows.push({
         id: `workspace:${workspace.id}`,
-        text: `${workspace.kind === "project" ? "▦" : "▾"} ${workspace.name ?? workspace.id}`,
+        text: `${workspace.kind === "project" ? "≡" : "–"} ${workspace.name ?? workspace.id}`,
         selected: workspaceSelected,
         focused: workspaceSelected && state.focusedRegion === "tasks",
       });
       const workspaceRepoIds = workspace.kind === "project" ? workspace.discoveredRepoIds ?? [] : [workspace.primaryRepoId];
-      if (workspace.kind === "project") {
-        const newTaskId = `new-task-workspace:${workspace.id}`;
-        const newTaskSelected = state.selectedLeftItemId === newTaskId;
-        rows.push({
-          id: newTaskId,
-          text: `+ New Project Task [${getRunnerDisplayName(state.selectedRunner)}]`,
-          indent: 2,
-          selected: newTaskSelected,
-          focused: newTaskSelected && state.focusedRegion === "tasks",
-          muted: !newTaskSelected,
-        });
-      }
       const repoTasks = model.tasks.filter((task) => task.workspaceId === workspace.id);
 
       if (repoTasks.length === 0) {
@@ -274,6 +262,19 @@ function buildLeftTree(state: ControlShellState, model: WorkspaceShellModel): Sh
           }
           rows.push(row);
         }
+      }
+
+      if (workspace.kind === "project") {
+        const newTaskId = `new-task-workspace:${workspace.id}`;
+        const newTaskSelected = state.selectedLeftItemId === newTaskId;
+        rows.push({
+          id: newTaskId,
+          text: `+ New Project Task [${getRunnerDisplayName(state.selectedRunner)}]`,
+          indent: 2,
+          selected: newTaskSelected,
+          focused: newTaskSelected && state.focusedRegion === "tasks",
+          muted: !newTaskSelected,
+        });
       }
 
       if (workspace.kind === "repo") {
@@ -320,7 +321,7 @@ function buildLegacyRepoLeftTree(rows: ShellTreeRow[], state: ControlShellState,
       const repoSelected = state.selectedLeftItemId === `repo:${repo.id}`;
       rows.push({
         id: `repo:${repo.id}`,
-        text: `▾ ${repo.name}`,
+        text: `– ${repo.name}`,
         selected: repoSelected,
         focused: repoSelected && state.focusedRegion === "tasks",
       });
@@ -1060,11 +1061,6 @@ function buildPrDetailRows(
         }
       : { id: id("pr-number"), text: statusText },
   );
-
-  if (title) {
-    const display = title.length > 34 ? `${title.slice(0, 31)}…` : title;
-    rows.push({ id: id("pr-title"), text: display });
-  }
 
   const base = pr.baseBranch ?? "?";
   const head = pr.headBranch ?? fallbackBranch;
