@@ -218,6 +218,11 @@ describe("command routing", () => {
     expect(manifest.repos.map((repo) => repo.path).sort()).toEqual(["repo-a", "repo-b"]);
     expect(manifest.repos.map((repo) => repo.repoName).sort()).toEqual(["repo-a", "repo-b"]);
     expect(manifest.repos.every((repo) => repo.worktreePath === path.join(task.bundlePath ?? "", repo.path))).toBe(true);
+    const agentsGuide = await readFile(path.join(task.bundlePath ?? "", "AGENTS.md"), "utf8");
+    expect(agentsGuide).toContain("# Craig Project Task Bundle");
+    expect(agentsGuide).toContain("Run repo Git commands from a repo worktree directory, not from the bundle root.");
+    expect(agentsGuide).toContain("`repo-a/`");
+    expect(agentsGuide).toContain("`repo-b/`");
   });
 
   test("project task provisioning uses each repo default branch instead of requiring main", async () => {
