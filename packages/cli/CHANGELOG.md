@@ -1,5 +1,11 @@
 # craig-cli
 
+## 0.4.11
+
+### Patch Changes
+
+- 7a3f5ac: Fix project workspace arrow-key navigation so the new project task row follows existing task rows.
+
 ## 0.4.10
 
 ### Patch Changes
