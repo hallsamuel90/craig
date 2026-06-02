@@ -807,7 +807,7 @@ describe("terminal shell renderer", () => {
     const frame = renderMainShellFrame(MIN_VIEWPORT, data, { color: false });
 
     expect(frame).toContain("WORKSPACES");
-    expect(frame).toContain("▦ projects");
+    expect(frame).toContain("≡ projects");
     expect(frame).toContain("scaffold api");
     expect(frame).toContain("Repos (3)");
     expect(frame).toContain("· alpha");
