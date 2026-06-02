@@ -25,6 +25,8 @@ export interface ProvisionedProjectTask extends ProvisionedTask {
   repoTargets: ProjectTaskRepoTarget[];
 }
 
+const PROJECT_BUNDLE_GUIDE_FILENAME = ["AGENTS", "md"].join(".");
+
 export async function provisionTask(
   paths: CraigPaths,
   repoId: string,
@@ -138,6 +140,18 @@ export async function provisionProjectTask(
         failureReason: target.failureReason,
       })),
     }, null, 2),
+    "utf8",
+  );
+  await writeFile(
+    path.join(bundlePath, PROJECT_BUNDLE_GUIDE_FILENAME),
+    buildProjectBundleAgentsMarkdown({
+      taskId,
+      workspaceId,
+      prompt,
+      repos,
+      repoTargets,
+      bundlePath,
+    }),
     "utf8",
   );
 
@@ -322,11 +336,11 @@ async function provisionProjectRepoTarget(
 }
 
 function allocateProjectRepoDirectoryNames(repos: RepoRecord[]): Map<string, string> {
-  const usedNames = new Set(["manifest.json"]);
+  const usedNames = new Set(["manifest.json", PROJECT_BUNDLE_GUIDE_FILENAME]);
   const names = new Map<string, string>();
 
   for (const repo of repos) {
-    const baseName = repo.name === "manifest.json" ? `${repo.name}-repo` : repo.name;
+    const baseName = usedNames.has(repo.name) ? `${repo.name}-repo` : repo.name;
     let candidate = baseName;
     let suffix = 2;
 
@@ -340,6 +354,42 @@ function allocateProjectRepoDirectoryNames(repos: RepoRecord[]): Map<string, str
   }
 
   return names;
+}
+
+function buildProjectBundleAgentsMarkdown(input: {
+  taskId: string;
+  workspaceId: string;
+  prompt: string;
+  repos: RepoRecord[];
+  repoTargets: ProjectTaskRepoTarget[];
+  bundlePath: string;
+}): string {
+  const repoNames = new Map(input.repos.map((repo) => [repo.id, repo.name]));
+  const repoRows = input.repoTargets
+    .map((target) => {
+      const repoName = repoNames.get(target.repoId) ?? target.repoId;
+      const relativePath = path.relative(input.bundlePath, target.worktreePath);
+      const status = target.status === "ready" ? "ready" : `unavailable: ${target.failureReason ?? "unknown error"}`;
+      return `- \`${relativePath}/\` - ${repoName} (${target.repoId}, ${status})`;
+    })
+    .join("\n");
+
+  return [
+    "# Craig Project Task Bundle",
+    "",
+    "This directory is a Craig project task bundle. Repo work must happen inside the child repo worktrees listed below.",
+    "",
+    "Run repo Git commands from a repo worktree directory, not from the bundle root. Use `manifest.json` as the machine-readable source of truth for this bundle.",
+    "",
+    `Task: \`${input.taskId}\``,
+    `Workspace: \`${input.workspaceId}\``,
+    `Prompt: ${input.prompt}`,
+    "",
+    "## Repo Worktrees",
+    "",
+    repoRows,
+    "",
+  ].join("\n");
 }
 
 function buildDefaultChecks(configPath: string): TaskChecks {
