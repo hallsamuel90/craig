@@ -1,5 +1,11 @@
 # craig-cli
 
+## 0.4.8
+
+### Patch Changes
+
+- 55f4e5b: Fix project workspace PR check refreshes so target PR checks update through the manual refresh path and tracked target refresh failures are reported instead of being treated as missing PRs.
+
 ## 0.4.7
 
 ### Patch Changes
