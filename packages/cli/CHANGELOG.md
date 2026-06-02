@@ -1,5 +1,11 @@
 # craig-cli
 
+## 0.4.9
+
+### Patch Changes
+
+- 7327b64: Fix project workspace registration so discovered repos use their trunk/default branch instead of the currently checked-out feature branch, and prevent project task PTYs from accidentally resolving Git commands to a parent repo outside the task bundle.
+
 ## 0.4.8
 
 ### Patch Changes
