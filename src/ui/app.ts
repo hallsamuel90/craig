@@ -1739,11 +1739,26 @@ function getLeftItemIds(model: WorkspaceShellModel): string[] {
 function resolvePtySessionSpec(model: WorkspaceShellModel, tabId: string, workspaceRoot: string) {
   const task = model.tasks.find((entry) => entry.ptyTabs.some((tab) => tab.id === tabId)) ?? null;
   const tab = task?.ptyTabs.find((entry) => entry.id === tabId) ?? null;
+  const cwd = task?.worktreePath ?? workspaceRoot;
+  const command = tab?.kind === "agent" ? resolveAgentCommand(tab) : [];
+
+  if (task?.type === "project") {
+    return {
+      cwd,
+      command,
+      env: { GIT_CEILING_DIRECTORIES: appendGitCeilingDirectory(process.env.GIT_CEILING_DIRECTORIES, cwd) },
+    };
+  }
 
   return {
-    cwd: task?.worktreePath ?? workspaceRoot,
-    command: tab?.kind === "agent" ? resolveAgentCommand(tab) : [],
+    cwd,
+    command,
   };
+}
+
+function appendGitCeilingDirectory(current: string | undefined, directory: string): string {
+  const entries = (current ?? "").split(path.delimiter).filter((entry) => entry.length > 0);
+  return entries.includes(directory) ? entries.join(path.delimiter) : [...entries, directory].join(path.delimiter);
 }
 
 function resolveAgentCommand(tab: TaskPtyTabRecord): string[] {

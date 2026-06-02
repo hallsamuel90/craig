@@ -162,6 +162,33 @@ describe("PTY runtime", () => {
     );
   });
 
+  test("passes session env overrides into spawned PTYs", async () => {
+    const spawn = vi.fn(() => createFakePty());
+    const runtime = new PtyRuntime({
+      workspaceRoot: "/tmp/craig",
+      shell: "/bin/zsh",
+      env: { TERM: "xterm-256color", GIT_CEILING_DIRECTORIES: "/tmp/existing" },
+      spawn,
+      resolveSessionSpec: () => ({
+        cwd: "/tmp/craig/task-bundle",
+        command: [],
+        env: { GIT_CEILING_DIRECTORIES: "/tmp/existing:/tmp/craig/task-bundle" },
+      }),
+    });
+
+    runtime.ensureSession("task_20260430_02", "task_20260430_02:terminal", { columns: 80, rows: 24 });
+
+    expect(spawn).toHaveBeenCalledWith(
+      "/bin/zsh",
+      [],
+      expect.objectContaining({
+        env: expect.objectContaining({
+          GIT_CEILING_DIRECTORIES: "/tmp/existing:/tmp/craig/task-bundle",
+        }),
+      }),
+    );
+  });
+
   test("boots command tabs through the shell so they fall back to the same terminal", () => {
     const spawn = vi.fn(() => createFakePty());
     const runtime = new PtyRuntime({

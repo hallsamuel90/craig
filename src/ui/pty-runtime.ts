@@ -19,6 +19,7 @@ export interface PtySize {
 export interface PtySessionSpec {
   cwd: string;
   command: string[];
+  env?: Record<string, string | undefined>;
 }
 
 /* eslint-disable no-unused-vars */
@@ -189,7 +190,7 @@ export class PtyRuntime {
     const spawn = this.spawn ?? loadNodePty().spawn;
     const terminal = createTerminalEmulator(size);
     const spec = specOverride ?? this.resolveSessionSpec(taskId, tabId);
-    const env = withDefaultCommandPath(this.env);
+    const env = withDefaultCommandPath({ ...this.env, ...(spec.env ?? {}) });
     const { executable, args } = resolveSpawnCommand(this.shell, spec.command, { cwd: spec.cwd, env });
     const pty = spawn(executable, args, {
       name: "xterm-256color",
