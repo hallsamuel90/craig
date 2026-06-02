@@ -394,7 +394,7 @@ describe("terminal shell control state", () => {
     expect(result.attachTerminal).toBe(false);
   });
 
-  test("project workspace arrows move directly to the project task row", () => {
+  test("project workspace arrows visit task rows before the new project task row", () => {
     const state = {
       ...seededState(),
       selectedWorkspaceId: "workspace_projects",
@@ -407,16 +407,19 @@ describe("terminal shell control state", () => {
       ...KEY_OPTIONS,
       leftItemIds: [
         "workspace:workspace_projects",
+        "task:task_project_01",
         "new-task-workspace:workspace_projects",
         "new-workspace",
       ],
     };
 
-    const moved = reduceMainKey(state, "DOWN", projectOptions);
-    const entered = reduceMainKey(moved.state, "ENTER", projectOptions);
+    const taskRow = reduceMainKey(state, "DOWN", projectOptions);
+    const newTaskRow = reduceMainKey(taskRow.state, "DOWN", projectOptions);
+    const entered = reduceMainKey(newTaskRow.state, "ENTER", projectOptions);
 
-    expect(moved.state.selectedLeftItemId).toBe("new-task-workspace:workspace_projects");
-    expect(moved.state.selectedWorkspaceId).toBe("workspace_projects");
+    expect(taskRow.state.selectedLeftItemId).toBe("task:task_project_01");
+    expect(newTaskRow.state.selectedLeftItemId).toBe("new-task-workspace:workspace_projects");
+    expect(newTaskRow.state.selectedWorkspaceId).toBe("workspace_projects");
     expect(entered.beginTaskPrompt).toBe(true);
     expect(entered.state.taskPromptInput).toBe("");
   });

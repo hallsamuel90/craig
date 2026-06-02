@@ -1712,11 +1712,11 @@ function getLeftItemIds(model: WorkspaceShellModel): string[] {
   if (model.workspaces?.length) {
     for (const workspace of model.workspaces) {
       itemIds.push(`workspace:${workspace.id}`);
-      if (workspace.kind === "project") {
-        itemIds.push(`new-task-workspace:${workspace.id}`);
-      }
       for (const task of model.tasks.filter((entry) => entry.workspaceId === workspace.id)) {
         itemIds.push(`task:${task.id}`);
+      }
+      if (workspace.kind === "project") {
+        itemIds.push(`new-task-workspace:${workspace.id}`);
       }
       if (workspace.kind === "repo") {
         itemIds.push(`new-task:${workspace.primaryRepoId}`);
