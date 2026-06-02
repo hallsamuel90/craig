@@ -1,7 +1,7 @@
 import type { CommandPullRequestResult } from "../types/command.js";
 import type { TaskPullRequest, TaskRecord } from "../types/task.js";
 import type { CraigPaths } from "../state/craig-paths.js";
-import { writeTask } from "../state/task-store.js";
+import { readTask, writeTask } from "../state/task-store.js";
 import { ensureOriginRemote, isWorktreeClean, pushBranch } from "./git-task.js";
 import {
   createGitHubPullRequest,
@@ -125,9 +125,12 @@ export async function discoverOrRefreshAllProjectPullRequests(
       : await refreshOrDiscoverTargetPullRequest(paths, task, target).catch(() => "not_found" as const);
     counts[disposition === "not_found" ? "notFound" : disposition]++;
   }
-  task.status = deriveProjectTaskStatus(task);
-  task.pullRequest = deriveProjectTaskPullRequest(task);
-  await writeTask(paths, task);
+  const latestTask = await readTask(paths, task.id);
+  if (latestTask.status !== "closed") {
+    latestTask.status = deriveProjectTaskStatus(latestTask);
+    latestTask.pullRequest = deriveProjectTaskPullRequest(latestTask);
+    await writeTask(paths, latestTask);
+  }
   return counts;
 }
 

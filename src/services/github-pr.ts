@@ -4,7 +4,7 @@ import path from "node:path";
 import type { ProjectTaskRepoTarget, TaskPullRequest, TaskPullRequestCheck, TaskRecord } from "../types/task.js";
 import type { CraigPaths } from "../state/craig-paths.js";
 import { atomicWriteJson } from "../state/atomic-write.js";
-import { writeTask } from "../state/task-store.js";
+import { readTask, writeTask } from "../state/task-store.js";
 import { readCraigConfig } from "../state/config-store.js";
 import { runCommand, runCommandAllowingFailure } from "../utils/exec.js";
 import { resolveArtifactPath } from "./task-artifacts.js";
@@ -108,9 +108,9 @@ export async function discoverPullRequestState(
   }
 
   const payload = JSON.parse(result.stdout) as GhPrView;
-  await persistPullRequestView(paths, task, payload);
+  const persistedTask = await persistPullRequestView(paths, task, payload);
 
-  return { discovered: true, task };
+  return { discovered: true, task: persistedTask };
 }
 
 export async function refreshOrDiscoverTargetPullRequest(
@@ -121,16 +121,18 @@ export async function refreshOrDiscoverTargetPullRequest(
   const selector = target.pullRequest.number ? String(target.pullRequest.number) : target.branch;
   if (target.pullRequest.number) {
     const result = await runCommand("gh", buildPrViewArgs(selector), { cwd: target.worktreePath });
-    target.pullRequest = normalizePullRequest(JSON.parse(result.stdout) as GhPrView);
-    await writeTask(paths, task);
+    const pullRequest = normalizePullRequest(JSON.parse(result.stdout) as GhPrView);
+    target.pullRequest = pullRequest;
+    await persistProjectTargetPullRequest(paths, task, target.repoId, pullRequest);
     return "synced";
   }
   const result = await runCommandAllowingFailure("gh", buildPrViewArgs(selector), { cwd: target.worktreePath });
   if (result.exitCode !== 0) {
     return "not_found";
   }
-  target.pullRequest = normalizePullRequest(JSON.parse(result.stdout) as GhPrView);
-  await writeTask(paths, task);
+  const pullRequest = normalizePullRequest(JSON.parse(result.stdout) as GhPrView);
+  target.pullRequest = pullRequest;
+  await persistProjectTargetPullRequest(paths, task, target.repoId, pullRequest);
   return "discovered";
 }
 
@@ -233,9 +235,35 @@ async function persistPullRequestView(
   task.pullRequest = normalized;
   task.status = deriveTaskStatusFromPullRequest(normalized);
   await writePrStatusArtifact(paths, task);
-  await writeTask(paths, task);
+  const latest = await readTask(paths, task.id);
+  const status = latest.status === "closed" ? latest.status : task.status;
+  const persistedTask = {
+    ...latest,
+    pullRequest: normalized,
+    status,
+  };
+  await writeTask(paths, persistedTask);
 
-  return task;
+  return persistedTask;
+}
+
+async function persistProjectTargetPullRequest(
+  paths: CraigPaths,
+  task: TaskRecord,
+  repoId: string,
+  pullRequest: TaskPullRequest,
+): Promise<TaskRecord> {
+  const latest = await readTask(paths, task.id);
+  const repoTargets = (latest.repoTargets ?? task.repoTargets ?? []).map((target) =>
+    target.repoId === repoId ? { ...target, pullRequest } : target,
+  );
+  const nextTask: TaskRecord = {
+    ...latest,
+    repoTargets,
+  };
+
+  await writeTask(paths, nextTask);
+  return nextTask;
 }
 
 function normalizePullRequest(view: GhPrView): TaskPullRequest {
