@@ -1,6 +1,6 @@
 {
   "name": "craig-cli",
-  "version": "0.4.11",
+  "version": "0.4.12",
   "description": "Craig local control plane CLI",
   "license": "UNLICENSED",
   "type": "module",

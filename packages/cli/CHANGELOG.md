@@ -1,5 +1,11 @@
 # craig-cli
 
+## 0.4.12
+
+### Patch Changes
+
+- e4cb800: Preserve closed task state when background pull request refreshes complete after a task is removed from the TUI.
+
 ## 0.4.11
 
 ### Patch Changes
