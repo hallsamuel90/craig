@@ -10,6 +10,7 @@ import { mergeTask } from "../src/services/merge-task.js";
 import { discoverOrRefreshAllProjectPullRequests, discoverOrRefreshPullRequest, openPullRequest, refreshPullRequestChecks } from "../src/services/open-pull-request.js";
 import { runChecks } from "../src/services/run-checks.js";
 import { showTask } from "../src/services/show-task.js";
+import { listTasks } from "../src/services/list-tasks.js";
 import { readTask } from "../src/state/task-store.js";
 import { runCommand } from "../src/utils/exec.js";
 import {
@@ -198,6 +199,49 @@ describe("task lifecycle services", () => {
     expect(task.pullRequest.url).toBe("https://github.com/example/repo/pull/21");
     expect(task.pullRequest.lastSyncedHeadSha).toBe(headSha);
     expect(task.status).toBe("merge_ready");
+  });
+
+  test("discoverOrRefreshPullRequest does not resurrect a closed task", async () => {
+    const repoRoot = await createRepoRoot("craig-pr-closed-refresh-");
+    tempRoots.push(repoRoot);
+    const { paths, worktreePath, stubDir } = await createTrackedTaskRepo(repoRoot);
+    process.env.PATH = `${stubDir}:${originalPath}`;
+    const headSha = (await runCommand("git", ["rev-parse", "HEAD"], { cwd: worktreePath })).stdout.trim();
+
+    const viewFile = path.join(repoRoot, "gh-view.json");
+    await writeFile(
+      viewFile,
+      JSON.stringify({
+        number: 22,
+        url: "https://github.com/example/repo/pull/22",
+        baseRefName: "main",
+        headRefName: "craig/task_1",
+        headRefOid: headSha,
+        state: "OPEN",
+        mergeable: "MERGEABLE",
+        mergeStateStatus: "CLEAN",
+        statusCheckRollup: [{ context: "ci", state: "SUCCESS", conclusion: "SUCCESS" }],
+      }),
+      "utf8",
+    );
+    process.env.CRAIG_TEST_GH_VIEW_FILE = viewFile;
+
+    await writeTaskRecord(paths.repoRoot, {
+      id: "task_1",
+      status: "closed",
+      branch: "craig/task_1",
+      worktreePath,
+    });
+
+    const result = await discoverOrRefreshPullRequest(paths, "task_1");
+    const task = await readTask(paths, "task_1");
+    const visibleTasks = await listTasks(paths);
+
+    expect(result.disposition).toBe("discovered");
+    expect(task.status).toBe("closed");
+    expect(task.pullRequest.number).toBe(22);
+    expect(task.pullRequest.lastSyncedHeadSha).toBe(headSha);
+    expect(visibleTasks.tasks).toEqual([]);
   });
 
   test("discoverOrRefreshPullRequest leaves task unchanged when no branch PR exists", async () => {
