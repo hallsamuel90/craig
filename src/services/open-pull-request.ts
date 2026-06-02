@@ -87,6 +87,11 @@ export async function refreshTrackedPullRequest(paths: CraigPaths, taskId: strin
 export async function refreshPullRequestChecks(paths: CraigPaths, taskId: string) {
   const task = await getTaskOrThrow(paths, taskId);
 
+  if (task.type === "project" && task.repoTargets?.length) {
+    await discoverOrRefreshAllProjectPullRequests(paths, taskId);
+    return getTaskOrThrow(paths, taskId);
+  }
+
   if (!task.pullRequest.number) {
     await assertTaskWorktreeExists(task);
     await ensureGhAuthenticated(task.worktreePath);
@@ -111,14 +116,17 @@ export async function discoverOrRefreshAllProjectPullRequests(
 ): Promise<{ synced: number; discovered: number; notFound: number }> {
   const task = await getTaskOrThrow(paths, taskId);
   const targets = (task.repoTargets ?? []).filter((t) => t.status === "ready");
-  await ensureGhAuthenticated(task.worktreePath);
 
   const counts = { synced: 0, discovered: 0, notFound: 0 };
   for (const target of targets) {
-    const disposition = await refreshOrDiscoverTargetPullRequest(paths, task, target).catch(() => "not_found" as const);
+    await ensureGhAuthenticated(target.worktreePath);
+    const disposition = target.pullRequest.number
+      ? await refreshOrDiscoverTargetPullRequest(paths, task, target)
+      : await refreshOrDiscoverTargetPullRequest(paths, task, target).catch(() => "not_found" as const);
     counts[disposition === "not_found" ? "notFound" : disposition]++;
   }
   task.status = deriveProjectTaskStatus(task);
+  task.pullRequest = deriveProjectTaskPullRequest(task);
   await writeTask(paths, task);
   return counts;
 }
@@ -175,6 +183,14 @@ function deriveProjectTaskStatus(task: TaskRecord): TaskRecord["status"] {
     return "pr_open";
   }
   return "checked";
+}
+
+function deriveProjectTaskPullRequest(task: TaskRecord): TaskPullRequest {
+  const readyTargets = (task.repoTargets ?? []).filter((target) => target.status === "ready");
+  const selectedTarget = readyTargets.find((target) => target.repoId === task.selectedRepoTargetId);
+  return selectedTarget?.pullRequest.number
+    ? selectedTarget.pullRequest
+    : readyTargets.find((target) => target.pullRequest.number)?.pullRequest ?? task.pullRequest;
 }
 
 function isProjectTargetMergeReady(pullRequest: TaskPullRequest): boolean {
