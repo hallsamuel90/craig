@@ -355,10 +355,9 @@ describe("terminal shell renderer", () => {
 
     expect(frame).toContain("CHANGES  FILES  REVIEW");
     expect(frame).toContain("REVIEW   ●");
-    expect(frame).toContain("#17  open");
-    expect(frame).toContain("Open in GitHub ↗");
-    expect(frame).toContain("\u001B]8;;https://github.com/example/repo/pull/17\u001B\\    Open in GitHub ↗\u001B]8;;\u001B\\");
-    expect(frame).toContain("← main  → craig/task_20260430_02");
+    expect(frame).toContain("#17");
+    expect(frame).toContain("\u001B]8;;https://github.com/example/repo/pull/17\u001B\\  Open in GitHub ↗\u001B]8;;\u001B\\");
+    expect(frame).toContain("main → craig/task_20260430_02");
     expect(frame).toContain("merge ready");
     expect(frame).toContain("✓ ci");
     expect(frame).toContain("○ docs");
