@@ -972,7 +972,7 @@ function buildReviewInspectionRows(
     return buildProjectReviewInspectionRows(state, task);
   }
 
-  return buildPrDetailRows("pr", task.title, task.branch, task.pullRequest);
+  return buildPrDetailRows("pr", task.branch, task.pullRequest);
 }
 
 const TARGET_ROW_WIDTH = 32;
@@ -1029,7 +1029,7 @@ function buildProjectReviewInspectionRows(
   const selectedTarget = targets.find((t) => t.repoId === selectedTargetId) ?? null;
   if (selectedTarget?.status === "ready" && selectedTarget.pullRequest.number) {
     rows.push({ id: "target-detail-spacer", text: "" });
-    rows.push(...buildPrDetailRows("target", null, selectedTarget.branch, selectedTarget.pullRequest));
+    rows.push(...buildPrDetailRows("target", selectedTarget.branch, selectedTarget.pullRequest));
   }
 
   return rows;
@@ -1037,7 +1037,6 @@ function buildProjectReviewInspectionRows(
 
 function buildPrDetailRows(
   idPrefix: string,
-  title: string | null,
   fallbackBranch: string,
   pr: TaskPullRequest,
 ): ShellInspectionRow[] {
@@ -1048,33 +1047,35 @@ function buildPrDetailRows(
   }
 
   const rows: ShellInspectionRow[] = [];
-  const statusText = `#${pr.number}  ${pr.status ?? "open"}`;
+
+  const prNumberText = `#${pr.number}`;
   rows.push(
     pr.url
       ? {
           id: id("pr-number"),
-          text: `${statusText}    Open in GitHub ↗`,
+          text: `${prNumberText}  Open in GitHub ↗`,
           segments: [
-            { text: statusText },
-            { text: "    Open in GitHub ↗", style: { fg: "7aa2f7", underline: true }, href: pr.url },
+            { text: prNumberText },
+            { text: "  Open in GitHub ↗", style: { fg: "7aa2f7", underline: true }, href: pr.url },
           ],
         }
-      : { id: id("pr-number"), text: statusText },
+      : { id: id("pr-number"), text: prNumberText },
   );
 
   const base = pr.baseBranch ?? "?";
   const head = pr.headBranch ?? fallbackBranch;
-  rows.push({ id: id("pr-branches"), text: `← ${base}  → ${head}`, muted: true });
+  rows.push({ id: id("pr-branches"), text: `${base} → ${head}`, muted: true });
 
   const mergeText = pr.mergeable
     ? "merge ready"
     : pr.mergeStateStatus
       ? `merge ${pr.mergeStateStatus}`
       : "merge unknown";
-  rows.push({ id: id("pr-meta"), text: `${mergeText}  ·  synced ${formatRelativeTime(pr.lastSyncedAt)}`, muted: true });
+  rows.push({ id: id("pr-merge"), text: mergeText, muted: true });
+  rows.push({ id: id("pr-synced"), text: `synced ${formatRelativeTime(pr.lastSyncedAt)}`, muted: true });
 
   rows.push({ id: id("checks-spacer"), text: "" });
-  rows.push({ id: id("checks-header"), text: "Checks", muted: true });
+  rows.push({ id: id("checks-header"), text: "Checks" });
 
   if (!pr.requiredChecks.length) {
     rows.push({ id: id("checks-none"), text: pr.number ? "No GitHub checks reported." : "No checks — sync after creating a PR.", muted: true });
@@ -1100,10 +1101,10 @@ function formatRelativeTime(isoString: string | null): string {
 
 function renderPullRequestCheckRow(check: TaskPullRequestCheck): ShellInspectionRow {
   const { icon, color } = formatCheckStatus(check.status);
-  const label = check.name.length > 22 ? `${check.name.slice(0, 21)}…` : check.name;
+  const label = check.name.length > 16 ? `${check.name.slice(0, 15)}…` : check.name;
   return {
     id: `pr-check:${check.name}`,
-    text: `${icon} ${label.padEnd(22, " ")} ${formatPullRequestCheckStatus(check.status)}`,
+    text: `${icon} ${label.padEnd(16, " ")} ${formatPullRequestCheckStatus(check.status)}`,
     color,
     muted: false,
   };
