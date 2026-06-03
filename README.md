@@ -19,6 +19,8 @@
 
 Craig is a local terminal control plane for repo-backed agent work. The primary interface is the full-screen terminal UI launched with `craig`; command-mode entry points are available for automation and debugging.
 
+Use Craig when you want each agent task to live in an isolated git worktree while still staying connected to the surrounding repo and PR workflow.
+
 ## Install
 
 ```bash
