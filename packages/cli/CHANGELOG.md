@@ -1,5 +1,11 @@
 # craig-cli
 
+## 0.4.13
+
+### Patch Changes
+
+- f502c32: Tighten review panel layout: collapse PR number and GitHub link to one line, split merge state and sync time onto separate lines, simplify branch display, and reduce whitespace in checks rows.
+
 ## 0.4.12
 
 ### Patch Changes
