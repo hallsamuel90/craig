@@ -390,7 +390,9 @@ pr_number="\${CRAIG_TEST_GH_PR_NUMBER:-17}"
 pr_url="\${CRAIG_TEST_GH_PR_URL:-https://github.com/example/repo/pull/17}"
 head_oid="\${CRAIG_TEST_GH_HEAD_OID:-abc1234}"
 view_file="\${CRAIG_TEST_GH_VIEW_FILE:-}"
+graphql_file="\${CRAIG_TEST_GH_GRAPHQL_FILE:-}"
 created_marker="$(dirname "$0")/.pr-created"
+graphql_attempts_file="$(dirname "$0")/.graphql-attempts"
 if [ "$1" = "auth" ] && [ "$2" = "status" ]; then
   if [ "$mode" = "auth-fail" ]; then
     echo "gh auth failed" >&2
@@ -415,6 +417,24 @@ if [ "$1" = "pr" ] && [ "$2" = "view" ]; then
   cat <<EOF
 {"number":$pr_number,"url":"$pr_url","baseRefName":"main","headRefName":"craig/task_1","headRefOid":"$head_oid","state":"OPEN","mergeable":"MERGEABLE","mergeStateStatus":"CLEAN","statusCheckRollup":[]}
 EOF
+  exit 0
+fi
+if [ "$1" = "api" ] && [ "$2" = "graphql" ]; then
+  attempts=0
+  if [ -f "$graphql_attempts_file" ]; then
+    attempts="$(cat "$graphql_attempts_file")"
+  fi
+  attempts=$((attempts + 1))
+  printf "%s" "$attempts" > "$graphql_attempts_file"
+  if [ "$mode" = "graphql-rate-limit-once" ] && [ "$attempts" = "1" ]; then
+    echo "API rate limit exceeded" >&2
+    exit 1
+  fi
+  if [ -n "$graphql_file" ]; then
+    cat "$graphql_file"
+    exit 0
+  fi
+  echo '{"data":{"repository":{"item0":{"nodes":[]}}}}'
   exit 0
 fi
 if [ "$1" = "pr" ] && [ "$2" = "merge" ]; then

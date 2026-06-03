@@ -16,7 +16,7 @@ import { listTasks } from "../services/list-tasks.js";
 import { provisionProjectTask, provisionTask } from "../services/task-provisioning.js";
 import { addWorkspace, archiveWorkspace, removeWorkspace } from "../services/workspace-registry.js";
 import { loadTaskLocalInspection, reloadSelectedContent, type InspectionTreeRow } from "../services/task-local-inspection.js";
-import { discoverOrRefreshAllProjectPullRequests, discoverOrRefreshPullRequest, openPullRequest } from "../services/open-pull-request.js";
+import { discoverOrRefreshAllProjectPullRequests, discoverOrRefreshPullRequest, discoverOrRefreshPullRequests, openPullRequest } from "../services/open-pull-request.js";
 import { mergeTask } from "../services/merge-task.js";
 import { closeTask } from "../services/close-task.js";
 import {
@@ -581,26 +581,13 @@ export async function startTerminalApp(options: TerminalAppOptions = {}): Promis
       try {
         let actionMessage = state.shell.actionMessage;
 
-        for (const previousTask of tasksToPoll) {
-          try {
-            const hadPr = previousTask.type === "project"
-              ? Boolean(previousTask.repoTargets?.some((target) => target.pullRequest.number))
-              : Boolean(previousTask.pullRequest.number);
-
-            if (previousTask.type === "project" && previousTask.repoTargets?.length) {
-              const counts = await discoverOrRefreshAllProjectPullRequests(paths, previousTask.id);
-              if (previousTask.id === selectedTaskId && !hadPr && counts.discovered > 0) {
-                actionMessage = `Discovered ${counts.discovered} PR${counts.discovered !== 1 ? "s" : ""}`;
-              }
-            } else {
-              const { disposition, task } = await discoverOrRefreshPullRequest(paths, previousTask.id);
-              if (previousTask.id === selectedTaskId && disposition === "discovered" && !hadPr) {
-                actionMessage = `Discovered PR: #${task.pullRequest.number} ${task.pullRequest.url ?? ""}`;
-              }
-            }
-          } catch {
-            // Background PR discovery should not let one stale task block other task badges.
-          }
+        const pollResults = await discoverOrRefreshPullRequests(paths, tasksToPoll);
+        const selectedResult = pollResults.find((result) => result.taskId === selectedTaskId);
+        const selectedTask = tasksToPoll.find((task) => task.id === selectedTaskId);
+        if (selectedResult && !selectedResult.hadPr && selectedResult.discovered > 0) {
+          actionMessage = selectedTask?.type === "project"
+            ? `Discovered ${selectedResult.discovered} PR${selectedResult.discovered !== 1 ? "s" : ""}`
+            : `Discovered PR: #${selectedResult.firstDiscoveredPrNumber} ${selectedResult.firstDiscoveredPrUrl ?? ""}`;
         }
 
         if (state.mode !== "main") {

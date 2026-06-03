@@ -9,7 +9,7 @@ import { readCraigConfig } from "../state/config-store.js";
 import { runCommand, runCommandAllowingFailure } from "../utils/exec.js";
 import { resolveArtifactPath } from "./task-artifacts.js";
 
-interface GhPrView {
+export interface GhPrView {
   number: number;
   url: string;
   baseRefName: string;
@@ -20,6 +20,27 @@ interface GhPrView {
   mergeStateStatus: string | null;
   statusCheckRollup: unknown[];
 }
+
+export interface GitHubRepositoryLocator {
+  owner: string;
+  name: string;
+}
+
+export interface GhPrBatchRequest {
+  id: string;
+  selector: string;
+  mode: "number" | "head";
+}
+
+export interface GhPrBatchResult {
+  id: string;
+  found: boolean;
+  view: GhPrView | null;
+}
+
+const RATE_LIMIT_RETRY_ATTEMPTS = 3;
+const RATE_LIMIT_RETRY_BASE_DELAY_MS = 1_000;
+const RATE_LIMIT_RETRY_MAX_DELAY_MS = 10_000;
 
 export async function ensureGhAuthenticated(worktreePath: string): Promise<void> {
   const result = await runCommandAllowingFailure("gh", ["auth", "status"], { cwd: worktreePath });
@@ -113,6 +134,95 @@ export async function discoverPullRequestState(
   return { discovered: true, task: persistedTask };
 }
 
+export async function getGitHubRepositoryLocator(worktreePath: string): Promise<GitHubRepositoryLocator | null> {
+  const result = await runCommandAllowingFailure("git", ["remote", "get-url", "origin"], { cwd: worktreePath });
+
+  if (result.exitCode !== 0) {
+    return null;
+  }
+
+  return parseGitHubRemoteUrl(result.stdout.trim());
+}
+
+export async function fetchPullRequestViewsBatch(
+  worktreePath: string,
+  repository: GitHubRepositoryLocator,
+  requests: GhPrBatchRequest[],
+): Promise<GhPrBatchResult[]> {
+  if (requests.length === 0) {
+    return [];
+  }
+
+  const query = buildBatchPrQuery(requests);
+  const result = await runGitHubApiGraphqlWithRateLimitRetry(worktreePath, [
+    "api",
+    "graphql",
+    "-f",
+    `query=${query}`,
+    "-F",
+    `owner=${repository.owner}`,
+    "-F",
+    `name=${repository.name}`,
+  ]);
+  const payload = JSON.parse(result.stdout) as GhPrBatchResponse;
+  const repositoryPayload = payload.data?.repository ?? {};
+
+  return requests.map((request, index) => {
+    const entry = repositoryPayload[`item${index}`];
+    const view = normalizeBatchEntry(entry);
+    return {
+      id: request.id,
+      found: view !== null,
+      view,
+    };
+  });
+}
+
+async function runGitHubApiGraphqlWithRateLimitRetry(
+  worktreePath: string,
+  args: string[],
+): Promise<{ stdout: string; stderr: string }> {
+  let lastError: unknown;
+
+  for (let attempt = 0; attempt <= RATE_LIMIT_RETRY_ATTEMPTS; attempt += 1) {
+    try {
+      return await runCommand("gh", args, { cwd: worktreePath });
+    } catch (error) {
+      lastError = error;
+
+      if (attempt === RATE_LIMIT_RETRY_ATTEMPTS || !isGitHubRateLimitError(error)) {
+        throw error;
+      }
+
+      await delay(getRateLimitRetryDelayMs(attempt));
+    }
+  }
+
+  throw lastError;
+}
+
+function isGitHubRateLimitError(error: unknown): boolean {
+  const message = error instanceof Error ? error.message.toLowerCase() : String(error).toLowerCase();
+  return (
+    message.includes("rate limit") ||
+    message.includes("secondary rate limit") ||
+    message.includes("abuse detection") ||
+    message.includes("api rate limit exceeded") ||
+    message.includes("you have exceeded")
+  );
+}
+
+function getRateLimitRetryDelayMs(attempt: number): number {
+  const baseDelay = Number(process.env.CRAIG_GH_RATE_LIMIT_RETRY_BASE_MS) || RATE_LIMIT_RETRY_BASE_DELAY_MS;
+  const exponentialDelay = Math.min(baseDelay * 2 ** attempt, RATE_LIMIT_RETRY_MAX_DELAY_MS);
+  const jitter = Math.floor(Math.random() * Math.max(1, Math.floor(exponentialDelay * 0.25)));
+  return exponentialDelay + jitter;
+}
+
+function delay(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
 export async function refreshOrDiscoverTargetPullRequest(
   paths: CraigPaths,
   task: TaskRecord,
@@ -134,6 +244,23 @@ export async function refreshOrDiscoverTargetPullRequest(
   target.pullRequest = pullRequest;
   await persistProjectTargetPullRequest(paths, task, target.repoId, pullRequest);
   return "discovered";
+}
+
+export async function persistTaskPullRequestView(
+  paths: CraigPaths,
+  task: TaskRecord,
+  view: GhPrView,
+): Promise<TaskRecord> {
+  return persistPullRequestView(paths, task, view);
+}
+
+export async function persistTargetPullRequestView(
+  paths: CraigPaths,
+  task: TaskRecord,
+  repoId: string,
+  view: GhPrView,
+): Promise<TaskRecord> {
+  return persistProjectTargetPullRequest(paths, task, repoId, normalizePullRequest(view));
 }
 
 export async function waitForPullRequestState(
@@ -223,6 +350,157 @@ function buildPrViewArgs(selector: string): string[] {
     "--json",
     "number,url,baseRefName,headRefName,headRefOid,state,mergeable,mergeStateStatus,statusCheckRollup",
   ];
+}
+
+function parseGitHubRemoteUrl(value: string): GitHubRepositoryLocator | null {
+  const normalized = value.replace(/\.git$/, "");
+  const httpsMatch = normalized.match(/^https:\/\/github\.com\/([^/]+)\/([^/]+)$/);
+  if (httpsMatch?.[1] && httpsMatch[2]) {
+    return { owner: httpsMatch[1], name: httpsMatch[2] };
+  }
+
+  const sshMatch = normalized.match(/^git@github\.com:([^/]+)\/([^/]+)$/);
+  if (sshMatch?.[1] && sshMatch[2]) {
+    return { owner: sshMatch[1], name: sshMatch[2] };
+  }
+
+  const sshUrlMatch = normalized.match(/^ssh:\/\/git@github\.com\/([^/]+)\/([^/]+)$/);
+  if (sshUrlMatch?.[1] && sshUrlMatch[2]) {
+    return { owner: sshUrlMatch[1], name: sshUrlMatch[2] };
+  }
+
+  return null;
+}
+
+interface GhPrBatchResponse {
+  data?: {
+    repository?: Record<string, unknown>;
+  };
+}
+
+interface GhPrBatchPullRequest {
+  number: number;
+  url: string;
+  baseRefName: string;
+  headRefName: string;
+  headRefOid?: string | null;
+  state: string;
+  mergeable: string;
+  mergeStateStatus: string | null;
+  statusCheckRollup?: {
+    contexts?: {
+      nodes?: unknown[];
+    } | null;
+  } | null;
+  commits?: {
+    nodes?: Array<{
+      commit?: {
+        statusCheckRollup?: {
+          contexts?: {
+            nodes?: unknown[];
+          } | null;
+        } | null;
+      } | null;
+    }> | null;
+  } | null;
+}
+
+function buildBatchPrQuery(requests: GhPrBatchRequest[]): string {
+  const fields = requests.map((request, index) => {
+    const alias = `item${index}`;
+    if (request.mode === "number") {
+      return `${alias}: pullRequest(number: ${Number(request.selector)}) { ...PrFields }`;
+    }
+
+    return `${alias}: pullRequests(headRefName: ${JSON.stringify(request.selector)}, states: OPEN, first: 1, orderBy: { field: UPDATED_AT, direction: DESC }) { nodes { ...PrFields } }`;
+  });
+
+  return `
+query CraigPullRequestBatch($owner: String!, $name: String!) {
+  repository(owner: $owner, name: $name) {
+    ${fields.join("\n    ")}
+  }
+}
+
+fragment PrFields on PullRequest {
+  number
+  url
+  baseRefName
+  headRefName
+  headRefOid
+  state
+  mergeable
+  mergeStateStatus
+  statusCheckRollup {
+    contexts(first: 100) {
+      nodes {
+        __typename
+        ... on CheckRun {
+          name
+          status
+          conclusion
+        }
+        ... on StatusContext {
+          context
+          state
+        }
+      }
+    }
+  }
+  commits(last: 1) {
+    nodes {
+      commit {
+        statusCheckRollup {
+          contexts(first: 100) {
+            nodes {
+              __typename
+              ... on CheckRun {
+                name
+                status
+                conclusion
+              }
+              ... on StatusContext {
+                context
+                state
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+}
+`;
+}
+
+function normalizeBatchEntry(entry: unknown): GhPrView | null {
+  if (!entry || typeof entry !== "object") {
+    return null;
+  }
+
+  const candidate = "nodes" in entry
+    ? ((entry as { nodes?: unknown[] }).nodes?.[0] ?? null)
+    : entry;
+
+  if (!candidate || typeof candidate !== "object") {
+    return null;
+  }
+
+  const pullRequest = candidate as GhPrBatchPullRequest;
+  const statusCheckRollup = pullRequest.statusCheckRollup?.contexts?.nodes
+    ?? pullRequest.commits?.nodes?.[0]?.commit?.statusCheckRollup?.contexts?.nodes
+    ?? [];
+  return {
+    number: pullRequest.number,
+    url: pullRequest.url,
+    baseRefName: pullRequest.baseRefName,
+    headRefName: pullRequest.headRefName,
+    headRefOid: pullRequest.headRefOid ?? null,
+    state: pullRequest.state,
+    mergeable: pullRequest.mergeable,
+    mergeStateStatus: pullRequest.mergeStateStatus,
+    statusCheckRollup,
+  };
 }
 
 async function persistPullRequestView(

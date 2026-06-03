@@ -7,7 +7,7 @@ import { afterEach, describe, expect, test } from "vitest";
 import { commitTask } from "../src/services/commit-task.js";
 import { closeTask } from "../src/services/close-task.js";
 import { mergeTask } from "../src/services/merge-task.js";
-import { discoverOrRefreshAllProjectPullRequests, discoverOrRefreshPullRequest, openPullRequest, refreshPullRequestChecks } from "../src/services/open-pull-request.js";
+import { discoverOrRefreshAllProjectPullRequests, discoverOrRefreshPullRequest, discoverOrRefreshPullRequests, openPullRequest, refreshPullRequestChecks } from "../src/services/open-pull-request.js";
 import { runChecks } from "../src/services/run-checks.js";
 import { showTask } from "../src/services/show-task.js";
 import { listTasks } from "../src/services/list-tasks.js";
@@ -27,6 +27,8 @@ const originalEnv = {
   CRAIG_TEST_GH_MODE: process.env.CRAIG_TEST_GH_MODE,
   CRAIG_TEST_GH_PR_NUMBER: process.env.CRAIG_TEST_GH_PR_NUMBER,
   CRAIG_TEST_GH_PR_URL: process.env.CRAIG_TEST_GH_PR_URL,
+  CRAIG_TEST_GH_GRAPHQL_FILE: process.env.CRAIG_TEST_GH_GRAPHQL_FILE,
+  CRAIG_GH_RATE_LIMIT_RETRY_BASE_MS: process.env.CRAIG_GH_RATE_LIMIT_RETRY_BASE_MS,
   CRAIG_TEST_GH_VIEW_FILE: process.env.CRAIG_TEST_GH_VIEW_FILE,
   CRAIG_TEST_TMUX_STATE_FILE: process.env.CRAIG_TEST_TMUX_STATE_FILE,
 };
@@ -37,6 +39,8 @@ afterEach(async () => {
   process.env.CRAIG_TEST_GH_MODE = originalEnv.CRAIG_TEST_GH_MODE;
   process.env.CRAIG_TEST_GH_PR_NUMBER = originalEnv.CRAIG_TEST_GH_PR_NUMBER;
   process.env.CRAIG_TEST_GH_PR_URL = originalEnv.CRAIG_TEST_GH_PR_URL;
+  process.env.CRAIG_TEST_GH_GRAPHQL_FILE = originalEnv.CRAIG_TEST_GH_GRAPHQL_FILE;
+  process.env.CRAIG_GH_RATE_LIMIT_RETRY_BASE_MS = originalEnv.CRAIG_GH_RATE_LIMIT_RETRY_BASE_MS;
   process.env.CRAIG_TEST_GH_VIEW_FILE = originalEnv.CRAIG_TEST_GH_VIEW_FILE;
   process.env.CRAIG_TEST_TMUX_STATE_FILE = originalEnv.CRAIG_TEST_TMUX_STATE_FILE;
 });
@@ -199,6 +203,147 @@ describe("task lifecycle services", () => {
     expect(task.pullRequest.url).toBe("https://github.com/example/repo/pull/21");
     expect(task.pullRequest.lastSyncedHeadSha).toBe(headSha);
     expect(task.status).toBe("merge_ready");
+  });
+
+  test("discoverOrRefreshPullRequests batches tasks that share a GitHub repository", async () => {
+    const repoRoot = await createRepoRoot("craig-pr-batch-");
+    tempRoots.push(repoRoot);
+    const { paths, worktreePath, stubDir } = await createTrackedTaskRepo(repoRoot);
+    process.env.PATH = `${stubDir}:${originalPath}`;
+    await runCommand("git", ["remote", "set-url", "origin", "https://github.com/example/repo.git"], { cwd: worktreePath });
+
+    const taskOne = await writeTaskRecord(paths.repoRoot, {
+      id: "task_1",
+      status: "checked",
+      worktreePath,
+      branch: "craig/task_1",
+      lastCommit: {
+        sha: "task-one-local",
+        message: "task one",
+        committedAt: "2026-05-01T00:00:00.000Z",
+      },
+    });
+    const taskTwo = await writeTaskRecord(paths.repoRoot, {
+      id: "task_2",
+      status: "checked",
+      worktreePath,
+      branch: "craig/task_2",
+      lastCommit: {
+        sha: "task-two-local",
+        message: "task two",
+        committedAt: "2026-05-01T00:00:00.000Z",
+      },
+    });
+    const graphqlFile = path.join(repoRoot, "gh-graphql.json");
+    await writeFile(
+      graphqlFile,
+      JSON.stringify({
+        data: {
+          repository: {
+            item0: {
+              nodes: [
+                {
+                  number: 31,
+                  url: "https://github.com/example/repo/pull/31",
+                  baseRefName: "main",
+                  headRefName: "craig/task_1",
+                  headRefOid: "task-one-remote",
+                  state: "OPEN",
+                  mergeable: "MERGEABLE",
+                  mergeStateStatus: "CLEAN",
+                  statusCheckRollup: {
+                    contexts: {
+                      nodes: [{ context: "ci", state: "SUCCESS" }],
+                    },
+                  },
+                },
+              ],
+            },
+            item1: {
+              nodes: [
+                {
+                  number: 32,
+                  url: "https://github.com/example/repo/pull/32",
+                  baseRefName: "main",
+                  headRefName: "craig/task_2",
+                  headRefOid: "task-two-remote",
+                  state: "OPEN",
+                  mergeable: "MERGEABLE",
+                  mergeStateStatus: "CLEAN",
+                  statusCheckRollup: {
+                    contexts: {
+                      nodes: [{ context: "lint", state: "SUCCESS" }],
+                    },
+                  },
+                },
+              ],
+            },
+          },
+        },
+      }),
+      "utf8",
+    );
+    process.env.CRAIG_TEST_GH_GRAPHQL_FILE = graphqlFile;
+
+    const results = await discoverOrRefreshPullRequests(paths, [taskOne, taskTwo]);
+
+    expect(results.map((result) => `${result.taskId}:${result.discovered}`)).toEqual(["task_1:1", "task_2:1"]);
+    expect((await readTask(paths, "task_1")).pullRequest.number).toBe(31);
+    expect((await readTask(paths, "task_2")).pullRequest.number).toBe(32);
+  });
+
+  test("discoverOrRefreshPullRequests retries a rate-limited batch request", async () => {
+    const repoRoot = await createRepoRoot("craig-pr-batch-retry-");
+    tempRoots.push(repoRoot);
+    const { paths, worktreePath, stubDir } = await createTrackedTaskRepo(repoRoot);
+    process.env.PATH = `${stubDir}:${originalPath}`;
+    process.env.CRAIG_TEST_GH_MODE = "graphql-rate-limit-once";
+    process.env.CRAIG_GH_RATE_LIMIT_RETRY_BASE_MS = "1";
+    await runCommand("git", ["remote", "set-url", "origin", "https://github.com/example/repo.git"], { cwd: worktreePath });
+
+    const task = await writeTaskRecord(paths.repoRoot, {
+      id: "task_1",
+      status: "checked",
+      worktreePath,
+      branch: "craig/task_1",
+    });
+    const graphqlFile = path.join(repoRoot, "gh-graphql-retry.json");
+    await writeFile(
+      graphqlFile,
+      JSON.stringify({
+        data: {
+          repository: {
+            item0: {
+              nodes: [
+                {
+                  number: 33,
+                  url: "https://github.com/example/repo/pull/33",
+                  baseRefName: "main",
+                  headRefName: "craig/task_1",
+                  headRefOid: "task-one-remote",
+                  state: "OPEN",
+                  mergeable: "MERGEABLE",
+                  mergeStateStatus: "CLEAN",
+                  statusCheckRollup: {
+                    contexts: {
+                      nodes: [{ context: "ci", state: "SUCCESS" }],
+                    },
+                  },
+                },
+              ],
+            },
+          },
+        },
+      }),
+      "utf8",
+    );
+    process.env.CRAIG_TEST_GH_GRAPHQL_FILE = graphqlFile;
+
+    const results = await discoverOrRefreshPullRequests(paths, [task]);
+
+    expect(results[0]?.discovered).toBe(1);
+    expect((await readTask(paths, "task_1")).pullRequest.number).toBe(33);
+    expect(await readFile(path.join(stubDir, ".graphql-attempts"), "utf8")).toBe("2");
   });
 
   test("discoverOrRefreshPullRequest does not resurrect a closed task", async () => {
