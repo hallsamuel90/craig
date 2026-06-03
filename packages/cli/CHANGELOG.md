@@ -1,5 +1,11 @@
 # craig-cli
 
+## 0.4.14
+
+### Patch Changes
+
+- a13996a: Batch background pull request polling by GitHub repository and retry rate-limited batch requests with exponential backoff plus jitter.
+
 ## 0.4.13
 
 ### Patch Changes
