@@ -1,5 +1,11 @@
 # craig-cli
 
+## 0.4.15
+
+### Patch Changes
+
+- 33ee994: Map Ghostty/Kitty Shift+Enter terminal input to a PTY line feed instead of forwarding the raw escape sequence.
+
 ## 0.4.14
 
 ### Patch Changes
