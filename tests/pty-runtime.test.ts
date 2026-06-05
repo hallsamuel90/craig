@@ -8,6 +8,7 @@ describe("PTY runtime", () => {
   test("maps Craig terminal-mode keys to PTY input and reserves ctrl+]", () => {
     expect(mapKeyToPtyInput("a")).toBe("a");
     expect(mapKeyToPtyInput("ENTER")).toBe("\r");
+    expect(mapKeyToPtyInput("SHIFT_ENTER")).toBe("\n");
     expect(mapKeyToPtyInput("BACKSPACE")).toBe("\x7f");
     expect(mapKeyToPtyInput("UP")).toBe("\x1b[A");
     expect(mapKeyToPtyInput("TAB")).toBe("\t");

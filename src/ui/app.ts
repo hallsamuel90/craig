@@ -1518,6 +1518,14 @@ export async function startTerminalApp(options: TerminalAppOptions = {}): Promis
         return;
       }
 
+      const mappedKey = mapRawTerminalInputToKey(raw);
+      if (mappedKey) {
+        suppressTerminalEnterOnAttach = false;
+        lastTerminalKey = { key: mappedKey, at: Date.now() };
+        ptyRuntime.writeKey(mappedKey);
+        return;
+      }
+
       if (suppressTerminalEnterOnAttach && raw !== "\r" && raw !== "\n" && raw !== "\r\n") {
         suppressTerminalEnterOnAttach = false;
       }
@@ -1987,6 +1995,13 @@ function getTerminalScrollLinesForRawInput(raw: string): number {
   return 0;
 }
 
+function mapRawTerminalInputToKey(raw: string): string | null {
+  if (raw === "\u001B[13;2u") {
+    return "SHIFT_ENTER";
+  }
+
+  return null;
+}
 
 function shouldSuppressRawTerminalInput(
   suppressTerminalEnterOnAttach: boolean,

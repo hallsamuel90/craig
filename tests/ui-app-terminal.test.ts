@@ -411,6 +411,27 @@ describe("terminal app PTY attach flow", () => {
     expect(ptyRuntime.writeKey).toHaveBeenCalledWith("SHIFT_TAB");
   });
 
+  test("terminal mode maps Ghostty shift+enter CSI-u input to a PTY line feed", async () => {
+    const root = await mkdtemp(join(tmpdir(), "craig-ui-app-"));
+    tempRoots.push(root);
+    const paths = await setupWorkspace(root);
+    const terminal = new FakeTerminal();
+    const ptyRuntime = new FakePtyRuntime();
+    const app = startTerminalApp({ terminal, ptyRuntime, uiStateFile: paths.uiStateFile, workspaceRoot: root });
+    await vi.waitFor(() => expect(terminal.hasKeyListener()).toBe(true));
+
+    terminal.emitKey("\r"); // boot start
+    terminal.emitKey("ENTER");
+    await vi.waitFor(() => expect(ptyRuntime.ensureSession).toHaveBeenCalled());
+    terminal.emitUnknown("\u001B[13;2u");
+    terminal.emitKey("\u001D");
+    terminal.emitKey("q");
+
+    await expect(app).resolves.toBe(0);
+    expect(ptyRuntime.writeKey).toHaveBeenCalledWith("SHIFT_ENTER");
+    expect(ptyRuntime.write).not.toHaveBeenCalledWith("\u001B[13;2u");
+  });
+
   test("mouse wheel in terminal mode scrolls the PTY viewport instead of writing to the PTY", async () => {
     const root = await mkdtemp(join(tmpdir(), "craig-ui-app-"));
     tempRoots.push(root);
