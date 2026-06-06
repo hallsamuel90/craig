@@ -42,19 +42,26 @@ describe("showTask", () => {
         commands: ["pnpm test"],
         results: [],
       },
-      pullRequest: {
+      prs: [{
         provider: "github",
+        owner: null,
+        repo: null,
         number: 12,
         url: "https://github.com/example/repo/pull/12",
+        title: null,
+        status: "open",
+        draft: false,
         baseBranch: "main",
         headBranch: "craig/task_1",
-        status: "open",
         mergeable: false,
         mergeStateStatus: "BLOCKED",
         requiredChecks: [{ name: "ci", status: "pending", conclusion: null }],
+        createdAt: null,
+        updatedAt: null,
+        mergedAt: null,
         lastSyncedAt: "2026-04-21T00:00:00.000Z",
         lastSyncedHeadSha: "abc1234",
-      },
+      }],
     });
 
     const result = await showTask(paths, "task_1");

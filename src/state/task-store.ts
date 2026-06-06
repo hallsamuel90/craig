@@ -1,6 +1,6 @@
 import { readFile } from "node:fs/promises";
 
-import type { ProjectTaskRepoTarget, RunnerSession, RunnerType, TaskPtyTabRecord, TaskRecord } from "../types/task.js";
+import type { ProjectTaskRepoTarget, RunnerSession, RunnerType, TaskPR, TaskPtyTabRecord, TaskPullRequest, TaskRecord } from "../types/task.js";
 import type { CraigPaths } from "./craig-paths.js";
 import { atomicWriteJson } from "./atomic-write.js";
 import { readCraigIndex, writeCraigIndex } from "./state-store.js";
@@ -87,7 +87,7 @@ function normalizeLegacyTaskRecord(value: unknown): unknown {
     runnerSession: candidate.runnerSession ?? buildLegacyRunnerSession(candidate),
     checks: normalizeLegacyChecks(candidate),
     lastCommit: candidate.lastCommit ?? null,
-    pullRequest: normalizeLegacyPullRequest(candidate),
+    prs: normalizeLegacyPrs(candidate),
     artifacts: normalizeLegacyArtifacts(candidate),
     cleanup: normalizeLegacyCleanup(candidate),
   };
@@ -142,7 +142,7 @@ function isTaskRecord(value: unknown): value is TaskRecord {
     isPromptSource(candidate.prompt) &&
     isChecks(candidate.checks) &&
     isLastCommit(candidate.lastCommit) &&
-    isPullRequest(candidate.pullRequest) &&
+    isPrs(candidate.prs) &&
     isArtifacts(candidate.artifacts) &&
     isCleanup(candidate.cleanup) &&
     (candidate.lastFailureReason === undefined ||
@@ -310,23 +310,19 @@ function isLastCommit(value: TaskRecord["lastCommit"] | undefined): boolean {
   );
 }
 
-function isPullRequest(value: TaskRecord["pullRequest"] | undefined): boolean {
+function isPullRequest(value: unknown): boolean {
   return (
     typeof value === "object" &&
     value !== null &&
-    value.provider === "github" &&
-    (typeof value.number === "number" || value.number === null) &&
-    (typeof value.url === "string" || value.url === null) &&
-    (typeof value.baseBranch === "string" || value.baseBranch === null) &&
-    (typeof value.headBranch === "string" || value.headBranch === null) &&
-    (value.status === "open" ||
-      value.status === "closed" ||
-      value.status === "merged" ||
-      value.status === null) &&
-    typeof value.mergeable === "boolean" &&
-    (typeof value.mergeStateStatus === "string" || value.mergeStateStatus === null) &&
-    Array.isArray(value.requiredChecks) &&
-    value.requiredChecks.every(
+    (value as { provider?: unknown }).provider === "github" &&
+    isPullRequestChecks((value as { requiredChecks?: unknown }).requiredChecks)
+  );
+}
+
+function isPullRequestChecks(value: unknown): boolean {
+  return (
+    Array.isArray(value) &&
+    value.every(
       (check) =>
         typeof check === "object" &&
         check !== null &&
@@ -337,10 +333,12 @@ function isPullRequest(value: TaskRecord["pullRequest"] | undefined): boolean {
           check.status === "skipped" ||
           check.status === "unknown") &&
         (typeof check.conclusion === "string" || check.conclusion === null),
-    ) &&
-    (typeof value.lastSyncedAt === "string" || value.lastSyncedAt === null) &&
-    (typeof value.lastSyncedHeadSha === "string" || value.lastSyncedHeadSha === null || value.lastSyncedHeadSha === undefined)
+    )
   );
+}
+
+function isPrs(value: unknown): value is TaskPR[] {
+  return Array.isArray(value) && value.every(isPullRequest);
 }
 
 function isArtifacts(value: TaskRecord["artifacts"] | undefined): boolean {
@@ -385,36 +383,74 @@ function normalizeLegacyChecks(candidate: Partial<TaskRecord>): TaskRecord["chec
   };
 }
 
-function normalizeLegacyPullRequest(candidate: Partial<TaskRecord>): TaskRecord["pullRequest"] {
-  const current = candidate.pullRequest;
-
-  if (!current) {
-    return {
-      provider: "github",
-      number: null,
-      url: null,
-      baseBranch: null,
-      headBranch: null,
-      status: null,
-      mergeable: false,
-      mergeStateStatus: null,
-      requiredChecks: [],
-      lastSyncedAt: null,
-      lastSyncedHeadSha: null,
-    };
+function normalizeLegacyPrs(candidate: Partial<TaskRecord> & { pullRequest?: TaskPullRequest }): TaskPR[] {
+  if (Array.isArray(candidate.prs)) {
+    return candidate.prs.map(normalizeLegacyPr);
   }
 
+  const legacy = candidate.pullRequest;
+  if (!legacy || !legacy.number) {
+    return [];
+  }
+
+  return [
+    {
+      provider: "github",
+      owner: null,
+      repo: null,
+      number: legacy.number,
+      url: legacy.url ?? null,
+      title: null,
+      status: normalizeLegacyPrStatus(legacy.status),
+      draft: false,
+      baseBranch: legacy.baseBranch ?? null,
+      headBranch: legacy.headBranch ?? null,
+      mergeable: legacy.mergeable ?? false,
+      mergeStateStatus: legacy.mergeStateStatus ?? null,
+      requiredChecks: normalizeLegacyPrChecks(legacy.requiredChecks),
+      createdAt: null,
+      updatedAt: null,
+      mergedAt: null,
+      lastSyncedAt: legacy.lastSyncedAt ?? null,
+      lastSyncedHeadSha: legacy.lastSyncedHeadSha ?? null,
+    },
+  ];
+}
+
+function normalizeLegacyPr(value: unknown): TaskPR {
+  const candidate = (value ?? {}) as Partial<TaskPR>;
   return {
-    ...current,
-    mergeStateStatus: current.mergeStateStatus ?? null,
-    requiredChecks: normalizeLegacyPullRequestChecks(current.requiredChecks),
-    lastSyncedHeadSha: current.lastSyncedHeadSha ?? null,
+    provider: "github",
+    owner: candidate.owner ?? null,
+    repo: candidate.repo ?? null,
+    number: typeof candidate.number === "number" ? candidate.number : null,
+    url: candidate.url ?? null,
+    title: candidate.title ?? null,
+    status: normalizeLegacyPrStatus(candidate.status as string | null | undefined),
+    draft: candidate.draft ?? false,
+    baseBranch: candidate.baseBranch ?? null,
+    headBranch: candidate.headBranch ?? null,
+    mergeable: candidate.mergeable ?? false,
+    mergeStateStatus: candidate.mergeStateStatus ?? null,
+    requiredChecks: normalizeLegacyPrChecks(candidate.requiredChecks),
+    createdAt: candidate.createdAt ?? null,
+    updatedAt: candidate.updatedAt ?? null,
+    mergedAt: candidate.mergedAt ?? null,
+    lastSyncedAt: candidate.lastSyncedAt ?? null,
+    lastSyncedHeadSha: candidate.lastSyncedHeadSha ?? null,
   };
 }
 
-function normalizeLegacyPullRequestChecks(
-  checks: TaskRecord["pullRequest"]["requiredChecks"] | undefined,
-): TaskRecord["pullRequest"]["requiredChecks"] {
+function normalizeLegacyPrStatus(status: string | null | undefined): TaskPR["status"] {
+  if (status === "open" || status === "closed" || status === "merged" || status === "draft") {
+    return status;
+  }
+  return null;
+}
+
+function normalizeLegacyPrChecks(
+  checks: TaskPR["requiredChecks"] | undefined,
+): TaskPR["requiredChecks"] {
   if (!Array.isArray(checks)) {
     return [];
   }

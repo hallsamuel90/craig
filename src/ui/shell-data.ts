@@ -15,7 +15,8 @@ import {
   getFileIcon,
   getFileIconColor,
 } from "./icons.js";
-import type { ProjectTaskRepoTarget, RunnerType, TaskPullRequest, TaskPullRequestCheck, TaskPtyTabRecord, TaskRecord } from "../types/task.js";
+import type { ProjectTaskRepoTarget, RunnerType, TaskPR, TaskPullRequest, TaskPullRequestCheck, TaskPtyTabRecord, TaskRecord } from "../types/task.js";
+import { getTaskPrimaryPr } from "../services/github-pr.js";
 import type { RepoRecord, WorkspaceRecord } from "../types/workspace.js";
 import { getRunnerDisplayName } from "../services/runner-profiles.js";
 import { INSPECTION_TAB_ID, isTaskLeftItemId } from "./state.js";
@@ -45,6 +46,7 @@ export interface ShellTreeRow {
   selected?: boolean;
   focused?: boolean;
   accentDot?: boolean;
+  panelHeader?: boolean;
   status?: string;
   muted?: boolean;
   prBadge?: TerminalRowSegment[];
@@ -219,7 +221,7 @@ export function buildShellData(state: ControlShellState, model: WorkspaceShellMo
 }
 
 function buildLeftTree(state: ControlShellState, model: WorkspaceShellModel): ShellTreeRow[] {
-  const rows: ShellTreeRow[] = [{ text: "WORKSPACES", muted: true, focused: state.focusedRegion === "tasks" }];
+  const rows: ShellTreeRow[] = [{ text: "WORKSPACES", muted: true, panelHeader: true, focused: state.focusedRegion === "tasks" }];
 
   if (!model.workspaces) {
     return buildLegacyRepoLeftTree(rows, state, model.repos, model.tasks);
@@ -845,7 +847,7 @@ function buildInspectionSection(
     : null;
   const effectivePr = task?.type === "project"
     ? buildAggregateProjectPullRequest(task.repoTargets ?? [])
-    : selectedTarget?.pullRequest ?? task?.pullRequest ?? null;
+    : selectedTarget?.pullRequest ?? (task ? getTaskPrimaryPr(task) : null);
   const modeRows = [renderInspectionModeRow(state, effectivePr), { id: "mode-spacer", text: "", muted: true }];
   if (state.inspectionMode === "review") {
     return {
@@ -867,7 +869,7 @@ function buildInspectionSection(
   };
 }
 
-function renderInspectionModeRow(state: ControlShellState, pr: TaskPullRequest | null): ShellInspectionRow {
+function renderInspectionModeRow(state: ControlShellState, pr: { number: number | null; status: string | null; requiredChecks: TaskPullRequestCheck[] } | null): ShellInspectionRow {
   const mode = state.inspectionMode;
   const modes = [
     { label: "CHANGES", active: mode === "diff" },
@@ -878,7 +880,10 @@ function renderInspectionModeRow(state: ControlShellState, pr: TaskPullRequest |
   for (let i = 0; i < modes.length; i++) {
     const m = modes[i]!;
     if (i > 0) segments.push({ text: "  " });
-    segments.push({ text: m.label, style: { fg: m.active ? "7aa2f7" : "565f89" } });
+    const activeFg = m.active
+      ? (state.focusedRegion === "inspector" || state.focusedRegion === "actions" ? "9ece6a" : "7aa2f7")
+      : "565f89";
+    segments.push({ text: m.label, style: { fg: activeFg } });
   }
 
   const prSegment = buildPrLifecycleSegment(pr);
@@ -889,7 +894,7 @@ function renderInspectionModeRow(state: ControlShellState, pr: TaskPullRequest |
   return { id: "inspection-mode", text, segments };
 }
 
-function buildPrBadgeSegments(pr: TaskPullRequest): TerminalRowSegment[] {
+function buildPrBadgeSegments(pr: { number: number | null; status: string | null; requiredChecks: TaskPullRequestCheck[] }): TerminalRowSegment[] {
   return [
     { text: " " },
     buildPrLifecycleSegment(pr),
@@ -904,7 +909,8 @@ function buildTaskPrBadgeSegments(task: TaskRecord): TerminalRowSegment[] | null
     return aggregatePr ? buildPrBadgeSegments(aggregatePr) : null;
   }
 
-  return task.pullRequest.number ? buildPrBadgeSegments(task.pullRequest) : null;
+  const primaryPr = getTaskPrimaryPr(task);
+  return primaryPr?.number ? buildPrBadgeSegments(primaryPr) : null;
 }
 
 function buildAggregateProjectPullRequest(targets: ProjectTaskRepoTarget[]): TaskPullRequest | null {
@@ -946,7 +952,7 @@ function deriveAggregateProjectPrStatus(prs: TaskPullRequest[]): TaskPullRequest
   return prs[0]?.status ?? null;
 }
 
-function buildPrLifecycleSegment(pr: TaskPullRequest | null): TerminalRowSegment {
+function buildPrLifecycleSegment(pr: { number: number | null; status: string | null } | null): TerminalRowSegment {
   if (!pr || !pr.number) return { text: PR_ICON_NONE, style: { fg: "565f89" } };
   if (pr.status === "merged") return { text: PR_ICON_MERGED, style: { fg: "9d7cd8" } };
   if (pr.status === "closed") return { text: PR_ICON_CLOSED, style: { fg: "f7768e" } };
@@ -972,7 +978,15 @@ function buildReviewInspectionRows(
     return buildProjectReviewInspectionRows(state, task);
   }
 
-  return buildPrDetailRows("pr", task.branch, task.pullRequest);
+  const primaryPr = getTaskPrimaryPr(task);
+  const rows = buildPrDetailRows("pr", task.branch, primaryPr ?? { number: null, url: null, baseBranch: null, headBranch: null, mergeable: false, mergeStateStatus: null, lastSyncedAt: null, requiredChecks: [] });
+  const prHistoryCount = task.prs.filter(
+    (pr) => pr !== primaryPr && (pr.status === "merged" || pr.status === "closed"),
+  ).length;
+  if (prHistoryCount > 0) {
+    rows.push({ id: "pr-history", text: `+ ${prHistoryCount} previous PR${prHistoryCount !== 1 ? "s" : ""}`, muted: true });
+  }
+  return rows;
 }
 
 const TARGET_ROW_WIDTH = 32;
@@ -1035,10 +1049,21 @@ function buildProjectReviewInspectionRows(
   return rows;
 }
 
+interface PrDetail {
+  number: number | null;
+  url: string | null;
+  baseBranch: string | null;
+  headBranch: string | null;
+  mergeable: boolean;
+  mergeStateStatus: string | null;
+  lastSyncedAt: string | null;
+  requiredChecks: TaskPullRequestCheck[];
+}
+
 function buildPrDetailRows(
   idPrefix: string,
   fallbackBranch: string,
-  pr: TaskPullRequest,
+  pr: PrDetail,
 ): ShellInspectionRow[] {
   const id = (suffix: string) => `${idPrefix}-${suffix}`;
 

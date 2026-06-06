@@ -37,7 +37,7 @@ describe("terminal shell control state", () => {
       activeTab: "agent",
       preferredPtyTabKind: "terminal",
       inspectorSection: "checks",
-      selectedActionId: "merge",
+      selectedActionId: "close-task",
       updatedAt: "2026-05-03T00:00:00.000Z",
     });
 
@@ -51,7 +51,7 @@ describe("terminal shell control state", () => {
       activeTab: "agent",
       preferredPtyTabKind: "terminal",
       inspectorSection: "checks",
-      selectedActionId: "merge",
+      selectedActionId: "close-task",
       actionMessage: null,
     });
   });
@@ -126,7 +126,7 @@ describe("terminal shell control state", () => {
       openInspectionKind: "diff",
       selectedFilePath: "src/app.ts",
       selectedDiffPath: "src/app.ts",
-        selectedActionId: "merge",
+        selectedActionId: "close-task",
         updatedAt: "2026-05-03T00:00:00.000Z",
       }),
       {
@@ -152,7 +152,7 @@ describe("terminal shell control state", () => {
       openInspectionKind: "diff",
       selectedFilePath: "README.md",
       selectedDiffPath: "README.md",
-      selectedActionId: "merge",
+      selectedActionId: "close-task",
     });
   });
 
@@ -466,21 +466,9 @@ describe("terminal shell control state", () => {
       activeTab: "task_20260430_02:terminal",
     };
 
-    expect(reduceMainKey({ ...base, selectedActionId: "create-pr" as const }, "ENTER", KEY_OPTIONS)).toMatchObject({
-      attachTerminal: false,
-      syncPullRequest: true,
-      state: { actionMessage: null },
-      changed: true,
-    });
     expect(reduceMainKey({ ...base, selectedActionId: "refresh-checks" as const }, "ENTER", KEY_OPTIONS)).toMatchObject({
       attachTerminal: false,
       refreshPullRequestChecks: true,
-      state: { actionMessage: null },
-      changed: true,
-    });
-    expect(reduceMainKey({ ...base, selectedActionId: "merge" as const }, "ENTER", KEY_OPTIONS)).toMatchObject({
-      attachTerminal: false,
-      mergeTask: true,
       state: { actionMessage: null },
       changed: true,
     });
@@ -659,7 +647,6 @@ describe("terminal shell control state", () => {
 
     expect(reduceMainKey(review, "ENTER", KEY_OPTIONS)).toMatchObject({
       attachTerminal: false,
-      syncPullRequest: false,
       refreshPullRequestChecks: true,
       state: { selectedActionId: "refresh-checks" },
       changed: true,
@@ -672,7 +659,6 @@ describe("terminal shell control state", () => {
     });
     expect(reduceMainKey(refreshSelected, "ENTER", KEY_OPTIONS)).toMatchObject({
       attachTerminal: false,
-      syncPullRequest: false,
       refreshPullRequestChecks: true,
       changed: true,
     });
@@ -686,13 +672,9 @@ describe("terminal shell control state", () => {
     };
 
     expect(reduceMainKey(review, "P", KEY_OPTIONS)).toMatchObject({
-      syncPullRequest: false,
-      mergeTask: false,
       changed: false,
     });
     expect(reduceMainKey(review, "M", KEY_OPTIONS)).toMatchObject({
-      syncPullRequest: false,
-      mergeTask: false,
       changed: false,
     });
   });
@@ -1064,7 +1046,7 @@ describe("terminal shell control state", () => {
       inspectorSection: "actions" as const,
       inspectionMode: "diff" as const,
       openInspectionKind: "diff" as const,
-      selectedActionId: "merge" as const,
+      selectedActionId: "close-task" as const,
       actionMessage: "transient",
     };
 
@@ -1081,7 +1063,7 @@ describe("terminal shell control state", () => {
       inspectorSection: "actions",
       inspectionMode: "diff",
       openInspectionKind: "diff",
-      selectedActionId: "merge",
+      selectedActionId: "close-task",
     });
     expect(persisted).not.toHaveProperty("actionMessage");
   });

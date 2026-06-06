@@ -31,10 +31,6 @@ export type AppCommand =
   | { kind: "runSelectedTaskChecks" }
   | { kind: "commitTask"; taskId: string }
   | { kind: "commitSelectedTask" }
-  | { kind: "openPullRequest"; taskId: string; watch: boolean }
-  | { kind: "openSelectedTaskPullRequest"; watch: boolean }
-  | { kind: "mergeTask"; taskId: string; preserveWorktree: boolean }
-  | { kind: "mergeSelectedTask"; preserveWorktree: boolean }
   | { kind: "help" }
   | { kind: "exit" };
 
@@ -197,27 +193,6 @@ export interface CommandCommitResult {
   message: string;
 }
 
-export interface CommandPullRequestResult {
-  kind: "openPullRequest";
-  taskId: string;
-  watch: boolean;
-  disposition: "created" | "discovered" | "synced";
-  prNumber: number;
-  url: string;
-  status: string;
-  mergeable: boolean;
-  requiredChecksSummary: string;
-}
-
-export interface CommandMergeResult {
-  kind: "mergeTask";
-  taskId: string;
-  status: string;
-  prNumber: number;
-  preservedWorktree: boolean;
-  cleanupWarning: string | null;
-}
-
 export type CommandResult =
   | CommandCreateWorkspaceResult
   | CommandCreateRepoResult
@@ -240,6 +215,4 @@ export type CommandResult =
   | CommandFocusResult
   | CommandOpenResult
   | CommandChecksResult
-  | CommandCommitResult
-  | CommandPullRequestResult
-  | CommandMergeResult;
+  | CommandCommitResult;

@@ -189,7 +189,7 @@ export async function provisionProjectTask(
     },
     checks: readyTarget.checks,
     lastCommit: null,
-    pullRequest: readyTarget.pullRequest,
+    prs: [],
     artifacts: {
       logPath: path.relative(paths.workspaceRoot, logPath),
       checkSummaryPath: path.relative(paths.workspaceRoot, path.join(artifactDir, "check-summary.json")),
@@ -282,7 +282,7 @@ function buildDraftTask(paths: CraigPaths, input: DraftTaskInput): TaskRecord {
       ...buildDefaultChecks(path.relative(paths.workspaceRoot, paths.configFile)),
     },
     lastCommit: null,
-    pullRequest: buildDefaultPullRequest(),
+    prs: [],
     artifacts: {
       logPath: path.relative(paths.workspaceRoot, path.join(paths.logsDir, `${input.taskId}.log`)),
       checkSummaryPath: path.relative(paths.workspaceRoot, path.join(paths.artifactsDir, input.taskId, "check-summary.json")),

@@ -18,6 +18,8 @@ export interface RenderOptions {
   optionsMenuItems?: string[];
   optionsSubtitle?: string;
   centerOnly?: boolean;
+  versionText?: string | null;
+  updateText?: string | null;
 }
 
 interface PaletteColor {
@@ -71,6 +73,8 @@ export function renderBootOverlayFrame(viewport: Viewport, options: RenderOption
     menuIndex: options.menuIndex ?? 0,
     optionsMessage: options.optionsMessage ?? null,
     color: options.color ?? true,
+    versionText: options.versionText ?? null,
+    updateText: options.updateText ?? null,
   });
 }
 
@@ -81,6 +85,8 @@ export function renderPauseOverlayFrame(viewport: Viewport, options: RenderOptio
     menuIndex: options.menuIndex ?? 0,
     optionsMessage: options.optionsMessage ?? null,
     color: options.color ?? true,
+    versionText: options.versionText ?? null,
+    updateText: options.updateText ?? null,
   });
 }
 
@@ -189,6 +195,8 @@ function renderOverlayFrame(
     menuIndex: number;
     optionsMessage: string | null;
     color: boolean;
+    versionText?: string | null;
+    updateText?: string | null;
   },
 ): string {
   const lines = new Array<string>(viewport.height).fill(fillSurface(" ".repeat(viewport.width), input.color, PALETTE.overlay));
@@ -220,6 +228,17 @@ function renderOverlayFrame(
     lines[startLine + index] = fillSurface(centered, input.color, itemPalette);
   }
 
+  if (input.versionText) {
+    const updateSuffix = input.updateText ? "  (update available)" : "";
+    const label = `${input.versionText}${updateSuffix}  `;
+    const padding = " ".repeat(Math.max(0, viewport.width - stringWidth(label)));
+    lines[viewport.height - 1] = fillSurface(
+      `${padding}${muted(label, input.color, PALETTE.overlay)}`,
+      input.color,
+      PALETTE.overlay,
+    );
+  }
+
   return lines.join("\n");
 }
 
@@ -247,8 +266,10 @@ function toCenterLines(data: ShellData, width: number, height: number, color: bo
   const body = data.centerHeader.tabLabel === "BROWSER" || !isPtyTab(activeTabId)
     ? data.centerTranscript.map((line) => ({ ...line }))
     : renderTerminalSurface(data);
+  const tabLineText = renderTabLine(data.tabs, color, data.focusedRegion === "center");
+  const tabLine: SurfaceLine = { text: tabLineText };
   const lines: SurfaceLine[] = [
-    { text: renderTabLine(data.tabs, color) },
+    tabLine,
     { text: underline, tone: "muted" },
     { text: header },
     emptyLine(),
@@ -298,7 +319,7 @@ function toRightLines(data: ShellData, width: number, height: number, color: boo
         height,
       )
     : fitLines([
-        { text: sectionTitle("CONTEXT", data.focusedRegion === "tasks", color, PALETTE.panelBg) },
+        { text: "CONTEXT" },
         emptyLine(),
         ...data.rightContext.map((row) => renderContextRow(row, color)),
         ...(data.actionMessage ? [emptyLine(), { text: data.actionMessage }] : []),
@@ -365,7 +386,13 @@ function renderTreeRow(row: ShellTreeRow, width: number, color: boolean): Surfac
   const accentDot = row.accentDot ? ` ${green("●", color, row.selected ? PALETTE.panelSelected : PALETTE.panelBg)}` : "";
   const badgeWidth = row.prBadge ? row.prBadge.reduce((acc, seg) => acc + stringWidth(seg.text), 0) : 0;
   const visibleWidth = width - stringWidth(status) - stringWidth(dot) - badgeWidth;
-  const label = row.focused && !row.selected ? sectionTitle(row.text, true, color, PALETTE.panelBg) : row.text;
+  const label = row.selected
+    ? row.text
+    : row.focused
+      ? green(row.text, color, PALETTE.panelBg)
+      : row.panelHeader
+        ? accent(row.text, color, PALETTE.panelMuted)
+        : row.text;
   const base = pad(`${indent}${label}`, Math.max(0, visibleWidth));
   const tone: SurfaceLine["tone"] = row.selected ? "selected" : row.muted ? "muted" : "default";
 
@@ -406,11 +433,13 @@ function renderRunnersCompact(runners: ShellRunnerRow[]): SurfaceLine {
   };
 }
 
-function renderTabLine(tabs: ShellTab[], color: boolean): string {
+function renderTabLine(tabs: ShellTab[], color: boolean, centerFocused: boolean): string {
   return tabs
     .map((tab) => {
       if (tab.active) {
-        return accent(tab.label, color, PALETTE.panelBg);
+        return centerFocused
+          ? green(tab.label, color, PALETTE.panelBg)
+          : accent(tab.label, color, PALETTE.panelBg);
       }
 
       return muted(tab.label, color, PALETTE.panelBg);

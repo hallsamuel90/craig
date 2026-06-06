@@ -9,6 +9,7 @@ export type TaskStatus =
   | "merged"
   | "closed";
 export type RunnerType = "codex" | "cursor" | "claude";
+export type TaskPRStatus = "open" | "closed" | "merged" | "draft";
 
 export interface TaskPromptSource {
   source: "inline" | "file";
@@ -49,6 +50,27 @@ export interface TaskPullRequest {
   mergeable: boolean;
   mergeStateStatus: string | null;
   requiredChecks: TaskPullRequestCheck[];
+  lastSyncedAt: string | null;
+  lastSyncedHeadSha: string | null;
+}
+
+export interface TaskPR {
+  provider: "github";
+  owner: string | null;
+  repo: string | null;
+  number: number | null;
+  url: string | null;
+  title: string | null;
+  status: TaskPRStatus | null;
+  draft: boolean;
+  baseBranch: string | null;
+  headBranch: string | null;
+  mergeable: boolean;
+  mergeStateStatus: string | null;
+  requiredChecks: TaskPullRequestCheck[];
+  createdAt: string | null;
+  updatedAt: string | null;
+  mergedAt: string | null;
   lastSyncedAt: string | null;
   lastSyncedHeadSha: string | null;
 }
@@ -133,7 +155,7 @@ export interface TaskRecord {
   prompt: TaskPromptSource;
   checks: TaskChecks;
   lastCommit: TaskLastCommit | null;
-  pullRequest: TaskPullRequest;
+  prs: TaskPR[];
   artifacts: TaskArtifacts;
   cleanup: TaskCleanup;
   lastFailureReason?: string | null;

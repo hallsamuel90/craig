@@ -2,9 +2,10 @@ import { access } from "node:fs/promises";
 import path from "node:path";
 
 import type { TaskInspection } from "../types/command.js";
-import type { TaskRecord } from "../types/task.js";
+import type { TaskPR, TaskRecord } from "../types/task.js";
 import type { CraigPaths } from "../state/craig-paths.js";
 import { readTask } from "../state/task-store.js";
+import { getTaskPrimaryPr } from "./github-pr.js";
 
 export async function getTaskOrThrow(paths: CraigPaths, taskId: string): Promise<TaskRecord> {
   try {
@@ -83,13 +84,27 @@ function summarizeLastCommit(task: TaskRecord): string {
 }
 
 function summarizePullRequest(task: TaskRecord): string {
-  if (!task.pullRequest.number || !task.pullRequest.url) {
+  if (task.type === "project" && task.repoTargets?.length) {
+    const linked = task.repoTargets.filter((t) => t.pullRequest.number);
+    if (linked.length === 0) return "not linked";
+    const lines = linked.map((t) => `  ${t.repoId} #${t.pullRequest.number} ${t.pullRequest.status ?? "unknown"}`);
+    const statusCounts = linked.reduce<Record<string, number>>((acc, t) => {
+      const s = t.pullRequest.status ?? "unknown";
+      acc[s] = (acc[s] ?? 0) + 1;
+      return acc;
+    }, {});
+    const rollup = Object.entries(statusCounts).map(([s, n]) => `${n} ${s}`).join(", ");
+    return `${linked.length} PR${linked.length !== 1 ? "s" : ""} (${rollup})\n${lines.join("\n")}`;
+  }
+
+  const pr: TaskPR | null = getTaskPrimaryPr(task);
+  if (!pr?.number || !pr.url) {
     return "not linked";
   }
 
-  const checks = task.pullRequest.requiredChecks.length;
+  const checks = pr.requiredChecks.length;
   const checkLabel = checks === 1 ? "check" : "checks";
-  return `#${task.pullRequest.number} ${task.pullRequest.status ?? "unknown"} mergeable=${task.pullRequest.mergeable} mergeState=${task.pullRequest.mergeStateStatus ?? "unknown"} (${checks} ${checkLabel})`;
+  return `#${pr.number} ${pr.status ?? "unknown"} mergeable=${pr.mergeable} mergeState=${pr.mergeStateStatus ?? "unknown"} (${checks} ${checkLabel})`;
 }
 
 function summarizeCleanup(task: TaskRecord): string {

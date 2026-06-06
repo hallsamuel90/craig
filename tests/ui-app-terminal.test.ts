@@ -1164,65 +1164,7 @@ describe("terminal app PTY attach flow", () => {
 
     await expect(app).resolves.toBe(0);
     const updatedTask = await readTask(paths, task.id);
-    expect(updatedTask.pullRequest.number).toBeNull();
-    expect(updatedTask.pullRequest.url).toBeNull();
-    expect(updatedTask.pullRequest.lastSyncedHeadSha).toBeNull();
-    expect(ptyRuntime.ensureSession).not.toHaveBeenCalled();
-  });
-
-  test("actions-focused create pr records tracked PR metadata without attaching a PTY", async () => {
-    const root = await mkdtemp(join(tmpdir(), "craig-ui-app-"));
-    tempRoots.push(root);
-    const paths = await setupWorkspace(root);
-    const { task, stubDir } = await preparePrTask(paths, tempRoots);
-    process.env.PATH = `${stubDir}:${originalPath}`;
-    process.env.CRAIG_TEST_GH_MODE = "no-pr";
-    const viewFile = join(root, "gh-view.json");
-    await writeFile(
-      viewFile,
-      JSON.stringify({
-        number: 17,
-        url: "https://github.com/example/repo/pull/17",
-        baseRefName: "main",
-        headRefName: task.branch,
-        headRefOid: task.lastCommit?.sha,
-        state: "OPEN",
-        mergeable: "MERGEABLE",
-        mergeStateStatus: "CLEAN",
-        statusCheckRollup: [{ context: "ci", state: "SUCCESS", conclusion: "SUCCESS" }],
-      }),
-      "utf8",
-    );
-    process.env.CRAIG_TEST_GH_VIEW_FILE = viewFile;
-    await writeFile(
-      paths.uiStateFile,
-      JSON.stringify({
-        version: 1,
-        selectedRepoId: "repo_a",
-        selectedWorkspaceId: "workspace_repo_a",
-        selectedTaskId: task.id,
-        selectedPtyTabId: `${task.id}:terminal`,
-        inputMode: "control",
-        focusedRegion: "actions",
-        activeTab: `${task.id}:terminal`,
-        selectedActionId: "create-pr",
-        updatedAt: "2026-05-04T00:00:00.000Z",
-      }),
-    );
-    const terminal = new FakeTerminal();
-    const ptyRuntime = new FakePtyRuntime();
-    const app = startTerminalApp({ terminal, ptyRuntime, uiStateFile: paths.uiStateFile, workspaceRoot: root });
-    await vi.waitFor(() => expect(terminal.hasKeyListener()).toBe(true));
-
-    terminal.emitKey("\r"); // boot start
-    terminal.emitKey("ENTER");
-    await vi.waitFor(() => expect(stripAnsi(terminal.frames.at(-1) ?? "")).toContain("Created PR: #17"));
-    terminal.emitKey("q");
-
-    await expect(app).resolves.toBe(0);
-    const updatedTask = await readTask(paths, task.id);
-    expect(updatedTask.pullRequest.number).toBe(17);
-    expect(updatedTask.pullRequest.url).toBe("https://github.com/example/repo/pull/17");
+    expect(updatedTask.prs).toHaveLength(0);
     expect(ptyRuntime.ensureSession).not.toHaveBeenCalled();
   });
 
@@ -1264,7 +1206,7 @@ describe("terminal app PTY attach flow", () => {
 
     await expect(app).resolves.toBe(0);
     const updatedTask = await readTask(paths, task.id);
-    expect(updatedTask.pullRequest.number).toBe(23);
+    expect(updatedTask.prs[0]?.number).toBe(23);
     expect(ptyRuntime.ensureSession).not.toHaveBeenCalled();
   });
 
@@ -1303,7 +1245,7 @@ describe("terminal app PTY attach flow", () => {
 
     await expect(app).resolves.toBe(0);
     const updatedTask = await readTask(paths, task.id);
-    expect(updatedTask.pullRequest.number).toBe(24);
+    expect(updatedTask.prs[0]?.number).toBe(24);
     expect(ptyRuntime.ensureSession).not.toHaveBeenCalled();
   });
 
@@ -1354,7 +1296,7 @@ describe("terminal app PTY attach flow", () => {
     await vi.waitFor(() => expect(terminal.hasKeyListener()).toBe(true));
 
     terminal.emitKey("\r"); // boot start
-    await vi.waitFor(async () => expect((await readTask(paths, unselectedTask.id)).pullRequest.number).toBe(25), { timeout: 2500 });
+    await vi.waitFor(async () => expect((await readTask(paths, unselectedTask.id)).prs[0]?.number).toBe(25), { timeout: 2500 });
     await vi.waitFor(() => {
       const frame = stripAnsi(terminal.frames.at(-1) ?? "");
       expect(frame).toContain("background poll");
@@ -1364,7 +1306,7 @@ describe("terminal app PTY attach flow", () => {
 
     await expect(app).resolves.toBe(0);
     const selectedTask = await readTask(paths, task.id);
-    expect(selectedTask.pullRequest.number).toBe(25);
+    expect(selectedTask.prs[0]?.number).toBe(25);
     expect(ptyRuntime.ensureSession).not.toHaveBeenCalled();
   });
 
@@ -1390,7 +1332,7 @@ describe("terminal app PTY attach flow", () => {
 
     await expect(app).resolves.toBe(0);
     const updatedTask = await readTask(paths, task.id);
-    expect(updatedTask.pullRequest.number).toBeNull();
+    expect(updatedTask.prs).toHaveLength(0);
     expect(ptyRuntime.ensureSession).not.toHaveBeenCalled();
   });
 
@@ -1407,19 +1349,26 @@ describe("terminal app PTY attach flow", () => {
     const nextSha = (await runCommand("git", ["rev-parse", "HEAD"], { cwd: task.worktreePath })).stdout.trim();
     await writeTask(paths, {
       ...task,
-      pullRequest: {
+      prs: [{
         provider: "github",
+        owner: null,
+        repo: null,
         number: 17,
         url: "https://github.com/example/repo/pull/17",
+        title: null,
+        status: "open",
+        draft: false,
         baseBranch: "main",
         headBranch: task.branch,
-        status: "open",
         mergeable: false,
         mergeStateStatus: "UNKNOWN",
         requiredChecks: [],
+        createdAt: null,
+        updatedAt: null,
+        mergedAt: null,
         lastSyncedAt: "2026-05-04T00:00:00.000Z",
         lastSyncedHeadSha: initialSha,
-      },
+      }],
       lastCommit: {
         sha: nextSha,
         message: "sync task",
@@ -1459,7 +1408,7 @@ describe("terminal app PTY attach flow", () => {
     await expect(app).resolves.toBe(0);
     const updatedTask = await readTask(paths, task.id);
     const remoteBranch = await runCommandAllowingFailure("git", ["rev-parse", `refs/heads/${task.branch}`], { cwd: remoteRepo });
-    expect(updatedTask.pullRequest.lastSyncedHeadSha).toBe(nextSha);
+    expect(updatedTask.prs[0]?.lastSyncedHeadSha).toBe(nextSha);
     expect(remoteBranch.exitCode).not.toBe(0);
     expect(ptyRuntime.ensureSession).not.toHaveBeenCalled();
   });
@@ -1473,19 +1422,26 @@ describe("terminal app PTY attach flow", () => {
     await writeTask(paths, {
       ...task,
       status: "pr_open",
-      pullRequest: {
+      prs: [{
         provider: "github",
+        owner: null,
+        repo: null,
         number: 17,
         url: "https://github.com/example/repo/pull/17",
+        title: null,
+        status: "open",
+        draft: false,
         baseBranch: "main",
         headBranch: task.branch,
-        status: "open",
         mergeable: false,
         mergeStateStatus: "UNKNOWN",
         requiredChecks: [{ name: "ci", status: "pending", conclusion: null }],
+        createdAt: null,
+        updatedAt: null,
+        mergedAt: null,
         lastSyncedAt: "2026-05-04T00:00:00.000Z",
         lastSyncedHeadSha: task.lastCommit?.sha ?? null,
-      },
+      }],
     });
     const viewFile = join(root, "gh-view.json");
     await writeFile(
@@ -1520,7 +1476,7 @@ describe("terminal app PTY attach flow", () => {
     await vi.waitFor(() => expect(stripAnsi(terminal.frames.at(-1) ?? "")).toContain("Refreshed checks: 2 reported"));
     await vi.waitFor(async () => {
       const refreshedTask = await readTask(paths, task.id);
-      expect(refreshedTask.pullRequest.requiredChecks.map((check) => `${check.name}:${check.status}`)).toEqual([
+      expect(refreshedTask.prs[0]?.requiredChecks.map((check) => `${check.name}:${check.status}`)).toEqual([
         "ci:success",
         "docs:skipped",
       ]);
@@ -1529,7 +1485,7 @@ describe("terminal app PTY attach flow", () => {
 
     await expect(app).resolves.toBe(0);
     const updatedTask = await readTask(paths, task.id);
-    expect(updatedTask.pullRequest.requiredChecks.map((check) => `${check.name}:${check.status}`)).toEqual([
+    expect(updatedTask.prs[0]?.requiredChecks.map((check) => `${check.name}:${check.status}`)).toEqual([
       "ci:success",
       "docs:skipped",
     ]);
@@ -1570,19 +1526,26 @@ describe("terminal app PTY attach flow", () => {
     await writeTask(paths, {
       ...task,
       status: "merge_ready",
-      pullRequest: {
+      prs: [{
         provider: "github",
+        owner: null,
+        repo: null,
         number: 17,
         url: "https://github.com/example/repo/pull/17",
+        title: null,
+        status: "open",
+        draft: false,
         baseBranch: "main",
         headBranch: task.branch,
-        status: "open",
         mergeable: true,
         mergeStateStatus: "CLEAN",
         requiredChecks: [{ name: "ci", status: "success", conclusion: "SUCCESS" }],
+        createdAt: null,
+        updatedAt: null,
+        mergedAt: null,
         lastSyncedAt: "2026-05-04T00:00:00.000Z",
         lastSyncedHeadSha: task.lastCommit?.sha ?? null,
-      },
+      }],
     });
     const viewFile = join(root, "gh-view.json");
     await writeFile(
@@ -1616,7 +1579,7 @@ describe("terminal app PTY attach flow", () => {
     await expect(app).resolves.toBe(0);
     const updatedTask = await readTask(paths, task.id);
     expect(updatedTask.status).toBe("merge_ready");
-    expect(updatedTask.pullRequest.status).toBe("open");
+    expect(updatedTask.prs[0]?.status).toBe("open");
     expect(updatedTask.cleanup.preservedWorktree).toBe(false);
     expect(ptyRuntime.ensureSession).not.toHaveBeenCalled();
   });
@@ -1630,19 +1593,26 @@ describe("terminal app PTY attach flow", () => {
     await writeTask(paths, {
       ...task,
       status: "merge_ready",
-      pullRequest: {
+      prs: [{
         provider: "github",
+        owner: null,
+        repo: null,
         number: 17,
         url: "https://github.com/example/repo/pull/17",
+        title: null,
+        status: "open",
+        draft: false,
         baseBranch: "main",
         headBranch: task.branch,
-        status: "open",
         mergeable: true,
         mergeStateStatus: "CLEAN",
         requiredChecks: [{ name: "ci", status: "success", conclusion: "SUCCESS" }],
+        createdAt: null,
+        updatedAt: null,
+        mergedAt: null,
         lastSyncedAt: "2026-05-04T00:00:00.000Z",
         lastSyncedHeadSha: task.lastCommit?.sha ?? null,
-      },
+      }],
     });
     const viewFile = join(root, "gh-view.json");
     await writeFile(
@@ -1676,7 +1646,7 @@ describe("terminal app PTY attach flow", () => {
     await expect(app).resolves.toBe(0);
     const updatedTask = await readTask(paths, task.id);
     expect(updatedTask.status).toBe("merge_ready");
-    expect(updatedTask.pullRequest.requiredChecks[0]?.status).toBe("success");
+    expect(updatedTask.prs[0]?.requiredChecks[0]?.status).toBe("success");
     expect(ptyRuntime.ensureSession).not.toHaveBeenCalled();
   });
 
@@ -1689,19 +1659,26 @@ describe("terminal app PTY attach flow", () => {
     await writeTask(paths, {
       ...task,
       status: "merged",
-      pullRequest: {
+      prs: [{
         provider: "github",
+        owner: null,
+        repo: null,
         number: 17,
         url: "https://github.com/example/repo/pull/17",
+        title: null,
+        status: "merged",
+        draft: false,
         baseBranch: "main",
         headBranch: task.branch,
-        status: "merged",
         mergeable: true,
         mergeStateStatus: "CLEAN",
         requiredChecks: [{ name: "ci", status: "success", conclusion: "SUCCESS" }],
+        createdAt: null,
+        updatedAt: null,
+        mergedAt: null,
         lastSyncedAt: "2026-05-04T00:00:00.000Z",
         lastSyncedHeadSha: "abc1234",
-      },
+      }],
     });
     const terminal = new FakeTerminal();
     const ptyRuntime = new FakePtyRuntime();
