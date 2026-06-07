@@ -15,7 +15,7 @@ import {
   getFileIcon,
   getFileIconColor,
 } from "./icons.js";
-import type { ProjectTaskRepoTarget, RunnerType, TaskPR, TaskPullRequest, TaskPullRequestCheck, TaskPtyTabRecord, TaskRecord } from "../types/task.js";
+import type { ProjectTaskRepoTarget, RunnerType, TaskPullRequest, TaskPullRequestCheck, TaskPtyTabRecord, TaskRecord } from "../types/task.js";
 import { getTaskPrimaryPr } from "../services/github-pr.js";
 import type { RepoRecord, WorkspaceRecord } from "../types/workspace.js";
 import { getRunnerDisplayName } from "../services/runner-profiles.js";

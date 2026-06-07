@@ -1,7 +1,7 @@
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
 
-import type { ProjectTaskRepoTarget, TaskPR, TaskPRStatus, TaskPullRequest, TaskPullRequestCheck, TaskRecord } from "../types/task.js";
+import type { ProjectTaskRepoTarget, TaskPR, TaskPullRequest, TaskPullRequestCheck, TaskRecord } from "../types/task.js";
 import type { CraigPaths } from "../state/craig-paths.js";
 import { atomicWriteJson } from "../state/atomic-write.js";
 import { readTask, writeTask } from "../state/task-store.js";

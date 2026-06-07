@@ -464,10 +464,6 @@ function renderContextRow(row: ShellContextRow, color: boolean): SurfaceLine {
   };
 }
 
-function sectionTitle(text: string, focused: boolean, color: boolean, base: PaletteColor): string {
-  return focused ? accent(text, color, base) : text;
-}
-
 function renderSurfaceSegment(
   line: SurfaceLine,
   width: number,
