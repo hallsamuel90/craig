@@ -1,5 +1,5 @@
 ---
-"craig": minor
+"craig-cli": minor
 ---
 
 Sequential PR support, bug fixes, and PTY engagement indicator.
