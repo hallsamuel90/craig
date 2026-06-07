@@ -35,7 +35,6 @@ const EMPTY_CENTER_TAB_ID = "empty";
 export interface ShellTopRail {
   workspacePath: string;
   agent: string;
-  liveLabel: string;
 }
 
 export interface ShellTreeRow {
@@ -97,6 +96,7 @@ export interface ShellCenterLine {
 
 export interface ShellData {
   inputMode: InputMode;
+  modalInput: boolean;
   focusedRegion: FocusRegion;
   actionMessage: string | null;
   terminal: TerminalViewState;
@@ -166,6 +166,7 @@ export function buildShellData(state: ControlShellState, model: WorkspaceShellMo
 
   return {
     inputMode: state.inputMode,
+    modalInput: state.taskPromptInput !== null || state.workspaceBrowser !== null,
     focusedRegion: state.focusedRegion,
     actionMessage: state.actionMessage,
     terminal: state.terminal,
@@ -203,7 +204,6 @@ export function buildShellData(state: ControlShellState, model: WorkspaceShellMo
         ? `~/${path.relative(process.env.HOME ?? "", model.workspaceRoot)}`
         : model.workspaceRoot,
       agent: agentLabel,
-      liveLabel: selectedTask?.status === "running" ? "live" : "idle",
     },
     leftTree: buildLeftTree(state, model),
     runners: (model.enabledRunnerIds ?? ["codex", "cursor", "claude"]).map((runner) => renderRunnerRow(runner, runnerCounts[runner])),

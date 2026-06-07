@@ -38,6 +38,7 @@ export function getMockShellData(state: MockShellStateInput = {}): ShellData {
 
   return {
     inputMode: resolved.inputMode,
+    modalInput: resolved.taskPromptInput !== null || resolved.workspaceBrowser !== null,
     focusedRegion: resolved.focusedRegion,
     actionMessage: resolved.actionMessage,
     terminal: resolved.terminal,
@@ -52,7 +53,6 @@ export function getMockShellData(state: MockShellStateInput = {}): ShellData {
     topRail: {
       workspacePath: "~/workspaces/craig/colombo",
       agent: "codex",
-      liveLabel: "live",
     },
     leftTree: [
       { text: "WORKSPACES", muted: true, focused: resolved.focusedRegion === "tasks" },

@@ -49,6 +49,7 @@ const OSC8_END = "\u001B]8;;\u001B\\";
 const PALETTE = {
   panelBg:             { bg: "0a0a0a", fg: "c0caf5" },
   panelMuted:          { bg: "0a0a0a", fg: "565f89" },
+  panelDimmed:         { bg: "0a0a0a", fg: "3b4261" },
   panelSelected:       { bg: "1a1b26", fg: "c0caf5" },
   panelFocused:        { bg: "1a1b26", fg: "7aa2f7" },
   divider:             { bg: "0a0a0a", fg: "292e42" },
@@ -156,16 +157,14 @@ export function renderMainShellFrame(
   const centerWidth = centerOnly ? viewport.width : viewport.width - leftWidth - rightWidth - dividerWidth * 2;
   const bodyHeight = viewport.height - SHELL_LAYOUT.topRailHeight - 1;
 
-  const railText = `CRAIG  |  ${data.topRail.workspacePath}  |  ${data.topRail.agent}  ${green(
-    `● ${data.topRail.liveLabel}`,
-    color,
-    PALETTE.rail,
-  )}`;
+  const railText = `CRAIG  |  ${data.topRail.workspacePath}  |  ${data.topRail.agent}`;
   const railTop = fillSurface(pad(railText, viewport.width), color, PALETTE.rail);
 
   const leftLines = toLeftLines(data, leftWidth - LEFT_PANEL_INSET - LEFT_PANEL_GUTTER, bodyHeight, color);
   const centerLines = toCenterLines(data, centerWidth, bodyHeight, color);
   const rightLines = toRightLines(data, rightWidth, bodyHeight, color);
+
+  const ptyAttached = data.inputMode === "terminal";
 
   const body: string[] = [];
 
@@ -183,7 +182,8 @@ export function renderMainShellFrame(
     body.push(`${left}${leftDivider}${center}${divider}${right}`);
   }
 
-  const footerLine = fillSurface(pad(`  ${data.footerText}`, viewport.width), color, PALETTE.panelMuted);
+  const footerPalette = ptyAttached || data.modalInput ? PALETTE.panelBg : PALETTE.panelMuted;
+  const footerLine = fillSurface(pad(`  ${data.footerText}`, viewport.width), color, footerPalette);
   return [railTop, ...body, footerLine].join("\n");
 }
 
@@ -267,7 +267,18 @@ function toCenterLines(data: ShellData, width: number, height: number, color: bo
     ? data.centerTranscript.map((line) => ({ ...line }))
     : renderTerminalSurface(data);
   const tabLineText = renderTabLine(data.tabs, color, data.focusedRegion === "center");
-  const tabLine: SurfaceLine = { text: tabLineText };
+  const ENGAGED_LABEL = " engaged ";
+  const ENGAGED_TOTAL_WIDTH = ENGAGED_LABEL.length + 2; // label + dot + trailing space
+  const ptyIndicator = data.inputMode === "terminal"
+    ? `${muted(ENGAGED_LABEL, color, PALETTE.panelBg)}${green("●", color, PALETTE.panelBg)} `
+    : "";
+  const contentWidth = width - 2; // renderSurfaceSegment prepends a 2-char inset
+  const tabLinePadding = data.inputMode === "terminal"
+    ? " ".repeat(Math.max(0, contentWidth - stringWidth(tabLineText) - ENGAGED_TOTAL_WIDTH))
+    : "";
+  const tabLine: SurfaceLine = {
+    text: data.inputMode === "terminal" ? `${tabLineText}${tabLinePadding}${ptyIndicator}` : tabLineText,
+  };
   const lines: SurfaceLine[] = [
     tabLine,
     { text: underline, tone: "muted" },
@@ -462,8 +473,9 @@ function renderSurfaceSegment(
   width: number,
   color: boolean,
   panel: "left" | "center" | "right",
+  dimmed = false,
 ): string {
-  const palette = getPanelPalette(panel, line.tone ?? "default");
+  const palette = getPanelPalette(panel, line.tone ?? "default", dimmed);
   const lineContent = renderLineContent(line, color, palette);
   if (panel === "left") {
     if (line.fullBleed) {
@@ -490,7 +502,10 @@ function renderSurfaceSegment(
   return fillSurface(pad(`${inset}${lineContent}`, width), color, palette);
 }
 
-function getPanelPalette(_panel: "left" | "center" | "right", tone: SurfaceLine["tone"]): PaletteColor {
+function getPanelPalette(_panel: "left" | "center" | "right", tone: SurfaceLine["tone"], dimmed = false): PaletteColor {
+  if (dimmed) {
+    return PALETTE.panelDimmed;
+  }
   if (tone === "selected" || tone === "focused") {
     return PALETTE.panelSelected;
   }

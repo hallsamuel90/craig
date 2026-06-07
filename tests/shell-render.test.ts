@@ -34,7 +34,7 @@ describe("terminal shell renderer", () => {
 
     expect(frame).toContain("CRAIG");
     expect(frame).toContain("~/workspaces/craig/colombo");
-    expect(frame).toContain("CRAIG  |  ~/workspaces/craig/colombo  |  codex  ● live");
+    expect(frame).toContain("CRAIG  |  ~/workspaces/craig/colombo  |  codex");
     expect(frame).not.toContain("4 tasks");
     expect(frame).not.toContain("v0.1.0");
     expect(frame).not.toContain("task/interactive-shell  |");
