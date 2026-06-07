@@ -11,8 +11,6 @@ import { focusTask } from "../services/focus-task.js";
 import { openTask } from "../services/open-task.js";
 import { runChecks } from "../services/run-checks.js";
 import { commitTask } from "../services/commit-task.js";
-import { openPullRequest } from "../services/open-pull-request.js";
-import { mergeTask } from "../services/merge-task.js";
 import { addRepo, listRegisteredRepos, removeRepo } from "../services/repo-registry.js";
 import { addTaskLink, listTaskLinks } from "../services/task-links.js";
 import { addWorkspace, archiveWorkspace, listWorkspaces, removeWorkspace, restoreWorkspace } from "../services/workspace-registry.js";
@@ -90,18 +88,6 @@ export async function executeCommand(
       return commitTask(context.paths, command.taskId);
     case "commitSelectedTask":
       return commitTask(context.paths, requireSelectedTaskId(context, "commit"));
-    case "openPullRequest":
-      return openPullRequest(context.paths, command.taskId, { watch: command.watch });
-    case "openSelectedTaskPullRequest":
-      return openPullRequest(context.paths, requireSelectedTaskId(context, "pr"), { watch: command.watch });
-    case "mergeTask":
-      return mergeTask(context.paths, command.taskId, {
-        preserveWorktree: command.preserveWorktree,
-      });
-    case "mergeSelectedTask":
-      return mergeTask(context.paths, requireSelectedTaskId(context, "merge"), {
-        preserveWorktree: command.preserveWorktree,
-      });
     case "help":
       return { kind: "help", text: getHelpText() };
     case "exit":

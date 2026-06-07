@@ -12,7 +12,7 @@ export const LEGACY_PTY_SURFACE_IDS = ["agent", "terminal"] as const;
 export const FIXED_CENTER_TAB_IDS = [] as const;
 export const INSPECTION_TAB_ID = "inspection";
 export const CENTER_TAB_IDS = [...LEGACY_PTY_SURFACE_IDS, ...FIXED_CENTER_TAB_IDS] as const;
-export const ACTION_IDS = ["commit", "push", "create-pr", "refresh-checks", "merge", "close-task"] as const;
+export const ACTION_IDS = ["commit", "push", "refresh-checks", "close-task"] as const;
 const REVIEW_ACTION_IDS = ["refresh-checks", "close-task"] as const;
 export const INSPECTOR_SECTION_IDS = ["task", "checks", "pr", "setup-run", "actions", "next-action"] as const;
 export const INSPECTION_MODE_IDS = ["diff", "files", "review"] as const;
@@ -110,9 +110,7 @@ export interface MainKeyResult {
   createPtyTabKind: TaskPtyTabKind | null;
   createPtyTabRunner: RunnerType | null;
   closePtyTab: boolean;
-  syncPullRequest: boolean;
   refreshPullRequestChecks: boolean;
-  mergeTask: boolean;
   closeTask: boolean;
   removeWorkspace: boolean;
   refreshInspection: boolean;
@@ -263,7 +261,7 @@ export function reduceMainKey(state: ControlShellState, key: string, options: Re
   if (state.inputMode === "terminal") {
     if (isTerminalDetachKey(key)) {
       return result({
-        state: { ...state, inputMode: "control", centerZoomed: false, actionMessage: null },
+        state: { ...state, inputMode: "control", centerZoomed: false, actionMessage: null, focusedRegion: "center" },
         changed: true,
         detachTerminal: true,
       });
@@ -571,17 +569,6 @@ export function reduceMainKey(state: ControlShellState, key: string, options: Re
       return result({ state });
     }
 
-    if (state.selectedActionId === "create-pr") {
-      return result({
-        state: {
-          ...state,
-          actionMessage: null,
-        },
-        changed: true,
-        syncPullRequest: true,
-      });
-    }
-
     if (state.selectedActionId === "refresh-checks") {
       return result({
         state: {
@@ -590,17 +577,6 @@ export function reduceMainKey(state: ControlShellState, key: string, options: Re
         },
         changed: true,
         refreshPullRequestChecks: true,
-      });
-    }
-
-    if (state.selectedActionId === "merge") {
-      return result({
-        state: {
-          ...state,
-          actionMessage: null,
-        },
-        changed: true,
-        mergeTask: true,
       });
     }
 
@@ -1174,9 +1150,7 @@ function result(input: {
   createPtyTabKind?: TaskPtyTabKind | null;
   createPtyTabRunner?: RunnerType | null;
   closePtyTab?: boolean;
-  syncPullRequest?: boolean;
   refreshPullRequestChecks?: boolean;
-  mergeTask?: boolean;
   closeTask?: boolean;
   removeWorkspace?: boolean;
   refreshInspection?: boolean;
@@ -1195,9 +1169,7 @@ function result(input: {
     createPtyTabKind: input.createPtyTabKind ?? null,
     createPtyTabRunner: input.createPtyTabRunner ?? null,
     closePtyTab: input.closePtyTab ?? false,
-    syncPullRequest: input.syncPullRequest ?? false,
     refreshPullRequestChecks: input.refreshPullRequestChecks ?? false,
-    mergeTask: input.mergeTask ?? false,
     closeTask: input.closeTask ?? false,
     removeWorkspace: input.removeWorkspace ?? false,
     refreshInspection: input.refreshInspection ?? false,

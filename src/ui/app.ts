@@ -16,8 +16,8 @@ import { listTasks } from "../services/list-tasks.js";
 import { provisionProjectTask, provisionTask } from "../services/task-provisioning.js";
 import { addWorkspace, archiveWorkspace, removeWorkspace } from "../services/workspace-registry.js";
 import { loadTaskLocalInspection, reloadSelectedContent, type InspectionTreeRow } from "../services/task-local-inspection.js";
-import { discoverOrRefreshAllProjectPullRequests, discoverOrRefreshPullRequest, discoverOrRefreshPullRequests, openPullRequest } from "../services/open-pull-request.js";
-import { mergeTask } from "../services/merge-task.js";
+import { discoverOrRefreshAllProjectPullRequests, discoverOrRefreshPullRequest, discoverOrRefreshPullRequests } from "../services/open-pull-request.js";
+import { getTaskPrimaryPr } from "../services/github-pr.js";
 import { closeTask } from "../services/close-task.js";
 import {
   assertRunnerEnabled,
@@ -35,6 +35,7 @@ import { getViewport, SHELL_LAYOUT, type Viewport } from "./layout.js";
 import type { PtyRuntimeOptions, PtySize } from "./pty-runtime.js";
 import { createDaemonPtyRuntime } from "./pty-daemon.js";
 import { CENTER_TERMINAL_GUTTER, renderBootOverlayFrame, renderHelpOverlayFrame, renderMainShellFrame, renderOptionsOverlayFrame, renderPauseOverlayFrame } from "./render.js";
+import { checkForUpdate, getCurrentVersion } from "../services/version-check.js";
 import {
   buildRunnersSubmenuItems,
   getRunnersSubmenuMessage,
@@ -177,6 +178,8 @@ export async function startTerminalApp(options: TerminalAppOptions = {}): Promis
     let ptyRenderTimer: ReturnType<typeof setTimeout> | null = null;
     let prPollTimer: ReturnType<typeof setInterval> | null = null;
     let prPollInFlight = false;
+    let versionText: string | null = `Craig v${getCurrentVersion()}`;
+    let updateText: string | null = null;
     let inspectionRefreshSequence = 0;
     let pendingClear = true;
     let inputCaptureMode: "control" | "terminal" | null = null;
@@ -512,28 +515,6 @@ export async function startTerminalApp(options: TerminalAppOptions = {}): Promis
       });
     }
 
-    async function syncPullRequestFromShell(shell: ControlShellState): Promise<ControlShellState> {
-      const syncedShell = syncShell(shell);
-      if (!syncedShell.selectedTaskId) {
-        throw new Error("Select a task before creating or syncing a PR.");
-      }
-
-      const result = await openPullRequest(paths, syncedShell.selectedTaskId, { watch: false });
-      await reloadModel();
-
-      const action = result.disposition === "created"
-        ? "Created PR"
-        : result.disposition === "discovered"
-          ? "Discovered PR"
-          : "Synced PR";
-      return syncShell({
-        ...syncedShell,
-        focusedRegion: "inspector",
-        inspectionMode: "review",
-        actionMessage: `${action}: #${result.prNumber} ${result.url}`,
-      });
-    }
-
     async function refreshPullRequestChecksFromShell(shell: ControlShellState): Promise<ControlShellState> {
       const syncedShell = syncShell(shell);
       if (!syncedShell.selectedTaskId) {
@@ -556,8 +537,8 @@ export async function startTerminalApp(options: TerminalAppOptions = {}): Promis
         actionMessage = disposition === "not_found"
           ? `No PR found for ${task.branch}`
           : disposition === "discovered"
-            ? `Discovered PR: #${task.pullRequest.number} ${task.pullRequest.url ?? ""}`
-            : `Refreshed checks: ${task.pullRequest.requiredChecks.length} reported`;
+            ? `Discovered PR: #${getTaskPrimaryPr(task)?.number} ${getTaskPrimaryPr(task)?.url ?? ""}`
+            : `Refreshed checks: ${getTaskPrimaryPr(task)?.requiredChecks.length ?? 0} reported`;
       }
 
       return syncShell({
@@ -608,24 +589,6 @@ export async function startTerminalApp(options: TerminalAppOptions = {}): Promis
       } finally {
         prPollInFlight = false;
       }
-    }
-
-    async function mergeTaskFromShell(shell: ControlShellState): Promise<ControlShellState> {
-      const syncedShell = syncShell(shell);
-      if (!syncedShell.selectedTaskId) {
-        throw new Error("Select a task before merging a PR.");
-      }
-
-      const result = await mergeTask(paths, syncedShell.selectedTaskId, { preserveWorktree: true });
-      await reloadModel();
-
-      return syncShell({
-        ...syncedShell,
-        focusedRegion: "inspector",
-        inspectionMode: "review",
-        selectedActionId: "merge",
-        actionMessage: `Merged PR #${result.prNumber}; worktree preserved`,
-      });
     }
 
     async function closeTaskFromShell(shell: ControlShellState): Promise<ControlShellState> {
@@ -734,9 +697,9 @@ export async function startTerminalApp(options: TerminalAppOptions = {}): Promis
         state.mode === "main"
           ? renderMainShellFrame(viewport, buildShellData(syncShell(state.shell), model), { centerOnly: state.shell.centerZoomed })
           : state.variant === "boot"
-            ? renderBootOverlayFrame(viewport, { menuIndex: state.menuIndex, optionsMessage: state.optionsMessage })
+            ? renderBootOverlayFrame(viewport, { menuIndex: state.menuIndex, optionsMessage: state.optionsMessage, versionText, updateText })
             : state.variant === "pause"
-              ? renderPauseOverlayFrame(viewport, { menuIndex: state.menuIndex, optionsMessage: state.optionsMessage })
+              ? renderPauseOverlayFrame(viewport, { menuIndex: state.menuIndex, optionsMessage: state.optionsMessage, versionText, updateText })
               : state.variant === "options"
                 ? renderOptionsOverlayFrame(viewport, {
                     menuIndex: state.menuIndex,
@@ -848,6 +811,7 @@ export async function startTerminalApp(options: TerminalAppOptions = {}): Promis
           selectedLeftItemId: `task:${createdTask.id}`,
           activeTab: createdTask.selectedPtyTabId ?? "agent",
           inputMode: "terminal",
+          focusedRegion: "center",
           taskPromptInput: null,
           taskPromptError: null,
           actionMessage: null,
@@ -1224,21 +1188,6 @@ export async function startTerminalApp(options: TerminalAppOptions = {}): Promis
           return;
         }
 
-        if (result.syncPullRequest) {
-          void syncPullRequestFromShell(result.state)
-            .then((nextShell) => {
-              state = { mode: "main", shell: nextShell };
-              persistShellState(state.shell);
-              render();
-            })
-            .catch((error: unknown) => {
-              const message = error instanceof Error ? error.message : "Failed to create or sync PR.";
-              state = { mode: "main", shell: syncShell({ ...result.state, actionMessage: message }) };
-              render();
-            });
-          return;
-        }
-
         if (result.refreshPullRequestChecks) {
           void refreshPullRequestChecksFromShell(result.state)
             .then((nextShell) => {
@@ -1248,21 +1197,6 @@ export async function startTerminalApp(options: TerminalAppOptions = {}): Promis
             })
             .catch((error: unknown) => {
               const message = error instanceof Error ? error.message : "Failed to refresh PR checks.";
-              state = { mode: "main", shell: syncShell({ ...result.state, actionMessage: message }) };
-              render();
-            });
-          return;
-        }
-
-        if (result.mergeTask) {
-          void mergeTaskFromShell(result.state)
-            .then((nextShell) => {
-              state = { mode: "main", shell: nextShell };
-              persistShellState(state.shell);
-              render();
-            })
-            .catch((error: unknown) => {
-              const message = error instanceof Error ? error.message : "Failed to merge PR.";
               state = { mode: "main", shell: syncShell({ ...result.state, actionMessage: message }) };
               render();
             });
@@ -1506,7 +1440,7 @@ export async function startTerminalApp(options: TerminalAppOptions = {}): Promis
         ptyRuntime.detach();
         suppressTerminalEnterOnAttach = false;
         lastTerminalKey = null;
-        state = { mode: "main", shell: syncShell({ ...state.shell, inputMode: "control", actionMessage: null }) };
+        state = { mode: "main", shell: syncShell({ ...state.shell, inputMode: "control", actionMessage: null, focusedRegion: "center" }) };
         persistShellState(state.shell);
         render();
         return;
@@ -1647,6 +1581,12 @@ export async function startTerminalApp(options: TerminalAppOptions = {}): Promis
     prPollTimer = setInterval(() => {
       void pollPullRequests();
     }, (config.github?.watchIntervalSeconds ?? 5) * 1000);
+    void checkForUpdate().then((result) => {
+      if (result.updateAvailable && result.latest) {
+        updateText = `Update available: v${result.latest}`;
+        render();
+      }
+    });
     render();
   });
 }

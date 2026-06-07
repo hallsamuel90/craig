@@ -1,28 +1,23 @@
-import type { CommandPullRequestResult } from "../types/command.js";
 import type { TaskPullRequest, TaskRecord } from "../types/task.js";
 import type { CraigPaths } from "../state/craig-paths.js";
 import { readTask, writeTask } from "../state/task-store.js";
-import { ensureOriginRemote, isWorktreeClean, pushBranch } from "./git-task.js";
 import {
-  createGitHubPullRequest,
   discoverPullRequestState,
   ensureGhAuthenticated,
-  ensurePrDraft,
   fetchPullRequestViewsBatch,
   getGitHubRepositoryLocator,
+  getTaskPrimaryPr,
+  isPrTerminal,
   type GitHubRepositoryLocator,
-  isMergeReady,
   persistTargetPullRequestView,
   persistTaskPullRequestView,
   refreshOrDiscoverTargetPullRequest,
   refreshPullRequestState,
-  summarizeRequiredChecks,
-  waitForPullRequestState,
   writePrStatusArtifact,
 } from "./github-pr.js";
 import { assertTaskWorktreeExists, getTaskOrThrow } from "./task-inspection.js";
 
-export type PullRequestSyncDisposition = "created" | "discovered" | "synced" | "not_found";
+export type PullRequestSyncDisposition = "discovered" | "synced" | "not_found";
 
 export interface PullRequestPollResult {
   taskId: string;
@@ -34,69 +29,22 @@ export interface PullRequestPollResult {
   firstDiscoveredPrUrl: string | null;
 }
 
-export async function openPullRequest(
-  paths: CraigPaths,
-  taskId: string,
-  options: { watch: boolean },
-): Promise<CommandPullRequestResult> {
-  const task = await getTaskOrThrow(paths, taskId);
-  await assertTaskWorktreeExists(task);
-  await ensureOriginRemote(task.worktreePath);
-  await ensureGhAuthenticated(task.worktreePath);
-
-  const hadTrackedPr = Boolean(task.pullRequest.number);
-  if (!hadTrackedPr) {
-    const discovered = await discoverPullRequestState(paths, task);
-    if (discovered.discovered) {
-      if (options.watch && task.pullRequest.status !== "merged" && !isMergeReady(task.pullRequest)) {
-        await waitForPullRequestState(paths, task);
-      }
-      return buildPullRequestResult(task, options.watch, "discovered");
-    }
-  }
-
-  if (task.status !== "checked" && task.status !== "pr_open" && task.status !== "merge_ready") {
-    throw new Error(`Task ${task.id} cannot open a pull request from status "${task.status}".`);
-  }
-
-  if (!task.lastCommit) {
-    throw new Error(`Task ${task.id} must be committed before opening a pull request.`);
-  }
-
-  if (!(await isWorktreeClean(task.worktreePath))) {
-    throw new Error(`Task ${task.id} worktree must be clean before opening a pull request.`);
-  }
-
-  const prDraftPath = await ensurePrDraft(task, paths);
-  await writeTask(paths, task);
-
-  await pushBranch(task.worktreePath, task.branch);
-
-  if (!task.pullRequest.number) {
-    await createGitHubPullRequest(task, prDraftPath);
-  }
-
-  await refreshPullRequestState(paths, task);
-
-  if (options.watch && task.pullRequest.status !== "merged" && !isMergeReady(task.pullRequest)) {
-    await waitForPullRequestState(paths, task);
-  }
-
-  await writePrStatusArtifact(paths, task);
-
-  return buildPullRequestResult(task, options.watch, hadTrackedPr ? "synced" : "created");
-}
-
 export async function refreshTrackedPullRequest(paths: CraigPaths, taskId: string) {
   const task = await getTaskOrThrow(paths, taskId);
+  const primaryPr = getTaskPrimaryPr(task);
 
-  if (!task.pullRequest.number) {
+  if (!primaryPr?.number) {
     return task;
   }
 
   await ensureGhAuthenticated(task.worktreePath);
-  await refreshPullRequestState(paths, task);
-  return task;
+
+  if (isPrTerminal(primaryPr)) {
+    const discovered = await discoverPullRequestState(paths, task);
+    return discovered.task;
+  }
+
+  return refreshPullRequestState(paths, task);
 }
 
 export async function refreshPullRequestChecks(paths: CraigPaths, taskId: string) {
@@ -107,22 +55,22 @@ export async function refreshPullRequestChecks(paths: CraigPaths, taskId: string
     return getTaskOrThrow(paths, taskId);
   }
 
-  if (!task.pullRequest.number) {
-    await assertTaskWorktreeExists(task);
-    await ensureGhAuthenticated(task.worktreePath);
-    const discovered = await discoverPullRequestState(paths, task);
-    if (!discovered.discovered) {
-      throw new Error(`No PR found for ${task.branch}.`);
-    }
-    await writePrStatusArtifact(paths, task);
-    return task;
-  }
-
+  const primaryPr = getTaskPrimaryPr(task);
   await assertTaskWorktreeExists(task);
   await ensureGhAuthenticated(task.worktreePath);
-  await refreshPullRequestState(paths, task);
-  await writePrStatusArtifact(paths, task);
-  return task;
+
+  if (!primaryPr?.number || isPrTerminal(primaryPr)) {
+    const discovered = await discoverPullRequestState(paths, task);
+    if (!discovered.discovered && !primaryPr?.number) {
+      throw new Error(`No PR found for ${task.branch}.`);
+    }
+    await writePrStatusArtifact(paths, discovered.task);
+    return discovered.task;
+  }
+
+  const refreshed = await refreshPullRequestState(paths, task);
+  await writePrStatusArtifact(paths, refreshed);
+  return refreshed;
 }
 
 export async function discoverOrRefreshAllProjectPullRequests(
@@ -143,7 +91,6 @@ export async function discoverOrRefreshAllProjectPullRequests(
   const latestTask = await readTask(paths, task.id);
   if (latestTask.status !== "closed") {
     latestTask.status = deriveProjectTaskStatus(latestTask);
-    latestTask.pullRequest = deriveProjectTaskPullRequest(latestTask);
     await writeTask(paths, latestTask);
   }
   return counts;
@@ -182,17 +129,20 @@ export async function discoverOrRefreshPullRequests(
       continue;
     }
 
+    const taskPrimaryPr = getTaskPrimaryPr(task);
+    const pollByNumber = taskPrimaryPr?.number && !isPrTerminal(taskPrimaryPr);
     const item: PullRequestBatchItem = {
       id: task.id,
       task,
       worktreePath: task.worktreePath,
-      selector: task.pullRequest.number ? String(task.pullRequest.number) : task.branch,
-      mode: task.pullRequest.number ? "number" : "head",
+      selector: pollByNumber ? String(taskPrimaryPr!.number) : task.branch,
+      mode: pollByNumber ? "number" : "head",
     };
     await enqueueBatchItem(batchGroups, item).catch(async () => {
       try {
         const { disposition, task: refreshedTask } = await discoverOrRefreshPullRequest(paths, task.id);
-        recordDisposition(result, disposition, refreshedTask.pullRequest.number, refreshedTask.pullRequest.url);
+        const refreshedPrimaryPr = getTaskPrimaryPr(refreshedTask);
+        recordDisposition(result, disposition, refreshedPrimaryPr?.number ?? null, refreshedPrimaryPr?.url ?? null);
       } catch {
         // Background fallback refresh remains best-effort.
       }
@@ -235,7 +185,6 @@ export async function discoverOrRefreshPullRequests(
     const latestTask = await readTask(paths, task.id);
     if (latestTask.status !== "closed") {
       latestTask.status = deriveProjectTaskStatus(latestTask);
-      latestTask.pullRequest = deriveProjectTaskPullRequest(latestTask);
       await writeTask(paths, latestTask);
     }
   }
@@ -251,31 +200,14 @@ export async function discoverOrRefreshPullRequest(
   await assertTaskWorktreeExists(task);
   await ensureGhAuthenticated(task.worktreePath);
 
-  if (task.pullRequest.number) {
-    await refreshPullRequestState(paths, task);
-    return { disposition: "synced", task };
+  const primaryPr = getTaskPrimaryPr(task);
+  if (primaryPr?.number && !isPrTerminal(primaryPr)) {
+    const refreshed = await refreshPullRequestState(paths, task);
+    return { disposition: "synced", task: refreshed };
   }
 
   const discovered = await discoverPullRequestState(paths, task);
-  return { disposition: discovered.discovered ? "discovered" : "not_found", task };
-}
-
-function buildPullRequestResult(
-  task: Awaited<ReturnType<typeof getTaskOrThrow>>,
-  watch: boolean,
-  disposition: Exclude<PullRequestSyncDisposition, "not_found">,
-): CommandPullRequestResult {
-  return {
-    kind: "openPullRequest",
-    taskId: task.id,
-    watch,
-    disposition,
-    prNumber: task.pullRequest.number ?? 0,
-    url: task.pullRequest.url ?? "",
-    status: task.status,
-    mergeable: task.pullRequest.mergeable,
-    requiredChecksSummary: summarizeRequiredChecks(task.pullRequest),
-  };
+  return { disposition: discovered.discovered ? "discovered" : "not_found", task: discovered.task };
 }
 
 function deriveProjectTaskStatus(task: TaskRecord): TaskRecord["status"] {
@@ -351,7 +283,7 @@ function ensurePollResult(
     notFound: 0,
     hadPr: task.type === "project"
       ? Boolean(task.repoTargets?.some((target) => target.pullRequest.number))
-      : Boolean(task.pullRequest.number),
+      : Boolean(getTaskPrimaryPr(task)?.number),
     firstDiscoveredPrNumber: null,
     firstDiscoveredPrUrl: null,
   };
@@ -378,14 +310,6 @@ function recordDisposition(
   }
 
   result.notFound += 1;
-}
-
-function deriveProjectTaskPullRequest(task: TaskRecord): TaskPullRequest {
-  const readyTargets = (task.repoTargets ?? []).filter((target) => target.status === "ready");
-  const selectedTarget = readyTargets.find((target) => target.repoId === task.selectedRepoTargetId);
-  return selectedTarget?.pullRequest.number
-    ? selectedTarget.pullRequest
-    : readyTargets.find((target) => target.pullRequest.number)?.pullRequest ?? task.pullRequest;
 }
 
 function isProjectTargetMergeReady(pullRequest: TaskPullRequest): boolean {

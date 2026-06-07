@@ -34,7 +34,7 @@ describe("terminal shell renderer", () => {
 
     expect(frame).toContain("CRAIG");
     expect(frame).toContain("~/workspaces/craig/colombo");
-    expect(frame).toContain("CRAIG  |  ~/workspaces/craig/colombo  |  codex  ● live");
+    expect(frame).toContain("CRAIG  |  ~/workspaces/craig/colombo  |  codex");
     expect(frame).not.toContain("4 tasks");
     expect(frame).not.toContain("v0.1.0");
     expect(frame).not.toContain("task/interactive-shell  |");
@@ -316,13 +316,17 @@ describe("terminal shell renderer", () => {
       id: "task_20260430_02",
       repoId: "repo_bug_fixes",
       workspaceId: "workspace_bug_fixes",
-      pullRequest: {
+      prs: [{
         provider: "github",
+        owner: null,
+        repo: null,
         number: 17,
         url: "https://github.com/example/repo/pull/17",
+        title: null,
+        status: "open",
+        draft: false,
         baseBranch: "main",
         headBranch: "craig/task_20260430_02",
-        status: "open",
         mergeable: true,
         mergeStateStatus: "CLEAN",
         requiredChecks: [
@@ -330,9 +334,12 @@ describe("terminal shell renderer", () => {
           { name: "docs", status: "skipped", conclusion: "SKIPPED" },
           { name: "e2e", status: "pending", conclusion: null },
         ],
+        createdAt: null,
+        updatedAt: null,
+        mergedAt: null,
         lastSyncedAt: "2026-05-06T00:00:00.000Z",
         lastSyncedHeadSha: "abcdef123456",
-      },
+      }],
     });
     const data = buildShellData(
       {
@@ -374,19 +381,26 @@ describe("terminal shell renderer", () => {
       id: "task_20260430_02",
       repoId: "repo_bug_fixes",
       workspaceId: "workspace_bug_fixes",
-      pullRequest: {
+      prs: [{
         provider: "github",
+        owner: null,
+        repo: null,
         number: 17,
         url: "https://github.com/example/repo/pull/17",
+        title: null,
+        status: "open",
+        draft: false,
         baseBranch: "main",
         headBranch: "craig/task_20260430_02",
-        status: "open",
         mergeable: true,
         mergeStateStatus: "CLEAN",
         requiredChecks: [{ name: "ci", status: "failed", conclusion: "FAILURE" }],
+        createdAt: null,
+        updatedAt: null,
+        mergedAt: null,
         lastSyncedAt: "2026-05-06T00:00:00.000Z",
         lastSyncedHeadSha: "abcdef123456",
-      },
+      }],
     });
     const model = {
       workspaceRoot: "/tmp/craig",
@@ -406,10 +420,10 @@ describe("terminal shell renderer", () => {
     const failed = renderMainShellFrame(MIN_VIEWPORT, buildShellData(state, model), { color: false });
     const unknownTask = {
       ...baseTask,
-      pullRequest: {
-        ...baseTask.pullRequest,
+      prs: [{
+        ...baseTask.prs[0]!,
         requiredChecks: [{ name: "coverage", status: "unknown" as const, conclusion: null }],
-      },
+      }],
     };
     const unknown = renderMainShellFrame(
       MIN_VIEWPORT,
@@ -451,23 +465,49 @@ describe("terminal shell renderer", () => {
 
     const mergedTask = {
       ...baseTask,
-      pullRequest: {
-        ...baseTask.pullRequest,
+      prs: [{
+        provider: "github" as const,
+        owner: null,
+        repo: null,
         number: 17,
         url: "https://github.com/example/repo/pull/17",
+        title: null,
         status: "merged" as const,
+        draft: false,
+        baseBranch: null,
+        headBranch: null,
+        mergeable: false,
+        mergeStateStatus: null,
         requiredChecks: [],
-      },
+        createdAt: null,
+        updatedAt: null,
+        mergedAt: null,
+        lastSyncedAt: null,
+        lastSyncedHeadSha: null,
+      }],
     };
     const closedTask = {
       ...baseTask,
-      pullRequest: {
-        ...baseTask.pullRequest,
+      prs: [{
+        provider: "github" as const,
+        owner: null,
+        repo: null,
         number: 18,
         url: "https://github.com/example/repo/pull/18",
+        title: null,
         status: "closed" as const,
+        draft: false,
+        baseBranch: null,
+        headBranch: null,
+        mergeable: false,
+        mergeStateStatus: null,
         requiredChecks: [],
-      },
+        createdAt: null,
+        updatedAt: null,
+        mergedAt: null,
+        lastSyncedAt: null,
+        lastSyncedHeadSha: null,
+      }],
     };
 
     expect(renderTask(baseTask)).toContain("REVIEW  ○ ○");

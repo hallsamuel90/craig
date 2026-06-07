@@ -1,7 +1,7 @@
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
 
-import type { ProjectTaskRepoTarget, TaskPullRequest, TaskPullRequestCheck, TaskRecord } from "../types/task.js";
+import type { ProjectTaskRepoTarget, TaskPR, TaskPullRequest, TaskPullRequestCheck, TaskRecord } from "../types/task.js";
 import type { CraigPaths } from "../state/craig-paths.js";
 import { atomicWriteJson } from "../state/atomic-write.js";
 import { readTask, writeTask } from "../state/task-store.js";
@@ -16,9 +16,37 @@ export interface GhPrView {
   headRefName: string;
   headRefOid?: string | null;
   state: string;
+  isDraft?: boolean;
   mergeable: string;
   mergeStateStatus: string | null;
+  title?: string | null;
+  createdAt?: string | null;
+  updatedAt?: string | null;
+  mergedAt?: string | null;
   statusCheckRollup: unknown[];
+}
+
+export function getTaskPrimaryPr(task: TaskRecord): TaskPR | null {
+  if (task.prs.length === 0) return null;
+  // Prefer the most recently added non-terminal PR for sequential workflows
+  const active = [...task.prs].reverse().find(
+    (pr) => pr.status !== "merged" && pr.status !== "closed",
+  );
+  return active ?? task.prs[task.prs.length - 1] ?? null;
+}
+
+export function isPrTerminal(pr: TaskPR): boolean {
+  return pr.status === "merged" || pr.status === "closed";
+}
+
+export function upsertTaskPr(task: TaskRecord, pr: TaskPR): TaskRecord {
+  const idx = task.prs.findIndex(
+    (p) => p.number !== null && p.number === pr.number,
+  );
+  const prs = idx >= 0
+    ? task.prs.map((p, i) => (i === idx ? pr : p))
+    : [...task.prs, pr];
+  return { ...task, prs };
 }
 
 export interface GitHubRepositoryLocator {
@@ -97,12 +125,18 @@ export async function createGitHubPullRequest(
 export async function mergeGitHubPullRequest(
   task: TaskRecord,
   mergeMethod: "merge" | "rebase" | "squash",
+  prNumber?: number,
 ): Promise<void> {
+  const number = prNumber ?? getTaskPrimaryPr(task)?.number;
+  if (!number) {
+    throw new Error(`Task ${task.id} has no pull request to merge.`);
+  }
+
   const flag = mergeMethod === "merge" ? "--merge" : mergeMethod === "rebase" ? "--rebase" : "--squash";
 
   await runCommand(
     "gh",
-    ["pr", "merge", String(task.pullRequest.number), flag, "--delete-branch=false"],
+    ["pr", "merge", String(number), flag, "--delete-branch=false"],
     { cwd: task.worktreePath },
   );
 }
@@ -111,11 +145,13 @@ export async function refreshPullRequestState(
   paths: CraigPaths,
   task: TaskRecord,
 ): Promise<TaskRecord> {
-  const result = await runCommand("gh", buildPrViewArgs(task.pullRequest.number ? String(task.pullRequest.number) : task.branch), {
+  const primaryPr = getTaskPrimaryPr(task);
+  const selector = primaryPr?.number ? String(primaryPr.number) : task.branch;
+  const result = await runCommand("gh", buildPrViewArgs(selector), {
     cwd: task.worktreePath,
   });
   const payload = JSON.parse(result.stdout) as GhPrView;
-  return persistPullRequestView(paths, task, payload);
+  return persistPullRequestView(paths, task, payload, primaryPr);
 }
 
 export async function discoverPullRequestState(
@@ -129,7 +165,7 @@ export async function discoverPullRequestState(
   }
 
   const payload = JSON.parse(result.stdout) as GhPrView;
-  const persistedTask = await persistPullRequestView(paths, task, payload);
+  const persistedTask = await persistPullRequestView(paths, task, payload, null);
 
   return { discovered: true, task: persistedTask };
 }
@@ -251,7 +287,7 @@ export async function persistTaskPullRequestView(
   task: TaskRecord,
   view: GhPrView,
 ): Promise<TaskRecord> {
-  return persistPullRequestView(paths, task, view);
+  return persistPullRequestView(paths, task, view, getTaskPrimaryPr(task));
 }
 
 export async function persistTargetPullRequestView(
@@ -271,9 +307,10 @@ export async function waitForPullRequestState(
   const interval = (config.github?.watchIntervalSeconds ?? 5) * 1000;
 
   while (true) {
-    await refreshPullRequestState(paths, task);
+    task = await refreshPullRequestState(paths, task);
+    const primaryPr = getTaskPrimaryPr(task);
 
-    if (hasReachedTerminalWatchState(task.pullRequest)) {
+    if (!primaryPr || hasReachedTerminalWatchState(primaryPr)) {
       return task;
     }
 
@@ -291,11 +328,17 @@ export async function writePrStatusArtifact(paths: CraigPaths, task: TaskRecord)
   await mkdir(path.dirname(artifactPath), { recursive: true });
   await atomicWriteJson(artifactPath, {
     taskId: task.id,
-    pullRequest: task.pullRequest,
+    prs: task.prs,
   });
 }
 
-export function summarizeRequiredChecks(pullRequest: TaskPullRequest): string {
+type PrState = {
+  mergeable: boolean;
+  requiredChecks: TaskPullRequestCheck[];
+  status: string | null;
+};
+
+export function summarizeRequiredChecks(pullRequest: { requiredChecks: TaskPullRequestCheck[] }): string {
   if (pullRequest.requiredChecks.length === 0) {
     return "no required checks";
   }
@@ -305,7 +348,7 @@ export function summarizeRequiredChecks(pullRequest: TaskPullRequest): string {
     .join(", ");
 }
 
-export function isMergeReady(pullRequest: TaskPullRequest): boolean {
+export function isMergeReady(pullRequest: PrState): boolean {
   return (
     pullRequest.mergeable &&
     pullRequest.requiredChecks.length > 0 &&
@@ -313,11 +356,11 @@ export function isMergeReady(pullRequest: TaskPullRequest): boolean {
   );
 }
 
-function hasFailedRequiredChecks(pullRequest: TaskPullRequest): boolean {
+function hasFailedRequiredChecks(pullRequest: PrState): boolean {
   return pullRequest.requiredChecks.some((check) => check.status === "failed");
 }
 
-function hasReachedTerminalWatchState(pullRequest: TaskPullRequest): boolean {
+function hasReachedTerminalWatchState(pullRequest: PrState): boolean {
   return (
     isMergeReady(pullRequest) ||
     hasFailedRequiredChecks(pullRequest) ||
@@ -326,16 +369,20 @@ function hasReachedTerminalWatchState(pullRequest: TaskPullRequest): boolean {
   );
 }
 
-function deriveTaskStatusFromPullRequest(pullRequest: TaskPullRequest): TaskRecord["status"] {
-  if (isMergeReady(pullRequest)) {
+function deriveTaskStatusFromPrs(prs: TaskPR[]): TaskRecord["status"] {
+  if (prs.length === 0) return "checked";
+  const primary = ([...prs].reverse().find((pr) => pr.status !== "merged" && pr.status !== "closed")
+    ?? prs[prs.length - 1])!;
+
+  if (isMergeReady(primary)) {
     return "merge_ready";
   }
 
-  if (pullRequest.status === "merged") {
+  if (primary.status === "merged") {
     return "merged";
   }
 
-  if (pullRequest.status === "open") {
+  if (primary.status === "open") {
     return "pr_open";
   }
 
@@ -348,7 +395,7 @@ function buildPrViewArgs(selector: string): string[] {
     "view",
     selector,
     "--json",
-    "number,url,baseRefName,headRefName,headRefOid,state,mergeable,mergeStateStatus,statusCheckRollup",
+    "number,url,baseRefName,headRefName,headRefOid,state,isDraft,title,createdAt,updatedAt,mergedAt,mergeable,mergeStateStatus,statusCheckRollup",
   ];
 }
 
@@ -385,6 +432,11 @@ interface GhPrBatchPullRequest {
   headRefName: string;
   headRefOid?: string | null;
   state: string;
+  isDraft?: boolean;
+  title?: string | null;
+  createdAt?: string | null;
+  updatedAt?: string | null;
+  mergedAt?: string | null;
   mergeable: string;
   mergeStateStatus: string | null;
   statusCheckRollup?: {
@@ -429,6 +481,11 @@ fragment PrFields on PullRequest {
   headRefName
   headRefOid
   state
+  isDraft
+  title
+  createdAt
+  updatedAt
+  mergedAt
   mergeable
   mergeStateStatus
   statusCheckRollup {
@@ -497,6 +554,11 @@ function normalizeBatchEntry(entry: unknown): GhPrView | null {
     headRefName: pullRequest.headRefName,
     headRefOid: pullRequest.headRefOid ?? null,
     state: pullRequest.state,
+    isDraft: pullRequest.isDraft ?? false,
+    title: pullRequest.title ?? null,
+    createdAt: pullRequest.createdAt ?? null,
+    updatedAt: pullRequest.updatedAt ?? null,
+    mergedAt: pullRequest.mergedAt ?? null,
     mergeable: pullRequest.mergeable,
     mergeStateStatus: pullRequest.mergeStateStatus,
     statusCheckRollup,
@@ -507,21 +569,17 @@ async function persistPullRequestView(
   paths: CraigPaths,
   task: TaskRecord,
   view: GhPrView,
+  existingPr: TaskPR | null,
 ): Promise<TaskRecord> {
-  const normalized = normalizePullRequest(view);
-
-  task.pullRequest = normalized;
-  task.status = deriveTaskStatusFromPullRequest(normalized);
-  await writePrStatusArtifact(paths, task);
+  const normalized = normalizePr(view, existingPr);
+  const withPr = upsertTaskPr(task, normalized);
+  const status = deriveTaskStatusFromPrs(withPr.prs);
+  const withStatus = { ...withPr, status };
+  await writePrStatusArtifact(paths, withStatus);
   const latest = await readTask(paths, task.id);
-  const status = latest.status === "closed" ? latest.status : task.status;
-  const persistedTask = {
-    ...latest,
-    pullRequest: normalized,
-    status,
-  };
+  const finalStatus = latest.status === "closed" ? latest.status : status;
+  const persistedTask = upsertTaskPr({ ...latest, status: finalStatus }, normalized);
   await writeTask(paths, persistedTask);
-
   return persistedTask;
 }
 
@@ -544,6 +602,31 @@ async function persistProjectTargetPullRequest(
   return nextTask;
 }
 
+function normalizePr(view: GhPrView, existing: TaskPR | null): TaskPR {
+  const isDraft = view.isDraft ?? false;
+  const rawStatus = normalizePrStatus(view.state, isDraft);
+  return {
+    provider: "github",
+    owner: existing?.owner ?? null,
+    repo: existing?.repo ?? null,
+    number: view.number,
+    url: view.url,
+    title: view.title ?? existing?.title ?? null,
+    status: rawStatus,
+    draft: isDraft,
+    baseBranch: view.baseRefName,
+    headBranch: view.headRefName,
+    mergeable: view.mergeable === "MERGEABLE",
+    mergeStateStatus: view.mergeStateStatus,
+    requiredChecks: normalizeRequiredChecks(view.statusCheckRollup),
+    createdAt: view.createdAt ?? existing?.createdAt ?? null,
+    updatedAt: view.updatedAt ?? existing?.updatedAt ?? null,
+    mergedAt: view.mergedAt ?? existing?.mergedAt ?? null,
+    lastSyncedAt: new Date().toISOString(),
+    lastSyncedHeadSha: view.headRefOid ?? null,
+  };
+}
+
 function normalizePullRequest(view: GhPrView): TaskPullRequest {
   return {
     provider: "github",
@@ -558,6 +641,14 @@ function normalizePullRequest(view: GhPrView): TaskPullRequest {
     lastSyncedAt: new Date().toISOString(),
     lastSyncedHeadSha: view.headRefOid ?? null,
   };
+}
+
+function normalizePrStatus(state: string, isDraft: boolean): TaskPR["status"] {
+  if (isDraft) return "draft";
+  if (state === "OPEN") return "open";
+  if (state === "MERGED") return "merged";
+  if (state === "CLOSED") return "closed";
+  return null;
 }
 
 function normalizePrState(state: string): TaskPullRequest["status"] {

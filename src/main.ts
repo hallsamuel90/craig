@@ -128,43 +128,9 @@ export function formatCommandResult(result: CommandResult): string {
         `Commit: ${result.commitSha}`,
         `Message: ${result.message}`,
       ].join("\n");
-    case "openPullRequest":
-      return [
-        `${formatPullRequestDisposition(result.disposition, result.watch)} PR for ${result.taskId}`,
-        `PR: #${result.prNumber} ${result.url}`,
-        `Status: ${result.status}`,
-        `Mergeable: ${result.mergeable}`,
-        `Checks: ${result.requiredChecksSummary}`,
-      ].join("\n");
-    case "mergeTask":
-      return [
-        `Merged task ${result.taskId} from PR #${result.prNumber}`,
-        `Status: ${result.status}`,
-        `Preserved worktree: ${result.preservedWorktree}`,
-        `Cleanup warning: ${result.cleanupWarning ?? "none"}`,
-      ].join("\n");
     default:
       return assertNever(result);
   }
-}
-
-function formatPullRequestDisposition(
-  disposition: Extract<CommandResult, { kind: "openPullRequest" }>["disposition"],
-  watch: boolean,
-): string {
-  if (watch) {
-    return "Watched";
-  }
-
-  if (disposition === "created") {
-    return "Created";
-  }
-
-  if (disposition === "discovered") {
-    return "Discovered";
-  }
-
-  return "Synced";
 }
 
 function buildShowWarnings(result: Extract<CommandResult, { kind: "showTask" }>): string[] {
@@ -208,9 +174,21 @@ function summarizeListChecks(task: Extract<CommandResult, { kind: "listTasks" }>
 }
 
 function summarizeListPr(task: Extract<CommandResult, { kind: "listTasks" }>["tasks"][number]): string {
-  if (!task.pullRequest.number) {
+  if (task.type === "project" && task.repoTargets?.length) {
+    const linked = task.repoTargets.filter((t) => t.pullRequest.number);
+    if (linked.length === 0) return "-";
+    const statusCounts = linked.reduce<Record<string, number>>((acc, t) => {
+      const s = t.pullRequest.status ?? "unknown";
+      acc[s] = (acc[s] ?? 0) + 1;
+      return acc;
+    }, {});
+    return Object.entries(statusCounts).map(([s, n]) => `${n} ${s}`).join(", ");
+  }
+
+  const pr = task.prs[0];
+  if (!pr?.number) {
     return "-";
   }
 
-  return `#${task.pullRequest.number}:${task.pullRequest.status ?? "unknown"}`;
+  return `#${pr.number}:${pr.status ?? "unknown"}`;
 }
