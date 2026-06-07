@@ -11,3 +11,4 @@ Sequential PR support, bug fixes, and PTY engagement indicator.
 - Added `engaged ●` indicator in the center tab row when the terminal PTY is active
 - Footer brightens when the PTY is attached or a modal input is open to draw focus
 - Removed noisy `● live/idle` label from the top rail
+- Version number now displayed in the pause overlay
