@@ -832,6 +832,132 @@ describe("task lifecycle services", () => {
     await expect(readFile(path.join(worktreePath, "README.md"), "utf8")).resolves.toContain("kept");
   });
 
+  test("refreshTrackedPullRequest discovers a new PR when the current primary is merged", async () => {
+    const repoRoot = await createRepoRoot("craig-pr-sequential-");
+    tempRoots.push(repoRoot);
+    const { paths, worktreePath, stubDir } = await createTrackedTaskRepo(repoRoot);
+    process.env.PATH = `${stubDir}:${originalPath}`;
+
+    // Stub gh to return a new open PR (#22) when discovery runs
+    const viewFile = path.join(repoRoot, "gh-view.json");
+    await writeFile(
+      viewFile,
+      JSON.stringify({
+        number: 22,
+        url: "https://github.com/example/repo/pull/22",
+        baseRefName: "main",
+        headRefName: "craig/task_1",
+        headRefOid: "newsha123",
+        state: "OPEN",
+        mergeable: "MERGEABLE",
+        mergeStateStatus: "CLEAN",
+        statusCheckRollup: [],
+      }),
+      "utf8",
+    );
+    process.env.CRAIG_TEST_GH_VIEW_FILE = viewFile;
+
+    await writeTaskRecord(paths.repoRoot, {
+      id: "task_1",
+      status: "merged",
+      branch: "craig/task_1",
+      worktreePath,
+      prs: [{
+        provider: "github",
+        owner: null,
+        repo: null,
+        number: 21,
+        url: "https://github.com/example/repo/pull/21",
+        title: null,
+        status: "merged",
+        draft: false,
+        baseBranch: "main",
+        headBranch: "craig/task_1",
+        mergeable: false,
+        mergeStateStatus: "UNKNOWN",
+        requiredChecks: [],
+        createdAt: null,
+        updatedAt: null,
+        mergedAt: null,
+        lastSyncedAt: "2026-04-21T00:00:00.000Z",
+        lastSyncedHeadSha: "oldsha456",
+      }],
+    });
+
+    const { refreshTrackedPullRequest } = await import("../src/services/open-pull-request.js");
+    await refreshTrackedPullRequest(paths, "task_1");
+    const task = await readTask(paths, "task_1");
+
+    // Original merged PR preserved, new PR appended
+    expect(task.prs).toHaveLength(2);
+    expect(task.prs[0]?.number).toBe(21);
+    expect(task.prs[0]?.status).toBe("merged");
+    expect(task.prs[1]?.number).toBe(22);
+    expect(task.prs[1]?.status).toBe("open");
+  });
+
+  test("refreshPullRequestChecks discovers a new PR when current primary is closed", async () => {
+    const repoRoot = await createRepoRoot("craig-pr-checks-terminal-");
+    tempRoots.push(repoRoot);
+    const { paths, worktreePath, stubDir } = await createTrackedTaskRepo(repoRoot);
+    process.env.PATH = `${stubDir}:${originalPath}`;
+
+    const viewFile = path.join(repoRoot, "gh-view.json");
+    await writeFile(
+      viewFile,
+      JSON.stringify({
+        number: 33,
+        url: "https://github.com/example/repo/pull/33",
+        baseRefName: "main",
+        headRefName: "craig/task_1",
+        headRefOid: "freshsha789",
+        state: "OPEN",
+        mergeable: "MERGEABLE",
+        mergeStateStatus: "CLEAN",
+        statusCheckRollup: [{ context: "ci", state: "SUCCESS", conclusion: "SUCCESS" }],
+      }),
+      "utf8",
+    );
+    process.env.CRAIG_TEST_GH_VIEW_FILE = viewFile;
+
+    await writeTaskRecord(paths.repoRoot, {
+      id: "task_1",
+      status: "pr_open",
+      branch: "craig/task_1",
+      worktreePath,
+      prs: [{
+        provider: "github",
+        owner: null,
+        repo: null,
+        number: 30,
+        url: "https://github.com/example/repo/pull/30",
+        title: null,
+        status: "closed",
+        draft: false,
+        baseBranch: "main",
+        headBranch: "craig/task_1",
+        mergeable: false,
+        mergeStateStatus: "UNKNOWN",
+        requiredChecks: [],
+        createdAt: null,
+        updatedAt: null,
+        mergedAt: null,
+        lastSyncedAt: "2026-04-21T00:00:00.000Z",
+        lastSyncedHeadSha: "closedsha",
+      }],
+    });
+
+    await refreshPullRequestChecks(paths, "task_1");
+    const task = await readTask(paths, "task_1");
+
+    expect(task.prs).toHaveLength(2);
+    expect(task.prs[0]?.number).toBe(30);
+    expect(task.prs[0]?.status).toBe("closed");
+    expect(task.prs[1]?.number).toBe(33);
+    expect(task.prs[1]?.status).toBe("open");
+    expect(task.status).toBe("merge_ready");
+  });
+
   test("showTask refreshes persisted PR state for tracked tasks", async () => {
     const repoRoot = await createRepoRoot("craig-show-pr-");
     tempRoots.push(repoRoot);

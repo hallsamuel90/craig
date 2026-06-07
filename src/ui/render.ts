@@ -49,7 +49,6 @@ const OSC8_END = "\u001B]8;;\u001B\\";
 const PALETTE = {
   panelBg:             { bg: "0a0a0a", fg: "c0caf5" },
   panelMuted:          { bg: "0a0a0a", fg: "565f89" },
-  panelDimmed:         { bg: "0a0a0a", fg: "3b4261" },
   panelSelected:       { bg: "1a1b26", fg: "c0caf5" },
   panelFocused:        { bg: "1a1b26", fg: "7aa2f7" },
   divider:             { bg: "0a0a0a", fg: "292e42" },
@@ -469,9 +468,8 @@ function renderSurfaceSegment(
   width: number,
   color: boolean,
   panel: "left" | "center" | "right",
-  dimmed = false,
 ): string {
-  const palette = getPanelPalette(panel, line.tone ?? "default", dimmed);
+  const palette = getPanelPalette(panel, line.tone ?? "default");
   const lineContent = renderLineContent(line, color, palette);
   if (panel === "left") {
     if (line.fullBleed) {
@@ -498,10 +496,7 @@ function renderSurfaceSegment(
   return fillSurface(pad(`${inset}${lineContent}`, width), color, palette);
 }
 
-function getPanelPalette(_panel: "left" | "center" | "right", tone: SurfaceLine["tone"], dimmed = false): PaletteColor {
-  if (dimmed) {
-    return PALETTE.panelDimmed;
-  }
+function getPanelPalette(_panel: "left" | "center" | "right", tone: SurfaceLine["tone"]): PaletteColor {
   if (tone === "selected" || tone === "focused") {
     return PALETTE.panelSelected;
   }
