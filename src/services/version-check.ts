@@ -1,6 +1,6 @@
 declare const __CRAIG_VERSION__: string | undefined;
 
-const REGISTRY_URL = "https://registry.npmjs.org/craig/latest";
+const REGISTRY_URL = "https://registry.npmjs.org/craig-cli/latest";
 const CACHE_TTL_MS = 60 * 60 * 1000; // 1 hour
 
 interface VersionCheckResult {

@@ -411,6 +411,35 @@ describe("terminal app PTY attach flow", () => {
     expect(ptyRuntime.writeKey).toHaveBeenCalledWith("SHIFT_TAB");
   });
 
+  test("terminal resume re-enters fullscreen and clears before repainting", async () => {
+    const root = await mkdtemp(join(tmpdir(), "craig-ui-app-"));
+    tempRoots.push(root);
+    const paths = await setupWorkspace(root);
+    const terminal = new FakeTerminal();
+    const ptyRuntime = new FakePtyRuntime();
+    const app = startTerminalApp({ terminal, ptyRuntime, uiStateFile: paths.uiStateFile, workspaceRoot: root });
+    await vi.waitFor(() => expect(terminal.hasKeyListener()).toBe(true));
+
+    terminal.emitKey("\r"); // boot start
+    terminal.emitKey("ENTER");
+    await vi.waitFor(() => expect(ptyRuntime.ensureSession).toHaveBeenCalled());
+    terminal.fullscreen.mockClear();
+    terminal.moveTo.mockClear();
+    terminal.eraseDisplayBelow.mockClear();
+    ptyRuntime.resize.mockClear();
+
+    process.emit("SIGCONT");
+
+    await vi.waitFor(() => expect(terminal.fullscreen).toHaveBeenCalledWith(true));
+    expect(ptyRuntime.resize).toHaveBeenCalledWith(expect.objectContaining({ columns: expect.any(Number), rows: expect.any(Number) }));
+    expect(terminal.moveTo).toHaveBeenCalledWith(1, 1);
+    expect(terminal.eraseDisplayBelow).toHaveBeenCalled();
+    terminal.emitKey("\u001D");
+    terminal.emitKey("q");
+
+    await expect(app).resolves.toBe(0);
+  });
+
   test("terminal mode maps Ghostty shift+enter CSI-u input to a PTY line feed", async () => {
     const root = await mkdtemp(join(tmpdir(), "craig-ui-app-"));
     tempRoots.push(root);
@@ -560,7 +589,7 @@ describe("terminal app PTY attach flow", () => {
     expect(task.ptyTabs.map((tab) => tab.kind)).toEqual(["agent", "terminal"]);
   });
 
-  test("enter on a selected task in the left pane drops directly into its agent tab", async () => {
+  test("enter on a selected task in the left pane drops directly into its selected PTY tab", async () => {
     const root = await mkdtemp(join(tmpdir(), "craig-ui-app-"));
     tempRoots.push(root);
     const paths = await setupWorkspace(root);
@@ -579,7 +608,7 @@ describe("terminal app PTY attach flow", () => {
     await expect(app).resolves.toBe(0);
     expect(ptyRuntime.ensureSession).toHaveBeenCalledWith(
       "task_20260430_02",
-      "task_20260430_02:agent",
+      "task_20260430_02:terminal",
       expect.objectContaining({ columns: expect.any(Number) }),
     );
   });
@@ -1829,7 +1858,7 @@ describe("terminal app PTY attach flow", () => {
     expect(ptyRuntime.ensureSession).not.toHaveBeenCalled();
   });
 
-  test("left-pane attach recreates a missing agent tab instead of attaching a terminal tab", async () => {
+  test("left-pane attach keeps the selected terminal tab when the agent tab is missing", async () => {
     const root = await mkdtemp(join(tmpdir(), "craig-ui-app-"));
     tempRoots.push(root);
     const paths = await setupWorkspace(root);
@@ -1863,7 +1892,7 @@ describe("terminal app PTY attach flow", () => {
     terminal.emitKey("ENTER");
     await vi.waitFor(() => expect(ptyRuntime.ensureSession).toHaveBeenCalledWith(
       "task_20260430_02",
-      "task_20260430_02:agent",
+      "task_20260430_02:terminal",
       expect.anything(),
     ));
     terminal.emitKey("\u001D");
@@ -1871,12 +1900,8 @@ describe("terminal app PTY attach flow", () => {
 
     await expect(app).resolves.toBe(0);
     const updatedTask = await readTask(paths, "task_20260430_02");
-    expect(updatedTask.ptyTabs.find((tab) => tab.id === "task_20260430_02:agent")).toMatchObject({
-      kind: "agent",
-      title: "Codex",
-      command: ["codex"],
-    });
-    expect(updatedTask.selectedPtyTabId).toBe("task_20260430_02:agent");
+    expect(updatedTask.ptyTabs.map((tab) => tab.id)).toEqual(["task_20260430_02:terminal"]);
+    expect(updatedTask.selectedPtyTabId).toBe("task_20260430_02:terminal");
   });
 
   test("the attach enter key is not forwarded into a freshly opened task PTY", async () => {

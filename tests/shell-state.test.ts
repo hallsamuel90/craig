@@ -945,7 +945,9 @@ describe("terminal shell control state", () => {
 
     expect(result.attachTerminal).toBe(true);
     expect(result.state.inputMode).toBe("terminal");
+    expect(result.state.focusedRegion).toBe("center");
     expect(result.state.activeTab).toBe("task_20260430_02:agent");
+    expect(result.state.selectedPtyTabId).toBe("task_20260430_02:agent");
   });
 
   test("raw carriage return also attaches from the focused terminal tab", () => {

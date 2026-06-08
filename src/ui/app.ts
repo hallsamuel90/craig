@@ -399,6 +399,7 @@ export async function startTerminalApp(options: TerminalAppOptions = {}): Promis
           ...syncedShell,
           activeTab: tabId ?? syncedShell.activeTab,
           selectedPtyTabId: tabId,
+          focusedRegion: tabId ? "center" : syncedShell.focusedRegion,
         });
 
         if (!nextShell.selectedTaskId || !tabId) {
@@ -738,6 +739,7 @@ export async function startTerminalApp(options: TerminalAppOptions = {}): Promis
 
     const cleanup = () => {
       process.stdout.off("resize", handleResize);
+      process.off("SIGCONT", handleResume);
       activeTerminal.removeListener("key", onKey);
       activeTerminal.removeListener("unknown", onUnknown);
       activeTerminal.removeListener("mouse", onMouse);
@@ -1516,6 +1518,11 @@ export async function startTerminalApp(options: TerminalAppOptions = {}): Promis
       state = { mode: "main", shell: withTerminalView(state.shell) };
     }
 
+    function restoreTerminalScreen(): void {
+      pendingClear = true;
+      activeTerminal.fullscreen(true);
+    }
+
     function scheduleInspectionViewportScroll(lines: number): void {
       if (lines === 0) {
         return;
@@ -1560,7 +1567,18 @@ export async function startTerminalApp(options: TerminalAppOptions = {}): Promis
     }
 
     const handleResize = () => {
-      pendingClear = true;
+      restoreTerminalScreen();
+
+      if (state.mode === "main" && state.shell.inputMode === "terminal") {
+        ptyRuntime.resize(getPtySize(getViewport(activeTerminal.width, activeTerminal.height)));
+        state = { mode: "main", shell: withTerminalView(state.shell) };
+      }
+
+      render();
+    };
+
+    const handleResume = () => {
+      restoreTerminalScreen();
 
       if (state.mode === "main" && state.shell.inputMode === "terminal") {
         ptyRuntime.resize(getPtySize(getViewport(activeTerminal.width, activeTerminal.height)));
@@ -1571,6 +1589,7 @@ export async function startTerminalApp(options: TerminalAppOptions = {}): Promis
     };
 
     process.stdout.on("resize", handleResize);
+    process.on("SIGCONT", handleResume);
     activeTerminal.grabInput(true);
     inputCaptureMode = "control";
     activeTerminal.hideCursor(true);
