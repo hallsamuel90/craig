@@ -1,5 +1,11 @@
 # craig-cli
 
+## 0.5.1
+
+### Patch Changes
+
+- 1568ef8: Fix the in-app update check to compare against the published craig-cli package instead of an unrelated npm package, keep the selected PTY tab focused when attaching from the left task list, and reassert Craig's fullscreen terminal screen on resume/resize redraws.
+
 ## 0.5.0
 
 ### Minor Changes
