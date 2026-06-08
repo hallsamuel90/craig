@@ -456,11 +456,15 @@ export function reduceMainKey(state: ControlShellState, key: string, options: Re
     }
 
     if (state.focusedRegion === "tasks" && isTaskLeftItemId(state.selectedLeftItemId) && state.selectedTaskId) {
+      const tabId = state.selectedPtyTabId ?? state.activeTab;
       return result({
         state: {
           ...state,
           inputMode: "terminal",
-          activeTab: state.selectedPtyTabId ?? state.activeTab,
+          focusedRegion: "center",
+          activeTab: tabId,
+          selectedPtyTabId: tabId,
+          preferredPtyTabKind: getPtyTabKindFromId(tabId) ?? state.preferredPtyTabKind,
           actionMessage: null,
         },
         changed: true,

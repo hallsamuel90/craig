@@ -68,6 +68,7 @@ describe("version-check", () => {
 
       expect(result.latest).toBe("0.2.0");
       expect(result.current).toBe("unknown");
+      expect(globalThis.fetch).toHaveBeenCalledWith("https://registry.npmjs.org/craig-cli/latest", expect.any(Object));
     });
 
     test("returns cached result on second call within TTL", async () => {
