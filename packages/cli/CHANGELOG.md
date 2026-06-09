@@ -1,5 +1,11 @@
 # craig-cli
 
+## 0.6.1
+
+### Patch Changes
+
+- 8aec68f: Fix the center panel tab rule width and render the terminal engaged indicator in green.
+
 ## 0.6.0
 
 ### Minor Changes
