@@ -105,6 +105,7 @@ export interface TerminalRuntime {
 export interface PtyRuntimePort {
   ensureSession(...args: [string, string, PtySize]): ControlShellState["terminal"] | Promise<ControlShellState["terminal"]>;
   hydrateSessions?(...args: [string[]]): void | Promise<void>;
+  pruneStale?(...args: [string[]]): void | Promise<void>;
   write(...args: [string]): void;
   writeKey(...args: [string]): void;
   scrollViewport(...args: [number]): void;
@@ -215,7 +216,9 @@ export async function startTerminalApp(options: TerminalAppOptions = {}): Promis
     }
 
     async function hydrateOpenPtyTabs(): Promise<void> {
-      await ptyRuntime.hydrateSessions?.(model.tasks.flatMap((task) => task.ptyTabs.map((tab) => tab.id)));
+      const activeTabIds = model.tasks.flatMap((task) => task.ptyTabs.map((tab) => tab.id));
+      await ptyRuntime.pruneStale?.(activeTabIds);
+      await ptyRuntime.hydrateSessions?.(activeTabIds);
     }
 
     function hydrateAndRenderOpenPtyTabs(): void {

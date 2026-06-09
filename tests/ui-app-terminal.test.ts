@@ -216,12 +216,81 @@ describe("terminal app PTY attach flow", () => {
       "task_20260430_02:agent",
       "task_20260430_02:terminal",
     ]));
+    expect(ptyRuntime.pruneStale).toHaveBeenCalledWith([
+      "task_20260430_02:agent",
+      "task_20260430_02:terminal",
+    ]);
     await vi.waitFor(() => expect(stripAnsi(terminal.frames.at(-1) ?? "")).toContain("TERMINAL  task_20260430_02"));
     terminal.emitKey("q");
 
     await expect(app).resolves.toBe(0);
     expect(ptyRuntime.ensureSession).not.toHaveBeenCalled();
     expect(terminal.frames.join("\n")).toContain("+ new tab");
+  });
+
+  test("boot start prunes stale daemon sessions not in the active task list", async () => {
+    const root = await mkdtemp(join(tmpdir(), "craig-ui-app-"));
+    tempRoots.push(root);
+    const paths = await setupWorkspace(root);
+    const terminal = new FakeTerminal();
+    const ptyRuntime = new FakePtyRuntime();
+    const app = startTerminalApp({ terminal, ptyRuntime, uiStateFile: paths.uiStateFile, workspaceRoot: root });
+    await vi.waitFor(() => expect(terminal.hasKeyListener()).toBe(true));
+
+    terminal.emitKey("ENTER");
+    await vi.waitFor(() => expect(ptyRuntime.pruneStale).toHaveBeenCalledWith([
+      "task_20260430_02:agent",
+      "task_20260430_02:terminal",
+    ]));
+    terminal.emitKey("q");
+
+    await expect(app).resolves.toBe(0);
+  });
+
+  test("boot start calls pruneStale before hydrateSessions so stale kills happen first", async () => {
+    const root = await mkdtemp(join(tmpdir(), "craig-ui-app-"));
+    tempRoots.push(root);
+    const paths = await setupWorkspace(root);
+    const terminal = new FakeTerminal();
+    const callOrder: string[] = [];
+    const ptyRuntime = new FakePtyRuntime();
+    ptyRuntime.pruneStale = vi.fn(() => { callOrder.push("prune"); });
+    ptyRuntime.hydrateSessions = vi.fn(() => { callOrder.push("hydrate"); });
+    const app = startTerminalApp({ terminal, ptyRuntime, uiStateFile: paths.uiStateFile, workspaceRoot: root });
+    await vi.waitFor(() => expect(terminal.hasKeyListener()).toBe(true));
+
+    terminal.emitKey("ENTER");
+    await vi.waitFor(() => expect(callOrder).toEqual(["prune", "hydrate"]));
+    terminal.emitKey("q");
+
+    await expect(app).resolves.toBe(0);
+  });
+
+  test("boot start passes an empty list to pruneStale when there are no tasks", async () => {
+    const root = await mkdtemp(join(tmpdir(), "craig-ui-app-empty-"));
+    tempRoots.push(root);
+    const repoRoot = join(root, "repo-empty");
+    await mkdir(repoRoot, { recursive: true });
+    await createGitRepo(repoRoot);
+    const paths = await createCraigState(root, []);
+    await writeRepoRecord(root, {
+      id: "repo_empty",
+      name: "repo-empty",
+      rootPath: repoRoot,
+      defaultBranch: "main",
+      createdAt: "2026-06-09T00:00:00.000Z",
+      updatedAt: "2026-06-09T00:00:00.000Z",
+    });
+    const terminal = new FakeTerminal();
+    const ptyRuntime = new FakePtyRuntime();
+    const app = startTerminalApp({ terminal, ptyRuntime, uiStateFile: paths.uiStateFile, workspaceRoot: root });
+    await vi.waitFor(() => expect(terminal.hasKeyListener()).toBe(true));
+
+    terminal.emitKey("ENTER");
+    await vi.waitFor(() => expect(ptyRuntime.pruneStale).toHaveBeenCalledWith([]));
+    terminal.emitKey("q");
+
+    await expect(app).resolves.toBe(0);
   });
 
   test("raw terminal-kit unknown ctrl+] detaches from terminal mode", async () => {
@@ -2239,6 +2308,7 @@ class FakePtyRuntime implements PtyRuntimePort {
       this.hydratedTabIds.add(tabId);
     }
   });
+  pruneStale = vi.fn();
   write = vi.fn();
   writeKey = vi.fn();
   scrollViewport = vi.fn((lines: number) => {
