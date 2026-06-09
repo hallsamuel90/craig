@@ -318,9 +318,11 @@ function toLeftLines(data: ShellData, width: number, height: number, color: bool
 }
 
 function toCenterLines(data: ShellData, width: number, height: number, color: boolean): SurfaceLine[] {
+  const contentWidth = width - 2; // renderSurfaceSegment prepends a 2-char inset
   const activeTab = data.tabs.find((tab) => tab.active)?.label ?? "AGENT";
-  const tabOffset = findTabOffset(data.tabs);
-  const underlineChars = "─".repeat(activeTab.length + 1);
+  const tabOffset = data.inputMode === "terminal" ? 0 : findTabOffset(data.tabs);
+  const underlineWidth = data.inputMode === "terminal" ? contentWidth : activeTab.length + 1;
+  const underlineChars = "─".repeat(Math.max(0, underlineWidth));
   const underline = `${" ".repeat(tabOffset)}${data.inputMode === "terminal" ? green(underlineChars, color, PALETTE.panelBg) : accent(underlineChars, color, PALETTE.panelMuted)}`;
   const header = [
     `${accent(data.centerHeader.tabLabel, color, PALETTE.panelBg)}  ${data.centerHeader.taskId}`,
@@ -335,9 +337,8 @@ function toCenterLines(data: ShellData, width: number, height: number, color: bo
   const ENGAGED_LABEL = " engaged ";
   const ENGAGED_TOTAL_WIDTH = ENGAGED_LABEL.length + 2; // label + dot + trailing space
   const ptyIndicator = data.inputMode === "terminal"
-    ? `${muted(ENGAGED_LABEL, color, PALETTE.panelBg)}${green("●", color, PALETTE.panelBg)} `
+    ? green(`${ENGAGED_LABEL}● `, color, PALETTE.panelBg)
     : "";
-  const contentWidth = width - 2; // renderSurfaceSegment prepends a 2-char inset
   const tabLinePadding = data.inputMode === "terminal"
     ? " ".repeat(Math.max(0, contentWidth - stringWidth(tabLineText) - ENGAGED_TOTAL_WIDTH))
     : "";
