@@ -1,5 +1,11 @@
 # craig-cli
 
+## 0.6.0
+
+### Minor Changes
+
+- 6b63bb8: Surface recoverable TUI errors as footer toasts and record them in a local Craig error log accessible from Options.
+
 ## 0.5.6
 
 ### Patch Changes
