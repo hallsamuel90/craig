@@ -196,7 +196,7 @@
 
 ### Patch Changes
 
-- 0554da4: Add proprietary license metadata and update the README around TUI-first usage.
+- 0554da4: Add package license metadata and update the README around TUI-first usage.
 
 ## 0.2.0
 

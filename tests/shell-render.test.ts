@@ -787,7 +787,7 @@ describe("terminal shell renderer", () => {
           status: "running",
           rows: [
             { segments: [{ text: "$ pwd" }] },
-            { segments: [{ text: "/Users/samhall/conductor/workspaces/craig/boston-v2" }] },
+            { segments: [{ text: "/home/developer/workspaces/craig/boston-v2" }] },
           ],
           error: null,
         },
@@ -798,7 +798,7 @@ describe("terminal shell renderer", () => {
     expect(frame).toContain("TERMINAL  task_20260430_02 · bug-fixes");
     expect(frame).toContain("TERMINAL   ↑↓/PgUp/PgDn scroll   Ctrl+] return to control");
     expect(frame).toContain("$ pwd");
-    expect(frame).toContain("/Users/samhall/conductor/workspaces/");
+    expect(frame).toContain("/home/developer/workspaces/");
     expect(frame).not.toContain("terminal ▸ terminal mode");
   });
 

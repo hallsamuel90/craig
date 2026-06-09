@@ -184,11 +184,21 @@ Craig writes local state under `.craig/`:
   worktrees/
 ```
 
-Treat `.craig/` as private developer state. It can contain task prompts, logs, local paths, PR metadata, and worktrees.
+Treat `.craig/` as private developer state. It can contain task prompts, terminal logs, local paths, branch names, PR metadata, runtime state, and worktrees. Do not commit `.craig/` or share it in public issues.
+
+Craig does not run a hosted service or upload `.craig/` state by itself. Commands that use external tools, such as `gh` or an agent CLI, follow the behavior and authentication model of those tools.
+
+## Open Source and Contributions
+
+Craig is open source under the MIT license, but it is not currently a community-maintained project.
+
+Issues are welcome for reproducible bugs, installation problems, and focused questions. Pull requests are not generally accepted unless they were discussed with the maintainer first, and unsolicited PRs may be closed without review.
+
+See [CONTRIBUTING.md](CONTRIBUTING.md) for the contribution policy and [SECURITY.md](SECURITY.md) for private vulnerability reporting guidance.
 
 ## License
 
-Craig is proprietary software. All rights reserved.
+MIT.
 
 ## Development
 
