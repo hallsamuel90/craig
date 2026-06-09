@@ -1,5 +1,11 @@
 # craig-cli
 
+## 0.6.3
+
+### Patch Changes
+
+- 93783d1: Update package metadata and public documentation for Craig's MIT open-source release posture.
+
 ## 0.6.2
 
 ### Patch Changes
