@@ -1,5 +1,11 @@
 # craig-cli
 
+## 0.5.3
+
+### Patch Changes
+
+- a6425fe: Improve the review panel PR metadata display with draft and closed PR coloring, review-required blockers, recent comments, and deduped stale cancelled checks.
+
 ## 0.5.2
 
 ### Patch Changes
