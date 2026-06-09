@@ -1640,6 +1640,7 @@ export async function startTerminalApp(options: TerminalAppOptions = {}): Promis
         render();
       }
     });
+    void hydrateOpenPtyTabs().catch(() => undefined);
     render();
   });
 }
