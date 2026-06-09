@@ -1401,10 +1401,21 @@ export async function startTerminalApp(options: TerminalAppOptions = {}): Promis
       }
 
       if (state.menuIndex === 0) {
+        const fromBoot = state.variant === "boot";
         state = { mode: "main", shell: syncShell({ ...state.shell, inputMode: "control" }) };
         pendingClear = true;
         render();
-        hydrateAndRenderOpenPtyTabs();
+        if (fromBoot) {
+          void bootHydrationReady.then(() => {
+            if (state.mode !== "main") {
+              return;
+            }
+            state = { mode: "main", shell: syncShell(state.shell) };
+            render();
+          });
+        } else {
+          hydrateAndRenderOpenPtyTabs();
+        }
         return;
       }
 
@@ -1721,7 +1732,7 @@ export async function startTerminalApp(options: TerminalAppOptions = {}): Promis
         render();
       }
     });
-    void hydrateOpenPtyTabs().catch(() => undefined);
+    const bootHydrationReady = hydrateOpenPtyTabs().catch(() => undefined);
     render();
   });
 }
