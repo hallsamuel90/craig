@@ -273,8 +273,8 @@ function toLeftLines(data: ShellData, width: number, height: number, color: bool
 function toCenterLines(data: ShellData, width: number, height: number, color: boolean): SurfaceLine[] {
   const activeTab = data.tabs.find((tab) => tab.active)?.label ?? "AGENT";
   const tabOffset = findTabOffset(data.tabs);
-  const underlinePalette = data.inputMode === "terminal" ? PALETTE.success : PALETTE.panelMuted;
-  const underline = `${" ".repeat(tabOffset)}${accent("─".repeat(activeTab.length + 1), color, underlinePalette)}`;
+  const underlineChars = "─".repeat(activeTab.length + 1);
+  const underline = `${" ".repeat(tabOffset)}${data.inputMode === "terminal" ? green(underlineChars, color, PALETTE.panelBg) : accent(underlineChars, color, PALETTE.panelMuted)}`;
   const header = [
     `${accent(data.centerHeader.tabLabel, color, PALETTE.panelBg)}  ${data.centerHeader.taskId}`,
     data.centerHeader.repo,
