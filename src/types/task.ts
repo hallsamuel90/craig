@@ -40,6 +40,15 @@ export interface TaskPullRequestCheck {
   conclusion: string | null;
 }
 
+export interface TaskPullRequestComment {
+  author: string | null;
+  body: string;
+  createdAt: string | null;
+  url: string | null;
+}
+
+export type TaskPullRequestReviewDecision = "APPROVED" | "CHANGES_REQUESTED" | "REVIEW_REQUIRED" | null;
+
 export interface TaskPullRequest {
   provider: "github";
   number: number | null;
@@ -47,9 +56,12 @@ export interface TaskPullRequest {
   baseBranch: string | null;
   headBranch: string | null;
   status: "open" | "closed" | "merged" | null;
+  draft?: boolean;
   mergeable: boolean;
   mergeStateStatus: string | null;
+  reviewDecision?: TaskPullRequestReviewDecision;
   requiredChecks: TaskPullRequestCheck[];
+  comments?: TaskPullRequestComment[];
   lastSyncedAt: string | null;
   lastSyncedHeadSha: string | null;
 }
@@ -67,7 +79,9 @@ export interface TaskPR {
   headBranch: string | null;
   mergeable: boolean;
   mergeStateStatus: string | null;
+  reviewDecision?: TaskPullRequestReviewDecision;
   requiredChecks: TaskPullRequestCheck[];
+  comments?: TaskPullRequestComment[];
   createdAt: string | null;
   updatedAt: string | null;
   mergedAt: string | null;

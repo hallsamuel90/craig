@@ -15,7 +15,7 @@ import {
   getFileIcon,
   getFileIconColor,
 } from "./icons.js";
-import type { ProjectTaskRepoTarget, RunnerType, TaskPullRequest, TaskPullRequestCheck, TaskPtyTabRecord, TaskRecord } from "../types/task.js";
+import type { ProjectTaskRepoTarget, RunnerType, TaskPullRequest, TaskPullRequestCheck, TaskPullRequestComment, TaskPtyTabRecord, TaskRecord } from "../types/task.js";
 import { getTaskPrimaryPr } from "../services/github-pr.js";
 import type { RepoRecord, WorkspaceRecord } from "../types/workspace.js";
 import { getRunnerDisplayName } from "../services/runner-profiles.js";
@@ -99,6 +99,7 @@ export interface ShellData {
   modalInput: boolean;
   focusedRegion: FocusRegion;
   actionMessage: string | null;
+  footerToast: string | null;
   terminal: TerminalViewState;
   footerText: string;
   topRail: ShellTopRail;
@@ -169,6 +170,7 @@ export function buildShellData(state: ControlShellState, model: WorkspaceShellMo
     modalInput: state.taskPromptInput !== null || state.workspaceBrowser !== null,
     focusedRegion: state.focusedRegion,
     actionMessage: state.actionMessage,
+    footerToast: state.footerToast,
     terminal: state.terminal,
     footerText:
       state.workspaceBrowser !== null
@@ -194,8 +196,8 @@ export function buildShellData(state: ControlShellState, model: WorkspaceShellMo
             : `+ new tab   a ${getRunnerDisplayName(state.centerTabRunner ?? (selectedTask?.runner ?? state.selectedRunner))}   r runner   t terminal   x close   Enter attach   Esc pause   ? help`
           : state.inspectionMode === "review"
           ? isProjectTask
-            ? "↑↓ navigate targets   R refresh checks   X close task   ←/→ mode   Esc pause   ? help"
-            : "R refresh checks   X close task   ←/→ mode   Esc pause   ? help"
+            ? "↑↓ targets   Wheel/PgUp/PgDn scroll   R refresh checks   X close task   ←/→ mode   Esc pause   ? help"
+            : "Wheel/PgUp/PgDn scroll   R refresh checks   X close task   ←/→ mode   Esc pause   ? help"
           : state.inspectionMode === "files"
           ? "↑↓ navigate   Enter open file   ←/→ mode   Esc pause   ? help"
           : "↑↓ navigate   ←/→ mode   Esc pause   ? help",
@@ -869,7 +871,7 @@ function buildInspectionSection(
   };
 }
 
-function renderInspectionModeRow(state: ControlShellState, pr: { number: number | null; status: string | null; requiredChecks: TaskPullRequestCheck[] } | null): ShellInspectionRow {
+function renderInspectionModeRow(state: ControlShellState, pr: PrBadgeDetail | null): ShellInspectionRow {
   const mode = state.inspectionMode;
   const modes = [
     { label: "CHANGES", active: mode === "diff" },
@@ -887,19 +889,29 @@ function renderInspectionModeRow(state: ControlShellState, pr: { number: number 
   }
 
   const prSegment = buildPrLifecycleSegment(pr);
-  const checksSegment = buildPrChecksSegment(pr?.requiredChecks ?? null);
+  const checksSegment = buildPrReadinessSegment(pr);
   segments.push({ text: "  " }, prSegment, { text: " " }, checksSegment);
 
   const text = segments.map((s) => s.text).join("");
   return { id: "inspection-mode", text, segments };
 }
 
-function buildPrBadgeSegments(pr: { number: number | null; status: string | null; requiredChecks: TaskPullRequestCheck[] }): TerminalRowSegment[] {
+interface PrBadgeDetail {
+  number: number | null;
+  status: string | null;
+  draft?: boolean;
+  mergeable?: boolean;
+  mergeStateStatus?: string | null;
+  reviewDecision?: TaskPullRequest["reviewDecision"];
+  requiredChecks: TaskPullRequestCheck[];
+}
+
+function buildPrBadgeSegments(pr: PrBadgeDetail): TerminalRowSegment[] {
   return [
     { text: " " },
     buildPrLifecycleSegment(pr),
     { text: " " },
-    buildPrChecksSegment(pr.requiredChecks ?? null),
+    buildPrReadinessSegment(pr),
   ];
 }
 
@@ -927,9 +939,18 @@ function buildAggregateProjectPullRequest(targets: ProjectTaskRepoTarget[]): Tas
     baseBranch: null,
     headBranch: null,
     status: deriveAggregateProjectPrStatus(prs),
+    draft: prs.some((pr) => pr.draft),
     mergeable: prs.length === readyTargets.length && prs.every((pr) => pr.mergeable),
     mergeStateStatus: null,
+    reviewDecision: prs.some((pr) => pr.reviewDecision === "CHANGES_REQUESTED")
+      ? "CHANGES_REQUESTED"
+      : prs.some((pr) => pr.reviewDecision === "REVIEW_REQUIRED")
+        ? "REVIEW_REQUIRED"
+        : prs.every((pr) => pr.reviewDecision === "APPROVED")
+          ? "APPROVED"
+          : null,
     requiredChecks: prs.flatMap((pr) => pr.requiredChecks),
+    comments: prs.flatMap((pr) => pr.comments ?? []).slice(-4),
     lastSyncedAt: prs
       .map((pr) => pr.lastSyncedAt)
       .filter((value): value is string => Boolean(value))
@@ -952,18 +973,41 @@ function deriveAggregateProjectPrStatus(prs: TaskPullRequest[]): TaskPullRequest
   return prs[0]?.status ?? null;
 }
 
-function buildPrLifecycleSegment(pr: { number: number | null; status: string | null } | null): TerminalRowSegment {
+function buildPrLifecycleSegment(pr: { number: number | null; status: string | null; draft?: boolean } | null): TerminalRowSegment {
   if (!pr || !pr.number) return { text: PR_ICON_NONE, style: { fg: "565f89" } };
   if (pr.status === "merged") return { text: PR_ICON_MERGED, style: { fg: "9d7cd8" } };
   if (pr.status === "closed") return { text: PR_ICON_CLOSED, style: { fg: "f7768e" } };
+  if (pr.status === "draft" || pr.draft) return { text: PR_ICON_OPEN, style: { fg: "565f89" } };
   return { text: PR_ICON_OPEN, style: { fg: "9ece6a" } };
 }
 
-function buildPrChecksSegment(checks: TaskPullRequestCheck[] | null): TerminalRowSegment {
-  if (!checks || checks.length === 0) return { text: CHECK_ICON_NONE, style: { fg: "565f89" } };
-  if (checks.some((c) => c.status === "failed")) return { text: CHECK_ICON_FAILED, style: { fg: "f7768e" } };
-  if (checks.every((c) => c.status === "success" || c.status === "skipped")) return { text: CHECK_ICON_SUCCESS, style: { fg: "9ece6a" } };
+function buildPrReadinessSegment(pr: PrBadgeDetail | null): TerminalRowSegment {
+  const checks = pr?.requiredChecks ?? null;
+  if (pr?.status === "closed") return { text: CHECK_ICON_NONE, style: { fg: "565f89" } };
+  if (!pr?.number || !checks || checks.length === 0) return { text: CHECK_ICON_NONE, style: { fg: "565f89" } };
+  if (checks.some((c) => c.status === "failed") || pr.reviewDecision === "CHANGES_REQUESTED") return { text: CHECK_ICON_FAILED, style: { fg: "f7768e" } };
+  if (!checks.every((c) => c.status === "success" || c.status === "skipped")) return { text: CHECK_ICON_PENDING, style: { fg: "e0af68" } };
+  if (isPrReviewBlocked(pr)) return { text: CHECK_ICON_FAILED, style: { fg: "f7768e" } };
+  if (isPrReadyToMerge(pr)) return { text: CHECK_ICON_SUCCESS, style: { fg: "9ece6a" } };
   return { text: CHECK_ICON_PENDING, style: { fg: "e0af68" } };
+}
+
+function isPrReadyToMerge(pr: PrBadgeDetail): boolean {
+  return Boolean(
+    pr.mergeable &&
+    !pr.draft &&
+    !isPrReviewBlocked(pr) &&
+    pr.requiredChecks.length > 0 &&
+    pr.requiredChecks.every((check) => check.status === "success" || check.status === "skipped"),
+  );
+}
+
+function isPrReviewBlocked(pr: Pick<PrBadgeDetail, "mergeStateStatus" | "reviewDecision">): boolean {
+  return (
+    pr.reviewDecision === "REVIEW_REQUIRED" ||
+    pr.reviewDecision === "CHANGES_REQUESTED" ||
+    pr.mergeStateStatus === "REVIEW_REQUIRED"
+  );
 }
 
 function buildReviewInspectionRows(
@@ -979,14 +1023,14 @@ function buildReviewInspectionRows(
   }
 
   const primaryPr = getTaskPrimaryPr(task);
-  const rows = buildPrDetailRows("pr", task.branch, primaryPr ?? { number: null, url: null, baseBranch: null, headBranch: null, mergeable: false, mergeStateStatus: null, lastSyncedAt: null, requiredChecks: [] });
+  const rows = buildPrDetailRows("pr", task.branch, primaryPr ?? { number: null, url: null, baseBranch: null, headBranch: null, draft: false, mergeable: false, mergeStateStatus: null, reviewDecision: null, lastSyncedAt: null, requiredChecks: [], comments: [] });
   const prHistoryCount = task.prs.filter(
     (pr) => pr !== primaryPr && (pr.status === "merged" || pr.status === "closed"),
   ).length;
   if (prHistoryCount > 0) {
     rows.push({ id: "pr-history", text: `+ ${prHistoryCount} previous PR${prHistoryCount !== 1 ? "s" : ""}`, muted: true });
   }
-  return rows;
+  return applyReviewScrollAnchor(rows, state);
 }
 
 const TARGET_ROW_WIDTH = 32;
@@ -1019,7 +1063,7 @@ function buildProjectReviewInspectionRows(
       });
     } else {
       const prIcon = buildPrLifecycleSegment(target.pullRequest);
-      const checkIcon = buildPrChecksSegment(target.pullRequest.requiredChecks);
+      const checkIcon = buildPrReadinessSegment(target.pullRequest);
       const right = `${prIcon.text} ${checkIcon.text}`;
       const maxLeft = TARGET_ROW_WIDTH - right.length - 1;
       const label = repoLabel.length > maxLeft ? repoLabel.slice(0, maxLeft - 1) + "…" : repoLabel;
@@ -1049,15 +1093,22 @@ function buildProjectReviewInspectionRows(
   return rows;
 }
 
+export function getReviewInspectionRowCount(state: ControlShellState, task: TaskRecord | null): number {
+  return buildReviewInspectionRows(state, task).length;
+}
+
 interface PrDetail {
   number: number | null;
   url: string | null;
   baseBranch: string | null;
   headBranch: string | null;
+  draft?: boolean;
   mergeable: boolean;
   mergeStateStatus: string | null;
+  reviewDecision?: TaskPullRequest["reviewDecision"];
   lastSyncedAt: string | null;
   requiredChecks: TaskPullRequestCheck[];
+  comments?: TaskPullRequestComment[];
 }
 
 function buildPrDetailRows(
@@ -1091,12 +1142,18 @@ function buildPrDetailRows(
   const head = pr.headBranch ?? fallbackBranch;
   rows.push({ id: id("pr-branches"), text: `${base} → ${head}`, muted: true });
 
-  const mergeText = pr.mergeable
+  const reviewText = formatReviewDecision(pr.reviewDecision, pr.mergeStateStatus);
+  const mergeText = reviewText && reviewText !== "review approved"
+    ? "merge blocked"
+    : pr.mergeable
     ? "merge ready"
     : pr.mergeStateStatus
       ? `merge ${pr.mergeStateStatus}`
       : "merge unknown";
   rows.push({ id: id("pr-merge"), text: mergeText, muted: true });
+  if (reviewText) {
+    rows.push({ id: id("pr-review"), text: reviewText, color: pr.reviewDecision === "CHANGES_REQUESTED" ? "f7768e" : "e0af68" });
+  }
   rows.push({ id: id("pr-synced"), text: `synced ${formatRelativeTime(pr.lastSyncedAt)}`, muted: true });
 
   rows.push({ id: id("checks-spacer"), text: "" });
@@ -1108,9 +1165,41 @@ function buildPrDetailRows(
     rows.push(...pr.requiredChecks.map(renderPullRequestCheckRow));
   }
 
+  const comments = pr.comments ?? [];
+  if (comments.length > 0) {
+    rows.push({ id: id("comments-spacer"), text: "" });
+    rows.push({ id: id("comments-header"), text: `Review comments (${comments.length})` });
+    rows.push(...comments.slice(-4).flatMap((comment, index) => renderPullRequestCommentRows(comment, id(`comment:${index}`))));
+  }
+
   return rows;
 }
 
+function applyReviewScrollAnchor(rows: ShellInspectionRow[], state: ControlShellState): ShellInspectionRow[] {
+  if (state.focusedRegion !== "inspector" || state.inspectionMode !== "review" || rows.length === 0) {
+    return rows;
+  }
+
+  const targetIndex = Math.max(0, Math.min(state.reviewScrollOffset, rows.length - 1));
+  return rows.map((row, index) => ({
+    ...row,
+    selected: state.reviewScrollOffset === 0 ? row.selected || index === targetIndex : index === targetIndex,
+    focused: state.reviewScrollOffset === 0 ? row.focused || index === targetIndex : index === targetIndex,
+  }));
+}
+
+function formatReviewDecision(reviewDecision: PrDetail["reviewDecision"], mergeStateStatus: string | null): string | null {
+  if (reviewDecision === "CHANGES_REQUESTED") {
+    return "review changes requested";
+  }
+  if (reviewDecision === "REVIEW_REQUIRED" || mergeStateStatus === "REVIEW_REQUIRED") {
+    return "review required";
+  }
+  if (reviewDecision === "APPROVED") {
+    return "review approved";
+  }
+  return null;
+}
 
 function formatRelativeTime(isoString: string | null): string {
   if (!isoString) return "--";
@@ -1133,6 +1222,51 @@ function renderPullRequestCheckRow(check: TaskPullRequestCheck): ShellInspection
     color,
     muted: false,
   };
+}
+
+function renderPullRequestCommentRows(comment: TaskPullRequestComment, id: string): ShellInspectionRow[] {
+  const author = comment.author ?? "unknown";
+  const timestamp = comment.createdAt ? ` · ${formatRelativeTime(comment.createdAt)}` : "";
+  const wrappedBodyLines = wrapTerminalText(comment.body, 30);
+  const bodyLines = wrappedBodyLines.slice(0, 4);
+  const clipped = bodyLines.length < wrappedBodyLines.length;
+  const rows: ShellInspectionRow[] = [
+    { id: `${id}:author`, text: `${author}${timestamp}`, muted: true },
+    ...bodyLines.map((line, index) => ({
+      id: `${id}:body:${index}`,
+      text: `  ${clipped && index === bodyLines.length - 1 ? `${line}…` : line}`,
+      muted: true,
+    })),
+  ];
+  rows.push({ id: `${id}:spacer`, text: "", muted: true });
+  return rows;
+}
+
+function wrapTerminalText(value: string, maxLength: number): string[] {
+  const words = value.split(/\s+/).filter(Boolean);
+  if (words.length === 0) {
+    return [];
+  }
+
+  const lines: string[] = [];
+  let current = "";
+  for (const word of words) {
+    if (!current) {
+      current = word;
+      continue;
+    }
+
+    if (`${current} ${word}`.length <= maxLength) {
+      current = `${current} ${word}`;
+    } else {
+      lines.push(current);
+      current = word;
+    }
+  }
+  if (current) {
+    lines.push(current);
+  }
+  return lines;
 }
 
 function formatCheckStatus(status: TaskPullRequestCheck["status"]): { icon: string; color: string } {

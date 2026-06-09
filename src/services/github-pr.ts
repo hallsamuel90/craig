@@ -1,7 +1,7 @@
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
 
-import type { ProjectTaskRepoTarget, TaskPR, TaskPullRequest, TaskPullRequestCheck, TaskRecord } from "../types/task.js";
+import type { ProjectTaskRepoTarget, TaskPR, TaskPullRequest, TaskPullRequestCheck, TaskPullRequestComment, TaskPullRequestReviewDecision, TaskRecord } from "../types/task.js";
 import type { CraigPaths } from "../state/craig-paths.js";
 import { atomicWriteJson } from "../state/atomic-write.js";
 import { readTask, writeTask } from "../state/task-store.js";
@@ -23,7 +23,9 @@ export interface GhPrView {
   createdAt?: string | null;
   updatedAt?: string | null;
   mergedAt?: string | null;
+  reviewDecision?: string | null;
   statusCheckRollup: unknown[];
+  comments?: unknown[] | { nodes?: unknown[] | null } | null;
 }
 
 export function getTaskPrimaryPr(task: TaskRecord): TaskPR | null {
@@ -334,6 +336,8 @@ export async function writePrStatusArtifact(paths: CraigPaths, task: TaskRecord)
 
 type PrState = {
   mergeable: boolean;
+  mergeStateStatus: string | null;
+  reviewDecision?: TaskPullRequestReviewDecision;
   requiredChecks: TaskPullRequestCheck[];
   status: string | null;
 };
@@ -351,8 +355,17 @@ export function summarizeRequiredChecks(pullRequest: { requiredChecks: TaskPullR
 export function isMergeReady(pullRequest: PrState): boolean {
   return (
     pullRequest.mergeable &&
+    !isReviewBlocked(pullRequest) &&
     pullRequest.requiredChecks.length > 0 &&
     pullRequest.requiredChecks.every((check) => check.status === "success" || check.status === "skipped")
+  );
+}
+
+function isReviewBlocked(pullRequest: Pick<PrState, "mergeStateStatus" | "reviewDecision">): boolean {
+  return (
+    pullRequest.reviewDecision === "REVIEW_REQUIRED" ||
+    pullRequest.reviewDecision === "CHANGES_REQUESTED" ||
+    pullRequest.mergeStateStatus === "REVIEW_REQUIRED"
   );
 }
 
@@ -395,7 +408,7 @@ function buildPrViewArgs(selector: string): string[] {
     "view",
     selector,
     "--json",
-    "number,url,baseRefName,headRefName,headRefOid,state,isDraft,title,createdAt,updatedAt,mergedAt,mergeable,mergeStateStatus,statusCheckRollup",
+    "number,url,baseRefName,headRefName,headRefOid,state,isDraft,title,createdAt,updatedAt,mergedAt,mergeable,mergeStateStatus,reviewDecision,statusCheckRollup,comments",
   ];
 }
 
@@ -439,6 +452,7 @@ interface GhPrBatchPullRequest {
   mergedAt?: string | null;
   mergeable: string;
   mergeStateStatus: string | null;
+  reviewDecision?: string | null;
   statusCheckRollup?: {
     contexts?: {
       nodes?: unknown[];
@@ -454,6 +468,9 @@ interface GhPrBatchPullRequest {
         } | null;
       } | null;
     }> | null;
+  } | null;
+  comments?: {
+    nodes?: unknown[] | null;
   } | null;
 }
 
@@ -488,6 +505,7 @@ fragment PrFields on PullRequest {
   mergedAt
   mergeable
   mergeStateStatus
+  reviewDecision
   statusCheckRollup {
     contexts(first: 100) {
       nodes {
@@ -496,10 +514,13 @@ fragment PrFields on PullRequest {
           name
           status
           conclusion
+          startedAt
+          completedAt
         }
         ... on StatusContext {
           context
           state
+          createdAt
         }
       }
     }
@@ -515,15 +536,29 @@ fragment PrFields on PullRequest {
                 name
                 status
                 conclusion
+                startedAt
+                completedAt
               }
               ... on StatusContext {
                 context
                 state
+                createdAt
               }
             }
           }
         }
       }
+    }
+  }
+  comments(last: 4) {
+    nodes {
+      author {
+        login
+      }
+      bodyText
+      body
+      createdAt
+      url
     }
   }
 }
@@ -561,7 +596,9 @@ function normalizeBatchEntry(entry: unknown): GhPrView | null {
     mergedAt: pullRequest.mergedAt ?? null,
     mergeable: pullRequest.mergeable,
     mergeStateStatus: pullRequest.mergeStateStatus,
+    reviewDecision: pullRequest.reviewDecision ?? null,
     statusCheckRollup,
+    comments: pullRequest.comments?.nodes ?? [],
   };
 }
 
@@ -618,7 +655,9 @@ function normalizePr(view: GhPrView, existing: TaskPR | null): TaskPR {
     headBranch: view.headRefName,
     mergeable: view.mergeable === "MERGEABLE",
     mergeStateStatus: view.mergeStateStatus,
+    reviewDecision: normalizeReviewDecision(view.reviewDecision ?? null),
     requiredChecks: normalizeRequiredChecks(view.statusCheckRollup),
+    comments: normalizePullRequestComments(view.comments),
     createdAt: view.createdAt ?? existing?.createdAt ?? null,
     updatedAt: view.updatedAt ?? existing?.updatedAt ?? null,
     mergedAt: view.mergedAt ?? existing?.mergedAt ?? null,
@@ -635,9 +674,12 @@ function normalizePullRequest(view: GhPrView): TaskPullRequest {
     baseBranch: view.baseRefName,
     headBranch: view.headRefName,
     status: normalizePrState(view.state),
+    draft: view.isDraft ?? false,
     mergeable: view.mergeable === "MERGEABLE",
     mergeStateStatus: view.mergeStateStatus,
+    reviewDecision: normalizeReviewDecision(view.reviewDecision ?? null),
     requiredChecks: normalizeRequiredChecks(view.statusCheckRollup),
+    comments: normalizePullRequestComments(view.comments),
     lastSyncedAt: new Date().toISOString(),
     lastSyncedHeadSha: view.headRefOid ?? null,
   };
@@ -668,12 +710,26 @@ function normalizePrState(state: string): TaskPullRequest["status"] {
 }
 
 function normalizeRequiredChecks(entries: unknown[]): TaskPullRequestCheck[] {
-  return entries
-    .map((entry) => normalizeRequiredCheck(entry))
-    .filter((entry): entry is TaskPullRequestCheck => entry !== null);
+  const checks = entries
+    .map((entry) => normalizeRequiredCheckWithSortKey(entry))
+    .filter((entry): entry is NormalizedCheckWithSortKey => entry !== null);
+  const byName = new Map<string, NormalizedCheckWithSortKey>();
+  for (const check of checks) {
+    const existing = byName.get(check.name);
+    if (!existing || shouldReplaceCheck(existing, check)) {
+      byName.set(check.name, check);
+    }
+  }
+  return [...byName.values()].map((check) => ({
+    name: check.name,
+    status: check.status,
+    conclusion: check.conclusion,
+  }));
 }
 
-function normalizeRequiredCheck(entry: unknown): TaskPullRequestCheck | null {
+type NormalizedCheckWithSortKey = TaskPullRequestCheck & { sortTime: number | null };
+
+function normalizeRequiredCheckWithSortKey(entry: unknown): NormalizedCheckWithSortKey | null {
   if (typeof entry !== "object" || entry === null) {
     return null;
   }
@@ -684,6 +740,9 @@ function normalizeRequiredCheck(entry: unknown): TaskPullRequestCheck | null {
     state?: string;
     status?: string;
     conclusion?: string | null;
+    completedAt?: string | null;
+    startedAt?: string | null;
+    createdAt?: string | null;
   };
 
   const name = candidate.name ?? candidate.context;
@@ -697,7 +756,90 @@ function normalizeRequiredCheck(entry: unknown): TaskPullRequestCheck | null {
     name,
     status: normalizeCheckState(rawState ?? null, candidate.conclusion ?? null),
     conclusion: candidate.conclusion ?? null,
+    sortTime: getCheckSortTime(candidate),
   };
+}
+
+function shouldReplaceCheck(existing: NormalizedCheckWithSortKey, candidate: NormalizedCheckWithSortKey): boolean {
+  if (existing.sortTime !== null || candidate.sortTime !== null) {
+    return (candidate.sortTime ?? 0) >= (existing.sortTime ?? 0);
+  }
+  if (isCancelledCheck(existing) && !isCancelledCheck(candidate)) {
+    return true;
+  }
+  if (!isCancelledCheck(existing) && isCancelledCheck(candidate)) {
+    return false;
+  }
+  return checkFallbackRank(candidate.status) >= checkFallbackRank(existing.status);
+}
+
+function isCancelledCheck(check: Pick<TaskPullRequestCheck, "conclusion">): boolean {
+  return check.conclusion?.toUpperCase() === "CANCELLED";
+}
+
+function checkFallbackRank(status: TaskPullRequestCheck["status"]): number {
+  switch (status) {
+    case "pending": return 5;
+    case "failed": return 4;
+    case "success": return 3;
+    case "skipped": return 2;
+    default: return 1;
+  }
+}
+
+function getCheckSortTime(candidate: { completedAt?: string | null; startedAt?: string | null; createdAt?: string | null }): number | null {
+  const isoString = candidate.completedAt ?? candidate.startedAt ?? candidate.createdAt ?? null;
+  if (!isoString) return null;
+  const timestamp = new Date(isoString).getTime();
+  return Number.isFinite(timestamp) ? timestamp : null;
+}
+
+function normalizeReviewDecision(value: string | null): TaskPullRequestReviewDecision {
+  if (value === "APPROVED" || value === "CHANGES_REQUESTED" || value === "REVIEW_REQUIRED") {
+    return value;
+  }
+  return null;
+}
+
+function normalizePullRequestComments(value: GhPrView["comments"]): TaskPullRequestComment[] {
+  const entries = Array.isArray(value) ? value : value?.nodes;
+  if (!Array.isArray(entries)) {
+    return [];
+  }
+
+  return entries
+    .map(normalizePullRequestComment)
+    .filter((comment): comment is TaskPullRequestComment => comment !== null)
+    .slice(-4);
+}
+
+function normalizePullRequestComment(entry: unknown): TaskPullRequestComment | null {
+  if (typeof entry !== "object" || entry === null) {
+    return null;
+  }
+
+  const candidate = entry as {
+    author?: { login?: string | null } | string | null;
+    body?: string | null;
+    bodyText?: string | null;
+    createdAt?: string | null;
+    url?: string | null;
+  };
+  const body = normalizeCommentBody(candidate.bodyText ?? candidate.body ?? "");
+  if (!body) {
+    return null;
+  }
+
+  return {
+    author: typeof candidate.author === "string" ? candidate.author : candidate.author?.login ?? null,
+    body,
+    createdAt: candidate.createdAt ?? null,
+    url: candidate.url ?? null,
+  };
+}
+
+function normalizeCommentBody(value: string): string {
+  return value.replace(/\s+/g, " ").trim();
 }
 
 function normalizeCheckState(state: string | null, conclusion: string | null): TaskPullRequestCheck["status"] {

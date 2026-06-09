@@ -54,6 +54,19 @@ describe("terminal shell renderer", () => {
     expect(frame).not.toContain("│WORKSPACES");
   });
 
+  test("renders footer toast feedback without replacing shortcut text", () => {
+    const frame = renderMainShellFrame(
+      MIN_VIEWPORT,
+      getMockShellData({ footerToast: "Refreshed checks: 2 reported" }),
+      { color: false },
+    );
+    const footer = frame.split("\n").at(-1) ?? "";
+
+    expect(footer).toContain("n new task");
+    expect(footer).toContain("✓ Refreshed checks: 2 reported");
+    expect(footer.trimEnd().endsWith("✓ Refreshed checks: 2 reported")).toBe(true);
+  });
+
   test("renders selected mock state for tabs, tasks, actions, and placeholders", () => {
     const frame = renderMainShellFrame(
       MIN_VIEWPORT,
@@ -329,10 +342,19 @@ describe("terminal shell renderer", () => {
         headBranch: "craig/task_20260430_02",
         mergeable: true,
         mergeStateStatus: "CLEAN",
+        reviewDecision: "REVIEW_REQUIRED",
         requiredChecks: [
           { name: "ci", status: "success", conclusion: "SUCCESS" },
           { name: "docs", status: "skipped", conclusion: "SKIPPED" },
           { name: "e2e", status: "pending", conclusion: null },
+        ],
+        comments: [
+          {
+            author: "octocat",
+            body: "Please add a regression test for this before merge.",
+            createdAt: "2026-05-06T00:01:00.000Z",
+            url: "https://github.com/example/repo/pull/17#issuecomment-1",
+          },
         ],
         createdAt: null,
         updatedAt: null,
@@ -365,15 +387,23 @@ describe("terminal shell renderer", () => {
     expect(frame).toContain("#17");
     expect(frame).toContain("\u001B]8;;https://github.com/example/repo/pull/17\u001B\\  Open in GitHub ↗\u001B]8;;\u001B\\");
     expect(frame).toContain("main → craig/task_20260430_02");
-    expect(frame).toContain("merge ready");
+    expect(frame).toContain("merge blocked");
+    expect(frame).toContain("review required");
     expect(frame).toContain("✓ ci");
     expect(frame).toContain("○ docs");
     expect(frame).toContain("● e2e");
+    expect(frame).toContain("Review comments (1)");
+    expect(frame).toContain("octocat ·");
+    expect(frame).toContain("Please add a regression test");
+    expect(frame).toContain("for this before merge.");
     expect(frame).toContain("R refresh checks");
     expect(frame).toContain("X close task");
     expect(frame).not.toContain("Next:");
     expect(frame).not.toContain("create pr");
     expect(frame).not.toContain("merge pr");
+
+    const colorFrame = renderMainShellFrame(MIN_VIEWPORT, data, { color: true });
+    expect(colorFrame).toContain("\u001B[38;2;224;175;104;48;2;10;10;10m●");
   });
 
   test("renders review guidance for failed and unknown checks", () => {
@@ -437,7 +467,7 @@ describe("terminal shell renderer", () => {
     expect(unknown).not.toContain("Next:");
   });
 
-  test("renders distinct review header icons for missing, merged, and closed PR states", () => {
+  test("renders distinct review header icons for missing, draft, merged, and closed PR states", () => {
     const baseTask = buildTaskRecord("/tmp/craig", {
       id: "task_20260430_02",
       repoId: "repo_bug_fixes",
@@ -462,8 +492,13 @@ describe("terminal shell renderer", () => {
       buildShellData(state, { ...model, tasks: [task] }),
       { color: false },
     );
+    const renderTaskWithColor = (task: typeof baseTask) => renderMainShellFrame(
+      MIN_VIEWPORT,
+      buildShellData(state, { ...model, tasks: [task] }),
+      { color: true },
+    );
 
-    const mergedTask = {
+    const draftTask = {
       ...baseTask,
       prs: [{
         provider: "github" as const,
@@ -472,8 +507,8 @@ describe("terminal shell renderer", () => {
         number: 17,
         url: "https://github.com/example/repo/pull/17",
         title: null,
-        status: "merged" as const,
-        draft: false,
+        status: "draft" as const,
+        draft: true,
         baseBranch: null,
         headBranch: null,
         mergeable: false,
@@ -486,33 +521,85 @@ describe("terminal shell renderer", () => {
         lastSyncedHeadSha: null,
       }],
     };
+    const mergedTask = {
+      ...draftTask,
+      prs: [{ ...draftTask.prs[0]!, status: "merged" as const, draft: false }],
+    };
     const closedTask = {
-      ...baseTask,
+      ...draftTask,
       prs: [{
-        provider: "github" as const,
-        owner: null,
-        repo: null,
+        ...draftTask.prs[0]!,
         number: 18,
-        url: "https://github.com/example/repo/pull/18",
-        title: null,
         status: "closed" as const,
         draft: false,
-        baseBranch: null,
-        headBranch: null,
-        mergeable: false,
-        mergeStateStatus: null,
-        requiredChecks: [],
-        createdAt: null,
-        updatedAt: null,
-        mergedAt: null,
-        lastSyncedAt: null,
-        lastSyncedHeadSha: null,
+        mergeable: true,
+        requiredChecks: [{ name: "ci", status: "success" as const, conclusion: "SUCCESS" }],
       }],
     };
 
     expect(renderTask(baseTask)).toContain("REVIEW  ○ ○");
+    expect(renderTask(draftTask)).toContain("REVIEW   ○");
     expect(renderTask(mergedTask)).toContain("REVIEW   ○");
     expect(renderTask(closedTask)).toContain("REVIEW   ○");
+    expect(renderTaskWithColor(draftTask)).toContain("\u001B[38;2;86;95;137;48;2;10;10;10m");
+    expect(renderTaskWithColor(closedTask)).toContain("\u001B[38;2;247;118;142;48;2;10;10;10m");
+  });
+
+  test("keeps the PR readiness badge pending while CI is still running before surfacing required review as blocked", () => {
+    const baseTask = buildTaskRecord("/tmp/craig", {
+      id: "task_20260430_02",
+      repoId: "repo_bug_fixes",
+      status: "pr_open",
+      prs: [{
+        provider: "github" as const,
+        owner: null,
+        repo: null,
+        number: 17,
+        url: "https://github.com/example/repo/pull/17",
+        title: null,
+        status: "open" as const,
+        draft: false,
+        baseBranch: null,
+        headBranch: null,
+        mergeable: true,
+        mergeStateStatus: "REVIEW_REQUIRED",
+        reviewDecision: "REVIEW_REQUIRED",
+        requiredChecks: [{ name: "ci", status: "pending" as const, conclusion: null }],
+        createdAt: null,
+        updatedAt: null,
+        mergedAt: null,
+        lastSyncedAt: null,
+        lastSyncedHeadSha: null,
+      }],
+    });
+    const state = {
+      ...createInitialShellState(null),
+      selectedRepoId: "repo_bug_fixes",
+      selectedTaskId: baseTask.id,
+      selectedLeftItemId: `task:${baseTask.id}`,
+      focusedRegion: "inspector" as const,
+      inspectionMode: "review" as const,
+    };
+    const model = {
+      workspaceRoot: "/tmp/craig",
+      repos: [{ id: "repo_bug_fixes", name: "bug-fixes", rootPath: "/tmp/craig", defaultBranch: "main", createdAt: "", updatedAt: "" }],
+      tasks: [baseTask],
+      inspection: null,
+    };
+    const renderTask = (task: typeof baseTask) => renderMainShellFrame(
+      MIN_VIEWPORT,
+      buildShellData(state, { ...model, tasks: [task] }),
+      { color: false },
+    );
+
+    const checksRunning = renderTask(baseTask);
+    const checksPassed = renderTask({
+      ...baseTask,
+      prs: [{ ...baseTask.prs[0]!, requiredChecks: [{ name: "ci", status: "success" as const, conclusion: "SUCCESS" }] }],
+    });
+
+    expect(checksRunning).toContain("REVIEW   ●");
+    expect(checksPassed).toContain("REVIEW   ✕");
   });
 
   test("renders all headers when navigating to review panel on a new single-repo task with no PTY tabs", () => {

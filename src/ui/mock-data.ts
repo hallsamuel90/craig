@@ -15,6 +15,7 @@ type MockShellStateInput = Partial<
     | "openInspectionKind"
     | "selectedActionId"
     | "actionMessage"
+    | "footerToast"
     | "taskPromptInput"
     | "taskPromptError"
     | "workspaceBrowser"
@@ -41,6 +42,7 @@ export function getMockShellData(state: MockShellStateInput = {}): ShellData {
     modalInput: resolved.taskPromptInput !== null || resolved.workspaceBrowser !== null,
     focusedRegion: resolved.focusedRegion,
     actionMessage: resolved.actionMessage,
+    footerToast: resolved.footerToast,
     terminal: resolved.terminal,
     footerText:
       resolved.taskPromptInput !== null
@@ -122,6 +124,7 @@ const DEFAULT_MOCK_SHELL_STATE: Pick<
   | "openInspectionKind"
   | "selectedActionId"
   | "actionMessage"
+  | "footerToast"
   | "taskPromptInput"
   | "taskPromptError"
   | "workspaceBrowser"
@@ -139,6 +142,7 @@ const DEFAULT_MOCK_SHELL_STATE: Pick<
   openInspectionKind: null,
   selectedActionId: "commit",
   actionMessage: null,
+  footerToast: null,
   taskPromptInput: null,
   taskPromptError: null,
   workspaceBrowser: null,
