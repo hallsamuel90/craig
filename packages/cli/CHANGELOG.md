@@ -1,5 +1,12 @@
 # craig-cli
 
+## 0.5.4
+
+### Patch Changes
+
+- 68d35a5: Use green underline on the active center panel tab to signal PTY engagement
+- 945add2: Fix review panel PR badges so project rollups and merged child PR rows no longer show stale pending review state, and color approved review text green.
+
 ## 0.5.3
 
 ### Patch Changes
