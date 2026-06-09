@@ -1,5 +1,11 @@
 # craig-cli
 
+## 0.5.5
+
+### Patch Changes
+
+- 3332db4: Pre-hydrate PTY sessions at boot so agent content is visible on reopen without attaching
+
 ## 0.5.4
 
 ### Patch Changes
