@@ -9,6 +9,7 @@ import type {
 } from "./shell-data.js";
 import { SHELL_LAYOUT, type Viewport } from "./layout.js";
 import type { TerminalCellStyle, TerminalRowSegment } from "./terminal-emulator.js";
+import type { FooterToast } from "./state.js";
 import { isPtyTab } from "./state.js";
 
 export interface RenderOptions {
@@ -20,6 +21,8 @@ export interface RenderOptions {
   centerOnly?: boolean;
   versionText?: string | null;
   updateText?: string | null;
+  errorLogPath?: string;
+  errorLogLines?: string[];
 }
 
 interface PaletteColor {
@@ -143,6 +146,47 @@ export function renderHelpOverlayFrame(viewport: Viewport, options: Pick<RenderO
   return lines.join("\n");
 }
 
+export function renderErrorLogOverlayFrame(
+  viewport: Viewport,
+  options: Pick<RenderOptions, "color" | "errorLogPath" | "errorLogLines"> = {},
+): string {
+  const color = options.color ?? true;
+  const bg = PALETTE.overlay;
+  const lines = new Array<string>(viewport.height).fill(fillSurface(" ".repeat(viewport.width), color, bg));
+  const title = "Error Log";
+  const pathLabel = options.errorLogPath ?? "";
+  const logLines = options.errorLogLines ?? [];
+  const bodyWidth = Math.max(20, viewport.width - 8);
+  const leftPad = Math.max(0, Math.floor((viewport.width - bodyWidth) / 2));
+  const content: SurfaceLine[] = [
+    { text: title, tone: "selected" },
+    { text: pathLabel, tone: "muted" },
+    emptyLine(),
+    ...(logLines.length > 0
+      ? logLines.map((line) => ({ text: line }))
+      : [{ text: "No Craig errors have been logged.", tone: "muted" as const }]),
+    emptyLine(),
+    { text: "Esc returns to Options.", tone: "muted" },
+  ];
+  const fitted = fitLines(content, viewport.height - 2);
+  const startLine = Math.max(1, Math.floor((viewport.height - fitted.length) / 2));
+
+  for (let index = 0; index < fitted.length; index += 1) {
+    const row = startLine + index;
+    if (row >= viewport.height) break;
+    const entry = fitted[index] ?? emptyLine();
+    const text = `${" ".repeat(leftPad)}${clipStringToWidth(entry.text, bodyWidth)}`;
+    const palette = entry.tone === "selected"
+      ? PALETTE.overlayMenuSelected
+      : entry.tone === "muted"
+        ? PALETTE.overlay
+        : PALETTE.panelBg;
+    lines[row] = fillSurface(pad(text, viewport.width), color, palette);
+  }
+
+  return lines.join("\n");
+}
+
 export function renderMainShellFrame(
   viewport: Viewport,
   data: ShellData,
@@ -186,13 +230,13 @@ export function renderMainShellFrame(
   return [railTop, ...body, footerLine].join("\n");
 }
 
-function renderFooterLine(footerText: string, footerToast: string | null, width: number, color: boolean, palette: PaletteColor): string {
+function renderFooterLine(footerText: string, footerToast: FooterToast | null, width: number, color: boolean, palette: PaletteColor): string {
   const left = `  ${footerText}`;
   if (!footerToast) {
     return fillSurface(pad(left, width), color, palette);
   }
 
-  const toast = `✓ ${footerToast}`;
+  const toast = `${footerToast.tone === "error" ? "✗" : "✓"} ${footerToast.message}`;
   const toastWidth = stringWidth(toast);
   const leftWidth = stringWidth(left);
   const gap = Math.max(1, width - leftWidth - toastWidth - 2);
@@ -200,7 +244,10 @@ function renderFooterLine(footerText: string, footerToast: string | null, width:
     ? clipStringToWidth(left, Math.max(0, width - toastWidth - 3))
     : left;
   const visibleGap = Math.max(1, width - stringWidth(visibleLeft) - toastWidth - 2);
-  const line = `${visibleLeft}${" ".repeat(visibleGap)}${green(toast, color, palette)}  `;
+  const renderedToast = footerToast.tone === "error"
+    ? errorText(toast, color, palette)
+    : green(toast, color, palette);
+  const line = `${visibleLeft}${" ".repeat(visibleGap)}${renderedToast}  `;
   return fillSurface(pad(line, width), color, palette);
 }
 
@@ -831,6 +878,10 @@ function hexToRgb(hex: string): [number, number, number] {
 
 function green(value: string, color: boolean, base: PaletteColor): string {
   return inlineColor(value, color, PALETTE.success.fg, base);
+}
+
+function errorText(value: string, color: boolean, base: PaletteColor): string {
+  return inlineColor(value, color, PALETTE.error.fg, base);
 }
 
 function accent(value: string, color: boolean, base: PaletteColor): string {

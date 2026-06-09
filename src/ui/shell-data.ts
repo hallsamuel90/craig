@@ -24,6 +24,7 @@ import type { TerminalCellStyle, TerminalRowSegment } from "./terminal-emulator.
 import type {
   CenterTabId,
   ControlShellState,
+  FooterToast,
   FocusRegion,
   InputMode,
   TerminalViewState,
@@ -99,7 +100,7 @@ export interface ShellData {
   modalInput: boolean;
   focusedRegion: FocusRegion;
   actionMessage: string | null;
-  footerToast: string | null;
+  footerToast: FooterToast | null;
   terminal: TerminalViewState;
   footerText: string;
   topRail: ShellTopRail;

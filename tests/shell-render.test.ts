@@ -4,7 +4,8 @@ import type { TaskLocalInspection } from "../src/services/task-local-inspection.
 import type { ProjectTaskRepoTarget } from "../src/types/task.js";
 import { getMockShellData } from "../src/ui/mock-data.js";
 import { MIN_VIEWPORT } from "../src/ui/layout.js";
-import { renderBootOverlayFrame, renderMainShellFrame, renderPauseOverlayFrame } from "../src/ui/render.js";
+import { OPTIONS_MENU_ITEMS } from "../src/ui/options.js";
+import { renderBootOverlayFrame, renderErrorLogOverlayFrame, renderMainShellFrame, renderOptionsOverlayFrame, renderPauseOverlayFrame } from "../src/ui/render.js";
 import { createInitialShellState } from "../src/ui/state.js";
 import { buildShellData } from "../src/ui/shell-data.js";
 import { buildTaskRecord } from "./test-helpers.js";
@@ -27,6 +28,42 @@ describe("terminal shell renderer", () => {
     expect(frame).toContain("> Resume");
     expect(frame).toContain("  Options");
     expect(frame).toContain("  Exit");
+  });
+
+  test("renders error log overlay entries", () => {
+    const frame = renderErrorLogOverlayFrame(MIN_VIEWPORT, {
+      color: false,
+      errorLogPath: "/tmp/craig/.craig/logs/errors.log",
+      errorLogLines: ["[2026-06-09T00:00:00.000Z] refresh PR checks", "message: gh auth failed"],
+    });
+
+    expect(frame).toContain("Error Log");
+    expect(frame).toContain("/tmp/craig/.craig/logs/errors.log");
+    expect(frame).toContain("refresh PR checks");
+    expect(frame).toContain("message: gh auth failed");
+    expect(frame).toContain("Esc returns to Options.");
+  });
+
+  test("renders empty error log overlay state", () => {
+    const frame = renderErrorLogOverlayFrame(MIN_VIEWPORT, {
+      color: false,
+      errorLogPath: "/tmp/craig/.craig/logs/errors.log",
+      errorLogLines: [],
+    });
+
+    expect(frame).toContain("No Craig errors have been logged.");
+  });
+
+  test("renders options overlay with error log entry", () => {
+    const frame = renderOptionsOverlayFrame(MIN_VIEWPORT, {
+      color: false,
+      optionsMenuItems: OPTIONS_MENU_ITEMS,
+      menuIndex: 1,
+    });
+
+    expect(frame).toContain("  Runners");
+    expect(frame).toContain("> Error Log");
+    expect(frame).toContain("  Help");
   });
 
   test("renders the three-column mock workspace shell", () => {
@@ -57,7 +94,7 @@ describe("terminal shell renderer", () => {
   test("renders footer toast feedback without replacing shortcut text", () => {
     const frame = renderMainShellFrame(
       MIN_VIEWPORT,
-      getMockShellData({ footerToast: "Refreshed checks: 2 reported" }),
+      getMockShellData({ footerToast: { tone: "success", message: "Refreshed checks: 2 reported" } }),
       { color: false },
     );
     const footer = frame.split("\n").at(-1) ?? "";
@@ -65,6 +102,19 @@ describe("terminal shell renderer", () => {
     expect(footer).toContain("n new task");
     expect(footer).toContain("✓ Refreshed checks: 2 reported");
     expect(footer.trimEnd().endsWith("✓ Refreshed checks: 2 reported")).toBe(true);
+  });
+
+  test("renders footer error toast feedback", () => {
+    const frame = renderMainShellFrame(
+      MIN_VIEWPORT,
+      getMockShellData({ footerToast: { tone: "error", message: "gh auth failed" } }),
+      { color: false },
+    );
+    const footer = frame.split("\n").at(-1) ?? "";
+
+    expect(footer).toContain("n new task");
+    expect(footer).toContain("✗ gh auth failed");
+    expect(footer.trimEnd().endsWith("✗ gh auth failed")).toBe(true);
   });
 
   test("renders selected mock state for tabs, tasks, actions, and placeholders", () => {

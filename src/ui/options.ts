@@ -22,11 +22,12 @@ export type RunnerOptionsKeyResult =
 export type OptionsMenuKeyResult =
   | { kind: "back" }
   | { kind: "runners" }
+  | { kind: "error-log" }
   | { kind: "help" }
   | { kind: "noop"; menuIndex: number }
   | { kind: "render"; menuIndex: number };
 
-export const OPTIONS_MENU_ITEMS = ["Runners", "Help"];
+export const OPTIONS_MENU_ITEMS = ["Runners", "Error Log", "Help"];
 
 export function buildRunnersSubmenuItems(config: CraigConfig, state: RunnerOptionsState): string[] {
   return RUNNER_IDS.map((runner) => {
@@ -74,6 +75,10 @@ export function reduceOptionsMenuKey(menuIndex: number, key: string): OptionsMen
 
   if (menuIndex === 0) {
     return { kind: "runners" };
+  }
+
+  if (menuIndex === 1) {
+    return { kind: "error-log" };
   }
 
   return { kind: "help" };
