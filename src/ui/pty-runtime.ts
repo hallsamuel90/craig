@@ -146,6 +146,10 @@ export class PtyRuntime {
     this.attachedTabId = null;
   }
 
+  sessionTabIds(): string[] {
+    return [...this.sessions.keys()];
+  }
+
   disposeSession(tabId: string): void {
     const session = this.sessions.get(tabId);
     if (!session) {

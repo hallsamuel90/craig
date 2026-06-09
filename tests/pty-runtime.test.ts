@@ -234,6 +234,28 @@ describe("PTY runtime", () => {
     expect(scrolled.join("\n")).toContain("line4");
   });
 
+  test("sessionTabIds returns ids of all open sessions and excludes disposed ones", async () => {
+    const runtime = new PtyRuntime({
+      workspaceRoot: "/tmp/craig",
+      shell: "/bin/zsh",
+      env: { TERM: "xterm-256color" },
+      spawn: vi.fn(() => createFakePty()),
+    });
+
+    expect(runtime.sessionTabIds()).toEqual([]);
+
+    runtime.ensureSession("task_1", "task_1:agent", { columns: 80, rows: 24 });
+    runtime.ensureSession("task_1", "task_1:terminal", { columns: 80, rows: 24 });
+    expect(runtime.sessionTabIds()).toEqual(expect.arrayContaining(["task_1:agent", "task_1:terminal"]));
+    expect(runtime.sessionTabIds()).toHaveLength(2);
+
+    runtime.disposeSession("task_1:agent");
+    expect(runtime.sessionTabIds()).toEqual(["task_1:terminal"]);
+
+    runtime.disposeAll();
+    expect(runtime.sessionTabIds()).toEqual([]);
+  });
+
   test("scrolling the viewport does not emit a runtime update by itself", async () => {
     const fakePty = createFakePty();
     const onUpdate = vi.fn();

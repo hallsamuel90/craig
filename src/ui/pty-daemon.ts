@@ -16,6 +16,7 @@ type DaemonRequest =
   | { id: number; type: "ping" }
   | { id: number; type: "ensureSession"; taskId: string; tabId: string; size: PtySize; spec: PtySessionSpec }
   | { id: number; type: "hydrateSession"; tabId: string }
+  | { id: number; type: "pruneStale"; keepTabIds: string[] }
   | { id: number; type: "write"; input: string }
   | { id: number; type: "writeKey"; key: string }
   | { id: number; type: "scrollViewport"; lines: number }
@@ -142,6 +143,10 @@ export class DaemonPtyRuntimeClient {
         this.viewCache.set(tabId, { status: "failed", rows: [], error: message });
       }
     }
+  }
+
+  async pruneStale(keepTabIds: string[]): Promise<void> {
+    await this.send({ type: "pruneStale", keepTabIds });
   }
 
   write(input: string): void {
@@ -380,6 +385,18 @@ class PtyDaemonServer {
           this.attachedTabId = null;
         }
         return null;
+      case "pruneStale": {
+        const keep = new Set(request.keepTabIds);
+        for (const tabId of this.runtime.sessionTabIds()) {
+          if (!keep.has(tabId)) {
+            this.runtime.disposeSession(tabId);
+            if (this.attachedTabId === tabId) {
+              this.attachedTabId = null;
+            }
+          }
+        }
+        return null;
+      }
       case "getViewState":
         return this.runtime.getViewState(request.tabId);
       case "shutdown":

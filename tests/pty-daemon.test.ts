@@ -134,6 +134,112 @@ describe("PTY daemon", () => {
     }
   }, DAEMON_TEST_TIMEOUT_MS);
 
+  test("pruneStale kills sessions not in the keep list and leaves kept sessions running", async () => {
+    const root = await createWorkspace();
+    const paths = getCraigPaths(root);
+    const agentPty = createFakePty();
+    const terminalPty = createFakePty();
+    const spawn = vi.fn()
+      .mockReturnValueOnce(agentPty)
+      .mockReturnValueOnce(terminalPty);
+    const daemon = servePtyDaemon(paths, { shell: "/bin/zsh", env: { TERM: "xterm-256color" }, spawn });
+
+    try {
+      const client = await createDaemonPtyRuntime({
+        paths,
+        workspaceRoot: root,
+        resolveSessionSpec: () => ({ cwd: root, command: [] }),
+      });
+      await client.ensureSession("task_1", "task_1:agent", { columns: 80, rows: 24 });
+      await client.ensureSession("task_1", "task_1:terminal", { columns: 80, rows: 24 });
+
+      await client.pruneStale(["task_1:agent"]);
+
+      await vi.waitFor(() => expect(terminalPty.kill).toHaveBeenCalledTimes(1));
+      expect(agentPty.kill).not.toHaveBeenCalled();
+      client.disposeAll();
+    } finally {
+      await requestDaemonShutdown(paths);
+      await daemon;
+      await rm(root, { recursive: true, force: true });
+    }
+  }, DAEMON_TEST_TIMEOUT_MS);
+
+  test("pruneStale from a new client cleans up ghost sessions from a previous crashed run", async () => {
+    const root = await createWorkspace();
+    const paths = getCraigPaths(root);
+    const stalePty = createFakePty();
+    const activePty = createFakePty();
+    const spawn = vi.fn()
+      .mockReturnValueOnce(stalePty)
+      .mockReturnValueOnce(activePty);
+    let daemon: Promise<void> | null = null;
+    const spawnDaemon = () => {
+      daemon = servePtyDaemon(paths, { shell: "/bin/zsh", env: { TERM: "xterm-256color" }, spawn });
+    };
+
+    try {
+      const first = await createDaemonPtyRuntime({
+        paths,
+        workspaceRoot: root,
+        resolveSessionSpec: () => ({ cwd: root, command: [] }),
+        spawnDaemon,
+      });
+      await first.ensureSession("task_old", "task_old:agent", { columns: 80, rows: 24 });
+      first.disposeAll();
+
+      const second = await createDaemonPtyRuntime({
+        paths,
+        workspaceRoot: root,
+        resolveSessionSpec: () => ({ cwd: root, command: [] }),
+        spawnDaemon,
+      });
+      await second.ensureSession("task_new", "task_new:agent", { columns: 80, rows: 24 });
+      await second.pruneStale(["task_new:agent"]);
+
+      await vi.waitFor(() => expect(stalePty.kill).toHaveBeenCalledTimes(1));
+      expect(activePty.kill).not.toHaveBeenCalled();
+      second.disposeAll();
+    } finally {
+      await requestDaemonShutdown(paths);
+      if (daemon) {
+        await daemon;
+      }
+      await rm(root, { recursive: true, force: true });
+    }
+  }, DAEMON_TEST_TIMEOUT_MS);
+
+  test("pruneStale with an empty keep list disposes all open sessions", async () => {
+    const root = await createWorkspace();
+    const paths = getCraigPaths(root);
+    const pty1 = createFakePty();
+    const pty2 = createFakePty();
+    const spawn = vi.fn()
+      .mockReturnValueOnce(pty1)
+      .mockReturnValueOnce(pty2);
+    const daemon = servePtyDaemon(paths, { shell: "/bin/zsh", env: { TERM: "xterm-256color" }, spawn });
+
+    try {
+      const client = await createDaemonPtyRuntime({
+        paths,
+        workspaceRoot: root,
+        resolveSessionSpec: () => ({ cwd: root, command: [] }),
+      });
+      await client.ensureSession("task_1", "task_1:agent", { columns: 80, rows: 24 });
+      await client.ensureSession("task_2", "task_2:agent", { columns: 80, rows: 24 });
+
+      await client.pruneStale([]);
+
+      await vi.waitFor(() => expect(pty1.kill).toHaveBeenCalledTimes(1));
+      await vi.waitFor(() => expect(pty2.kill).toHaveBeenCalledTimes(1));
+      client.disposeAll();
+    } finally {
+      await requestDaemonShutdown(paths);
+      await daemon;
+      await rm(root, { recursive: true, force: true });
+    }
+  }, DAEMON_TEST_TIMEOUT_MS);
+
   test("stale daemon endpoint files are replaced by a new daemon", async () => {
     const root = await createWorkspace();
     const paths = getCraigPaths(root);
