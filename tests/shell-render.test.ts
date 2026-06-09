@@ -539,10 +539,60 @@ describe("terminal shell renderer", () => {
 
     expect(renderTask(baseTask)).toContain("REVIEW  ○ ○");
     expect(renderTask(draftTask)).toContain("REVIEW   ○");
-    expect(renderTask(mergedTask)).toContain("REVIEW   ○");
+    expect(renderTask(mergedTask)).toContain("REVIEW   ✓");
     expect(renderTask(closedTask)).toContain("REVIEW   ○");
     expect(renderTaskWithColor(draftTask)).toContain("\u001B[38;2;86;95;137;48;2;10;10;10m");
     expect(renderTaskWithColor(closedTask)).toContain("\u001B[38;2;247;118;142;48;2;10;10;10m");
+  });
+
+  test("colors approved review text green in the merge status row", () => {
+    const task = buildTaskRecord("/tmp/craig", {
+      id: "task_20260430_02",
+      repoId: "repo_bug_fixes",
+      workspaceId: "workspace_bug_fixes",
+      prs: [{
+        provider: "github" as const,
+        owner: null,
+        repo: null,
+        number: 17,
+        url: "https://github.com/example/repo/pull/17",
+        title: null,
+        status: "open" as const,
+        draft: false,
+        baseBranch: "main",
+        headBranch: "craig/task_20260430_02",
+        mergeable: true,
+        mergeStateStatus: "CLEAN",
+        reviewDecision: "APPROVED",
+        requiredChecks: [{ name: "ci", status: "success" as const, conclusion: "SUCCESS" }],
+        createdAt: null,
+        updatedAt: null,
+        mergedAt: null,
+        lastSyncedAt: null,
+        lastSyncedHeadSha: null,
+      }],
+    });
+    const data = buildShellData(
+      {
+        ...createInitialShellState(null),
+        selectedRepoId: "repo_bug_fixes",
+        selectedTaskId: task.id,
+        selectedLeftItemId: `task:${task.id}`,
+        focusedRegion: "inspector",
+        inspectionMode: "review",
+      },
+      {
+        workspaceRoot: "/tmp/craig",
+        repos: [{ id: "repo_bug_fixes", name: "bug-fixes", rootPath: "/tmp/craig", defaultBranch: "main", createdAt: "", updatedAt: "" }],
+        tasks: [task],
+        inspection: null,
+      },
+    );
+
+    const frame = renderMainShellFrame(MIN_VIEWPORT, data, { color: true });
+
+    expect(frame).toContain("merge ready · ");
+    expect(frame).toContain("\u001B[38;2;158;206;106;48;2;10;10;10mreview approved");
   });
 
   test("keeps the PR readiness badge pending while CI is still running before surfacing required review as blocked", () => {
@@ -1024,6 +1074,86 @@ describe("terminal shell renderer", () => {
     expect(modeRow?.segments?.map((segment) => segment.text).join("")).toContain("✓");
     expect(frame).not.toContain("P create pr");
     expect(frame).not.toContain("M merge");
+  });
+
+  test("keeps project review rollups green for merged child PRs with stale review metadata", () => {
+    const makeMergedTarget = (repoId: string, number: number): ProjectTaskRepoTarget => ({
+      repoId,
+      branch: `craig/proj_01/${repoId}`,
+      repoRoot: `/tmp/projects/${repoId}`,
+      worktreePath: `/tmp/craig/.craig/worktrees/proj_01/${repoId}`,
+      status: "ready",
+      failureReason: null,
+      checks: { source: { type: "repo_config", path: ".craig/config.json" }, lastRunAt: null, status: "not_run", commands: [], results: [] },
+      lastCommit: null,
+      pullRequest: {
+        provider: "github",
+        number,
+        url: `https://github.com/example/${repoId}/pull/${number}`,
+        baseBranch: null,
+        headBranch: null,
+        status: "merged",
+        mergeable: false,
+        mergeStateStatus: "REVIEW_REQUIRED",
+        reviewDecision: "REVIEW_REQUIRED",
+        requiredChecks: [{ name: "ci", status: "success", conclusion: "SUCCESS" }],
+        lastSyncedAt: "2026-05-04T00:00:00.000Z",
+        lastSyncedHeadSha: null,
+      },
+      cleanup: { paneClosedAt: null, worktreeRemovedAt: null, preservedWorktree: false, warning: null },
+    });
+    const task = buildTaskRecord("/tmp/projects", {
+      id: "task_proj_01",
+      title: "scaffold api",
+      type: "project",
+      repoId: "repo_projects",
+      workspaceId: "ws_projects",
+      repoTargets: [makeMergedTarget("repo_alpha", 12), makeMergedTarget("repo_beta", 13)],
+    });
+    const workspace = {
+      id: "ws_projects",
+      kind: "project" as const,
+      name: "projects",
+      primaryRepoId: "repo_projects",
+      rootPath: "/tmp/projects",
+      discoveredRepoIds: ["repo_alpha", "repo_beta"],
+      branch: "project",
+      status: "active" as const,
+      linkedRepoIds: ["repo_alpha", "repo_beta"],
+      archivedAt: null,
+      createdAt: "",
+      updatedAt: "",
+    };
+    const data = buildShellData(
+      {
+        ...createInitialShellState(null),
+        selectedWorkspaceId: "ws_projects",
+        selectedTaskId: task.id,
+        selectedLeftItemId: `task:${task.id}`,
+        focusedRegion: "inspector",
+        inspectionMode: "review",
+      },
+      {
+        workspaceRoot: "/tmp/projects",
+        workspaces: [workspace],
+        repos: [
+          { id: "repo_alpha", name: "alpha", rootPath: "/tmp/projects/alpha", defaultBranch: "main", createdAt: "", updatedAt: "" },
+          { id: "repo_beta", name: "beta", rootPath: "/tmp/projects/beta", defaultBranch: "main", createdAt: "", updatedAt: "" },
+        ],
+        tasks: [task],
+        inspection: null,
+      },
+    );
+
+    const frame = renderMainShellFrame(MIN_VIEWPORT, data, { color: false });
+    const taskRow = data.leftTree.find((row) => row.taskId === "task_proj_01");
+    const modeRow = data.rightInspection?.rows.find((row) => row.id === "inspection-mode");
+
+    expect(taskRow?.prBadge?.map((segment) => segment.text).join("")).toContain(" ✓");
+    expect(modeRow?.segments?.map((segment) => segment.text).join("")).toContain(" ✓");
+    expect(frame).toContain("alpha");
+    expect(frame).toContain(" ✓");
+    expect(frame).not.toContain(" ●");
   });
 
   test("renders PTY rows without reapplying Craig center-pane colors after ANSI resets", () => {

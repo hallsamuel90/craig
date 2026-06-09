@@ -904,7 +904,10 @@ interface PrBadgeDetail {
   mergeStateStatus?: string | null;
   reviewDecision?: TaskPullRequest["reviewDecision"];
   requiredChecks: TaskPullRequestCheck[];
+  aggregateReadiness?: PrReadinessStatus;
 }
+
+type PrReadinessStatus = "none" | "pending" | "success" | "failed";
 
 function buildPrBadgeSegments(pr: PrBadgeDetail): TerminalRowSegment[] {
   return [
@@ -925,19 +928,16 @@ function buildTaskPrBadgeSegments(task: TaskRecord): TerminalRowSegment[] | null
   return primaryPr?.number ? buildPrBadgeSegments(primaryPr) : null;
 }
 
-function buildAggregateProjectPullRequest(targets: ProjectTaskRepoTarget[]): TaskPullRequest | null {
+function buildAggregateProjectPullRequest(targets: ProjectTaskRepoTarget[]): PrBadgeDetail | null {
   const readyTargets = targets.filter((target) => target.status === "ready");
   const prs = readyTargets.map((target) => target.pullRequest).filter((pr) => Boolean(pr.number));
   if (prs.length === 0) {
     return null;
   }
+  const readiness = deriveAggregateProjectPrReadiness(prs);
 
   return {
-    provider: "github",
     number: -1,
-    url: null,
-    baseBranch: null,
-    headBranch: null,
     status: deriveAggregateProjectPrStatus(prs),
     draft: prs.some((pr) => pr.draft),
     mergeable: prs.length === readyTargets.length && prs.every((pr) => pr.mergeable),
@@ -950,13 +950,7 @@ function buildAggregateProjectPullRequest(targets: ProjectTaskRepoTarget[]): Tas
           ? "APPROVED"
           : null,
     requiredChecks: prs.flatMap((pr) => pr.requiredChecks),
-    comments: prs.flatMap((pr) => pr.comments ?? []).slice(-4),
-    lastSyncedAt: prs
-      .map((pr) => pr.lastSyncedAt)
-      .filter((value): value is string => Boolean(value))
-      .sort()
-      .at(-1) ?? null,
-    lastSyncedHeadSha: null,
+    aggregateReadiness: readiness,
   };
 }
 
@@ -973,6 +967,20 @@ function deriveAggregateProjectPrStatus(prs: TaskPullRequest[]): TaskPullRequest
   return prs[0]?.status ?? null;
 }
 
+function deriveAggregateProjectPrReadiness(prs: TaskPullRequest[]): PrReadinessStatus {
+  const statuses = prs.map((pr) => getPrReadinessStatus(pr));
+  if (statuses.some((status) => status === "failed")) {
+    return "failed";
+  }
+  if (statuses.some((status) => status === "pending")) {
+    return "pending";
+  }
+  if (statuses.length > 0 && statuses.every((status) => status === "success")) {
+    return "success";
+  }
+  return "none";
+}
+
 function buildPrLifecycleSegment(pr: { number: number | null; status: string | null; draft?: boolean } | null): TerminalRowSegment {
   if (!pr || !pr.number) return { text: PR_ICON_NONE, style: { fg: "565f89" } };
   if (pr.status === "merged") return { text: PR_ICON_MERGED, style: { fg: "9d7cd8" } };
@@ -982,14 +990,29 @@ function buildPrLifecycleSegment(pr: { number: number | null; status: string | n
 }
 
 function buildPrReadinessSegment(pr: PrBadgeDetail | null): TerminalRowSegment {
+  if (pr?.aggregateReadiness) {
+    return renderPrReadinessStatus(pr.aggregateReadiness);
+  }
+  return renderPrReadinessStatus(getPrReadinessStatus(pr));
+}
+
+function renderPrReadinessStatus(status: PrReadinessStatus): TerminalRowSegment {
+  if (status === "failed") return { text: CHECK_ICON_FAILED, style: { fg: "f7768e" } };
+  if (status === "pending") return { text: CHECK_ICON_PENDING, style: { fg: "e0af68" } };
+  if (status === "success") return { text: CHECK_ICON_SUCCESS, style: { fg: "9ece6a" } };
+  return { text: CHECK_ICON_NONE, style: { fg: "565f89" } };
+}
+
+function getPrReadinessStatus(pr: PrBadgeDetail | null): PrReadinessStatus {
   const checks = pr?.requiredChecks ?? null;
-  if (pr?.status === "closed") return { text: CHECK_ICON_NONE, style: { fg: "565f89" } };
-  if (!pr?.number || !checks || checks.length === 0) return { text: CHECK_ICON_NONE, style: { fg: "565f89" } };
-  if (checks.some((c) => c.status === "failed") || pr.reviewDecision === "CHANGES_REQUESTED") return { text: CHECK_ICON_FAILED, style: { fg: "f7768e" } };
-  if (!checks.every((c) => c.status === "success" || c.status === "skipped")) return { text: CHECK_ICON_PENDING, style: { fg: "e0af68" } };
-  if (isPrReviewBlocked(pr)) return { text: CHECK_ICON_FAILED, style: { fg: "f7768e" } };
-  if (isPrReadyToMerge(pr)) return { text: CHECK_ICON_SUCCESS, style: { fg: "9ece6a" } };
-  return { text: CHECK_ICON_PENDING, style: { fg: "e0af68" } };
+  if (pr?.status === "merged") return "success";
+  if (pr?.status === "closed") return "none";
+  if (!pr?.number || !checks || checks.length === 0) return "none";
+  if (checks.some((c) => c.status === "failed") || pr.reviewDecision === "CHANGES_REQUESTED") return "failed";
+  if (!checks.every((c) => c.status === "success" || c.status === "skipped")) return "pending";
+  if (isPrReviewBlocked(pr)) return "failed";
+  if (isPrReadyToMerge(pr)) return "success";
+  return "pending";
 }
 
 function isPrReadyToMerge(pr: PrBadgeDetail): boolean {
@@ -1150,9 +1173,19 @@ function buildPrDetailRows(
     : pr.mergeStateStatus
       ? `merge ${pr.mergeStateStatus}`
       : "merge unknown";
-  rows.push({ id: id("pr-merge"), text: mergeText, muted: true });
   if (reviewText) {
-    rows.push({ id: id("pr-review"), text: reviewText, color: pr.reviewDecision === "CHANGES_REQUESTED" ? "f7768e" : "e0af68" });
+    rows.push({
+      id: id("pr-merge"),
+      text: `${mergeText} · ${reviewText}`,
+      muted: true,
+      segments: [
+        { text: mergeText },
+        { text: " · " },
+        { text: reviewText, style: { fg: formatReviewDecisionColor(pr.reviewDecision, pr.mergeStateStatus) } },
+      ],
+    });
+  } else {
+    rows.push({ id: id("pr-merge"), text: mergeText, muted: true });
   }
   rows.push({ id: id("pr-synced"), text: `synced ${formatRelativeTime(pr.lastSyncedAt)}`, muted: true });
 
@@ -1199,6 +1232,19 @@ function formatReviewDecision(reviewDecision: PrDetail["reviewDecision"], mergeS
     return "review approved";
   }
   return null;
+}
+
+function formatReviewDecisionColor(reviewDecision: PrDetail["reviewDecision"], mergeStateStatus: string | null): string {
+  if (reviewDecision === "CHANGES_REQUESTED") {
+    return "f7768e";
+  }
+  if (reviewDecision === "APPROVED") {
+    return "9ece6a";
+  }
+  if (reviewDecision === "REVIEW_REQUIRED" || mergeStateStatus === "REVIEW_REQUIRED") {
+    return "e0af68";
+  }
+  return "565f89";
 }
 
 function formatRelativeTime(isoString: string | null): string {
