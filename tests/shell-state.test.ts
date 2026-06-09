@@ -697,13 +697,13 @@ describe("terminal shell control state", () => {
   test("keeps footer toast during control navigation", () => {
     const state = {
       ...seededState(),
-      footerToast: "Refreshed checks: 2 reported",
+      footerToast: { tone: "success" as const, message: "Refreshed checks: 2 reported" },
     };
 
     const next = reduceMainKey(state, "TAB", KEY_OPTIONS);
 
     expect(next.changed).toBe(true);
-    expect(next.state.footerToast).toBe("Refreshed checks: 2 reported");
+    expect(next.state.footerToast).toEqual({ tone: "success", message: "Refreshed checks: 2 reported" });
   });
 
   test("page and wheel scroll review rows while review inspector is focused", () => {

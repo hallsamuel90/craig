@@ -13,6 +13,7 @@ import { getCraigPaths } from "../state/craig-paths.js";
 import { ensureCraigState } from "../state/ensure-state.js";
 import type { RunnerType, TaskPtyTabRecord, TaskRecord } from "../types/task.js";
 import { listTasks } from "../services/list-tasks.js";
+import { appendCraigErrorLogBestEffort, readRecentCraigErrorLog, type CraigErrorLogSnapshot } from "../services/error-log.js";
 import { provisionProjectTask, provisionTask } from "../services/task-provisioning.js";
 import { addWorkspace, archiveWorkspace, removeWorkspace } from "../services/workspace-registry.js";
 import { loadTaskLocalInspection, reloadSelectedContent, type InspectionTreeRow } from "../services/task-local-inspection.js";
@@ -34,7 +35,7 @@ import { buildShellData, getReviewInspectionRowCount, type WorkspaceShellModel }
 import { getViewport, SHELL_LAYOUT, type Viewport } from "./layout.js";
 import type { PtyRuntimeOptions, PtySize } from "./pty-runtime.js";
 import { createDaemonPtyRuntime } from "./pty-daemon.js";
-import { CENTER_TERMINAL_GUTTER, renderBootOverlayFrame, renderHelpOverlayFrame, renderMainShellFrame, renderOptionsOverlayFrame, renderPauseOverlayFrame } from "./render.js";
+import { CENTER_TERMINAL_GUTTER, renderBootOverlayFrame, renderErrorLogOverlayFrame, renderHelpOverlayFrame, renderMainShellFrame, renderOptionsOverlayFrame, renderPauseOverlayFrame } from "./render.js";
 import { checkForUpdate, getCurrentVersion } from "../services/version-check.js";
 import {
   buildRunnersSubmenuItems,
@@ -57,11 +58,12 @@ import {
   toPersistedUiState,
   updateTerminalViewState,
   type ControlShellState,
+  type FooterToast,
   type WorkspaceBrowserEntry,
   type WorkspaceBrowserState,
 } from "./state.js";
 
-type OverlayVariant = "boot" | "pause" | "help" | "options" | "runners";
+type OverlayVariant = "boot" | "pause" | "help" | "options" | "runners" | "error-log";
 type AppState =
   | {
       mode: "overlay";
@@ -72,6 +74,7 @@ type AppState =
       parentVariant?: "boot" | "pause";
       viaOptions?: boolean;
       runnerOptions?: RunnerOptionsState;
+      errorLog?: CraigErrorLogSnapshot;
     }
   | { mode: "main"; shell: ControlShellState };
 
@@ -180,6 +183,7 @@ export async function startTerminalApp(options: TerminalAppOptions = {}): Promis
     let footerToastTimer: ReturnType<typeof setTimeout> | null = null;
     let prPollTimer: ReturnType<typeof setInterval> | null = null;
     let prPollInFlight = false;
+    let lastBackgroundPrPollError: string | null = null;
     let versionText: string | null = `Craig v${getCurrentVersion()}`;
     let updateText: string | null = null;
     let inspectionRefreshSequence = 0;
@@ -252,7 +256,7 @@ export async function startTerminalApp(options: TerminalAppOptions = {}): Promis
         });
     }
 
-    function setFooterToast(shell: ControlShellState, footerToast: string | null): ControlShellState {
+    function setFooterToast(shell: ControlShellState, footerToast: FooterToast | null): ControlShellState {
       if (footerToastTimer) {
         clearTimeout(footerToastTimer);
         footerToastTimer = null;
@@ -271,6 +275,21 @@ export async function startTerminalApp(options: TerminalAppOptions = {}): Promis
       }, 3000);
 
       return { ...shell, footerToast };
+    }
+
+    function setSuccessToast(shell: ControlShellState, message: string | null): ControlShellState {
+      return setFooterToast(shell, message ? { tone: "success", message } : null);
+    }
+
+    function reportRecoverableError(context: string, error: unknown, fallbackMessage: string): string {
+      const message = error instanceof Error ? error.message : fallbackMessage;
+      const details = error instanceof Error ? error.stack ?? error.message : String(error);
+      void appendCraigErrorLogBestEffort(paths, { context, message, details });
+      return message;
+    }
+
+    function applyErrorToast(shell: ControlShellState, message: string): ControlShellState {
+      return setFooterToast(shell, { tone: "error", message });
     }
 
     function queueTaskMutation<T>(mutation: () => Promise<T>): Promise<T> {
@@ -466,12 +485,12 @@ export async function startTerminalApp(options: TerminalAppOptions = {}): Promis
         state = { mode: "main", shell: updateTerminalViewState({ ...nextShell, inputMode: "terminal" }, view) };
         persistShellState(state.shell);
       } catch (error) {
-        const message = error instanceof Error ? error.message : "Failed to start PTY.";
+        const message = reportRecoverableError("attach PTY", error, "Failed to start PTY.");
         if (shell.selectedTaskId && shell.selectedPtyTabId && isAgentTabId(shell.selectedPtyTabId)) {
           await markTaskRunnerFailed(shell.selectedTaskId, message).catch(() => undefined);
           await reloadModel().catch(() => undefined);
         }
-        state = { mode: "main", shell: markTerminalAttachFailed(syncShell(shell), message) };
+        state = { mode: "main", shell: applyErrorToast(markTerminalAttachFailed(syncShell(shell), message), message) };
         persistShellState(state.shell);
       }
       render();
@@ -586,7 +605,7 @@ export async function startTerminalApp(options: TerminalAppOptions = {}): Promis
       }
 
       return syncShell({
-        ...setFooterToast(syncedShell, footerToast),
+        ...setSuccessToast(syncedShell, footerToast),
         focusedRegion: "inspector",
         inspectionMode: "review",
         selectedActionId: "refresh-checks",
@@ -604,6 +623,7 @@ export async function startTerminalApp(options: TerminalAppOptions = {}): Promis
 
       try {
         await discoverOrRefreshPullRequests(paths, tasksToPoll);
+        lastBackgroundPrPollError = null;
 
         if (state.mode !== "main") {
           return;
@@ -615,8 +635,16 @@ export async function startTerminalApp(options: TerminalAppOptions = {}): Promis
           shell: syncShell(state.shell),
         };
         render();
-      } catch {
-        // Background PR discovery should never interrupt agent input or review work.
+      } catch (error) {
+        const message = error instanceof Error ? error.message : "Background PR discovery failed.";
+        if (message !== lastBackgroundPrPollError) {
+          lastBackgroundPrPollError = message;
+          void appendCraigErrorLogBestEffort(paths, {
+            context: "background PR polling",
+            message,
+            details: error instanceof Error ? error.stack ?? error.message : String(error),
+          });
+        }
       } finally {
         prPollInFlight = false;
       }
@@ -743,6 +771,11 @@ export async function startTerminalApp(options: TerminalAppOptions = {}): Promis
                       optionsMessage: getRunnersSubmenuMessage(getRunnerOptionsState(state)),
                       optionsSubtitle: "Runners",
                     })
+                  : state.variant === "error-log"
+                    ? renderErrorLogOverlayFrame(viewport, {
+                        errorLogPath: state.errorLog?.path ?? paths.errorLogFile,
+                        errorLogLines: state.errorLog?.lines ?? [],
+                      })
                   : renderHelpOverlayFrame(viewport);
 
       if (pendingClear) {
@@ -864,7 +897,7 @@ export async function startTerminalApp(options: TerminalAppOptions = {}): Promis
         if (error instanceof InteractiveTaskStartupError) {
           createdTask = error.task;
         }
-        const message = error instanceof Error ? error.message : "Failed to create task.";
+        const message = reportRecoverableError("create task", error, "Failed to create task.");
         if (createdTask) {
           await writeTask(paths, {
             ...createdTask,
@@ -880,7 +913,7 @@ export async function startTerminalApp(options: TerminalAppOptions = {}): Promis
         }
         state = {
           mode: "main",
-          shell: syncShell({
+          shell: applyErrorToast(syncShell({
             ...state.shell,
             inputMode: "control",
             selectedTaskId: createdTask?.id ?? state.shell.selectedTaskId,
@@ -890,7 +923,7 @@ export async function startTerminalApp(options: TerminalAppOptions = {}): Promis
             taskPromptInput: createdTask ? null : "",
             taskPromptError: message,
             actionMessage: null,
-          }),
+          }), message),
         };
       } finally {
         creatingTask = false;
@@ -1015,16 +1048,16 @@ export async function startTerminalApp(options: TerminalAppOptions = {}): Promis
 
       if (key === "LEFT" || key === "h") {
         void openWorkspaceBrowser(path.dirname(browser.cwd)).catch((error: unknown) => {
-          const message = error instanceof Error ? error.message : "Failed to open parent directory.";
+          const message = reportRecoverableError("open parent workspace directory", error, "Failed to open parent directory.");
           state = {
             mode: "main",
-            shell: syncShell({
+            shell: applyErrorToast(syncShell({
               ...state.shell,
               workspaceBrowser: {
                 ...browser,
                 error: message,
               },
-            }),
+            }), message),
           };
           render();
         });
@@ -1040,16 +1073,16 @@ export async function startTerminalApp(options: TerminalAppOptions = {}): Promis
 
         if ((key === "RIGHT" || key === "l") && (selectedEntry.kind === "directory" || selectedEntry.kind === "repo")) {
           void openWorkspaceBrowser(selectedEntry.path).catch((error: unknown) => {
-            const message = error instanceof Error ? error.message : "Failed to open directory.";
+            const message = reportRecoverableError("open workspace directory", error, "Failed to open directory.");
             state = {
               mode: "main",
-              shell: syncShell({
+              shell: applyErrorToast(syncShell({
                 ...state.shell,
                 workspaceBrowser: {
                   ...browser,
                   error: message,
                 },
-              }),
+              }), message),
             };
             render();
           });
@@ -1075,16 +1108,16 @@ export async function startTerminalApp(options: TerminalAppOptions = {}): Promis
             render();
           })
           .catch((error: unknown) => {
-            const message = error instanceof Error ? error.message : "Failed to add workspace.";
+            const message = reportRecoverableError("add workspace", error, "Failed to add workspace.");
             state = {
               mode: "main",
-              shell: syncShell({
+              shell: applyErrorToast(syncShell({
                 ...state.shell,
                 workspaceBrowser: {
                   ...browser,
                   error: message,
                 },
-              }),
+              }), message),
             };
             render();
           });
@@ -1178,10 +1211,10 @@ export async function startTerminalApp(options: TerminalAppOptions = {}): Promis
 
         if (result.openWorkspaceBrowser) {
           void openWorkspaceBrowser(workspaceRoot).catch((error: unknown) => {
-            const message = error instanceof Error ? error.message : "Failed to browse workspaces.";
+            const message = reportRecoverableError("browse workspaces", error, "Failed to browse workspaces.");
             state = {
               mode: "main",
-              shell: syncShell({
+              shell: applyErrorToast(syncShell({
                 ...result.state,
                 workspaceBrowser: {
                   cwd: workspaceRoot,
@@ -1189,7 +1222,7 @@ export async function startTerminalApp(options: TerminalAppOptions = {}): Promis
                   selectedIndex: 0,
                   error: message,
                 },
-              }),
+              }), message),
             };
             render();
           });
@@ -1202,8 +1235,8 @@ export async function startTerminalApp(options: TerminalAppOptions = {}): Promis
               void attachPtyFromShell(nextShell);
             })
             .catch((error: unknown) => {
-              const message = error instanceof Error ? error.message : "Failed to create tab.";
-              state = { mode: "main", shell: syncShell({ ...result.state, actionMessage: message }) };
+              const message = reportRecoverableError("create PTY tab", error, "Failed to create tab.");
+              state = { mode: "main", shell: applyErrorToast(syncShell({ ...result.state, actionMessage: message }), message) };
               render();
             });
           return;
@@ -1217,8 +1250,8 @@ export async function startTerminalApp(options: TerminalAppOptions = {}): Promis
               render();
             })
             .catch((error: unknown) => {
-              const message = error instanceof Error ? error.message : "Failed to close tab.";
-              state = { mode: "main", shell: syncShell({ ...result.state, actionMessage: message }) };
+              const message = reportRecoverableError("close PTY tab", error, "Failed to close tab.");
+              state = { mode: "main", shell: applyErrorToast(syncShell({ ...result.state, actionMessage: message }), message) };
               render();
             });
           return;
@@ -1232,8 +1265,8 @@ export async function startTerminalApp(options: TerminalAppOptions = {}): Promis
               render();
             })
             .catch((error: unknown) => {
-              const message = error instanceof Error ? error.message : "Failed to refresh PR checks.";
-              state = { mode: "main", shell: syncShell({ ...result.state, actionMessage: message }) };
+              const message = reportRecoverableError("refresh PR checks", error, "Failed to refresh PR checks.");
+              state = { mode: "main", shell: applyErrorToast(syncShell({ ...result.state, actionMessage: message }), message) };
               render();
             });
           return;
@@ -1247,8 +1280,8 @@ export async function startTerminalApp(options: TerminalAppOptions = {}): Promis
               render();
             })
             .catch((error: unknown) => {
-              const message = error instanceof Error ? error.message : "Failed to close task.";
-              state = { mode: "main", shell: syncShell({ ...result.state, actionMessage: message }) };
+              const message = reportRecoverableError("close task", error, "Failed to close task.");
+              state = { mode: "main", shell: applyErrorToast(syncShell({ ...result.state, actionMessage: message }), message) };
               render();
             });
           return;
@@ -1262,8 +1295,8 @@ export async function startTerminalApp(options: TerminalAppOptions = {}): Promis
               render();
             })
             .catch((error: unknown) => {
-              const message = error instanceof Error ? error.message : "Failed to remove workspace.";
-              state = { mode: "main", shell: syncShell({ ...result.state, actionMessage: message }) };
+              const message = reportRecoverableError("remove workspace", error, "Failed to remove workspace.");
+              state = { mode: "main", shell: applyErrorToast(syncShell({ ...result.state, actionMessage: message }), message) };
               render();
             });
           return;
@@ -1279,8 +1312,8 @@ export async function startTerminalApp(options: TerminalAppOptions = {}): Promis
           persistShellState(state.shell);
           render();
           void refreshInspection(state.shell).catch((error: unknown) => {
-            const message = error instanceof Error ? error.message : "Failed to refresh inspection.";
-            state = { mode: "main", shell: syncShell({ ...state.shell, actionMessage: message }) };
+            const message = reportRecoverableError("refresh inspection", error, "Failed to refresh inspection.");
+            state = { mode: "main", shell: applyErrorToast(syncShell({ ...state.shell, actionMessage: message }), message) };
             render();
           });
           return;
@@ -1297,7 +1330,7 @@ export async function startTerminalApp(options: TerminalAppOptions = {}): Promis
 
       if (state.variant === "help") {
         if (state.viaOptions && state.parentVariant) {
-          state = { mode: "overlay", variant: "options", menuIndex: 1, optionsMessage: null, shell: state.shell, parentVariant: state.parentVariant };
+          state = { mode: "overlay", variant: "options", menuIndex: 2, optionsMessage: null, shell: state.shell, parentVariant: state.parentVariant };
         } else if (state.parentVariant) {
           state = { mode: "overlay", variant: state.parentVariant, menuIndex: 1, optionsMessage: null, shell: state.shell };
         } else {
@@ -1315,6 +1348,16 @@ export async function startTerminalApp(options: TerminalAppOptions = {}): Promis
 
       if (state.variant === "runners") {
         handleRunnersKey(key);
+        return;
+      }
+
+      if (state.variant === "error-log") {
+        if (key === "ESCAPE" || isEnterKey(key)) {
+          const parentVariant = state.parentVariant;
+          state = { mode: "overlay", variant: "options", menuIndex: 1, optionsMessage: null, shell: state.shell, ...(parentVariant !== undefined ? { parentVariant } : {}) };
+          pendingClear = true;
+          render();
+        }
         return;
       }
 
@@ -1415,7 +1458,43 @@ export async function startTerminalApp(options: TerminalAppOptions = {}): Promis
         state = { mode: "overlay", variant: "runners", menuIndex: 0, optionsMessage: null, shell: state.shell, ...(parentVariant !== undefined ? { parentVariant } : {}) };
         pendingClear = true;
         render();
+        return;
       }
+
+      if (result.kind === "error-log") {
+        const parentVariant = state.parentVariant;
+        void openErrorLogOverlay(parentVariant);
+      }
+    }
+
+    async function openErrorLogOverlay(parentVariant: "boot" | "pause" | undefined): Promise<void> {
+      let errorLog: CraigErrorLogSnapshot;
+      try {
+        errorLog = await readRecentCraigErrorLog(paths);
+      } catch (error) {
+        const message = reportRecoverableError("open error log", error, "Failed to read Craig error log.");
+        errorLog = {
+          path: paths.errorLogFile,
+          lines: [`Unable to read error log: ${message}`],
+          empty: false,
+        };
+      }
+
+      if (state.mode !== "overlay") {
+        return;
+      }
+
+      state = {
+        mode: "overlay",
+        variant: "error-log",
+        menuIndex: 0,
+        optionsMessage: null,
+        shell: state.shell,
+        errorLog,
+        ...(parentVariant !== undefined ? { parentVariant } : {}),
+      };
+      pendingClear = true;
+      render();
     }
 
     function handleRunnersKey(key: string): void {
@@ -1454,9 +1533,11 @@ export async function startTerminalApp(options: TerminalAppOptions = {}): Promis
           if (state.mode !== "overlay" || state.variant !== "runners") {
             return;
           }
-          const message = error instanceof Error ? error.message : "Failed to save runner option.";
+          const message = reportRecoverableError("save runner option", error, "Failed to save runner option.");
+          const shell = applyErrorToast(syncShell(state.shell), message);
           state = {
             ...state,
+            shell,
             runnerOptions: {
               ...getRunnerOptionsState(state),
               message,
@@ -1587,8 +1668,8 @@ export async function startTerminalApp(options: TerminalAppOptions = {}): Promis
           persistShellState(state.shell);
           render();
           void refreshInspection(state.shell).catch((error: unknown) => {
-            const message = error instanceof Error ? error.message : "Failed to refresh inspection.";
-            state = { mode: "main", shell: syncShell({ ...state.shell, actionMessage: message }) };
+            const message = reportRecoverableError("refresh inspection", error, "Failed to refresh inspection.");
+            state = { mode: "main", shell: applyErrorToast(syncShell({ ...state.shell, actionMessage: message }), message) };
             render();
           });
           return;

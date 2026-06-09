@@ -27,6 +27,12 @@ export type ActionId = (typeof ACTION_IDS)[number];
 export type InspectorSectionId = (typeof INSPECTOR_SECTION_IDS)[number];
 export type TerminalStatus = "idle" | "running" | "exited" | "failed";
 export type LeftNavItemId = string;
+export type FooterToastTone = "success" | "error";
+
+export interface FooterToast {
+  tone: FooterToastTone;
+  message: string;
+}
 
 export interface WorkspaceBrowserEntry {
   name: string;
@@ -73,7 +79,7 @@ export interface ControlShellState {
   selectedRunner: RunnerType;
   centerTabRunner: RunnerType | null;
   actionMessage: string | null;
-  footerToast: string | null;
+  footerToast: FooterToast | null;
   taskPromptInput: string | null;
   taskPromptError: string | null;
   workspaceBrowser: WorkspaceBrowserState | null;

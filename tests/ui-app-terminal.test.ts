@@ -1539,6 +1539,24 @@ describe("terminal app PTY attach flow", () => {
     await vi.waitFor(() => expect(stripAnsi(terminal.frames.at(-1) ?? "")).toContain("R refresh checks"));
     terminal.emitKey("R");
     await vi.waitFor(() => expect(stripAnsi(terminal.frames.at(-1) ?? "")).toContain("gh auth failed"));
+    await vi.waitFor(() => expect(stripAnsi(terminal.frames.at(-1) ?? "")).toContain("✗ gh auth failed"));
+    await vi.waitFor(async () => expect(await readFile(paths.errorLogFile, "utf8")).toContain("refresh PR checks"));
+    expect(await readFile(paths.errorLogFile, "utf8")).toContain("message: gh auth failed");
+    terminal.emitKey("ESCAPE"); // pause
+    terminal.emitKey("DOWN"); // Options
+    terminal.emitKey("ENTER");
+    await vi.waitFor(() => expect(stripAnsi(terminal.frames.at(-1) ?? "")).toContain("Error Log"));
+    terminal.emitKey("DOWN"); // Error Log
+    terminal.emitKey("ENTER");
+    await vi.waitFor(() => {
+      const frame = stripAnsi(terminal.frames.at(-1) ?? "");
+      expect(frame).toContain("Error Log");
+      expect(frame).toContain("gh auth failed");
+      expect(frame).toContain(paths.errorLogFile);
+    });
+    terminal.emitKey("ESCAPE"); // Options
+    terminal.emitKey("ESCAPE"); // Pause
+    terminal.emitKey("ESCAPE"); // Main
     terminal.emitKey("q");
 
     await expect(app).resolves.toBe(0);
