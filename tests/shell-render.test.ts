@@ -91,6 +91,37 @@ describe("terminal shell renderer", () => {
     expect(frame).not.toContain("│WORKSPACES");
   });
 
+  test("keeps the center tab rule scoped to the active tab in control mode", () => {
+    const frame = renderMainShellFrame(MIN_VIEWPORT, getMockShellData(), { color: false, centerOnly: true });
+    const underline = frame.split("\n")[2] ?? "";
+
+    expect(underline).toBe("  ──────".padEnd(MIN_VIEWPORT.width));
+  });
+
+  test("extends the center tab rule across the full center content width when engaged", () => {
+    const frame = renderMainShellFrame(
+      MIN_VIEWPORT,
+      getMockShellData({ inputMode: "terminal" }),
+      { color: false, centerOnly: true },
+    );
+    const underline = frame.split("\n")[2] ?? "";
+
+    expect(underline).toBe(`  ${"─".repeat(MIN_VIEWPORT.width - 2)}`);
+  });
+
+  test("renders the terminal engaged indicator text in green", () => {
+    const frame = renderMainShellFrame(
+      MIN_VIEWPORT,
+      getMockShellData({ inputMode: "terminal" }),
+      { color: true, centerOnly: true },
+    );
+    const successOnPanel = "\u001B[38;2;158;206;106;48;2;10;10;10m";
+    const mutedOnPanel = "\u001B[38;2;86;95;137;48;2;10;10;10m";
+
+    expect(frame).toContain(`${successOnPanel} engaged `);
+    expect(frame).not.toContain(`${mutedOnPanel} engaged `);
+  });
+
   test("renders footer toast feedback without replacing shortcut text", () => {
     const frame = renderMainShellFrame(
       MIN_VIEWPORT,
