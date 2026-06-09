@@ -1,5 +1,11 @@
 # craig-cli
 
+## 0.5.6
+
+### Patch Changes
+
+- 45803ac: Fix engaged tab underline to actually render in green
+
 ## 0.5.5
 
 ### Patch Changes
