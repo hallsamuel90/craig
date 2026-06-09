@@ -1,5 +1,11 @@
 # craig-cli
 
+## 0.5.2
+
+### Patch Changes
+
+- c87c239: Prune stale PTY daemon sessions on startup to prevent forkpty exhaustion after crashes
+
 ## 0.5.1
 
 ### Patch Changes
