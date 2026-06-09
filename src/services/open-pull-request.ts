@@ -315,6 +315,9 @@ function recordDisposition(
 function isProjectTargetMergeReady(pullRequest: TaskPullRequest): boolean {
   return (
     pullRequest.mergeable &&
+    pullRequest.reviewDecision !== "REVIEW_REQUIRED" &&
+    pullRequest.reviewDecision !== "CHANGES_REQUESTED" &&
+    pullRequest.mergeStateStatus !== "REVIEW_REQUIRED" &&
     pullRequest.requiredChecks.length > 0 &&
     pullRequest.requiredChecks.every((check) => check.status === "success" || check.status === "skipped")
   );

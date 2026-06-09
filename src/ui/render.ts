@@ -182,8 +182,26 @@ export function renderMainShellFrame(
   }
 
   const footerPalette = ptyAttached || data.modalInput ? PALETTE.panelBg : PALETTE.panelMuted;
-  const footerLine = fillSurface(pad(`  ${data.footerText}`, viewport.width), color, footerPalette);
+  const footerLine = renderFooterLine(data.footerText, data.footerToast, viewport.width, color, footerPalette);
   return [railTop, ...body, footerLine].join("\n");
+}
+
+function renderFooterLine(footerText: string, footerToast: string | null, width: number, color: boolean, palette: PaletteColor): string {
+  const left = `  ${footerText}`;
+  if (!footerToast) {
+    return fillSurface(pad(left, width), color, palette);
+  }
+
+  const toast = `✓ ${footerToast}`;
+  const toastWidth = stringWidth(toast);
+  const leftWidth = stringWidth(left);
+  const gap = Math.max(1, width - leftWidth - toastWidth - 2);
+  const visibleLeft = leftWidth + gap + toastWidth + 2 > width
+    ? clipStringToWidth(left, Math.max(0, width - toastWidth - 3))
+    : left;
+  const visibleGap = Math.max(1, width - stringWidth(visibleLeft) - toastWidth - 2);
+  const line = `${visibleLeft}${" ".repeat(visibleGap)}${green(toast, color, palette)}  `;
+  return fillSurface(pad(line, width), color, palette);
 }
 
 function renderOverlayFrame(

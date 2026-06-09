@@ -67,11 +67,13 @@ export interface ControlShellState {
   collapsedFileTreePaths: string[];
   fileScrollOffset: number;
   diffScrollOffset: number;
+  reviewScrollOffset: number;
   selectedActionId: ActionId;
   selectedProjectTargetId: string | null;
   selectedRunner: RunnerType;
   centerTabRunner: RunnerType | null;
   actionMessage: string | null;
+  footerToast: string | null;
   taskPromptInput: string | null;
   taskPromptError: string | null;
   workspaceBrowser: WorkspaceBrowserState | null;
@@ -91,6 +93,7 @@ export interface ReduceMainKeyOptions {
   diffPathRanges?: Array<{ path: string; start: number; end: number }>;
   fileLineCount?: number;
   diffLineCount?: number;
+  reviewRowCount?: number;
   pageRows?: number;
   enabledRunnerIds?: RunnerType[];
   projectTargetIds?: string[];
@@ -157,11 +160,13 @@ export function createInitialShellState(runtime: CraigUiRuntime | null, config: 
     collapsedFileTreePaths: Array.isArray(runtime?.collapsedFileTreePaths) ? runtime.collapsedFileTreePaths : [],
     fileScrollOffset: 0,
     diffScrollOffset: 0,
+    reviewScrollOffset: 0,
     selectedActionId: getValidValue(runtime?.selectedActionId, ACTION_IDS, "commit"),
     selectedProjectTargetId: null,
     selectedRunner: getValidRunner(runtime?.selectedRunner, enabledRunnerIds, getDefaultRunner(config)),
     centerTabRunner: null,
     actionMessage: null,
+    footerToast: null,
     taskPromptInput: null,
     taskPromptError: null,
     workspaceBrowser: null,
@@ -719,7 +724,8 @@ function moveSelection(state: ControlShellState, direction: -1 | 1, options: Red
     }
 
     if (options.projectTargetIds?.length) {
-      return updateDynamicValue(state, "selectedProjectTargetId", options.projectTargetIds, direction);
+      const next = updateDynamicValue(state, "selectedProjectTargetId", options.projectTargetIds, direction);
+      return next.changed ? { ...next, state: { ...next.state, reviewScrollOffset: 0 } } : next;
     }
     return updateIndexedValue(state, "selectedActionId", REVIEW_ACTION_IDS, direction);
   }
@@ -747,6 +753,7 @@ function moveLeftSelection(state: ControlShellState, direction: -1 | 1, leftItem
         selectedDiffPath: null,
         fileScrollOffset: 0,
         diffScrollOffset: 0,
+        reviewScrollOffset: 0,
       },
       refreshInspection: true,
     };
@@ -762,6 +769,7 @@ function moveLeftSelection(state: ControlShellState, direction: -1 | 1, leftItem
         selectedDiffPath: null,
         fileScrollOffset: 0,
         diffScrollOffset: 0,
+        reviewScrollOffset: 0,
       },
       refreshInspection: true,
     };
@@ -780,6 +788,7 @@ function moveLeftSelection(state: ControlShellState, direction: -1 | 1, leftItem
         selectedDiffPath: null,
         fileScrollOffset: 0,
         diffScrollOffset: 0,
+        reviewScrollOffset: 0,
       },
       refreshInspection: true,
     };
@@ -825,6 +834,10 @@ export function scrollInspectionContent(state: ControlShellState, delta: number,
       return next.changed ? { ...next, state: { ...next.state, diffScrollOffset: 0 } } : next;
     }
 
+    if (state.inspectionMode === "review") {
+      return updateScrollOffset(state, "reviewScrollOffset", delta, options.reviewRowCount ?? 100, options.pageRows);
+    }
+
     return result({ state });
   }
 
@@ -857,6 +870,7 @@ function setInspectionMode(state: ControlShellState, mode: InspectionMode): Main
       openInspectionKind,
       fileScrollOffset: mode === "files" ? 0 : state.fileScrollOffset,
       diffScrollOffset: mode === "diff" ? 0 : state.diffScrollOffset,
+      reviewScrollOffset: mode === "review" ? 0 : state.reviewScrollOffset,
       actionMessage: null,
     },
     changed: true,
@@ -922,7 +936,7 @@ function toggleCollapsedFileTreePath(state: ControlShellState): ControlShellStat
 
 function updateScrollOffset(
   state: ControlShellState,
-  key: "fileScrollOffset" | "diffScrollOffset",
+  key: "fileScrollOffset" | "diffScrollOffset" | "reviewScrollOffset",
   delta: number,
   lineCount: number,
   visibleRows = 10,

@@ -694,6 +694,36 @@ describe("terminal shell control state", () => {
     expect(sync.state.selectedActionId).toBe("refresh-checks");
   });
 
+  test("keeps footer toast during control navigation", () => {
+    const state = {
+      ...seededState(),
+      footerToast: "Refreshed checks: 2 reported",
+    };
+
+    const next = reduceMainKey(state, "TAB", KEY_OPTIONS);
+
+    expect(next.changed).toBe(true);
+    expect(next.state.footerToast).toBe("Refreshed checks: 2 reported");
+  });
+
+  test("page and wheel scroll review rows while review inspector is focused", () => {
+    const review = {
+      ...seededState(),
+      focusedRegion: "inspector" as const,
+      inspectionMode: "review" as const,
+      reviewScrollOffset: 0,
+    };
+
+    const paged = reduceMainKey(review, "PAGE_DOWN", { ...KEY_OPTIONS, reviewRowCount: 30, pageRows: 8 });
+    const wheeled = reduceMainKey(paged.state, "MOUSE_WHEEL_UP", { ...KEY_OPTIONS, reviewRowCount: 30, pageRows: 8 });
+
+    expect(paged.changed).toBe(true);
+    expect(paged.state.reviewScrollOffset).toBe(8);
+    expect(wheeled.changed).toBe(true);
+    expect(wheeled.state.reviewScrollOffset).toBe(5);
+    expect(wheeled.state.selectedActionId).toBe(review.selectedActionId);
+  });
+
   test("scrolls selected file and diff content while center is focused", () => {
     const files = {
       ...reduceMainKey(seededState(), "TAB", KEY_OPTIONS).state,

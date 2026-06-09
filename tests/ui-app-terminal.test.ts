@@ -33,6 +33,7 @@ describe("terminal app PTY attach flow", () => {
   });
 
   afterEach(async () => {
+    vi.useRealTimers();
     restoreProperty(process.stdin, "isTTY", stdinDescriptor);
     restoreProperty(process.stdout, "isTTY", stdoutDescriptor);
     process.env.PATH = originalPath;
@@ -228,6 +229,78 @@ describe("terminal app PTY attach flow", () => {
     expect(terminal.frames.join("\n")).toContain("+ new tab");
   });
 
+  test("boot start renders a restored hydrated agent tab without prompting to attach", async () => {
+    const root = await mkdtemp(join(tmpdir(), "craig-ui-app-"));
+    tempRoots.push(root);
+    const paths = await setupWorkspace(root);
+    await writeFile(
+      paths.uiStateFile,
+      JSON.stringify({
+        version: 1,
+        selectedRepoId: "repo_a",
+        selectedWorkspaceId: "workspace_repo_a",
+        selectedTaskId: "task_20260430_02",
+        selectedPtyTabId: "task_20260430_02:agent",
+        inputMode: "control",
+        focusedRegion: "center",
+        activeTab: "agent",
+        selectedActionId: "commit",
+        updatedAt: "2026-05-04T00:00:00.000Z",
+      }),
+    );
+    const terminal = new FakeTerminal();
+    const ptyRuntime = new FakePtyRuntime();
+    const app = startTerminalApp({ terminal, ptyRuntime, uiStateFile: paths.uiStateFile, workspaceRoot: root });
+    await vi.waitFor(() => expect(terminal.hasKeyListener()).toBe(true));
+
+    terminal.emitKey("ENTER");
+    await vi.waitFor(() => expect(stripAnsi(terminal.frames.at(-1) ?? "")).toContain("task_20260430_02 task_20260430_02:ag"));
+
+    expect(stripAnsi(terminal.frames.at(-1) ?? "")).not.toContain("Press Enter on the AGENT tab to attach");
+    expect(ptyRuntime.ensureSession).not.toHaveBeenCalled();
+    terminal.emitKey("q");
+
+    await expect(app).resolves.toBe(0);
+  });
+
+  test("boot start renders the active agent tab even when the persisted selected PTY tab is stale", async () => {
+    const root = await mkdtemp(join(tmpdir(), "craig-ui-app-"));
+    tempRoots.push(root);
+    const paths = await setupWorkspace(root);
+    await writeTask(paths, {
+      ...(await readTask(paths, "task_20260430_02")),
+      selectedPtyTabId: "task_20260430_02:agent",
+    });
+    await writeFile(
+      paths.uiStateFile,
+      JSON.stringify({
+        version: 1,
+        selectedRepoId: "repo_a",
+        selectedWorkspaceId: "workspace_repo_a",
+        selectedTaskId: "task_20260430_02",
+        selectedPtyTabId: "task_20260430_02:missing",
+        inputMode: "control",
+        focusedRegion: "center",
+        activeTab: "agent",
+        selectedActionId: "commit",
+        updatedAt: "2026-05-04T00:00:00.000Z",
+      }),
+    );
+    const terminal = new FakeTerminal();
+    const ptyRuntime = new FakePtyRuntime();
+    const app = startTerminalApp({ terminal, ptyRuntime, uiStateFile: paths.uiStateFile, workspaceRoot: root });
+    await vi.waitFor(() => expect(terminal.hasKeyListener()).toBe(true));
+
+    terminal.emitKey("ENTER");
+    await vi.waitFor(() => expect(stripAnsi(terminal.frames.at(-1) ?? "")).toContain("task_20260430_02 task_20260430_02:ag"));
+
+    expect(stripAnsi(terminal.frames.at(-1) ?? "")).not.toContain("Press Enter on the AGENT tab to attach");
+    expect(ptyRuntime.ensureSession).not.toHaveBeenCalled();
+    terminal.emitKey("q");
+
+    await expect(app).resolves.toBe(0);
+  });
+
   test("boot start prunes stale daemon sessions not in the active task list", async () => {
     const root = await mkdtemp(join(tmpdir(), "craig-ui-app-"));
     tempRoots.push(root);
@@ -242,6 +315,7 @@ describe("terminal app PTY attach flow", () => {
       "task_20260430_02:agent",
       "task_20260430_02:terminal",
     ]));
+    await vi.waitFor(() => expect(stripAnsi(terminal.frames.at(-1) ?? "")).toContain("+ New Task"));
     terminal.emitKey("q");
 
     await expect(app).resolves.toBe(0);
@@ -261,6 +335,7 @@ describe("terminal app PTY attach flow", () => {
 
     terminal.emitKey("ENTER");
     await vi.waitFor(() => expect(callOrder).toEqual(["prune", "hydrate"]));
+    await vi.waitFor(() => expect(stripAnsi(terminal.frames.at(-1) ?? "")).toContain("+ New Task"));
     terminal.emitKey("q");
 
     await expect(app).resolves.toBe(0);
@@ -288,6 +363,7 @@ describe("terminal app PTY attach flow", () => {
 
     terminal.emitKey("ENTER");
     await vi.waitFor(() => expect(ptyRuntime.pruneStale).toHaveBeenCalledWith([]));
+    await vi.waitFor(() => expect(stripAnsi(terminal.frames.at(-1) ?? "")).toContain("+ New Task"));
     terminal.emitKey("q");
 
     await expect(app).resolves.toBe(0);
@@ -1288,6 +1364,7 @@ describe("terminal app PTY attach flow", () => {
   });
 
   test("review refresh discovers an externally-created PR for the task branch", async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
     const root = await mkdtemp(join(tmpdir(), "craig-ui-app-"));
     tempRoots.push(root);
     const paths = await setupWorkspace(root);
@@ -1320,7 +1397,13 @@ describe("terminal app PTY attach flow", () => {
     terminal.emitKey("RIGHT"); // review
     await vi.waitFor(() => expect(stripAnsi(terminal.frames.at(-1) ?? "")).toContain("R refresh checks"));
     terminal.emitKey("R");
-    await vi.waitFor(() => expect(stripAnsi(terminal.frames.at(-1) ?? "")).toContain("Discovered PR: #23"));
+    await vi.waitFor(() => expect(stripAnsi(terminal.frames.at(-1) ?? "")).toContain("#23"));
+    expect(stripAnsi(terminal.frames.at(-1) ?? "")).toContain("✓ Refreshed checks: 1 reported");
+    expect(stripAnsi(terminal.frames.at(-1) ?? "")).not.toContain("Discovered PR");
+    terminal.emitKey("LEFT"); // files
+    expect(stripAnsi(terminal.frames.at(-1) ?? "")).toContain("✓ Refreshed checks: 1 reported");
+    await vi.advanceTimersByTimeAsync(3100);
+    await vi.waitFor(() => expect(stripAnsi(terminal.frames.at(-1) ?? "")).not.toContain("✓ Refreshed checks: 1 reported"));
     terminal.emitKey("q");
 
     await expect(app).resolves.toBe(0);
@@ -1359,7 +1442,11 @@ describe("terminal app PTY attach flow", () => {
     await vi.waitFor(() => expect(terminal.hasKeyListener()).toBe(true));
 
     terminal.emitKey("\r"); // boot start
-    await vi.waitFor(() => expect(stripAnsi(terminal.frames.at(-1) ?? "")).toContain("Discovered PR: #24"), { timeout: 2500 });
+    await vi.waitFor(async () => {
+      const updatedTask = await readTask(paths, task.id);
+      expect(updatedTask.prs[0]?.number).toBe(24);
+    }, { timeout: 2500 });
+    expect(stripAnsi(terminal.frames.at(-1) ?? "")).not.toContain("Discovered PR");
     terminal.emitKey("q");
 
     await expect(app).resolves.toBe(0);
@@ -1609,6 +1696,87 @@ describe("terminal app PTY attach flow", () => {
       "docs:skipped",
     ]);
     expect(updatedTask.status).toBe("merge_ready");
+    expect(ptyRuntime.ensureSession).not.toHaveBeenCalled();
+  });
+
+  test("review refresh dedupes stale cancelled checks and captures review blockers and comments", async () => {
+    const root = await mkdtemp(join(tmpdir(), "craig-ui-app-"));
+    tempRoots.push(root);
+    const paths = await setupWorkspace(root);
+    const { task, stubDir } = await preparePrTask(paths, tempRoots);
+    process.env.PATH = `${stubDir}:${originalPath}`;
+    await writeTask(paths, {
+      ...task,
+      status: "pr_open",
+      prs: [{
+        provider: "github",
+        owner: null,
+        repo: null,
+        number: 17,
+        url: "https://github.com/example/repo/pull/17",
+        title: null,
+        status: "open",
+        draft: false,
+        baseBranch: "main",
+        headBranch: task.branch,
+        mergeable: false,
+        mergeStateStatus: "UNKNOWN",
+        requiredChecks: [{ name: "ci", status: "failed", conclusion: "CANCELLED" }],
+        createdAt: null,
+        updatedAt: null,
+        mergedAt: null,
+        lastSyncedAt: "2026-05-04T00:00:00.000Z",
+        lastSyncedHeadSha: task.lastCommit?.sha ?? null,
+      }],
+    });
+    const viewFile = join(root, "gh-view.json");
+    await writeFile(
+      viewFile,
+      JSON.stringify({
+        number: 17,
+        url: "https://github.com/example/repo/pull/17",
+        baseRefName: "main",
+        headRefName: task.branch,
+        headRefOid: task.lastCommit?.sha,
+        state: "OPEN",
+        mergeable: "MERGEABLE",
+        mergeStateStatus: "REVIEW_REQUIRED",
+        reviewDecision: "REVIEW_REQUIRED",
+        statusCheckRollup: [
+          { context: "ci", state: "COMPLETED", conclusion: "CANCELLED", completedAt: "2026-05-04T00:01:00.000Z" },
+          { context: "ci", state: "SUCCESS", conclusion: "SUCCESS", completedAt: "2026-05-04T00:02:00.000Z" },
+        ],
+        comments: [
+          {
+            author: { login: "octocat" },
+            bodyText: "Please get another approval before merging.",
+            createdAt: "2026-05-04T00:03:00.000Z",
+            url: "https://github.com/example/repo/pull/17#issuecomment-1",
+          },
+        ],
+      }),
+      "utf8",
+    );
+    process.env.CRAIG_TEST_GH_VIEW_FILE = viewFile;
+    const terminal = new FakeTerminal();
+    const ptyRuntime = new FakePtyRuntime();
+    const app = startTerminalApp({ terminal, ptyRuntime, uiStateFile: paths.uiStateFile, workspaceRoot: root });
+    await vi.waitFor(() => expect(terminal.hasKeyListener()).toBe(true));
+
+    terminal.emitKey("\r"); // boot start
+    terminal.emitKey("TAB"); // inspector
+    terminal.emitKey("RIGHT"); // review
+    await vi.waitFor(() => expect(stripAnsi(terminal.frames.at(-1) ?? "")).toContain("#17"));
+    terminal.emitKey("R");
+    await vi.waitFor(() => expect(stripAnsi(terminal.frames.at(-1) ?? "")).toContain("Refreshed checks: 1 reported"));
+    terminal.emitKey("q");
+
+    await expect(app).resolves.toBe(0);
+    const updatedTask = await readTask(paths, task.id);
+    expect(updatedTask.status).toBe("pr_open");
+    expect(updatedTask.prs[0]?.requiredChecks).toEqual([{ name: "ci", status: "success", conclusion: "SUCCESS" }]);
+    expect(updatedTask.prs[0]?.reviewDecision).toBe("REVIEW_REQUIRED");
+    expect(updatedTask.prs[0]?.comments?.[0]?.body).toBe("Please get another approval before merging.");
     expect(ptyRuntime.ensureSession).not.toHaveBeenCalled();
   });
 

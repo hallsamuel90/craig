@@ -1,6 +1,6 @@
 import { readFile } from "node:fs/promises";
 
-import type { ProjectTaskRepoTarget, RunnerSession, RunnerType, TaskPR, TaskPtyTabRecord, TaskPullRequest, TaskRecord } from "../types/task.js";
+import type { ProjectTaskRepoTarget, RunnerSession, RunnerType, TaskPR, TaskPtyTabRecord, TaskPullRequest, TaskPullRequestComment, TaskPullRequestReviewDecision, TaskRecord } from "../types/task.js";
 import type { CraigPaths } from "./craig-paths.js";
 import { atomicWriteJson } from "./atomic-write.js";
 import { readCraigIndex, writeCraigIndex } from "./state-store.js";
@@ -407,7 +407,9 @@ function normalizeLegacyPrs(candidate: Partial<TaskRecord> & { pullRequest?: Tas
       headBranch: legacy.headBranch ?? null,
       mergeable: legacy.mergeable ?? false,
       mergeStateStatus: legacy.mergeStateStatus ?? null,
+      reviewDecision: null,
       requiredChecks: normalizeLegacyPrChecks(legacy.requiredChecks),
+      comments: [],
       createdAt: null,
       updatedAt: null,
       mergedAt: null,
@@ -432,7 +434,9 @@ function normalizeLegacyPr(value: unknown): TaskPR {
     headBranch: candidate.headBranch ?? null,
     mergeable: candidate.mergeable ?? false,
     mergeStateStatus: candidate.mergeStateStatus ?? null,
+    reviewDecision: normalizeLegacyReviewDecision(candidate.reviewDecision),
     requiredChecks: normalizeLegacyPrChecks(candidate.requiredChecks),
+    comments: normalizeLegacyPrComments(candidate.comments),
     createdAt: candidate.createdAt ?? null,
     updatedAt: candidate.updatedAt ?? null,
     mergedAt: candidate.mergedAt ?? null,
@@ -446,6 +450,35 @@ function normalizeLegacyPrStatus(status: string | null | undefined): TaskPR["sta
     return status;
   }
   return null;
+}
+
+function normalizeLegacyReviewDecision(value: unknown): TaskPullRequestReviewDecision {
+  if (value === "APPROVED" || value === "CHANGES_REQUESTED" || value === "REVIEW_REQUIRED") {
+    return value;
+  }
+  return null;
+}
+
+function normalizeLegacyPrComments(value: unknown): TaskPullRequestComment[] {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+
+  return value.flatMap((comment) => {
+    if (typeof comment !== "object" || comment === null) {
+      return [];
+    }
+    const candidate = comment as Partial<TaskPullRequestComment>;
+    if (typeof candidate.body !== "string" || !candidate.body.trim()) {
+      return [];
+    }
+    return [{
+      author: typeof candidate.author === "string" ? candidate.author : null,
+      body: candidate.body,
+      createdAt: typeof candidate.createdAt === "string" ? candidate.createdAt : null,
+      url: typeof candidate.url === "string" ? candidate.url : null,
+    }];
+  });
 }
 
 function normalizeLegacyPrChecks(

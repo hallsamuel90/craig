@@ -413,9 +413,12 @@ function buildDefaultPullRequest(): TaskPullRequest {
     baseBranch: null,
     headBranch: null,
     status: null,
+    draft: false,
     mergeable: false,
     mergeStateStatus: null,
+    reviewDecision: null,
     requiredChecks: [],
+    comments: [],
     lastSyncedAt: null,
     lastSyncedHeadSha: null,
   };

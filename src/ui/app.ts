@@ -30,7 +30,7 @@ import {
 } from "../services/runner-profiles.js";
 import { runCommand } from "../utils/exec.js";
 import { requireExecutablePath, withDefaultCommandPath } from "../utils/command-path.js";
-import { buildShellData, type WorkspaceShellModel } from "./shell-data.js";
+import { buildShellData, getReviewInspectionRowCount, type WorkspaceShellModel } from "./shell-data.js";
 import { getViewport, SHELL_LAYOUT, type Viewport } from "./layout.js";
 import type { PtyRuntimeOptions, PtySize } from "./pty-runtime.js";
 import { createDaemonPtyRuntime } from "./pty-daemon.js";
@@ -177,6 +177,7 @@ export async function startTerminalApp(options: TerminalAppOptions = {}): Promis
     let scrollRenderTimer: ReturnType<typeof setTimeout> | null = null;
     let inspectionScrollRenderTimer: ReturnType<typeof setTimeout> | null = null;
     let ptyRenderTimer: ReturnType<typeof setTimeout> | null = null;
+    let footerToastTimer: ReturnType<typeof setTimeout> | null = null;
     let prPollTimer: ReturnType<typeof setInterval> | null = null;
     let prPollInFlight = false;
     let versionText: string | null = `Craig v${getCurrentVersion()}`;
@@ -204,7 +205,24 @@ export async function startTerminalApp(options: TerminalAppOptions = {}): Promis
     };
 
     function withTerminalView(shell: ControlShellState): ControlShellState {
-      return updateTerminalViewState(shell, ptyRuntime.getViewState(shell.selectedPtyTabId));
+      return updateTerminalViewState(shell, ptyRuntime.getViewState(resolveTerminalViewTabId(shell)));
+    }
+
+    function resolveTerminalViewTabId(shell: ControlShellState): string | null {
+      const selectedTask = getSelectedTask(shell);
+      if (!selectedTask) {
+        return shell.selectedPtyTabId;
+      }
+
+      if (selectedTask.ptyTabs.some((tab) => tab.id === shell.activeTab)) {
+        return shell.activeTab;
+      }
+
+      if (shell.activeTab === "agent" || shell.activeTab === "terminal") {
+        return selectedTask.ptyTabs.find((tab) => tab.kind === shell.activeTab)?.id ?? shell.selectedPtyTabId;
+      }
+
+      return shell.selectedPtyTabId;
     }
 
     function syncShell(nextShell: ControlShellState): ControlShellState {
@@ -229,9 +247,30 @@ export async function startTerminalApp(options: TerminalAppOptions = {}): Promis
             return;
           }
 
-          state = { mode: "main", shell: withTerminalView(state.shell) };
+          state = { mode: "main", shell: syncShell(state.shell) };
           render();
         });
+    }
+
+    function setFooterToast(shell: ControlShellState, footerToast: string | null): ControlShellState {
+      if (footerToastTimer) {
+        clearTimeout(footerToastTimer);
+        footerToastTimer = null;
+      }
+      if (!footerToast) {
+        return { ...shell, footerToast: null };
+      }
+
+      footerToastTimer = setTimeout(() => {
+        footerToastTimer = null;
+        if (state.mode !== "main" || state.shell.footerToast !== footerToast) {
+          return;
+        }
+        state = { mode: "main", shell: syncShell({ ...state.shell, footerToast: null }) };
+        render();
+      }, 3000);
+
+      return { ...shell, footerToast };
     }
 
     function queueTaskMutation<T>(mutation: () => Promise<T>): Promise<T> {
@@ -260,6 +299,7 @@ export async function startTerminalApp(options: TerminalAppOptions = {}): Promis
         diffPathRanges: [],
         fileLineCount: selectedInspection?.selectedFile.lines.length ?? 0,
         diffLineCount: selectedInspection?.selectedDiff.lines.length ?? 0,
+        reviewRowCount: getReviewInspectionRowCount(shell, selectedTask),
         pageRows: Math.max(5, getViewport(activeTerminal.width, activeTerminal.height).height - SHELL_LAYOUT.topRailHeight - 9),
         enabledRunnerIds,
         projectTargetIds: selectedTask?.repoTargets?.map((t) => t.repoId) ?? [],
@@ -526,27 +566,27 @@ export async function startTerminalApp(options: TerminalAppOptions = {}): Promis
       }
 
       const selectedTask = getSelectedTask(syncedShell);
-      let actionMessage: string;
+      let actionMessage: string | null = null;
+      let footerToast: string | null = null;
 
       if (selectedTask?.type === "project" && selectedTask.repoTargets?.length) {
         const counts = await discoverOrRefreshAllProjectPullRequests(paths, syncedShell.selectedTaskId);
         await reloadModel();
         const total = counts.synced + counts.discovered + counts.notFound;
-        actionMessage = counts.discovered > 0
-          ? `Discovered ${counts.discovered} PR${counts.discovered !== 1 ? "s" : ""}  ·  ${counts.synced} refreshed`
-          : `Refreshed ${counts.synced}/${total} targets`;
+        footerToast = `Refreshed ${counts.synced}/${total} targets`;
       } else {
         const { disposition, task } = await discoverOrRefreshPullRequest(paths, syncedShell.selectedTaskId);
         await reloadModel();
         actionMessage = disposition === "not_found"
           ? `No PR found for ${task.branch}`
-          : disposition === "discovered"
-            ? `Discovered PR: #${getTaskPrimaryPr(task)?.number} ${getTaskPrimaryPr(task)?.url ?? ""}`
-            : `Refreshed checks: ${getTaskPrimaryPr(task)?.requiredChecks.length ?? 0} reported`;
+          : null;
+        if (disposition !== "not_found") {
+          footerToast = `Refreshed checks: ${getTaskPrimaryPr(task)?.requiredChecks.length ?? 0} reported`;
+        }
       }
 
       return syncShell({
-        ...syncedShell,
+        ...setFooterToast(syncedShell, footerToast),
         focusedRegion: "inspector",
         inspectionMode: "review",
         selectedActionId: "refresh-checks",
@@ -559,21 +599,11 @@ export async function startTerminalApp(options: TerminalAppOptions = {}): Promis
         return;
       }
 
-      const selectedTaskId = state.shell.selectedTaskId;
       const tasksToPoll = model.tasks;
       prPollInFlight = true;
 
       try {
-        let actionMessage = state.shell.actionMessage;
-
-        const pollResults = await discoverOrRefreshPullRequests(paths, tasksToPoll);
-        const selectedResult = pollResults.find((result) => result.taskId === selectedTaskId);
-        const selectedTask = tasksToPoll.find((task) => task.id === selectedTaskId);
-        if (selectedResult && !selectedResult.hadPr && selectedResult.discovered > 0) {
-          actionMessage = selectedTask?.type === "project"
-            ? `Discovered ${selectedResult.discovered} PR${selectedResult.discovered !== 1 ? "s" : ""}`
-            : `Discovered PR: #${selectedResult.firstDiscoveredPrNumber} ${selectedResult.firstDiscoveredPrUrl ?? ""}`;
-        }
+        await discoverOrRefreshPullRequests(paths, tasksToPoll);
 
         if (state.mode !== "main") {
           return;
@@ -582,10 +612,7 @@ export async function startTerminalApp(options: TerminalAppOptions = {}): Promis
         model = await loadWorkspaceShellModel(workspaceRoot, state.shell, enabledRunnerIds);
         state = {
           mode: "main",
-          shell: syncShell({
-            ...state.shell,
-            actionMessage,
-          }),
+          shell: syncShell(state.shell),
         };
         render();
       } catch {
@@ -757,6 +784,10 @@ export async function startTerminalApp(options: TerminalAppOptions = {}): Promis
       if (ptyRenderTimer) {
         clearTimeout(ptyRenderTimer);
         ptyRenderTimer = null;
+      }
+      if (footerToastTimer) {
+        clearTimeout(footerToastTimer);
+        footerToastTimer = null;
       }
       if (prPollTimer) {
         clearInterval(prPollTimer);
