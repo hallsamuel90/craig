@@ -92,8 +92,9 @@ jobs:
           git commit -m "Version packages"
           git push --force-with-lease origin HEAD:release/version-packages
 
-          if gh pr view release/version-packages --json number >/dev/null 2>&1; then
-            gh pr edit release/version-packages \
+          version_pr_number="$(gh pr list --head release/version-packages --state open --json number --jq '.[0].number // ""')"
+          if [ -n "$version_pr_number" ]; then
+            gh pr edit "$version_pr_number" \
               --title "Version packages" \
               --body "Automated Changesets version updates for the next craig-cli release."
           else
@@ -102,9 +103,15 @@ jobs:
               --head release/version-packages \
               --title "Version packages" \
               --body "Automated Changesets version updates for the next craig-cli release."
+            version_pr_number="$(gh pr list --head release/version-packages --state open --json number --jq '.[0].number // ""')"
           fi
 
-          gh pr merge release/version-packages --auto --squash --delete-branch
+          if [ -z "$version_pr_number" ]; then
+            echo "Failed to find or create release/version-packages PR"
+            exit 1
+          fi
+
+          gh pr merge "$version_pr_number" --auto --squash --delete-branch
           echo "created=true" >> "$GITHUB_OUTPUT"
 
       - name: Publish package
