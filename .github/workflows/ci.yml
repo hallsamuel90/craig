@@ -10,6 +10,8 @@ jobs:
   ci:
     name: ci
     runs-on: ubuntu-latest
+    env:
+      SOCKET_SECURITY_API_KEY: ${{ secrets.SOCKET_SECURITY_API_KEY }}
 
     steps:
       - name: Check out repository
@@ -27,10 +29,16 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
+      - name: Verify Socket API key
+        run: |
+          if [ -z "$SOCKET_SECURITY_API_KEY" ]; then
+            echo "::error::SOCKET_SECURITY_API_KEY is unavailable. Add it as a Dependabot secret as well as an Actions secret."
+            exit 1
+          fi
+
       - name: Run Socket security scan
         run: pnpm security:socket
         env:
-          SOCKET_SECURITY_API_KEY: ${{ secrets.SOCKET_SECURITY_API_KEY }}
           SOCKET_CLI_GITHUB_TOKEN: ${{ github.token }}
 
       - name: Run tests
