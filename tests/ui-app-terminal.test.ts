@@ -263,6 +263,45 @@ describe("terminal app PTY attach flow", () => {
     await expect(app).resolves.toBe(0);
   });
 
+  test("boot start warms the restored agent tab when the daemon has no hydrated rows", async () => {
+    const root = await mkdtemp(join(tmpdir(), "craig-ui-app-"));
+    tempRoots.push(root);
+    const paths = await setupWorkspace(root);
+    await writeFile(
+      paths.uiStateFile,
+      JSON.stringify({
+        version: 1,
+        selectedRepoId: "repo_a",
+        selectedWorkspaceId: "workspace_repo_a",
+        selectedTaskId: "task_20260430_02",
+        selectedPtyTabId: "task_20260430_02:agent",
+        inputMode: "control",
+        focusedRegion: "center",
+        activeTab: "agent",
+        selectedActionId: "commit",
+        updatedAt: "2026-05-04T00:00:00.000Z",
+      }),
+    );
+    const terminal = new FakeTerminal();
+    const ptyRuntime = new FakePtyRuntime({ hydrateRows: false });
+    const app = startTerminalApp({ terminal, ptyRuntime, uiStateFile: paths.uiStateFile, workspaceRoot: root });
+    await vi.waitFor(() => expect(terminal.hasKeyListener()).toBe(true));
+
+    terminal.emitKey("ENTER");
+    await vi.waitFor(() => expect(ptyRuntime.ensureSession).toHaveBeenCalledWith(
+      "task_20260430_02",
+      "task_20260430_02:agent",
+      expect.objectContaining({ columns: expect.any(Number) }),
+    ));
+
+    expect(stripAnsi(terminal.frames.at(-1) ?? "")).toContain("task_20260430_02 task_20260430_02:ag");
+    expect(stripAnsi(terminal.frames.at(-1) ?? "")).not.toContain("Press Enter on the AGENT tab to attach");
+    await vi.waitFor(async () => expect(JSON.parse(await readFile(paths.uiStateFile, "utf8")).inputMode).toBe("control"));
+    terminal.emitKey("q");
+
+    await expect(app).resolves.toBe(0);
+  });
+
   test("boot start renders the active agent tab even when the persisted selected PTY tab is stale", async () => {
     const root = await mkdtemp(join(tmpdir(), "craig-ui-app-"));
     tempRoots.push(root);
@@ -2492,9 +2531,19 @@ class FakeTerminal implements TerminalRuntime {
 
 class FakePtyRuntime implements PtyRuntimePort {
   private readonly hydratedTabIds = new Set<string>();
+  private readonly hydrateRows: boolean;
   private scrollbackLines = 0;
+
+  constructor(options: { hydrateRows?: boolean } = {}) {
+    this.hydrateRows = options.hydrateRows ?? true;
+  }
+
   ensureSession = vi.fn((taskId: string, tabId: string): TerminalViewState => this.getRunningView(taskId, tabId));
   hydrateSessions = vi.fn((tabIds: string[]) => {
+    if (!this.hydrateRows) {
+      return;
+    }
+
     for (const tabId of tabIds) {
       this.hydratedTabIds.add(tabId);
     }

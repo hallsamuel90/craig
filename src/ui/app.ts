@@ -256,6 +256,29 @@ export async function startTerminalApp(options: TerminalAppOptions = {}): Promis
         });
     }
 
+    async function warmSelectedPtyTab(shell: ControlShellState): Promise<ControlShellState> {
+      const syncedShell = syncShell(shell);
+      const selectedTask = getSelectedTask(syncedShell);
+      const tabId = resolveTerminalViewTabId(syncedShell);
+
+      if (!selectedTask || !tabId || !selectedTask.ptyTabs.some((tab) => tab.id === tabId)) {
+        return syncedShell;
+      }
+
+      const hydratedView = ptyRuntime.getViewState(tabId);
+      if (hydratedView.status !== "idle" || hydratedView.rows.length > 0 || hydratedView.error) {
+        return updateTerminalViewState(syncedShell, hydratedView);
+      }
+
+      const view = await ptyRuntime.ensureSession(
+        selectedTask.id,
+        tabId,
+        getPtySize(getViewport(activeTerminal.width, activeTerminal.height)),
+      );
+
+      return updateTerminalViewState({ ...syncedShell, inputMode: "control" }, view);
+    }
+
     function setFooterToast(shell: ControlShellState, footerToast: FooterToast | null): ControlShellState {
       if (footerToastTimer) {
         clearTimeout(footerToastTimer);
@@ -1410,8 +1433,23 @@ export async function startTerminalApp(options: TerminalAppOptions = {}): Promis
             if (state.mode !== "main") {
               return;
             }
-            state = { mode: "main", shell: syncShell(state.shell) };
-            render();
+            const shellBeforeWarm = state.shell;
+            void warmSelectedPtyTab(shellBeforeWarm).then((shell) => {
+              if (state.mode !== "main" || state.shell !== shellBeforeWarm) {
+                return;
+              }
+              state = { mode: "main", shell };
+              persistShellState(state.shell);
+              render();
+            }).catch((error: unknown) => {
+              if (state.mode !== "main" || state.shell !== shellBeforeWarm) {
+                return;
+              }
+              const message = reportRecoverableError("warm selected PTY", error, "Failed to start selected PTY.");
+              state = { mode: "main", shell: applyErrorToast(syncShell(state.shell), message) };
+              persistShellState(state.shell);
+              render();
+            });
           });
         } else {
           hydrateAndRenderOpenPtyTabs();
