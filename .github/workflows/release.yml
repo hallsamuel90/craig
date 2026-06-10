@@ -22,6 +22,8 @@ jobs:
     steps:
       - name: Check out repository
         uses: actions/checkout@v4
+        with:
+          token: ${{ secrets.RELEASE_BOT_TOKEN }}
 
       - name: Set up pnpm
         uses: pnpm/action-setup@v4
@@ -60,17 +62,47 @@ jobs:
       - name: Smoke npm package
         run: pnpm package:smoke
 
-      - name: Commit version updates
+      - name: Open version pull request
+        id: version_pr
+        env:
+          GH_TOKEN: ${{ secrets.RELEASE_BOT_TOKEN }}
         run: |
-          if [ -n "$(git status --porcelain)" ]; then
-            git config user.name "github-actions[bot]"
-            git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-            git add .
-            git commit -m "Version packages [skip ci]"
-            git push origin HEAD:main
+          if [ -z "$(git status --porcelain)" ]; then
+            echo "created=false" >> "$GITHUB_OUTPUT"
+            exit 0
           fi
 
+          unexpected_files="$(git status --porcelain | awk '{print $2}' | grep -Ev '^(\.changeset/.*\.md|packages/cli/package\.json|packages/cli/CHANGELOG\.md)$' || true)"
+          if [ -n "$unexpected_files" ]; then
+            echo "Unexpected files changed by changeset version:"
+            echo "$unexpected_files"
+            exit 1
+          fi
+
+          git config user.name "craig-release-bot"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git switch -c release/version-packages
+          git add .
+          git commit -m "Version packages"
+          git push --force-with-lease origin HEAD:release/version-packages
+
+          if gh pr view release/version-packages --json number >/dev/null 2>&1; then
+            gh pr edit release/version-packages \
+              --title "Version packages" \
+              --body "Automated Changesets version updates for the next craig-cli release."
+          else
+            gh pr create \
+              --base main \
+              --head release/version-packages \
+              --title "Version packages" \
+              --body "Automated Changesets version updates for the next craig-cli release."
+          fi
+
+          gh pr merge release/version-packages --auto --squash --delete-branch
+          echo "created=true" >> "$GITHUB_OUTPUT"
+
       - name: Publish package
+        if: steps.version_pr.outputs.created != 'true'
         run: pnpm exec changeset publish
         env:
           NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
