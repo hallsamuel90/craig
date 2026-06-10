@@ -1,5 +1,11 @@
 # craig-cli
 
+## 0.6.5
+
+### Patch Changes
+
+- 103b0a2: Declare all runtime dependencies in the published package instead of bundling some third-party packages into the CLI artifact.
+
 ## 0.6.4
 
 ### Patch Changes
