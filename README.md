@@ -19,6 +19,8 @@
 
 Craig is a local terminal control plane for repo-backed agent work. The primary interface is the full-screen terminal UI launched with `craig`; command-mode entry points are available for automation and debugging.
 
+This README also serves as a quick smoke-test target for Craig task edits.
+
 ## Install
 
 ```bash
