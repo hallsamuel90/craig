@@ -1,5 +1,11 @@
 # craig-cli
 
+## 0.6.4
+
+### Patch Changes
+
+- 68ceb22: Warm the restored selected PTY tab on shell boot when the daemon has no cached rows, so Craig renders the last selected agent or terminal instead of showing an extra attach prompt.
+
 ## 0.6.3
 
 ### Patch Changes
