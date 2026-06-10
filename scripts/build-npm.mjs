@@ -21,7 +21,7 @@ await build({
   bundle: true,
   minify: true,
   sourcemap: false,
-  external: ["node-pty", "terminal-kit"],
+  external: ["@xterm/headless", "node-pty", "picocolors", "terminal-kit"],
   logLevel: "info",
   define: {
     __CRAIG_VERSION__: JSON.stringify(pkgJson.version),
