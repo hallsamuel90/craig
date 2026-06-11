@@ -7,16 +7,31 @@ const {
   title = "Craig — Mission control for your AI agents",
   description = "Run Codex, Cursor, and Claude across all your repos in parallel, from your terminal.",
 } = Astro.props;
+const canonicalURL = new URL(Astro.url.pathname, "https://craig.beer");
 ---
 
 <html lang="en">
   <head>
     <meta charset="utf-8" />
     <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+    <link rel="canonical" href={canonicalURL} />
     <meta name="viewport" content="width=device-width" />
     <meta name="generator" content={Astro.generator} />
     <meta name="description" content={description} />
     <title>{title}</title>
+
+    <!-- Open Graph -->
+    <meta property="og:type" content="website" />
+    <meta property="og:url" content={canonicalURL} />
+    <meta property="og:title" content={title} />
+    <meta property="og:description" content={description} />
+    <meta property="og:image" content="https://craig.beer/screenshots/agent-working.png" />
+
+    <!-- Twitter Card -->
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta name="twitter:title" content={title} />
+    <meta name="twitter:description" content={description} />
+    <meta name="twitter:image" content="https://craig.beer/screenshots/agent-working.png" />
   </head>
   <body class="bg-[#0a0a0a] text-[#c0caf5] font-mono min-h-screen">
     <slot />
