@@ -236,6 +236,36 @@ describe("terminal shell renderer", () => {
     expect(frame).not.toContain("Press Enter on the AGENT");
   });
 
+  test("keeps the selected workspace browser entry visible in long directory lists", () => {
+    const data = buildShellData(
+      {
+        ...createInitialShellState(null),
+        workspaceBrowser: {
+          cwd: "/tmp/craig",
+          entries: Array.from({ length: 40 }, (_, index) => ({
+            name: `dir-${String(index).padStart(2, "0")}`,
+            path: `/tmp/craig/dir-${String(index).padStart(2, "0")}`,
+            kind: "directory" as const,
+          })),
+          selectedIndex: 34,
+          error: null,
+        },
+      },
+      {
+        workspaceRoot: "/tmp/craig",
+        repos: [],
+        tasks: [],
+        inspection: null,
+      },
+    );
+
+    const frame = renderMainShellFrame({ width: 120, height: 18 }, data, { color: false });
+
+    expect(frame).toContain("BROWSER  new workspace");
+    expect(frame).toContain("▸ dir-34/");
+    expect(frame).not.toContain("  dir-00/");
+  });
+
   test("renders files tab with right-panel file tree and selected file content", () => {
     const task = buildTaskRecord("/tmp/craig", {
       id: "task_20260430_02",

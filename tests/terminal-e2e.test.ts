@@ -9,6 +9,7 @@ import { createCraigState, createGitRepo, writeRepoRecord, writeTaskRecord } fro
 import { runCommand } from "../src/utils/exec.js";
 import { getCraigPaths } from "../src/state/craig-paths.js";
 import { requestDaemonShutdown } from "../src/ui/pty-daemon.js";
+import { resolveExecutablePath } from "../src/utils/command-path.js";
 
 describe("Craig terminal mode E2E", () => {
   test("enters terminal mode and supports detach and reattach", async () => {
@@ -50,7 +51,7 @@ describe("Craig terminal mode E2E", () => {
     const output = new PtyOutputBuffer();
     await writeInitialUiState(workspaceRoot);
 
-    const child = spawn(resolve(repoRoot, "node_modules/.bin/tsx"), [resolve(repoRoot, "src/cli.ts")], {
+    const child = spawn(resolveTestTsxBin(repoRoot), [resolve(repoRoot, "src/cli.ts")], {
       cwd: workspaceRoot,
       cols: 120,
       rows: 36,
@@ -130,7 +131,7 @@ describe("Craig terminal mode E2E", () => {
     await writeAgentUiState(workspaceRoot);
     const output = new PtyOutputBuffer();
 
-    const child = spawn(resolve(repoRoot, "node_modules/.bin/tsx"), [resolve(repoRoot, "src/cli.ts")], {
+    const child = spawn(resolveTestTsxBin(repoRoot), [resolve(repoRoot, "src/cli.ts")], {
       cwd: workspaceRoot,
       cols: 120,
       rows: 36,
@@ -212,7 +213,7 @@ describe("Craig terminal mode E2E", () => {
     await writeAgentUiState(workspaceRoot);
     const output = new PtyOutputBuffer();
 
-    const child = spawn(resolve(repoRoot, "node_modules/.bin/tsx"), [resolve(repoRoot, "src/cli.ts")], {
+    const child = spawn(resolveTestTsxBin(repoRoot), [resolve(repoRoot, "src/cli.ts")], {
       cwd: workspaceRoot,
       cols: 120,
       rows: 36,
@@ -285,7 +286,7 @@ describe("Craig terminal mode E2E", () => {
     await writeLeftPaneTaskUiState(workspaceRoot);
     const output = new PtyOutputBuffer();
 
-    const child = spawn(resolve(repoRoot, "node_modules/.bin/tsx"), [resolve(repoRoot, "src/cli.ts")], {
+    const child = spawn(resolveTestTsxBin(repoRoot), [resolve(repoRoot, "src/cli.ts")], {
       cwd: workspaceRoot,
       cols: 120,
       rows: 36,
@@ -362,7 +363,7 @@ describe("Craig terminal mode E2E", () => {
 
     try {
       const firstOutput = new PtyOutputBuffer();
-      const first = spawn(resolve(repoRoot, "node_modules/.bin/tsx"), [resolve(repoRoot, "src/cli.ts")], {
+      const first = spawn(resolveTestTsxBin(repoRoot), [resolve(repoRoot, "src/cli.ts")], {
         cwd: workspaceRoot,
         cols: 120,
         rows: 36,
@@ -384,7 +385,7 @@ describe("Craig terminal mode E2E", () => {
       await delay(500);
 
       const secondOutput = new PtyOutputBuffer();
-      const second = spawn(resolve(repoRoot, "node_modules/.bin/tsx"), [resolve(repoRoot, "src/cli.ts")], {
+      const second = spawn(resolveTestTsxBin(repoRoot), [resolve(repoRoot, "src/cli.ts")], {
         cwd: workspaceRoot,
         cols: 120,
         rows: 36,
@@ -577,6 +578,10 @@ sleep 5
   );
   await chmod(stubPath, 0o755);
   return stubDir;
+}
+
+function resolveTestTsxBin(repoRoot: string): string {
+  return resolveExecutablePath(resolve(repoRoot, "node_modules/.bin/tsx")) ?? resolveExecutablePath("tsx") ?? resolve(repoRoot, "node_modules/.bin/tsx");
 }
 
 class PtyOutputBuffer {
