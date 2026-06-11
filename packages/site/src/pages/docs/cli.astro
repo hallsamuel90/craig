@@ -1,0 +1,82 @@
+---
+import Docs from "../../layouts/Docs.astro";
+import "../../styles/global.css";
+
+const groups = [
+  {
+    name: "Launch",
+    commands: [
+      { cmd: "craig", desc: "Open the TUI" },
+    ],
+  },
+  {
+    name: "Repos",
+    commands: [
+      { cmd: "craig repo add <path>", desc: "Register a repo with Craig" },
+      { cmd: "craig repo list", desc: "List registered repos" },
+      { cmd: "craig repo remove <repo-id>", desc: "Unregister a repo" },
+    ],
+  },
+  {
+    name: "Workspaces",
+    commands: [
+      { cmd: "craig workspace list", desc: "List workspaces" },
+      { cmd: "craig workspace list --archived", desc: "Include archived workspaces" },
+      { cmd: "craig workspace archive <id>", desc: "Archive a workspace" },
+      { cmd: "craig workspace restore <id>", desc: "Restore an archived workspace" },
+      { cmd: "craig workspace remove <id>", desc: "Delete a workspace" },
+    ],
+  },
+  {
+    name: "Tasks",
+    commands: [
+      { cmd: 'craig task new --repo <id> "<prompt>"', desc: "Create a task (optionally with --runner)" },
+      { cmd: "craig task list", desc: "List all tasks" },
+      { cmd: "craig task list --repo <id>", desc: "List tasks for a specific repo" },
+      { cmd: "craig task show <id>", desc: "Show task details" },
+      { cmd: "craig task attach <id>", desc: "Attach to task PTY" },
+      { cmd: "craig task open <id>", desc: "Open task in TUI" },
+      { cmd: "craig task logs <id>", desc: "Stream task logs" },
+      { cmd: "craig task diff <id>", desc: "Show task diff" },
+      { cmd: "craig task check <id>", desc: "Run configured check commands" },
+      { cmd: "craig task commit <id>", desc: "Commit task changes" },
+      { cmd: "craig task pr <id> [--watch]", desc: "Create PR, optionally watch and merge" },
+      { cmd: "craig task merge <id>", desc: "Merge task PR" },
+    ],
+  },
+  {
+    name: "Links",
+    commands: [
+      { cmd: "craig link add <task-id> <repo-id>", desc: "Link a task to an additional repo" },
+      { cmd: "craig link list <task-id>", desc: "List linked repos for a task" },
+    ],
+  },
+];
+---
+
+<Docs title="CLI Reference">
+  <div class="max-w-3xl mx-auto px-10">
+  <div class="prose">
+    <h1>CLI Reference</h1>
+    <p class="subtitle">Command-mode entry points for scripting and automation.</p>
+  </div>
+
+  {groups.map(({ name, commands }) => (
+    <div class="mb-8">
+      <p class="text-[#c0caf5] font-bold text-sm mb-2">{name}</p>
+      <div class="border border-[#292e42] rounded-lg overflow-hidden">
+        <table class="w-full text-sm">
+          <tbody class="divide-y divide-[#1a1b26]">
+            {commands.map(({ cmd, desc }) => (
+              <tr class="hover:bg-[#06060f] transition-colors">
+                <td class="px-4 py-2.5 w-1/2"><code class="text-[#9ece6a] text-xs">{cmd}</code></td>
+                <td class="px-4 py-2.5 text-[#565f89] text-xs">{desc}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  ))}
+  </div>
+</Docs>

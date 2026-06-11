@@ -1,0 +1,46 @@
+---
+import Docs from "../../layouts/Docs.astro";
+import "../../styles/global.css";
+---
+
+<Docs title="Runners">
+  <div class="max-w-3xl mx-auto px-10">
+  <div class="prose">
+    <h1>Runners</h1>
+    <p class="subtitle">Connect Craig to your preferred AI agent CLI.</p>
+
+    <p>
+      Craig supports <strong>Claude Code</strong>, <strong>Codex</strong>, and <strong>Cursor</strong> as runner backends.
+      Each runner must be installed and available in your <code>PATH</code>.
+    </p>
+
+    <h2>Selecting a runner</h2>
+    <p>When creating a task, Craig presents available runners. You can also specify one explicitly:</p>
+    <pre><code>craig task new --runner claude "your task prompt"</code></pre>
+
+    <h2>Enabling / disabling runners</h2>
+    <p>Configure which runners are available in <code>.craig/config.json</code>:</p>
+    <pre><code>{`{
+  "runners": {
+    "codex":  { "enabled": true },
+    "cursor": { "enabled": true },
+    "claude": { "enabled": false }
+  }
+}`}</code></pre>
+
+    <h2>Custom runner path</h2>
+    <p>
+      If your runner binary isn't on your default <code>PATH</code>, override the path in config.
+      Path changes apply to newly created task sessions.
+    </p>
+    <pre><code>{`{
+  "runners": {
+    "claude": {
+      "enabled": true,
+      "path": "/usr/local/bin/claude"
+    }
+  }
+}`}</code></pre>
+  </div>
+  </div>
+</Docs>

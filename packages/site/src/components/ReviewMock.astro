@@ -1,0 +1,152 @@
+---
+// Animated review panel — CI checks animating to passing, merge ready
+---
+
+<div class="font-mono overflow-hidden rounded-xl border border-[#292e42]" style="background:#06060f;font-size:11.5px;line-height:1.5">
+
+  <!-- Tab bar -->
+  <div class="flex items-center gap-3 border-b border-[#292e42] px-3" style="background:#0a0a0a;color:#565f89;padding-top:6px;padding-bottom:6px">
+    <span>CHANGES</span>
+    <span>FILES</span>
+    <span style="color:#c0caf5;border-bottom:1.5px solid #9ece6a;padding-bottom:2px">REVIEW</span>
+    <span id="rv-mergemark" style="font-size:9px;margin-left:auto;color:#565f89">↓○</span>
+  </div>
+
+  <!-- Content -->
+  <div class="p-4 flex flex-col gap-2">
+
+    <!-- PR title -->
+    <div>
+      <div style="color:#c0caf5;font-weight:600">#42 refactor: extract auth middleware</div>
+      <div style="color:#7aa2f7;font-size:10px;margin-top:2px">Open in GitHub ↗</div>
+    </div>
+
+    <!-- Meta -->
+    <div class="flex flex-col gap-1 pt-2 border-t border-[#292e42]" style="color:#565f89;font-size:10.5px">
+      <div class="flex items-center justify-between">
+        <span>branch</span><span style="color:#c0caf5">refactor-auth-middleware</span>
+      </div>
+      <div class="flex items-center justify-between">
+        <span>base</span><span style="color:#c0caf5">main</span>
+      </div>
+      <div class="flex items-center justify-between">
+        <span>status</span><span id="rv-status" style="color:#565f89">synced 4s ago</span>
+      </div>
+    </div>
+
+    <!-- CI Checks -->
+    <div class="pt-2 border-t border-[#292e42]">
+      <div style="color:#565f89;font-size:10px;letter-spacing:0.08em;margin-bottom:6px">CHECKS</div>
+      <div class="flex flex-col gap-1" style="font-size:10.5px">
+        <div class="flex items-center justify-between">
+          <span id="rv-c1i" style="color:#e0af68">⠋</span>
+          <span style="color:#565f89;flex:1;margin-left:8px">ci / build</span>
+          <span id="rv-c1s" style="color:#565f89">running</span>
+        </div>
+        <div class="flex items-center justify-between">
+          <span id="rv-c2i" style="color:#e0af68">⠹</span>
+          <span style="color:#565f89;flex:1;margin-left:8px">ci / typecheck</span>
+          <span id="rv-c2s" style="color:#565f89">running</span>
+        </div>
+        <div class="flex items-center justify-between">
+          <span id="rv-c3i" style="color:#e0af68">⠼</span>
+          <span style="color:#565f89;flex:1;margin-left:8px">ci / test</span>
+          <span id="rv-c3s" style="color:#565f89">running</span>
+        </div>
+        <div class="flex items-center justify-between">
+          <span id="rv-c4i" style="color:#e0af68">⠴</span>
+          <span style="color:#565f89;flex:1;margin-left:8px">CodeQL</span>
+          <span id="rv-c4s" style="color:#565f89">running</span>
+        </div>
+      </div>
+    </div>
+
+    <!-- Actions -->
+    <div class="pt-2 border-t border-[#292e42] flex flex-col gap-1" style="font-size:10.5px">
+      <div class="flex items-center justify-between" style="color:#565f89">
+        <span>create pr</span><span style="color:#c0caf5">P</span>
+      </div>
+      <div class="flex items-center justify-between" style="color:#565f89">
+        <span>refresh</span><span style="color:#c0caf5">R</span>
+      </div>
+      <div id="rv-merge-row" class="flex items-center justify-between" style="color:#565f89">
+        <span>merge</span><span style="color:#c0caf5">M</span>
+      </div>
+    </div>
+
+  </div>
+</div>
+
+<style>
+  .rv-pass { animation: rvPop 0.2s ease forwards; }
+  @keyframes rvPop { from { transform:scale(0.8);opacity:0 } to { transform:scale(1);opacity:1 } }
+</style>
+
+<script>
+const rvFrames = ['⠋','⠙','⠹','⠸','⠼','⠴','⠦','⠧','⠇','⠏'];
+let rvF = 0;
+const rvChecks = [
+  { icon: 'rv-c1i', status: 'rv-c1s', offset: 0 },
+  { icon: 'rv-c2i', status: 'rv-c2s', offset: 3 },
+  { icon: 'rv-c3i', status: 'rv-c3s', offset: 6 },
+  { icon: 'rv-c4i', status: 'rv-c4s', offset: 8 },
+];
+
+let rvSpinInterval = null;
+
+function rvStartSpin() {
+  rvSpinInterval = setInterval(() => {
+    rvF = (rvF + 1) % rvFrames.length;
+    rvChecks.forEach(({ icon, offset }) => {
+      const el = document.getElementById(icon);
+      if (el && el.style.color === 'rgb(224, 175, 104)') {
+        el.textContent = rvFrames[(rvF + offset) % rvFrames.length];
+      }
+    });
+  }, 100);
+}
+
+function rvPass(checkIdx) {
+  const { icon, status } = rvChecks[checkIdx];
+  const iconEl = document.getElementById(icon);
+  const statusEl = document.getElementById(status);
+  if (iconEl) { iconEl.textContent = '✓'; iconEl.style.color = '#9ece6a'; iconEl.className = 'rv-pass'; }
+  if (statusEl) { statusEl.textContent = 'passing'; statusEl.style.color = '#9ece6a'; }
+}
+
+function rvReset() {
+  rvChecks.forEach(({ icon, status, offset }) => {
+    const iconEl = document.getElementById(icon);
+    const statusEl = document.getElementById(status);
+    if (iconEl) { iconEl.textContent = rvFrames[offset % rvFrames.length]; iconEl.style.color = '#e0af68'; iconEl.className = ''; }
+    if (statusEl) { statusEl.textContent = 'running'; statusEl.style.color = '#565f89'; }
+  });
+  const statusEl = document.getElementById('rv-status');
+  if (statusEl) { statusEl.textContent = 'synced 4s ago'; statusEl.style.color = '#565f89'; }
+  const markEl = document.getElementById('rv-mergemark');
+  if (markEl) { markEl.textContent = '↓○'; markEl.style.color = '#565f89'; }
+}
+
+function rvRun() {
+  rvReset();
+
+  // Checks pass one by one
+  setTimeout(() => rvPass(1), 1200);  // typecheck fast
+  setTimeout(() => rvPass(3), 1800);  // CodeQL fast
+  setTimeout(() => rvPass(2), 3200);  // test takes longer
+  setTimeout(() => rvPass(0), 4800);  // build slowest
+
+  // All passing — show merge ready
+  setTimeout(() => {
+    const statusEl = document.getElementById('rv-status');
+    if (statusEl) { statusEl.textContent = 'merge ready'; statusEl.style.color = '#9ece6a'; }
+    const markEl = document.getElementById('rv-mergemark');
+    if (markEl) { markEl.textContent = '↓✓'; markEl.style.color = '#9ece6a'; }
+  }, 5400);
+
+  setTimeout(rvRun, 9000);
+}
+
+rvStartSpin();
+setTimeout(rvRun, 600);
+</script>

@@ -1,0 +1,66 @@
+---
+import Base from "./Base.astro";
+interface Props {
+  title?: string;
+}
+const { title } = Astro.props;
+
+const nav = [
+  { label: "Overview", href: "/docs" },
+  { label: "Install", href: "/docs/install" },
+  { label: "Quickstart", href: "/docs/quickstart" },
+  { label: "TUI Reference", href: "/docs/tui" },
+  { label: "Runners", href: "/docs/runners" },
+  { label: "Config", href: "/docs/config" },
+  { label: "CLI Reference", href: "/docs/cli" },
+];
+
+const currentPath = Astro.url.pathname;
+---
+
+<Base title={title ? `${title} — Craig Docs` : "Craig Docs"}>
+  <div class="flex min-h-screen">
+    <!-- Sidebar -->
+    <aside class="w-52 shrink-0 border-r border-[#292e42] p-5 sticky top-0 h-screen overflow-y-auto">
+      <div class="flex items-center gap-2 group mb-6">
+        <a href="/" class="text-[#9ece6a] font-bold text-base tracking-tight hover:opacity-80 transition-opacity">craig</a>
+        <a
+          href="/docs/quickstart"
+          class="opacity-[0.15] group-hover:opacity-90 transition-opacity duration-300 flex items-center"
+          title="follow the white rabbit"
+          aria-label="follow the white rabbit"
+        >
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 26 30" width="15" height="18" fill="white" aria-hidden="true">
+            <ellipse cx="8" cy="5" rx="2" ry="6"/>
+            <ellipse cx="12" cy="4" rx="1.8" ry="5.5"/>
+            <circle cx="10" cy="14" r="5"/>
+            <circle cx="15" cy="22" r="7.5"/>
+            <circle cx="22" cy="18" r="2.5"/>
+            <ellipse cx="8" cy="29" rx="3.5" ry="1.5"/>
+            <ellipse cx="19" cy="29" rx="4" ry="1.5"/>
+          </svg>
+        </a>
+      </div>
+      <nav class="space-y-0.5">
+        <p class="text-xs text-[#565f89] uppercase tracking-widest mb-2">Docs</p>
+        {nav.map((item) => (
+          <a
+            href={item.href}
+            class={`block px-2.5 py-1.5 rounded text-sm transition-colors ${
+              currentPath === item.href
+                ? "bg-[#1a1b26] text-[#c0caf5]"
+                : "text-[#565f89] hover:text-[#c0caf5] hover:bg-[#1a1b26]/50"
+            }`}
+          >
+            {item.label}
+          </a>
+        ))}
+      </nav>
+    </aside>
+
+    <!-- Content -->
+    <main class="flex-1 py-10 overflow-y-auto">
+      <slot />
+    </main>
+  </div>
+</Base>
