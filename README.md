@@ -1,6 +1,6 @@
 <div align="center">
 <pre>
-   ▄████▄   ██▀███   ▄▄▄       ██▓  ▄████
+  ▄████▄   ██▀███   ▄▄▄       ██▓  ▄████
   ▒██▀ ▀█  ▓██ ▒ ██▒▒████▄    ▓██▒ ██▒ ▀█▒
   ▒▓█    ▄ ▓██ ░▄█ ▒▒██  ▀█▄  ▒██▒▒██░▄▄▄░
   ▒▓▓▄ ▄██▒▒██▀▀█▄  ░██▄▄▄▄██ ░██░░▓█  ██▓
@@ -9,15 +9,26 @@
     ░  ▒     ░▒ ░ ▒░  ▒   ▒▒ ░ ▒ ░  ░   ░
   ░          ░░   ░   ░   ▒    ▒ ░░ ░   ░
   ░ ░         ░           ░  ░ ░        ░
-  ░
 
          crAIg is that you?
+
 </pre>
+
+**An agnostic agent orchestrator. For the people.**
+
+[![npm](https://img.shields.io/npm/v/craig-cli)](https://www.npmjs.com/package/craig-cli)
+[![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
+[![Node 22+](https://img.shields.io/badge/node-22%2B-brightgreen)](https://nodejs.org)
+
+[craig.beer](https://craig.beer) · [Docs](https://craig.beer/docs) · [Quickstart](https://craig.beer/docs/quickstart)
+
 </div>
 
-# Craig
+---
 
-Craig is a local terminal control plane for repo-backed agent work. The primary interface is the full-screen terminal UI launched with `craig`; command-mode entry points are available for automation and debugging.
+Craig is a full-screen TUI that lets you run multiple AI agents across multiple repos at the same time — each in its own isolated git worktree, each with a live PTY, all from one terminal. Spin up Claude, Codex, and Cursor simultaneously. Watch them cook. Review diffs, run checks, and merge PRs without ever leaving Craig.
+
+it's like a game, except the PRs are real.
 
 ## Install
 
@@ -25,56 +36,39 @@ Craig is a local terminal control plane for repo-backed agent work. The primary 
 npm install -g craig-cli
 ```
 
-Craig requires Node 22 or newer.
+Requires Node 22+, `git`, and `gh` (authenticated). Bring your own agent CLI — Claude Code, Codex, or Cursor.
 
-External tools:
-
-- `git` for repo, branch, and worktree operations
-- `gh` authenticated with GitHub for PR, check, and merge flows
-- an agent CLI such as Codex, Cursor, or Claude
-
-## Start Craig
-
-Run Craig from the workspace where you want `.craig/` state to live:
+## Start
 
 ```bash
 cd path/to/your/workspace
 craig
 ```
 
-The TUI opens with a boot overlay, then a workspace shell with task navigation, center work tabs, and an inspector panel.
+The TUI opens with a boot overlay, then a three-panel workspace: task navigation on the left, live agent PTY in the center, file/diff/review inspector on the right.
 
-Craig stores task records, worktrees, runtime UI state, logs, and review metadata under `.craig/`.
+Craig writes all local state under `.craig/` — worktrees, logs, task records, PR metadata. Don't commit it.
 
-## TUI Workflow
+## Workflow
 
-1. Launch `craig`.
-2. Add or select a workspace/repo from the left side. You can also pre-register one with `craig repo add <path>`.
-3. Press `n` to create a task from the TUI.
-4. Type the task prompt and press `Enter`.
-5. Craig creates the branch, task worktree, and agent tab.
-6. Press `Enter` on an agent or terminal tab to attach the live PTY.
-7. Use `Ctrl+]` to return from terminal mode to Craig control mode.
-8. Use the Files, Changes, and Review inspector modes to inspect work without leaving Craig.
+1. Press `n` to create a task — type a prompt, pick a runner, press `Enter`.
+2. Craig creates the branch, worktree, and agent tab automatically.
+3. Press `Enter` on the task to attach its live PTY. `Ctrl+]` to return to control mode.
+4. Use the **Files**, **Changes**, and **Review** inspector panels to check the diff and CI status.
+5. `craig task pr <task-id> --watch` — creates the PR and waits for checks before merging.
 
-## Project Workspaces
+## Polyrepo support
 
-A project workspace spans multiple repos under a shared root directory. Craig discovers all direct child repos automatically and treats them as a single unit of work.
-
-When you create a task in a project workspace, Craig provisions a worktree for each repo and bundles them under a shared bundle root. The agent runs once with access to all worktrees simultaneously, making cross-repo changes in a single pass.
+Point Craig at a directory containing multiple repos and it treats them as a single workspace. Create a task once — Craig provisions a worktree for each repo and runs the agent across all of them in one pass.
 
 ```bash
-cd path/to/your/projects   # directory containing repo-a/, repo-b/, repo-c/
-craig                       # Craig discovers child repos on startup
+cd path/to/your/projects   # contains repo-a/, repo-b/, repo-c/
+craig
 ```
-
-In the TUI, project workspaces show a `▦` icon in the left panel with a `Repos (N)` summary beneath. Press `n` on a project workspace to create a project task.
-
-The Review panel for a project task shows per-repo PR and check state in a single view — one row per repo target with its PR lifecycle icon and check rollup. Action dispatch (creating PRs, merging) is handled by the agent, which has direct access to all worktrees through the bundle root.
 
 ## TUI Keys
 
-```text
+```
 Global
   ?             help
   Esc           pause / back
@@ -84,16 +78,12 @@ Global
 
 Navigation
   Up/Down, j/k  move selection
-  Left/Right,
-  h/l           switch tabs or inspector mode
+  Left/Right, h/l  switch tabs or inspector mode
 
 Tasks
   n             new task
   Enter         attach selected task PTY
   X             close selected task
-
-Workspaces
-  X             remove selected empty workspace
 
 Center panel
   Enter         attach PTY
@@ -109,33 +99,25 @@ Review
 
 Terminal mode
   Ctrl+]        return to control mode
-  Wheel,
-  PgUp/PgDn     scroll terminal
+  Wheel, PgUp/PgDn  scroll terminal
 ```
 
-## Command Mode
-
-Use command mode when scripting, debugging, or working outside the TUI.
+## Command mode
 
 ```bash
-craig
-
 craig repo add <path>
 craig repo list
 craig repo remove <repo-id>
 
 craig workspace list
-craig workspace list --archived
 craig workspace archive <workspace-id>
 craig workspace restore <workspace-id>
 craig workspace remove <workspace-id>
 
 craig task new --repo <repo-id> [--runner codex|cursor|claude] "<task>"
 craig task list
-craig task list --repo <repo-id>
 craig task show <task-id>
 craig task attach <task-id>
-craig task open <task-id>
 craig task logs <task-id>
 craig task diff <task-id>
 craig task check <task-id>
@@ -147,9 +129,9 @@ craig link add <task-id> <repo-id>
 craig link list <task-id>
 ```
 
-## Configuration
+## Config
 
-Craig reads optional workspace-local config from `.craig/config.json`.
+Optional workspace-local config at `.craig/config.json`:
 
 ```json
 {
@@ -168,37 +150,11 @@ Craig reads optional workspace-local config from `.craig/config.json`.
 }
 ```
 
-`checks.commands` defines commands for `craig task check`. `runners.<id>` controls whether Codex, Cursor, or Claude appears as a task runner and can override that runner's executable path. Runner path changes apply to newly created task sessions.
+## Contributing
 
-## Local State
+Craig is open source under MIT, but not a community-maintained project. Bug reports and focused questions are welcome. PRs should be discussed with the maintainer first — unsolicited PRs may be closed without review.
 
-Craig writes local state under `.craig/`:
-
-```text
-.craig/
-  artifacts/
-  logs/
-  runtime/
-  tasks/
-  workspaces/
-  worktrees/
-```
-
-Treat `.craig/` as private developer state. It can contain task prompts, terminal logs, local paths, branch names, PR metadata, runtime state, and worktrees. Do not commit `.craig/` or share it in public issues.
-
-Craig does not run a hosted service or upload `.craig/` state by itself. Commands that use external tools, such as `gh` or an agent CLI, follow the behavior and authentication model of those tools.
-
-## Open Source and Contributions
-
-Craig is open source under the MIT license, but it is not currently a community-maintained project.
-
-Issues are welcome for reproducible bugs, installation problems, and focused questions. Pull requests are not generally accepted unless they were discussed with the maintainer first, and unsolicited PRs may be closed without review.
-
-See [CONTRIBUTING.md](CONTRIBUTING.md) for the contribution policy and [SECURITY.md](SECURITY.md) for private vulnerability reporting guidance.
-
-## License
-
-MIT.
+See [CONTRIBUTING.md](CONTRIBUTING.md) and [SECURITY.md](SECURITY.md).
 
 ## Development
 

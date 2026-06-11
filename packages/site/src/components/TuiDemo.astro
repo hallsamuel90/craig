@@ -1,0 +1,252 @@
+---
+// Animated TUI mockup
+---
+
+<div class="tui font-mono overflow-hidden rounded-xl border border-[#292e42]" style="background:#06060f;font-size:11.5px;line-height:1.5">
+
+  <!-- Top rail -->
+  <div class="flex items-center justify-between border-b border-[#292e42]" style="background:#0a0a0a;padding:3px 10px">
+    <div class="flex items-center gap-2 overflow-hidden" style="color:#565f89;min-width:0">
+      <span style="color:#9ece6a;font-weight:700;letter-spacing:0.06em;flex-shrink:0">CRAIG</span>
+      <span style="flex-shrink:0">|</span>
+      <span class="truncate" style="color:#565f89">~/projects/my-app/.craig/worktrees/repo_my-app_01</span>
+      <span style="flex-shrink:0">|</span>
+      <span style="color:#c0caf5;flex-shrink:0">refactor-api-routes</span>
+      <span style="flex-shrink:0">|</span>
+      <span style="color:#565f89;flex-shrink:0">claude</span>
+      <span style="color:#9ece6a;flex-shrink:0">● live</span>
+    </div>
+    <div class="flex items-center gap-3 flex-shrink-0 ml-4" style="color:#565f89;font-size:10px">
+      <span>CHANGES</span>
+      <span style="color:#c0caf5;text-decoration:underline;text-underline-offset:3px">FILES</span>
+      <span>REVIEW</span>
+      <span style="color:#565f89">○○</span>
+    </div>
+  </div>
+
+  <!-- Body -->
+  <div class="flex" style="height:400px">
+
+    <!-- Left panel -->
+    <div class="flex-shrink-0 flex flex-col border-r border-[#292e42] overflow-hidden" style="width:108px;background:#06060f">
+      <div class="px-1.5 pt-1.5 pb-0.5" style="color:#565f89;font-size:8.5px;letter-spacing:0.12em">WORKSPACES</div>
+
+      <!-- workspace: my-app -->
+      <div class="px-2 py-px" style="color:#7aa2f7;font-size:10px">my-app</div>
+
+      <div class="flex items-center justify-between px-1.5 py-px" style="background:#1a1b26;color:#c0caf5">
+        <span class="truncate" style="padding-left:8px">refactor routes</span>
+        <span class="flex-shrink-0 ml-1" style="color:#9ece6a;font-size:8.5px">running ●</span>
+      </div>
+      <div class="flex items-center px-1.5 py-px" style="color:#565f89;padding-left:14px">
+        <span class="truncate">fix auth bug</span>
+        <span style="color:#9ece6a;margin-left:4px;font-size:9px">●</span>
+      </div>
+      <div class="px-2 py-px" style="color:#3b4261;font-size:9.5px">+ New Task [claude]</div>
+
+      <!-- workspace: api-service -->
+      <div class="px-2 py-px mt-1" style="color:#7aa2f7;font-size:10px">api-service</div>
+      <div class="flex items-center gap-1 px-1.5 py-px" style="color:#565f89;padding-left:14px">
+        <span id="spin" style="color:#e0af68">⠋</span><span class="truncate">update deps</span>
+      </div>
+      <div class="flex items-center gap-1 px-1.5 py-px" style="color:#565f89;padding-left:14px">
+        <span id="spin2" style="color:#e0af68">⠹</span><span class="truncate">add search</span>
+      </div>
+      <div class="px-2 py-px" style="color:#3b4261;font-size:9.5px">+ New Task [codex]</div>
+
+      <!-- workspace: frontend -->
+      <div class="px-2 py-px mt-1" style="color:#7aa2f7;font-size:10px">frontend</div>
+      <div class="flex items-center px-1.5 py-px" style="color:#565f89;padding-left:14px">
+        <span class="truncate">dark mode</span>
+        <span style="color:#9ece6a;margin-left:4px;font-size:9px">●</span>
+      </div>
+      <div class="flex items-center px-1.5 py-px" style="color:#565f89;padding-left:14px">
+        <span class="truncate">perf audit</span>
+        <span style="color:#9ece6a;margin-left:4px;font-size:9px">●</span>
+      </div>
+      <div class="px-2 py-px" style="color:#3b4261;font-size:9.5px">+ New Task [cursor]</div>
+
+      <div class="mt-auto px-2 py-1" style="color:#3b4261;font-size:9.5px">+ New Workspace</div>
+    </div>
+
+    <!-- Center panel -->
+    <div class="flex-1 flex flex-col overflow-hidden min-w-0" style="background:#06060f">
+
+      <!-- Tab bar -->
+      <div class="flex items-end border-b border-[#292e42] px-2 pt-1" style="color:#565f89;background:#0a0a0a;gap:0">
+        <div class="px-3 pb-0.5" style="color:#9ece6a;border-bottom:1.5px solid #9ece6a;font-size:10.5px">CLAUDE</div>
+        <div class="px-3 pb-0.5" style="font-size:10.5px">TERMINAL</div>
+        <div class="px-2 pb-0.5 ml-1" style="font-size:10.5px">+</div>
+        <div class="ml-2 pb-0.5 truncate" style="color:#3b4261;font-size:9px">task_20260609_01 · my-app</div>
+      </div>
+
+      <!-- PTY output area -->
+      <div id="pty" class="flex-1 px-3 pt-2 pb-1 overflow-hidden flex flex-col" style="color:#c0caf5;gap:0"></div>
+
+      <!-- Prompt input bar -->
+      <div class="border-t border-[#292e42] flex items-center px-3" style="background:#080810;padding-top:7px;padding-bottom:7px;min-height:32px">
+        <span style="color:#9ece6a;margin-right:6px">❯</span>
+        <span id="prompt-text" style="color:#c0caf5"></span><span id="prompt-cursor" style="color:#9ece6a;animation:blink 1s step-end infinite">█</span>
+      </div>
+    </div>
+
+    <!-- Right panel -->
+    <div class="flex-shrink-0 border-l border-[#292e42] flex flex-col overflow-hidden" style="width:150px;background:#06060f">
+      <div class="px-2 py-1 border-b border-[#292e42]" style="color:#565f89;font-size:8.5px;letter-spacing:0.08em">task_20260609_01 · my-app</div>
+      <div class="flex-1 px-2 pt-1 overflow-hidden flex flex-col" style="color:#565f89;gap:2px;font-size:10.5px">
+        <div class="flex items-center gap-1"><span style="color:#7aa2f7">▸</span> src</div>
+        <div class="flex items-center gap-1" style="padding-left:12px"><span style="color:#7aa2f7">▾</span> routes</div>
+        <div style="padding-left:24px;color:#9ece6a">api.ts</div>
+        <div style="padding-left:24px;color:#9ece6a">auth.ts</div>
+        <div style="padding-left:24px">users.ts</div>
+        <div class="flex items-center gap-1" style="padding-left:12px"><span style="color:#7aa2f7">▸</span> middleware</div>
+        <div style="padding-left:24px;color:#9ece6a">auth.ts</div>
+        <div style="padding-left:12px">types.ts</div>
+        <div style="padding-left:12px">index.ts</div>
+        <div class="flex items-center gap-1 mt-0.5"><span style="color:#7aa2f7">▸</span> tests</div>
+        <div class="mt-0.5">package.json</div>
+        <div>tsconfig.json</div>
+        <div>README.md</div>
+        <div style="color:#565f89;margin-top:1px">.gitignore</div>
+      </div>
+    </div>
+
+  </div>
+
+  <!-- Footer -->
+  <div class="flex items-center justify-between border-t border-[#292e42]" style="background:#0a0a0a;color:#565f89;font-size:9px;padding:3px 10px">
+    <div class="flex items-center gap-3">
+      <span><span style="color:#9ece6a">●</span> claude</span>
+      <span><span style="color:#9ece6a">●</span> codex</span>
+      <span>○ cursor</span>
+    </div>
+    <div class="flex items-center gap-3">
+      <span>n new task</span>
+      <span>Enter attach</span>
+      <span>X close task</span>
+      <span>Esc pause</span>
+      <span>? help</span>
+    </div>
+  </div>
+
+</div>
+
+<style>
+  .pty-line { animation: fi 0.08s ease forwards; }
+  @keyframes fi { from { opacity:0 } to { opacity:1 } }
+  @keyframes blink { 0%,100% { opacity:1 } 50% { opacity:0 } }
+</style>
+
+<script>
+const spinFrames = ['⠋','⠙','⠹','⠸','⠼','⠴','⠦','⠧','⠇','⠏'];
+let sf = 0;
+setInterval(() => {
+  sf = (sf + 1) % spinFrames.length;
+  const s1 = document.getElementById('spin');
+  const s2 = document.getElementById('spin2');
+  if (s1) s1.textContent = spinFrames[sf];
+  if (s2) s2.textContent = spinFrames[(sf + 5) % spinFrames.length];
+}, 100);
+
+const sequences = [
+  {
+    prompt: 'refactor auth middleware',
+    lines: [
+      { t: '> claude --dangerously-skip-permissions', c: '#565f89', d: 0 },
+      { t: '', c: '', d: 300 },
+      { t: '  ✻ Welcome to Claude Code!', c: '#565f89', d: 500 },
+      { t: '', c: '', d: 600 },
+      { t: 'Reading src/routes/api.ts…', c: '#565f89', d: 900 },
+      { t: 'Reading src/routes/auth.ts…', c: '#565f89', d: 1050 },
+      { t: 'Reading src/middleware/auth.ts…', c: '#565f89', d: 1200 },
+      { t: '', c: '', d: 1400 },
+      { t: 'Token verification is duplicated across', c: '#c0caf5', d: 1700 },
+      { t: '3 route files. Extracting shared handler.', c: '#c0caf5', d: 1850 },
+      { t: '', c: '', d: 2050 },
+      { t: '  ✎ Writing src/middleware/auth.ts', c: '#9ece6a', d: 2300 },
+      { t: '  ✎ Writing src/routes/api.ts', c: '#9ece6a', d: 2500 },
+      { t: '  ✎ Writing src/routes/auth.ts', c: '#9ece6a', d: 2700 },
+      { t: '', c: '', d: 2900 },
+      { t: '  ⠿ Running pnpm typecheck…', c: '#565f89', d: 3100 },
+      { t: '  ✓ No errors found', c: '#9ece6a', d: 3700 },
+      { t: '', c: '', d: 3900 },
+      { t: 'Done. 4 files changed.', c: '#7aa2f7', d: 4100 },
+    ],
+  },
+  {
+    prompt: 'add pagination to /api/users',
+    lines: [
+      { t: '> claude --dangerously-skip-permissions', c: '#565f89', d: 0 },
+      { t: '', c: '', d: 300 },
+      { t: 'Reading src/routes/users.ts…', c: '#565f89', d: 600 },
+      { t: 'Reading src/types.ts…', c: '#565f89', d: 750 },
+      { t: '', c: '', d: 900 },
+      { t: 'Adding cursor-based pagination.', c: '#c0caf5', d: 1200 },
+      { t: "I'll update the route and extend the", c: '#c0caf5', d: 1350 },
+      { t: 'ListUsersResponse type.', c: '#c0caf5', d: 1450 },
+      { t: '', c: '', d: 1650 },
+      { t: '  ✎ Writing src/types.ts', c: '#9ece6a', d: 1900 },
+      { t: '  ✎ Writing src/routes/users.ts', c: '#9ece6a', d: 2100 },
+      { t: '', c: '', d: 2300 },
+      { t: '  ⠿ Running pnpm typecheck…', c: '#565f89', d: 2500 },
+      { t: '  ✓ No errors found', c: '#9ece6a', d: 3100 },
+      { t: '  ⠿ Running pnpm test…', c: '#565f89', d: 3300 },
+      { t: '  ✓ 14 tests passed', c: '#9ece6a', d: 4000 },
+      { t: '', c: '', d: 4200 },
+      { t: 'Done. 2 files changed.', c: '#7aa2f7', d: 4400 },
+    ],
+  },
+];
+
+let seqIdx = 0;
+
+function typePrompt(text, cb) {
+  const el = document.getElementById('prompt-text');
+  if (!el) return;
+  el.textContent = '';
+  let i = 0;
+  const interval = setInterval(() => {
+    if (i < text.length) {
+      el.textContent += text[i++];
+    } else {
+      clearInterval(interval);
+      setTimeout(cb, 400);
+    }
+  }, 42);
+}
+
+function clearPrompt() {
+  const el = document.getElementById('prompt-text');
+  if (el) el.textContent = '';
+}
+
+function run() {
+  const seq = sequences[seqIdx % sequences.length];
+  seqIdx++;
+
+  clearPrompt();
+  const pty = document.getElementById('pty');
+  if (!pty) return;
+
+  typePrompt(seq.prompt, () => {
+    clearPrompt();
+    pty.innerHTML = '';
+
+    seq.lines.forEach(({ t, c, d }) => {
+      setTimeout(() => {
+        const div = document.createElement('div');
+        div.className = 'pty-line';
+        div.style.cssText = `color:${c || 'transparent'};min-height:1.5em;white-space:pre`;
+        div.textContent = t || ' ';
+        pty.appendChild(div);
+        while (pty.children.length > 16) pty.removeChild(pty.firstChild);
+      }, d);
+    });
+
+    const lastDelay = seq.lines[seq.lines.length - 1].d;
+    setTimeout(run, lastDelay + 3000);
+  });
+}
+
+setTimeout(run, 600);
+</script>

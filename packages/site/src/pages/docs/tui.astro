@@ -1,0 +1,128 @@
+---
+import Docs from "../../layouts/Docs.astro";
+import "../../styles/global.css";
+---
+
+<Docs title="TUI Reference">
+  <div class="max-w-3xl mx-auto px-10 prose">
+    <h1>TUI Reference</h1>
+    <p class="subtitle">Keyboard shortcuts and panel layout.</p>
+
+    <h2>Layout</h2>
+    <p>
+      Craig's TUI has three zones: a <strong>left panel</strong> for repo and task navigation,
+      a <strong>center area</strong> with tabbed agent and terminal views, and a
+      <strong>right inspector</strong> with Files, Changes, and Review modes.
+    </p>
+  </div>
+  <div class="max-w-6xl mx-auto px-6 my-6"><div class="rounded-xl overflow-hidden border border-[#292e42]">
+    <img src="/screenshots/agent-working.png" alt="Craig TUI three-panel layout" class="w-full block" /></div>
+  </div>
+
+  <div class="max-w-3xl mx-auto px-10">
+    <div class="prose"><h2>Global shortcuts</h2></div>
+    <div class="border border-[#292e42] rounded-lg overflow-hidden text-sm mb-8">
+      <table class="w-full">
+        <thead class="bg-[#06060f] border-b border-[#292e42]">
+          <tr>
+            <th class="text-left px-4 py-2 text-[#565f89] font-medium w-36">Key</th>
+            <th class="text-left px-4 py-2 text-[#565f89] font-medium">Action</th>
+          </tr>
+        </thead>
+        <tbody class="divide-y divide-[#1a1b26]">
+          {[
+            ["?", "Show help"],
+            ["Esc", "Pause / back"],
+            ["Tab", "Cycle panels"],
+            ["q", "Quit"],
+          ].map(([key, action]) => (
+            <tr class="hover:bg-[#06060f] transition-colors">
+              <td class="px-4 py-2"><kbd class="bg-[#1a1b26] border border-[#292e42] rounded px-1.5 py-0.5 text-xs text-[#c0caf5]">{key}</kbd></td>
+              <td class="px-4 py-2 text-[#565f89]">{action}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+
+    <div class="prose"><h2>Tasks panel (left)</h2></div>
+    <div class="border border-[#292e42] rounded-lg overflow-hidden text-sm mb-8">
+      <table class="w-full">
+        <tbody class="divide-y divide-[#1a1b26]">
+          {[
+            ["↑↓ / j k", "Navigate tasks"],
+            ["n", "New task"],
+            ["Enter", "Attach to selected task PTY"],
+          ].map(([key, action]) => (
+            <tr class="hover:bg-[#06060f] transition-colors">
+              <td class="px-4 py-2 w-36"><kbd class="bg-[#1a1b26] border border-[#292e42] rounded px-1.5 py-0.5 text-xs text-[#c0caf5]">{key}</kbd></td>
+              <td class="px-4 py-2 text-[#565f89]">{action}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+
+    <div class="prose"><h2>Center panel</h2></div>
+    <div class="border border-[#292e42] rounded-lg overflow-hidden text-sm mb-8">
+      <table class="w-full">
+        <tbody class="divide-y divide-[#1a1b26]">
+          {[
+            ["← → / h l", "Switch tabs"],
+            ["+", "New tab"],
+            ["a", "Codex tab"],
+            ["t", "Terminal tab"],
+            ["x", "Close tab"],
+            ["Enter", "Attach PTY"],
+          ].map(([key, action]) => (
+            <tr class="hover:bg-[#06060f] transition-colors">
+              <td class="px-4 py-2 w-36"><kbd class="bg-[#1a1b26] border border-[#292e42] rounded px-1.5 py-0.5 text-xs text-[#c0caf5]">{key}</kbd></td>
+              <td class="px-4 py-2 text-[#565f89]">{action}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+
+    <div class="prose"><h2>Inspector panel (right)</h2></div>
+    <div class="border border-[#292e42] rounded-lg overflow-hidden text-sm mb-8">
+      <table class="w-full">
+        <tbody class="divide-y divide-[#1a1b26]">
+          {[
+            ["↑↓ / j k", "Navigate"],
+            ["← → / h l", "Switch mode (Files / Changes / Review)"],
+            ["R", "Sync PR"],
+            ["X", "Close task"],
+          ].map(([key, action]) => (
+            <tr class="hover:bg-[#06060f] transition-colors">
+              <td class="px-4 py-2 w-36"><kbd class="bg-[#1a1b26] border border-[#292e42] rounded px-1.5 py-0.5 text-xs text-[#c0caf5]">{key}</kbd></td>
+              <td class="px-4 py-2 text-[#565f89]">{action}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+
+    <div class="prose"><h2>Terminal mode</h2></div>
+    <div class="border border-[#292e42] rounded-lg overflow-hidden text-sm mb-8">
+      <table class="w-full">
+        <tbody class="divide-y divide-[#1a1b26]">
+          {[
+            ["Ctrl+]", "Return to control mode"],
+            ["Wheel / PgUp / PgDn", "Scroll"],
+          ].map(([key, action]) => (
+            <tr class="hover:bg-[#06060f] transition-colors">
+              <td class="px-4 py-2 w-36"><kbd class="bg-[#1a1b26] border border-[#292e42] rounded px-1.5 py-0.5 text-xs text-[#c0caf5]">{key}</kbd></td>
+              <td class="px-4 py-2 text-[#565f89]">{action}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+
+    <div class="prose"><h2>Pause menu</h2><p>Press <kbd>Esc</kbd> at any time to pause. Your agents keep running in the background.</p></div>
+  </div>
+  <div class="max-w-6xl mx-auto px-6 my-6"><div class="rounded-xl overflow-hidden border border-[#292e42]">
+    <img src="/screenshots/pause-menu.png" alt="Craig pause menu" class="w-full block" /></div>
+  </div>
+</Docs>

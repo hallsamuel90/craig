@@ -1,0 +1,24 @@
+---
+interface Props {
+  title?: string;
+  description?: string;
+}
+const {
+  title = "Craig — Mission control for your AI agents",
+  description = "Run Codex, Cursor, and Claude across all your repos in parallel, from your terminal.",
+} = Astro.props;
+---
+
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+    <meta name="viewport" content="width=device-width" />
+    <meta name="generator" content={Astro.generator} />
+    <meta name="description" content={description} />
+    <title>{title}</title>
+  </head>
+  <body class="bg-[#0a0a0a] text-[#c0caf5] font-mono min-h-screen">
+    <slot />
+  </body>
+</html>

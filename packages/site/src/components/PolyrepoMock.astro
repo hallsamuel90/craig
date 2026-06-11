@@ -1,0 +1,171 @@
+---
+// Animated left-panel mockup — multiple workspaces, tasks running
+---
+
+<div class="font-mono overflow-hidden rounded-xl border border-[#292e42]" style="background:#06060f;font-size:11px;line-height:1.5">
+
+  <!-- Top rail -->
+  <div class="flex items-center justify-between border-b border-[#292e42]" style="background:#0a0a0a;padding:3px 10px">
+    <div class="flex items-center gap-2" style="color:#565f89">
+      <span style="color:#9ece6a;font-weight:700;letter-spacing:0.06em">CRAIG</span>
+      <span>|</span>
+      <span>~/projects</span>
+    </div>
+    <div style="color:#565f89;font-size:9.5px">
+      <span style="color:#9ece6a">● </span>4 tasks running
+    </div>
+  </div>
+
+  <!-- Body -->
+  <div class="flex" style="height:360px">
+
+    <!-- Left panel -->
+    <div class="flex-shrink-0 flex flex-col overflow-y-auto border-r border-[#292e42]" style="width:148px;background:#06060f">
+      <div class="px-2 pt-2 pb-1" style="color:#565f89;font-size:8.5px;letter-spacing:0.12em">WORKSPACES</div>
+
+      <!-- workspace: my-app -->
+      <div class="px-2 py-px" style="color:#7aa2f7;font-size:10px">my-app</div>
+      <div id="pr-task1" class="flex items-center justify-between px-2 py-px" style="background:#1a1b26;color:#c0caf5">
+        <span class="truncate">refactor auth</span>
+        <span style="color:#9ece6a;font-size:8.5px;flex-shrink:0;margin-left:4px">●</span>
+      </div>
+      <div class="flex items-center gap-1 px-2 py-px" style="color:#565f89;padding-left:16px">
+        <span id="pr-s1" style="color:#e0af68">⠋</span><span class="truncate">add pagination</span>
+      </div>
+      <div class="px-2 py-px" style="color:#3b4261;font-size:9.5px">+ New Task [claude]</div>
+
+      <!-- workspace: api-service -->
+      <div class="px-2 py-px mt-1" style="color:#7aa2f7;font-size:10px">api-service</div>
+      <div class="flex items-center justify-between px-2 py-px" style="background:#1a1b26;color:#c0caf5">
+        <span class="truncate">rate limiting</span>
+        <span style="color:#9ece6a;font-size:8.5px;flex-shrink:0;margin-left:4px">●</span>
+      </div>
+      <div class="flex items-center gap-1 px-2 py-px" style="color:#565f89;padding-left:16px">
+        <span id="pr-s2" style="color:#e0af68">⠹</span><span class="truncate">update deps</span>
+      </div>
+      <div class="px-2 py-px" style="color:#3b4261;font-size:9.5px">+ New Task [codex]</div>
+
+      <!-- workspace: frontend -->
+      <div class="px-2 py-px mt-1" style="color:#7aa2f7;font-size:10px">frontend</div>
+      <div class="flex items-center gap-1 px-2 py-px" style="color:#565f89;padding-left:16px">
+        <span id="pr-s3" style="color:#e0af68">⠼</span><span class="truncate">dark mode</span>
+      </div>
+      <div class="flex items-center gap-1 px-2 py-px" style="color:#565f89;padding-left:16px">
+        <span id="pr-s4" style="color:#9ece6a">●</span><span class="truncate">a11y audit</span>
+      </div>
+      <div class="px-2 py-px" style="color:#3b4261;font-size:9.5px">+ New Task [cursor]</div>
+
+      <!-- workspace: infra -->
+      <div class="px-2 py-px mt-1" style="color:#7aa2f7;font-size:10px">infra</div>
+      <div class="flex items-center gap-1 px-2 py-px" style="color:#565f89;padding-left:16px">
+        <span id="pr-s5" style="color:#e0af68">⠴</span><span class="truncate">update tf vars</span>
+      </div>
+      <div class="px-2 py-px" style="color:#3b4261;font-size:9.5px">+ New Task [claude]</div>
+
+      <div class="mt-auto px-2 py-1 border-t border-[#292e42]" style="color:#3b4261;font-size:9.5px">+ New Workspace</div>
+    </div>
+
+    <!-- Center panel -->
+    <div class="flex-1 flex flex-col overflow-hidden min-w-0" style="background:#06060f">
+      <div class="flex items-end border-b border-[#292e42] px-2 pt-1" style="background:#0a0a0a;color:#565f89;gap:0">
+        <div class="px-3 pb-0.5" style="color:#9ece6a;border-bottom:1.5px solid #9ece6a;font-size:10.5px">CLAUDE</div>
+        <div class="px-3 pb-0.5" style="font-size:10.5px">TERMINAL</div>
+        <div class="ml-auto pb-0.5 pr-1 truncate" style="color:#3b4261;font-size:9px">task_01 · my-app</div>
+      </div>
+      <div id="pr-pty" class="flex-1 px-3 pt-2 overflow-hidden flex flex-col" style="color:#c0caf5;gap:0"></div>
+      <div class="border-t border-[#292e42] flex items-center px-3" style="background:#080810;padding-top:6px;padding-bottom:6px">
+        <span style="color:#9ece6a;margin-right:6px">❯</span>
+        <span id="pr-prompt" style="color:#c0caf5"></span><span id="pr-pcursor" style="color:#9ece6a;animation:prBlink 1s step-end infinite">█</span>
+      </div>
+    </div>
+
+  </div>
+
+  <!-- Footer -->
+  <div class="flex items-center justify-between border-t border-[#292e42]" style="background:#0a0a0a;color:#565f89;font-size:9px;padding:3px 10px">
+    <div class="flex items-center gap-3">
+      <span><span style="color:#9ece6a">●</span> claude</span>
+      <span><span style="color:#9ece6a">●</span> codex</span>
+      <span><span style="color:#9ece6a">●</span> cursor</span>
+    </div>
+    <div class="flex items-center gap-3">
+      <span>n new task</span>
+      <span>Enter attach</span>
+      <span>Esc pause</span>
+    </div>
+  </div>
+</div>
+
+<style>
+  @keyframes prBlink { 0%,100% { opacity:1 } 50% { opacity:0 } }
+  .pr-line { animation: prFade 0.07s ease forwards; }
+  @keyframes prFade { from { opacity:0 } to { opacity:1 } }
+</style>
+
+<script>
+const prFrames = ['⠋','⠙','⠹','⠸','⠼','⠴','⠦','⠧','⠇','⠏'];
+let prF = 0;
+setInterval(() => {
+  prF = (prF + 1) % prFrames.length;
+  [['pr-s1',0],['pr-s2',3],['pr-s3',6],['pr-s4',0],['pr-s5',8]].forEach(([id, off]) => {
+    const el = document.getElementById(id);
+    if (el && el.style.color === 'rgb(224, 175, 104)') el.textContent = prFrames[(prF + off) % prFrames.length];
+  });
+}, 100);
+
+const prLines = [
+  { t: '> claude --dangerously-skip-permissions', c: '#565f89', d: 0 },
+  { t: '', c: '', d: 300 },
+  { t: 'Reading src/routes/auth.ts…', c: '#565f89', d: 600 },
+  { t: 'Reading src/middleware/auth.ts…', c: '#565f89', d: 780 },
+  { t: 'Reading src/routes/api.ts…', c: '#565f89', d: 960 },
+  { t: '', c: '', d: 1150 },
+  { t: 'Token verification is duplicated across', c: '#c0caf5', d: 1400 },
+  { t: '3 routes. Extracting shared middleware.', c: '#c0caf5', d: 1550 },
+  { t: '', c: '', d: 1750 },
+  { t: '  ✎ Writing src/middleware/auth.ts', c: '#9ece6a', d: 2000 },
+  { t: '  ✎ Writing src/routes/auth.ts', c: '#9ece6a', d: 2200 },
+  { t: '  ✎ Writing src/routes/api.ts', c: '#9ece6a', d: 2400 },
+  { t: '', c: '', d: 2600 },
+  { t: '  ⠿ Running pnpm typecheck…', c: '#565f89', d: 2800 },
+  { t: '  ✓ No errors found', c: '#9ece6a', d: 3400 },
+  { t: '', c: '', d: 3600 },
+  { t: 'Done. 3 files changed.', c: '#7aa2f7', d: 3800 },
+];
+
+function prTypePrompt(text, cb) {
+  const el = document.getElementById('pr-prompt');
+  if (!el) return;
+  el.textContent = '';
+  let i = 0;
+  const iv = setInterval(() => {
+    if (i < text.length) el.textContent += text[i++];
+    else { clearInterval(iv); setTimeout(cb, 400); }
+  }, 45);
+}
+
+function prRun() {
+  const el = document.getElementById('pr-prompt');
+  if (el) el.textContent = '';
+  prTypePrompt('refactor auth middleware', () => {
+    if (el) el.textContent = '';
+    const pty = document.getElementById('pr-pty');
+    if (!pty) return;
+    pty.innerHTML = '';
+    prLines.forEach(({ t, c, d }) => {
+      setTimeout(() => {
+        const div = document.createElement('div');
+        div.className = 'pr-line';
+        div.style.cssText = `color:${c || 'transparent'};min-height:1.5em;white-space:pre`;
+        div.textContent = t || ' ';
+        pty.appendChild(div);
+        while (pty.children.length > 14) pty.removeChild(pty.firstChild);
+      }, d);
+    });
+    const last = prLines[prLines.length - 1].d;
+    setTimeout(prRun, last + 3500);
+  });
+}
+
+setTimeout(prRun, 800);
+</script>
