@@ -1,5 +1,11 @@
 # craig-cli
 
+## 0.6.6
+
+### Patch Changes
+
+- a740375: Overhaul README with updated copy, tagline, and project links.
+
 ## 0.6.5
 
 ### Patch Changes
