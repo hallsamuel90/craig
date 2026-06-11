@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 
-import { chmod, copyFile, mkdir, readFile, rm } from "node:fs/promises";
+import { chmod, mkdir, readFile, rm } from "node:fs/promises";
 import { dirname, resolve } from "node:path";
 
 import { build } from "esbuild";
@@ -29,4 +29,3 @@ await build({
 });
 
 await chmod(outfile, 0o755);
-await copyFile(resolve(repoRoot, "README.md"), resolve(repoRoot, "packages/cli/README.md"));
