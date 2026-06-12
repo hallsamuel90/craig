@@ -56,7 +56,7 @@
     "@types/terminal-kit": "^2.5.7",
     "@typescript-eslint/eslint-plugin": "^8.30.1",
     "@typescript-eslint/parser": "^8.30.1",
-    "esbuild": "^0.28.0",
+    "esbuild": "^0.28.1",
     "eslint": "^9.25.1",
     "globals": "^16.0.0",
     "socket": "^1.1.118",
