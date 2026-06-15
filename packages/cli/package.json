@@ -1,6 +1,6 @@
 {
   "name": "craig-cli",
-  "version": "0.6.9",
+  "version": "0.6.10",
   "description": "Craig local control plane CLI",
   "license": "MIT",
   "keywords": [

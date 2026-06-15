@@ -1,5 +1,11 @@
 # craig-cli
 
+## 0.6.10
+
+### Patch Changes
+
+- 78a5f15: Keep the selected workspace browser entry visible in long directory lists and allow paging or wheel scrolling while choosing a workspace.
+
 ## 0.6.9
 
 ### Patch Changes
