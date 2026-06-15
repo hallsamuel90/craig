@@ -7,6 +7,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 
 import type { CraigPaths } from "../state/craig-paths.js";
+import { resolveExecutablePath } from "../utils/command-path.js";
 import type { TerminalViewState } from "./state.js";
 import { PtyRuntime, type PtyRuntimeOptions, type PtySessionSpec, type PtySize } from "./pty-runtime.js";
 
@@ -494,8 +495,9 @@ async function waitForCompatibleDaemon(socketPath: string, timeoutMs: number): P
 function getDaemonSpawnCommand(workspaceRoot: string): { command: string; args: string[] } {
   const entrypoint = process.argv[1];
   if (entrypoint?.endsWith(".ts")) {
+    const localTsx = path.resolve(path.dirname(entrypoint), "..", "node_modules", ".bin", "tsx");
     return {
-      command: path.resolve(path.dirname(entrypoint), "..", "node_modules", ".bin", "tsx"),
+      command: resolveExecutablePath("tsx") ?? localTsx,
       args: [entrypoint, "__craig-daemon", workspaceRoot],
     };
   }

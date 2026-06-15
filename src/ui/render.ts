@@ -345,15 +345,18 @@ function toCenterLines(data: ShellData, width: number, height: number, color: bo
   const tabLine: SurfaceLine = {
     text: data.inputMode === "terminal" ? `${tabLineText}${tabLinePadding}${ptyIndicator}` : tabLineText,
   };
-  const lines: SurfaceLine[] = [
+  const headerLines: SurfaceLine[] = [
     tabLine,
     { text: underline, tone: "muted" },
     { text: header },
     emptyLine(),
-    ...body,
   ];
+  const bodyHeight = Math.max(0, height - headerLines.length);
 
-  return fitLines(lines, height);
+  return [
+    ...headerLines,
+    ...fitLinesAroundSelection(body, bodyHeight),
+  ];
 }
 
 function renderTerminalSurface(data: ShellData): SurfaceLine[] {
@@ -581,6 +584,16 @@ function fitLines(lines: SurfaceLine[], height: number): SurfaceLine[] {
   }
 
   return clamped;
+}
+
+function fitLinesAroundSelection(lines: SurfaceLine[], height: number): SurfaceLine[] {
+  const selectedIndex = lines.findIndex((line) => line.tone === "selected" || line.tone === "focused");
+  if (selectedIndex === -1 || lines.length <= height) {
+    return fitLines(lines, height);
+  }
+
+  const start = clamp(selectedIndex - Math.floor(height / 2), 0, Math.max(0, lines.length - height));
+  return fitLines(lines.slice(start), height);
 }
 
 function emptyLine(): SurfaceLine {

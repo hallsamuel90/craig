@@ -1036,23 +1036,7 @@ export async function startTerminalApp(options: TerminalAppOptions = {}): Promis
         return;
       }
 
-      if (key === "UP" || key === "k") {
-        state = {
-          mode: "main",
-          shell: syncShell({
-            ...state.shell,
-            workspaceBrowser: {
-              ...browser,
-              selectedIndex: Math.max(0, browser.selectedIndex - 1),
-              error: null,
-            },
-          }),
-        };
-        render();
-        return;
-      }
-
-      if (key === "DOWN" || key === "j") {
+      const updateBrowserSelection = (delta: number): void => {
         const maxIndex = Math.max(0, browser.entries.length - 1);
         state = {
           mode: "main",
@@ -1060,12 +1044,41 @@ export async function startTerminalApp(options: TerminalAppOptions = {}): Promis
             ...state.shell,
             workspaceBrowser: {
               ...browser,
-              selectedIndex: Math.min(maxIndex, browser.selectedIndex + 1),
+              selectedIndex: Math.max(0, Math.min(maxIndex, browser.selectedIndex + delta)),
               error: null,
             },
           }),
         };
         render();
+      };
+
+      if (key === "UP" || key === "k") {
+        updateBrowserSelection(-1);
+        return;
+      }
+
+      if (key === "DOWN" || key === "j") {
+        updateBrowserSelection(1);
+        return;
+      }
+
+      if (key === "PAGE_UP") {
+        updateBrowserSelection(-getShellKeyOptions(state.shell).pageRows);
+        return;
+      }
+
+      if (key === "PAGE_DOWN") {
+        updateBrowserSelection(getShellKeyOptions(state.shell).pageRows);
+        return;
+      }
+
+      if (key === "MOUSE_WHEEL_UP") {
+        updateBrowserSelection(-3);
+        return;
+      }
+
+      if (key === "MOUSE_WHEEL_DOWN") {
+        updateBrowserSelection(3);
         return;
       }
 

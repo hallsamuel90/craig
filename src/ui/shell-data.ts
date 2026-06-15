@@ -404,23 +404,29 @@ function buildCenterTranscript(
   workspace: WorkspaceRecord | null = null,
 ): ShellCenterLine[] {
   if (browser) {
-    const entryLines =
+    const entryLines: ShellCenterLine[] =
       browser.entries.length === 0
-        ? ["No directories or git repos here."]
+        ? [{ text: "No directories or git repos here.", tone: "muted" }]
         : browser.entries.map((entry, index) => {
             const marker = index === browser.selectedIndex ? "▸" : " ";
             const suffix = entry.kind === "repo" ? " [git repo]" : "/";
-            return `${marker} ${entry.name}${suffix}`;
+            return {
+              text: `${marker} ${entry.name}${suffix}`,
+              tone: index === browser.selectedIndex ? "selected" : "default",
+            };
           });
 
-    return textLines([
-      "Browse for a workspace to register.",
-      browser.cwd,
-      "",
+    return [
+      { text: "Browse for a workspace to register." },
+      { text: browser.cwd, tone: "muted" },
+      { text: "" },
       ...entryLines,
-      "",
-      browser.error ?? "Use ↑↓ to move, → or Enter to open, ← to go up, Enter on a git repo to add it.",
-    ]);
+      { text: "" },
+      {
+        text: browser.error ?? "Use ↑↓ to move, → or Enter to open, ← to go up, Enter on a git repo to add it.",
+        tone: browser.error ? "default" : "muted",
+      },
+    ];
   }
 
   if (!repo) {
