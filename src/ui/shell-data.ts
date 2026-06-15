@@ -175,7 +175,7 @@ export function buildShellData(state: ControlShellState, model: WorkspaceShellMo
     terminal: state.terminal,
     footerText:
       state.workspaceBrowser !== null
-        ? `BROWSE WORKSPACE ${state.workspaceBrowser.cwd}   ↑↓ move   → open   ← up   Enter add repo   Esc cancel`
+        ? `BROWSE WORKSPACE ${state.workspaceBrowser.cwd}   / search   ↑↓ move   → open   ← up   Enter add repo   Esc cancel`
         : state.taskPromptInput !== null
         ? `NEW TASK ${selectedRepo ? `[${selectedRepo.name}]` : "[no repo]"} · ${getRunnerDisplayName(state.selectedRunner)}   Ctrl+R switch runner   Enter create   Esc cancel   ›   ${state.taskPromptInput}${state.taskPromptError ? `   ✗ ${state.taskPromptError}` : ""}`
         : state.inputMode === "terminal"
@@ -200,7 +200,7 @@ export function buildShellData(state: ControlShellState, model: WorkspaceShellMo
             ? "↑↓ targets   Wheel/PgUp/PgDn scroll   R refresh checks   X close task   ←/→ mode   Esc pause   ? help"
             : "Wheel/PgUp/PgDn scroll   R refresh checks   X close task   ←/→ mode   Esc pause   ? help"
           : state.inspectionMode === "files"
-          ? "↑↓ navigate   Enter open file   ←/→ mode   Esc pause   ? help"
+          ? "/ search   ↑↓ navigate   Enter open file   ←/→ mode   Esc pause   ? help"
           : "↑↓ navigate   ←/→ mode   Esc pause   ? help",
     topRail: {
       workspacePath: path.relative(process.env.HOME ?? "", model.workspaceRoot).length > 0
@@ -404,10 +404,12 @@ function buildCenterTranscript(
   workspace: WorkspaceRecord | null = null,
 ): ShellCenterLine[] {
   if (browser) {
+    const visibleEntries = getWorkspaceBrowserVisibleEntries(browser);
+    const queryLine = browser.query !== null ? `Search: ${browser.query}` : "";
     const entryLines: ShellCenterLine[] =
-      browser.entries.length === 0
+      visibleEntries.length === 0
         ? [{ text: "No directories or git repos here.", tone: "muted" }]
-        : browser.entries.map((entry, index) => {
+        : visibleEntries.map((entry, index) => {
             const marker = index === browser.selectedIndex ? "▸" : " ";
             const suffix = entry.kind === "repo" ? " [git repo]" : "/";
             return {
@@ -419,11 +421,12 @@ function buildCenterTranscript(
     return [
       { text: "Browse for a workspace to register." },
       { text: browser.cwd, tone: "muted" },
+      { text: queryLine, tone: "muted" },
       { text: "" },
       ...entryLines,
       { text: "" },
       {
-        text: browser.error ?? "Use ↑↓ to move, → or Enter to open, ← to go up, Enter on a git repo to add it.",
+        text: browser.error ?? "Use / to search, ↑↓ to move, → or Enter to open, ← to go up, Enter on a git repo to add it.",
         tone: browser.error ? "default" : "muted",
       },
     ];
@@ -1357,9 +1360,10 @@ function buildFileInspectionRows(state: ControlShellState, inspection: TaskLocal
   }
 
   const changedPaths = new Map(inspection.diffRows.map((row) => [row.path, row.status]));
-  const visibleRows = getVisibleFileTreeRows(inspection.fileRows, state.collapsedFileTreePaths);
+  const searchActive = state.fileSearchQuery !== null;
+  const visibleRows = searchActive ? getFileSearchRows(inspection.fileRows, state.fileSearchQuery ?? "") : getVisibleFileTreeRows(inspection.fileRows, state.collapsedFileTreePaths);
   const selectedTreePath = state.selectedFileTreePath ?? inspection.selectedFilePath;
-  return visibleRows.map((row) => {
+  const rows = visibleRows.map((row) => {
     const gitStatus = row.kind === "file" ? changedPaths.get(row.path) : undefined;
     const color = gitStatus === "A" ? "9ece6a"
       : gitStatus === "M" ? "e0af68"
@@ -1370,19 +1374,25 @@ function buildFileInspectionRows(state: ControlShellState, inspection: TaskLocal
       ? (state.collapsedFileTreePaths.includes(row.path) ? DIR_ICON_CLOSED : DIR_ICON_OPEN)
       : getFileIcon(row.label);
     const iconColor = row.kind === "file" ? getFileIconColor(row.label) : undefined;
-    const indent = "  ".repeat(row.depth);
+    const indent = searchActive ? "" : "  ".repeat(row.depth);
+    const label = searchActive && row.kind === "file" ? row.path : row.label;
     const iconSegment: TerminalRowSegment = iconColor ? { text: icon, style: { fg: iconColor } } : { text: icon };
-    const labelSegment: TerminalRowSegment = color ? { text: row.label, style: { fg: color } } : { text: row.label };
+    const labelSegment: TerminalRowSegment = color ? { text: label, style: { fg: color } } : { text: label };
     const segments: TerminalRowSegment[] = [{ text: indent }, iconSegment, labelSegment];
     return {
       id: row.path,
-      text: `${indent}${icon}${row.label}`,
+      text: `${indent}${icon}${label}`,
       selected: row.path === selectedTreePath,
       focused: row.path === selectedTreePath && state.focusedRegion === "inspector",
-      muted: row.kind === "directory",
+      muted: !searchActive && row.kind === "directory",
       segments,
     };
   });
+
+  return [
+    { id: "file-search", text: searchActive ? `Search: ${state.fileSearchQuery}` : "", muted: true },
+    ...(searchActive && rows.length === 0 ? [{ id: "file-search-empty", text: "No matching files.", muted: true }] : rows),
+  ];
 }
 
 function getVisibleFileTreeRows(rows: TaskLocalInspection["fileRows"], collapsedPaths: string[]): TaskLocalInspection["fileRows"] {
@@ -1396,6 +1406,68 @@ function getVisibleFileTreeRows(rows: TaskLocalInspection["fileRows"], collapsed
     }
     return true;
   });
+}
+
+function getFileSearchRows(rows: TaskLocalInspection["fileRows"], query: string): TaskLocalInspection["fileRows"] {
+  const trimmedQuery = query.trim().toLowerCase();
+  const fileRows = rows.filter((row) => row.kind === "file");
+  if (!trimmedQuery) {
+    return fileRows;
+  }
+
+  return fileRows
+    .filter((row) => row.path.toLowerCase().includes(trimmedQuery) || row.label.toLowerCase().includes(trimmedQuery))
+    .sort((left, right) => scoreFileSearchRow(left, trimmedQuery) - scoreFileSearchRow(right, trimmedQuery) || left.path.localeCompare(right.path));
+}
+
+function scoreFileSearchRow(row: Extract<TaskLocalInspection["fileRows"][number], { kind: "file" }>, query: string): number {
+  const lowerPath = row.path.toLowerCase();
+  const lowerLabel = row.label.toLowerCase();
+  if (lowerLabel === query) {
+    return 0;
+  }
+  if (lowerLabel.startsWith(query)) {
+    return 1;
+  }
+  if (lowerLabel.includes(query)) {
+    return 2;
+  }
+  if (lowerPath.startsWith(query)) {
+    return 3;
+  }
+  return 4;
+}
+
+function getWorkspaceBrowserVisibleEntries(browser: WorkspaceBrowserState): WorkspaceBrowserState["entries"] {
+  const trimmedQuery = (browser.query ?? "").trim().toLowerCase();
+  if (!trimmedQuery) {
+    return browser.entries;
+  }
+
+  return browser.entries
+    .filter((entry) => entry.name.toLowerCase().includes(trimmedQuery) || entry.path.toLowerCase().includes(trimmedQuery))
+    .sort((left, right) => scoreWorkspaceBrowserEntry(left, trimmedQuery) - scoreWorkspaceBrowserEntry(right, trimmedQuery) || left.name.localeCompare(right.name));
+}
+
+function scoreWorkspaceBrowserEntry(entry: WorkspaceBrowserState["entries"][number], query: string): number {
+  const lowerName = entry.name.toLowerCase();
+  const lowerPath = entry.path.toLowerCase();
+  if (entry.kind === "repo" && lowerName === query) {
+    return 0;
+  }
+  if (entry.kind === "repo" && lowerName.startsWith(query)) {
+    return 1;
+  }
+  if (lowerName === query) {
+    return 2;
+  }
+  if (lowerName.startsWith(query)) {
+    return 3;
+  }
+  if (lowerName.includes(query)) {
+    return 4;
+  }
+  return lowerPath.startsWith(query) ? 5 : 6;
 }
 
 

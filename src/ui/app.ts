@@ -1028,6 +1028,23 @@ export async function startTerminalApp(options: TerminalAppOptions = {}): Promis
       }
 
       if (key === "ESCAPE") {
+        if (browser.query !== null) {
+          state = {
+            mode: "main",
+            shell: syncShell({
+              ...state.shell,
+              workspaceBrowser: {
+                ...browser,
+                query: null,
+                selectedIndex: 0,
+                error: null,
+              },
+            }),
+          };
+          render();
+          return;
+        }
+
         state = {
           mode: "main",
           shell: syncShell({ ...state.shell, workspaceBrowser: null, actionMessage: null }),
@@ -1037,7 +1054,8 @@ export async function startTerminalApp(options: TerminalAppOptions = {}): Promis
       }
 
       const updateBrowserSelection = (delta: number): void => {
-        const maxIndex = Math.max(0, browser.entries.length - 1);
+        const visibleEntries = getWorkspaceBrowserVisibleEntries(browser);
+        const maxIndex = Math.max(0, visibleEntries.length - 1);
         state = {
           mode: "main",
           shell: syncShell({
@@ -1051,6 +1069,61 @@ export async function startTerminalApp(options: TerminalAppOptions = {}): Promis
         };
         render();
       };
+
+      if (key === "/" && browser.query === null) {
+        state = {
+          mode: "main",
+          shell: syncShell({
+            ...state.shell,
+            workspaceBrowser: {
+              ...browser,
+              query: "",
+              selectedIndex: 0,
+              error: null,
+            },
+          }),
+        };
+        render();
+        return;
+      }
+
+      if (browser.query !== null && key === "BACKSPACE") {
+        const nextQuery = browser.query.slice(0, -1);
+        state = {
+          mode: "main",
+          shell: syncShell({
+            ...state.shell,
+            workspaceBrowser: {
+              ...browser,
+              query: nextQuery,
+              selectedIndex: 0,
+              error: null,
+            },
+          }),
+        };
+        render();
+        return;
+      }
+
+      if (browser.query !== null && isPrintableKey(key)) {
+        const nextQuery = `${browser.query}${key}`;
+        state = {
+          mode: "main",
+          shell: syncShell({
+            ...state.shell,
+            workspaceBrowser: {
+              ...browser,
+              query: nextQuery,
+              selectedIndex: 0,
+              error: null,
+            },
+          }),
+        };
+        render();
+        return;
+      }
+
+      const visibleEntries = getWorkspaceBrowserVisibleEntries(browser);
 
       if (key === "UP" || key === "k") {
         updateBrowserSelection(-1);
@@ -1101,7 +1174,7 @@ export async function startTerminalApp(options: TerminalAppOptions = {}): Promis
       }
 
       if (key === "RIGHT" || key === "l" || isEnterKey(key)) {
-        const selectedEntry = browser.entries[browser.selectedIndex] ?? null;
+        const selectedEntry = visibleEntries[browser.selectedIndex] ?? null;
 
         if (!selectedEntry) {
           return;
@@ -1256,6 +1329,7 @@ export async function startTerminalApp(options: TerminalAppOptions = {}): Promis
                   cwd: workspaceRoot,
                   entries: [],
                   selectedIndex: 0,
+                  query: null,
                   error: message,
                 },
               }), message),
@@ -2193,8 +2267,41 @@ async function loadWorkspaceBrowser(rootPath: string): Promise<WorkspaceBrowserS
     cwd: rootPath,
     entries,
     selectedIndex: 0,
+    query: null,
     error: null,
   };
+}
+
+function getWorkspaceBrowserVisibleEntries(browser: WorkspaceBrowserState): WorkspaceBrowserEntry[] {
+  const trimmedQuery = (browser.query ?? "").trim().toLowerCase();
+  if (!trimmedQuery) {
+    return browser.entries;
+  }
+
+  return browser.entries
+    .filter((entry) => entry.name.toLowerCase().includes(trimmedQuery) || entry.path.toLowerCase().includes(trimmedQuery))
+    .sort((left, right) => scoreWorkspaceBrowserEntry(left, trimmedQuery) - scoreWorkspaceBrowserEntry(right, trimmedQuery) || left.name.localeCompare(right.name));
+}
+
+function scoreWorkspaceBrowserEntry(entry: WorkspaceBrowserEntry, query: string): number {
+  const lowerName = entry.name.toLowerCase();
+  const lowerPath = entry.path.toLowerCase();
+  if (entry.kind === "repo" && lowerName === query) {
+    return 0;
+  }
+  if (entry.kind === "repo" && lowerName.startsWith(query)) {
+    return 1;
+  }
+  if (lowerName === query) {
+    return 2;
+  }
+  if (lowerName.startsWith(query)) {
+    return 3;
+  }
+  if (lowerName.includes(query)) {
+    return 4;
+  }
+  return lowerPath.startsWith(query) ? 5 : 6;
 }
 
 async function isGitRepoDirectory(rootPath: string): Promise<boolean> {
