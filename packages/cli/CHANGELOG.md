@@ -1,5 +1,11 @@
 # craig-cli
 
+## 0.7.0
+
+### Minor Changes
+
+- ab6d94c: Add search to the TUI workspace browser and file inspector.
+
 ## 0.6.10
 
 ### Patch Changes
