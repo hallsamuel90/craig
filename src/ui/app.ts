@@ -181,6 +181,8 @@ export async function startTerminalApp(options: TerminalAppOptions = {}): Promis
     let inspectionScrollRenderTimer: ReturnType<typeof setTimeout> | null = null;
     let ptyRenderTimer: ReturnType<typeof setTimeout> | null = null;
     let footerToastTimer: ReturnType<typeof setTimeout> | null = null;
+    let focusFlashUntil: number | null = null;
+    let focusFlashTimer: ReturnType<typeof setTimeout> | null = null;
     let prPollTimer: ReturnType<typeof setInterval> | null = null;
     let prPollInFlight = false;
     let lastBackgroundPrPollError: string | null = null;
@@ -295,7 +297,7 @@ export async function startTerminalApp(options: TerminalAppOptions = {}): Promis
         }
         state = { mode: "main", shell: syncShell({ ...state.shell, footerToast: null }) };
         render();
-      }, 3000);
+      }, 600);
 
       return { ...shell, footerToast };
     }
@@ -777,7 +779,7 @@ export async function startTerminalApp(options: TerminalAppOptions = {}): Promis
       const viewport = getViewport(activeTerminal.width, activeTerminal.height);
       const frame =
         state.mode === "main"
-          ? renderMainShellFrame(viewport, buildShellData(syncShell(state.shell), model), { centerOnly: state.shell.centerZoomed })
+          ? renderMainShellFrame(viewport, buildShellData(syncShell(state.shell), model), { centerOnly: state.shell.centerZoomed, focusFlashActive: focusFlashUntil !== null && Date.now() < focusFlashUntil })
           : state.variant === "boot"
             ? renderBootOverlayFrame(viewport, { menuIndex: state.menuIndex, optionsMessage: state.optionsMessage, versionText, updateText })
             : state.variant === "pause"
@@ -844,6 +846,10 @@ export async function startTerminalApp(options: TerminalAppOptions = {}): Promis
       if (footerToastTimer) {
         clearTimeout(footerToastTimer);
         footerToastTimer = null;
+      }
+      if (focusFlashTimer) {
+        clearTimeout(focusFlashTimer);
+        focusFlashTimer = null;
       }
       if (prPollTimer) {
         clearInterval(prPollTimer);
@@ -1028,23 +1034,6 @@ export async function startTerminalApp(options: TerminalAppOptions = {}): Promis
       }
 
       if (key === "ESCAPE") {
-        if (browser.query !== null) {
-          state = {
-            mode: "main",
-            shell: syncShell({
-              ...state.shell,
-              workspaceBrowser: {
-                ...browser,
-                query: null,
-                selectedIndex: 0,
-                error: null,
-              },
-            }),
-          };
-          render();
-          return;
-        }
-
         state = {
           mode: "main",
           shell: syncShell({ ...state.shell, workspaceBrowser: null, actionMessage: null }),
@@ -1053,105 +1042,36 @@ export async function startTerminalApp(options: TerminalAppOptions = {}): Promis
         return;
       }
 
-      const updateBrowserSelection = (delta: number): void => {
-        const visibleEntries = getWorkspaceBrowserVisibleEntries(browser);
-        const maxIndex = Math.max(0, visibleEntries.length - 1);
-        state = {
-          mode: "main",
-          shell: syncShell({
-            ...state.shell,
-            workspaceBrowser: {
-              ...browser,
-              selectedIndex: Math.max(0, Math.min(maxIndex, browser.selectedIndex + delta)),
-              error: null,
-            },
-          }),
-        };
-        render();
-      };
-
-      if (key === "/" && browser.query === null) {
-        state = {
-          mode: "main",
-          shell: syncShell({
-            ...state.shell,
-            workspaceBrowser: {
-              ...browser,
-              query: "",
-              selectedIndex: 0,
-              error: null,
-            },
-          }),
-        };
-        render();
-        return;
-      }
-
-      if (browser.query !== null && key === "BACKSPACE") {
-        const nextQuery = browser.query.slice(0, -1);
-        state = {
-          mode: "main",
-          shell: syncShell({
-            ...state.shell,
-            workspaceBrowser: {
-              ...browser,
-              query: nextQuery,
-              selectedIndex: 0,
-              error: null,
-            },
-          }),
-        };
-        render();
-        return;
-      }
-
-      if (browser.query !== null && isPrintableKey(key)) {
-        const nextQuery = `${browser.query}${key}`;
-        state = {
-          mode: "main",
-          shell: syncShell({
-            ...state.shell,
-            workspaceBrowser: {
-              ...browser,
-              query: nextQuery,
-              selectedIndex: 0,
-              error: null,
-            },
-          }),
-        };
-        render();
-        return;
-      }
-
-      const visibleEntries = getWorkspaceBrowserVisibleEntries(browser);
-
       if (key === "UP" || key === "k") {
-        updateBrowserSelection(-1);
+        state = {
+          mode: "main",
+          shell: syncShell({
+            ...state.shell,
+            workspaceBrowser: {
+              ...browser,
+              selectedIndex: Math.max(0, browser.selectedIndex - 1),
+              error: null,
+            },
+          }),
+        };
+        render();
         return;
       }
 
       if (key === "DOWN" || key === "j") {
-        updateBrowserSelection(1);
-        return;
-      }
-
-      if (key === "PAGE_UP") {
-        updateBrowserSelection(-getShellKeyOptions(state.shell).pageRows);
-        return;
-      }
-
-      if (key === "PAGE_DOWN") {
-        updateBrowserSelection(getShellKeyOptions(state.shell).pageRows);
-        return;
-      }
-
-      if (key === "MOUSE_WHEEL_UP") {
-        updateBrowserSelection(-3);
-        return;
-      }
-
-      if (key === "MOUSE_WHEEL_DOWN") {
-        updateBrowserSelection(3);
+        const maxIndex = Math.max(0, browser.entries.length - 1);
+        state = {
+          mode: "main",
+          shell: syncShell({
+            ...state.shell,
+            workspaceBrowser: {
+              ...browser,
+              selectedIndex: Math.min(maxIndex, browser.selectedIndex + 1),
+              error: null,
+            },
+          }),
+        };
+        render();
         return;
       }
 
@@ -1174,7 +1094,7 @@ export async function startTerminalApp(options: TerminalAppOptions = {}): Promis
       }
 
       if (key === "RIGHT" || key === "l" || isEnterKey(key)) {
-        const selectedEntry = visibleEntries[browser.selectedIndex] ?? null;
+        const selectedEntry = browser.entries[browser.selectedIndex] ?? null;
 
         if (!selectedEntry) {
           return;
@@ -1244,6 +1164,18 @@ export async function startTerminalApp(options: TerminalAppOptions = {}): Promis
       if (state.mode === "main" && state.shell.workspaceBrowser !== null) {
         handleWorkspaceBrowserKey(key);
         return;
+      }
+
+      if (state.mode === "main" && state.shell.inputMode === "control") {
+        if (key === "F") {
+          triggerFocusFlash();
+          render();
+          return;
+        }
+        if (focusFlashUntil !== null) {
+          focusFlashUntil = null;
+          if (focusFlashTimer) { clearTimeout(focusFlashTimer); focusFlashTimer = null; }
+        }
       }
 
       if (state.mode === "main") {
@@ -1329,7 +1261,6 @@ export async function startTerminalApp(options: TerminalAppOptions = {}): Promis
                   cwd: workspaceRoot,
                   entries: [],
                   selectedIndex: 0,
-                  query: null,
                   error: message,
                 },
               }), message),
@@ -1379,6 +1310,22 @@ export async function startTerminalApp(options: TerminalAppOptions = {}): Promis
               state = { mode: "main", shell: applyErrorToast(syncShell({ ...result.state, actionMessage: message }), message) };
               render();
             });
+          return;
+        }
+
+        if (result.openPrUrl) {
+          const selectedTask = getSelectedTask(result.state);
+          const prUrl = selectedTask ? getTaskPrimaryPr(selectedTask)?.url ?? null : null;
+          if (prUrl) {
+            openUrl(prUrl).catch((error: unknown) => {
+              const message = reportRecoverableError("open PR URL", error, "Failed to open PR in browser.");
+              state = { mode: "main", shell: applyErrorToast(syncShell(result.state), message) };
+              render();
+            });
+          } else {
+            state = { mode: "main", shell: applyErrorToast(syncShell(result.state), "No PR URL available.") };
+            render();
+          }
           return;
         }
 
@@ -1683,6 +1630,16 @@ export async function startTerminalApp(options: TerminalAppOptions = {}): Promis
         });
     }
 
+    function triggerFocusFlash(): void {
+      focusFlashUntil = Date.now() + 600;
+      if (focusFlashTimer) clearTimeout(focusFlashTimer);
+      focusFlashTimer = setTimeout(() => {
+        focusFlashUntil = null;
+        focusFlashTimer = null;
+        render();
+      }, 600);
+    }
+
     const onUnknown = (input: unknown) => {
       const raw = inputToString(input);
       if (state.mode !== "main" || state.shell.inputMode !== "terminal" || raw.length === 0) {
@@ -1978,6 +1935,7 @@ function getRunnerOptionsState(state: Extract<AppState, { mode: "overlay" }>): R
   };
 }
 
+
 function resolveNewPtyTabKind(task: TaskRecord, activeTab: string, preferredKind: TaskPtyTabRecord["kind"]): TaskPtyTabRecord["kind"] {
   return task.ptyTabs.find((tab) => tab.id === activeTab)?.kind ?? preferredKind;
 }
@@ -2267,41 +2225,19 @@ async function loadWorkspaceBrowser(rootPath: string): Promise<WorkspaceBrowserS
     cwd: rootPath,
     entries,
     selectedIndex: 0,
-    query: null,
     error: null,
   };
 }
 
-function getWorkspaceBrowserVisibleEntries(browser: WorkspaceBrowserState): WorkspaceBrowserEntry[] {
-  const trimmedQuery = (browser.query ?? "").trim().toLowerCase();
-  if (!trimmedQuery) {
-    return browser.entries;
-  }
-
-  return browser.entries
-    .filter((entry) => entry.name.toLowerCase().includes(trimmedQuery) || entry.path.toLowerCase().includes(trimmedQuery))
-    .sort((left, right) => scoreWorkspaceBrowserEntry(left, trimmedQuery) - scoreWorkspaceBrowserEntry(right, trimmedQuery) || left.name.localeCompare(right.name));
-}
-
-function scoreWorkspaceBrowserEntry(entry: WorkspaceBrowserEntry, query: string): number {
-  const lowerName = entry.name.toLowerCase();
-  const lowerPath = entry.path.toLowerCase();
-  if (entry.kind === "repo" && lowerName === query) {
-    return 0;
-  }
-  if (entry.kind === "repo" && lowerName.startsWith(query)) {
-    return 1;
-  }
-  if (lowerName === query) {
-    return 2;
-  }
-  if (lowerName.startsWith(query)) {
-    return 3;
-  }
-  if (lowerName.includes(query)) {
-    return 4;
-  }
-  return lowerPath.startsWith(query) ? 5 : 6;
+async function openUrl(url: string): Promise<void> {
+  const { spawn } = await import("node:child_process");
+  const opener = process.platform === "darwin" ? "open" : process.platform === "win32" ? "start" : "xdg-open";
+  await new Promise<void>((resolve, reject) => {
+    const child = spawn(opener, [url], { stdio: "ignore", detached: true });
+    child.unref();
+    child.on("error", reject);
+    child.on("spawn", resolve);
+  });
 }
 
 async function isGitRepoDirectory(rootPath: string): Promise<boolean> {

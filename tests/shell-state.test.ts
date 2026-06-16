@@ -359,21 +359,27 @@ describe("terminal shell control state", () => {
     expect(result.state.selectedLeftItemId).toBe("new-workspace");
   });
 
-  test("x on a focused task row requests task close", () => {
-    const result = reduceMainKey(seededState(), "x", KEY_OPTIONS);
+  test("X on a focused task row requests task close", () => {
+    const result = reduceMainKey(seededState(), "X", KEY_OPTIONS);
 
     expect(result.closeTask).toBe(true);
     expect(result.state.selectedActionId).toBe("close-task");
   });
 
-  test("x on a focused workspace row requests workspace removal", () => {
+  test("x on a focused task row does not request task close", () => {
+    const result = reduceMainKey(seededState(), "x", KEY_OPTIONS);
+
+    expect(result.closeTask).toBe(false);
+  });
+
+  test("X on a focused workspace row requests workspace removal", () => {
     const state = {
       ...seededState(),
       selectedLeftItemId: "workspace:workspace_repo_a",
       selectedWorkspaceId: "workspace_repo_a",
       selectedTaskId: null,
     };
-    const result = reduceMainKey(state, "x", {
+    const result = reduceMainKey(state, "X", {
       ...KEY_OPTIONS,
       leftItemIds: ["workspace:workspace_repo_a", "new-task:repo_a", "new-workspace"],
     });

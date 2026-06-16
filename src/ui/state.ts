@@ -44,7 +44,6 @@ export interface WorkspaceBrowserState {
   cwd: string;
   entries: WorkspaceBrowserEntry[];
   selectedIndex: number;
-  query: string | null;
   error: string | null;
 }
 
@@ -84,7 +83,6 @@ export interface ControlShellState {
   taskPromptInput: string | null;
   taskPromptError: string | null;
   workspaceBrowser: WorkspaceBrowserState | null;
-  fileSearchQuery: string | null;
   terminal: TerminalViewState;
   centerZoomed: boolean;
 }
@@ -125,6 +123,7 @@ export interface MainKeyResult {
   closeTask: boolean;
   removeWorkspace: boolean;
   refreshInspection: boolean;
+  openPrUrl: boolean;
 }
 
 export interface RestoreShellModel {
@@ -178,7 +177,6 @@ export function createInitialShellState(runtime: CraigUiRuntime | null, config: 
     taskPromptInput: null,
     taskPromptError: null,
     workspaceBrowser: null,
-    fileSearchQuery: null,
     terminal: createDefaultTerminalViewState(),
     centerZoomed: false,
   };
@@ -284,23 +282,12 @@ export function reduceMainKey(state: ControlShellState, key: string, options: Re
     return result({ state });
   }
 
-  if (state.fileSearchQuery !== null) {
-    return reduceFileSearchKey(state, key, options);
-  }
-
   if (key === "q" || key === "Q") {
     return result({ state, exit: true });
   }
 
   if (key === "ESCAPE") {
     return result({ state: { ...state, actionMessage: null }, changed: state.actionMessage !== null, pause: true });
-  }
-
-  if (key === "/" && state.focusedRegion === "inspector" && state.inspectionMode === "files") {
-    return result({
-      state: { ...state, fileSearchQuery: "", actionMessage: null },
-      changed: true,
-    });
   }
 
   if (key === "n" || key === "N") {
@@ -397,7 +384,7 @@ export function reduceMainKey(state: ControlShellState, key: string, options: Re
     });
   }
 
-  if ((key === "R" || key === "r") && state.focusedRegion === "inspector" && state.inspectionMode === "review") {
+  if (key === "R" && state.focusedRegion === "inspector" && state.inspectionMode === "review") {
     return result({
       state: { ...state, selectedActionId: "refresh-checks", actionMessage: null },
       changed: true,
@@ -405,7 +392,14 @@ export function reduceMainKey(state: ControlShellState, key: string, options: Re
     });
   }
 
-  if ((key === "X" || key === "x") && state.focusedRegion === "inspector" && state.inspectionMode === "review") {
+  if (key === "o" && state.focusedRegion === "inspector" && state.inspectionMode === "review" && state.selectedTaskId) {
+    return result({
+      state,
+      openPrUrl: true,
+    });
+  }
+
+  if (key === "X" && state.focusedRegion === "inspector" && state.inspectionMode === "review") {
     return result({
       state: { ...state, selectedActionId: "close-task", actionMessage: null },
       changed: true,
@@ -413,7 +407,7 @@ export function reduceMainKey(state: ControlShellState, key: string, options: Re
     });
   }
 
-  if ((key === "X" || key === "x") && state.focusedRegion === "tasks" && isTaskLeftItemId(state.selectedLeftItemId) && state.selectedTaskId) {
+  if (key === "X" && state.focusedRegion === "tasks" && isTaskLeftItemId(state.selectedLeftItemId) && state.selectedTaskId) {
     return result({
       state: { ...state, selectedActionId: "close-task", actionMessage: null },
       changed: true,
@@ -421,7 +415,7 @@ export function reduceMainKey(state: ControlShellState, key: string, options: Re
     });
   }
 
-  if ((key === "X" || key === "x") && state.focusedRegion === "tasks" && isWorkspaceLeftItemId(state.selectedLeftItemId) && state.selectedWorkspaceId) {
+  if (key === "X" && state.focusedRegion === "tasks" && isWorkspaceLeftItemId(state.selectedLeftItemId) && state.selectedWorkspaceId) {
     return result({
       state: { ...state, actionMessage: null },
       changed: true,
@@ -561,18 +555,7 @@ export function reduceMainKey(state: ControlShellState, key: string, options: Re
     }
 
     if (state.focusedRegion === "inspector" && state.inspectionMode === "review") {
-      if (state.selectedActionId === "refresh-checks") {
-        return result({
-          state: {
-            ...state,
-            actionMessage: null,
-          },
-          changed: true,
-          refreshPullRequestChecks: true,
-        });
-      }
-
-      if (state.selectedActionId === "close-task") {
+      if (state.selectedActionId === "close-task" && !options.projectTargetIds?.length) {
         return result({
           state: {
             ...state,
@@ -745,7 +728,7 @@ function moveSelection(state: ControlShellState, direction: -1 | 1, options: Red
 
     if (options.projectTargetIds?.length) {
       const next = updateDynamicValue(state, "selectedProjectTargetId", options.projectTargetIds, direction);
-      return next.changed ? { ...next, state: { ...next.state, reviewScrollOffset: 0 } } : next;
+      return next.changed ? { ...next, state: { ...next.state, reviewScrollOffset: 0, selectedActionId: "refresh-checks" } } : next;
     }
     return updateIndexedValue(state, "selectedActionId", REVIEW_ACTION_IDS, direction);
   }
@@ -903,128 +886,6 @@ function moveInspectionMode(state: ControlShellState, direction: -1 | 1): MainKe
     state,
     updateValueInList(state.inspectionMode, INSPECTION_MODE_IDS, direction),
   );
-}
-
-function reduceFileSearchKey(state: ControlShellState, key: string, options: ReduceMainKeyOptions): MainKeyResult {
-  const query = state.fileSearchQuery ?? "";
-  if (key === "ESCAPE") {
-    return result({
-      state: { ...state, fileSearchQuery: null, actionMessage: null },
-      changed: true,
-    });
-  }
-
-  if (key === "UP" || key === "k") {
-    return moveFileSearchSelection(state, -1, options);
-  }
-
-  if (key === "DOWN" || key === "j") {
-    return moveFileSearchSelection(state, 1, options);
-  }
-
-  if (isEnterKey(key)) {
-    const selectedFilePath = state.selectedFilePath ?? getFileSearchMatches(query, options.filePathIds ?? [])[0] ?? null;
-    if (!selectedFilePath) {
-      return result({ state });
-    }
-
-    return result({
-      state: {
-        ...state,
-        fileSearchQuery: null,
-        selectedFileTreePath: selectedFilePath,
-        selectedFilePath,
-        activeTab: INSPECTION_TAB_ID,
-        openInspectionKind: "file",
-        fileScrollOffset: 0,
-        actionMessage: null,
-      },
-      changed: true,
-      refreshInspection: true,
-    });
-  }
-
-  if (key === "BACKSPACE") {
-    return updateFileSearchQuery(state, query.slice(0, -1), options);
-  }
-
-  if (isPrintableKey(key)) {
-    return updateFileSearchQuery(state, `${query}${key}`, options);
-  }
-
-  return result({ state });
-}
-
-function updateFileSearchQuery(state: ControlShellState, query: string, options: ReduceMainKeyOptions): MainKeyResult {
-  const matches = getFileSearchMatches(query, options.filePathIds ?? []);
-  const selectedFilePath = matches[0] ?? state.selectedFilePath;
-  return result({
-    state: {
-      ...state,
-      fileSearchQuery: query,
-      selectedFileTreePath: selectedFilePath,
-      selectedFilePath,
-      actionMessage: null,
-    },
-    changed: true,
-  });
-}
-
-function moveFileSearchSelection(state: ControlShellState, direction: -1 | 1, options: ReduceMainKeyOptions): MainKeyResult {
-  const matches = getFileSearchMatches(state.fileSearchQuery, options.filePathIds ?? []);
-  if (matches.length === 0) {
-    return result({ state });
-  }
-
-  const currentIndex = matches.indexOf(state.selectedFilePath ?? "");
-  const nextIndex = clamp(currentIndex === -1 ? 0 : currentIndex + direction, 0, matches.length - 1);
-  const selectedFilePath = matches[nextIndex] ?? null;
-  if (selectedFilePath === state.selectedFilePath) {
-    return result({ state });
-  }
-
-  return result({
-    state: {
-      ...state,
-      selectedFileTreePath: selectedFilePath,
-      selectedFilePath,
-      actionMessage: null,
-    },
-    changed: true,
-  });
-}
-
-function getFileSearchMatches(query: string | null, paths: string[]): string[] {
-  const trimmedQuery = (query ?? "").trim().toLowerCase();
-  if (!trimmedQuery) {
-    return paths;
-  }
-
-  return paths
-    .filter((filePath) => filePath.toLowerCase().includes(trimmedQuery) || pathBasename(filePath).toLowerCase().includes(trimmedQuery))
-    .sort((left, right) => scoreFileSearchMatch(left, trimmedQuery) - scoreFileSearchMatch(right, trimmedQuery) || left.localeCompare(right));
-}
-
-function scoreFileSearchMatch(filePath: string, query: string): number {
-  const lowerPath = filePath.toLowerCase();
-  const lowerBase = pathBasename(filePath).toLowerCase();
-  if (lowerBase === query) {
-    return 0;
-  }
-  if (lowerBase.startsWith(query)) {
-    return 1;
-  }
-  if (lowerBase.includes(query)) {
-    return 2;
-  }
-  if (lowerPath.startsWith(query)) {
-    return 3;
-  }
-  return 4;
-}
-
-function pathBasename(filePath: string): string {
-  return filePath.split("/").at(-1) ?? filePath;
 }
 
 function moveFileTreeSelection(state: ControlShellState, delta: number, options: ReduceMainKeyOptions): MainKeyResult {
@@ -1314,6 +1175,7 @@ function result(input: {
   closeTask?: boolean;
   removeWorkspace?: boolean;
   refreshInspection?: boolean;
+  openPrUrl?: boolean;
 }): MainKeyResult {
   return {
     state: input.state,
@@ -1333,6 +1195,7 @@ function result(input: {
     closeTask: input.closeTask ?? false,
     removeWorkspace: input.removeWorkspace ?? false,
     refreshInspection: input.refreshInspection ?? false,
+    openPrUrl: input.openPrUrl ?? false,
   };
 }
 

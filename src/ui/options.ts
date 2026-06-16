@@ -266,3 +266,4 @@ function isEnterKey(key: string): boolean {
 function isPrintableKey(key: string): boolean {
   return key.length === 1 && key >= " " && key !== "";
 }
+

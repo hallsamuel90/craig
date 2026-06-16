@@ -236,68 +236,6 @@ describe("terminal shell renderer", () => {
     expect(frame).not.toContain("Press Enter on the AGENT");
   });
 
-  test("keeps the selected workspace browser entry visible in long directory lists", () => {
-    const data = buildShellData(
-      {
-        ...createInitialShellState(null),
-        workspaceBrowser: {
-          cwd: "/tmp/craig",
-          entries: Array.from({ length: 40 }, (_, index) => ({
-            name: `dir-${String(index).padStart(2, "0")}`,
-            path: `/tmp/craig/dir-${String(index).padStart(2, "0")}`,
-            kind: "directory" as const,
-          })),
-          selectedIndex: 34,
-          query: null,
-          error: null,
-        },
-      },
-      {
-        workspaceRoot: "/tmp/craig",
-        repos: [],
-        tasks: [],
-        inspection: null,
-      },
-    );
-
-    const frame = renderMainShellFrame({ width: 120, height: 18 }, data, { color: false });
-
-    expect(frame).toContain("BROWSER  new workspace");
-    expect(frame).toContain("▸ dir-34/");
-    expect(frame).not.toContain("  dir-00/");
-  });
-
-  test("renders workspace browser search shortcut in the footer", () => {
-    const data = buildShellData(
-      {
-        ...createInitialShellState(null),
-        workspaceBrowser: {
-          cwd: "/tmp/craig",
-          entries: [
-            { name: "repo-a", path: "/tmp/craig/repo-a", kind: "directory" as const },
-            { name: "repo-b", path: "/tmp/craig/repo-b", kind: "directory" as const },
-          ],
-          selectedIndex: 0,
-          query: null,
-          error: null,
-        },
-      },
-      {
-        workspaceRoot: "/tmp/craig",
-        repos: [],
-        tasks: [],
-        inspection: null,
-      },
-    );
-
-    const frame = renderMainShellFrame(MIN_VIEWPORT, data, { color: false });
-
-    expect(data.centerTranscript[2]?.text).toBe("");
-    expect(data.footerText).toContain("/ search");
-    expect(frame).toContain("/ search");
-    expect(frame).toContain("▸ repo-a/");
-  });
-
   test("renders files tab with right-panel file tree and selected file content", () => {
     const task = buildTaskRecord("/tmp/craig", {
       id: "task_20260430_02",
@@ -326,46 +264,11 @@ describe("terminal shell renderer", () => {
 
     const frame = renderMainShellFrame(MIN_VIEWPORT, data, { color: false });
 
-    expect(data.footerText).toContain("/ search");
     expect(frame).toContain("FILES");
     expect(frame).toContain("src/app.ts");
     expect(frame).toContain("export const app = true;");
     expect(frame).toContain("  1 │ export const app = true;");
     expect(frame).toContain("app.ts");
-  });
-
-  test("renders file search results as flat full paths", () => {
-    const task = buildTaskRecord("/tmp/craig", {
-      id: "task_20260430_02",
-      repoId: "repo_bug_fixes",
-      workspaceId: "workspace_bug_fixes",
-    });
-    const data = buildShellData(
-      {
-        ...createInitialShellState(null),
-        selectedRepoId: "repo_bug_fixes",
-        selectedTaskId: task.id,
-        selectedLeftItemId: `task:${task.id}`,
-        activeTab: "inspection",
-        inspectionMode: "files",
-        openInspectionKind: "file",
-        focusedRegion: "inspector",
-        selectedFilePath: "src/app.ts",
-        fileSearchQuery: "app",
-      },
-      {
-        workspaceRoot: "/tmp/craig",
-        repos: [{ id: "repo_bug_fixes", name: "bug-fixes", rootPath: "/tmp/craig", defaultBranch: "main", createdAt: "", updatedAt: "" }],
-        tasks: [task],
-        inspection: inspectionFixture({ selectedFilePath: "src/app.ts" }),
-      },
-    );
-
-    const frame = renderMainShellFrame(MIN_VIEWPORT, data, { color: false });
-
-    expect(frame).toContain("Search: app");
-    expect(frame).toContain("src/app.ts");
-    expect(frame).not.toContain("󰷏 src");
   });
 
   test("renders file content from the current scroll offset", () => {

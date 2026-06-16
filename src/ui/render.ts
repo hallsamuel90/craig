@@ -23,6 +23,7 @@ export interface RenderOptions {
   updateText?: string | null;
   errorLogPath?: string;
   errorLogLines?: string[];
+  focusFlashActive?: boolean;
 }
 
 interface PaletteColor {
@@ -190,7 +191,7 @@ export function renderErrorLogOverlayFrame(
 export function renderMainShellFrame(
   viewport: Viewport,
   data: ShellData,
-  options: Pick<RenderOptions, "color" | "centerOnly"> = {},
+  options: Pick<RenderOptions, "color" | "centerOnly" | "focusFlashActive"> = {},
 ): string {
   const color = options.color ?? true;
   const leftWidth = SHELL_LAYOUT.leftWidth;
@@ -199,6 +200,10 @@ export function renderMainShellFrame(
   const centerOnly = options.centerOnly ?? false;
   const centerWidth = centerOnly ? viewport.width : viewport.width - leftWidth - rightWidth - dividerWidth * 2;
   const bodyHeight = viewport.height - SHELL_LAYOUT.topRailHeight - 1;
+  const flashActive = options.focusFlashActive ?? false;
+  const flashPalette = { bg: PALETTE.divider.bg, fg: "9ece6a" };
+  const leftDividerPalette = flashActive && (data.focusedRegion === "tasks" || data.focusedRegion === "center") ? flashPalette : PALETTE.divider;
+  const rightDividerPalette = flashActive && (data.focusedRegion === "center" || data.focusedRegion === "inspector") ? flashPalette : PALETTE.divider;
 
   const railText = `CRAIG  |  ${data.topRail.workspacePath}  |  ${data.topRail.agent}`;
   const railTop = fillSurface(pad(railText, viewport.width), color, PALETTE.rail);
@@ -218,9 +223,9 @@ export function renderMainShellFrame(
     }
 
     const left = renderSurfaceSegment(leftLines[index] ?? emptyLine(), leftWidth, color, "left");
-    const leftDivider = fillSurface("│", color, PALETTE.divider);
+    const leftDivider = fillSurface("│", color, leftDividerPalette);
     const center = renderSurfaceSegment(centerLines[index] ?? emptyLine(), centerWidth, color, "center");
-    const divider = fillSurface("│", color, PALETTE.divider);
+    const divider = fillSurface("│", color, rightDividerPalette);
     const right = renderSurfaceSegment(rightLines[index] ?? emptyLine(), rightWidth, color, "right");
     body.push(`${left}${leftDivider}${center}${divider}${right}`);
   }
@@ -345,18 +350,15 @@ function toCenterLines(data: ShellData, width: number, height: number, color: bo
   const tabLine: SurfaceLine = {
     text: data.inputMode === "terminal" ? `${tabLineText}${tabLinePadding}${ptyIndicator}` : tabLineText,
   };
-  const headerLines: SurfaceLine[] = [
+  const lines: SurfaceLine[] = [
     tabLine,
     { text: underline, tone: "muted" },
     { text: header },
     emptyLine(),
+    ...body,
   ];
-  const bodyHeight = Math.max(0, height - headerLines.length);
 
-  return [
-    ...headerLines,
-    ...fitLinesAroundSelection(body, bodyHeight),
-  ];
+  return fitLines(lines, height);
 }
 
 function renderTerminalSurface(data: ShellData): SurfaceLine[] {
@@ -586,16 +588,6 @@ function fitLines(lines: SurfaceLine[], height: number): SurfaceLine[] {
   return clamped;
 }
 
-function fitLinesAroundSelection(lines: SurfaceLine[], height: number): SurfaceLine[] {
-  const selectedIndex = lines.findIndex((line) => line.tone === "selected" || line.tone === "focused");
-  if (selectedIndex === -1 || lines.length <= height) {
-    return fitLines(lines, height);
-  }
-
-  const start = clamp(selectedIndex - Math.floor(height / 2), 0, Math.max(0, lines.length - height));
-  return fitLines(lines.slice(start), height);
-}
-
 function emptyLine(): SurfaceLine {
   return { text: "" };
 }
@@ -617,7 +609,7 @@ function renderFullBleedCenterLine(line: SurfaceLine, width: number, color: bool
   }
 
   const paddedSegments = fitTerminalSegmentsToWidth(line.segments, contentWidth);
-  const content = `${gutter}${paddedSegments.map((segment) => renderTerminalSegment(segment, color, base)).join("")}${gutter}`;
+  const content = `${gutter}${paddedSegments.map((segment) => renderTerminalSegment(segment, color, base)).join("")}${gutter}${color ? OSC8_END : ""}`;
   return fillSurface(content, color, base);
 }
 
@@ -820,7 +812,10 @@ function characterWidth(character: string): number {
     (codePoint >= 0x1ab0 && codePoint <= 0x1aff) ||
     (codePoint >= 0x1dc0 && codePoint <= 0x1dff) ||
     (codePoint >= 0x20d0 && codePoint <= 0x20ff) ||
-    (codePoint >= 0xfe00 && codePoint <= 0xfe0f)
+    (codePoint >= 0xfe00 && codePoint <= 0xfe0f) ||
+    (codePoint >= 0x200b && codePoint <= 0x200f) ||
+    (codePoint >= 0x2060 && codePoint <= 0x2064) ||
+    codePoint === 0xfeff
   ) {
     return 0;
   }
