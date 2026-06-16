@@ -1,5 +1,11 @@
 # craig-cli
 
+## 0.7.1
+
+### Patch Changes
+
+- 6497e9d: QoL improvements: focus flash hotkey, shift-guards for destructive keys, divider warp fix, directory styling, open PR hotkey, and polyrepo Enter bug fix
+
 ## 0.7.0
 
 ### Minor Changes
