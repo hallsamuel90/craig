@@ -1245,9 +1245,12 @@ describe("terminal app PTY attach flow", () => {
     terminal.emitKey("TAB"); // inspector
     terminal.emitKey("ENTER"); // open selected file in the center inspection tab
     await vi.waitFor(() => expect(stripAnsi(terminal.frames.at(-1) ?? "")).toContain("after staged"));
-    terminal.emitKey("DOWN"); // src directory
-    terminal.emitKey("ENTER"); // expand src
-    terminal.emitKey("DOWN"); // src/app.ts
+    terminal.emitKey("/");
+    terminal.emitKey("a");
+    terminal.emitKey("p");
+    terminal.emitKey("p");
+    await vi.waitFor(() => expect(stripAnsi(terminal.frames.at(-1) ?? "")).toContain("Search: app"));
+    terminal.emitKey("ENTER"); // open src/app.ts from search results
     await vi.waitFor(() => expect(stripAnsi(terminal.frames.at(-1) ?? "")).toContain("export const app = true;"));
     terminal.emitKey("q");
 
@@ -2402,6 +2405,13 @@ describe("terminal app PTY attach flow", () => {
     terminal.emitKey("DOWN"); // projects
     terminal.emitKey("RIGHT");
     await vi.waitFor(() => expect(terminal.frames.at(-1) ?? "").toContain("repo-b [git repo]"));
+    terminal.emitKey("/");
+    terminal.emitKey("b");
+    await vi.waitFor(() => {
+      const frame = stripAnsi(terminal.frames.at(-1) ?? "");
+      expect(frame).toContain("Search: b");
+      expect(frame).toContain("repo-b [git repo]");
+    });
     terminal.emitKey("ENTER");
     await vi.waitFor(async () => {
       const repos = await listRepos(paths);
