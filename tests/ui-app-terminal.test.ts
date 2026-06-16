@@ -1245,12 +1245,9 @@ describe("terminal app PTY attach flow", () => {
     terminal.emitKey("TAB"); // inspector
     terminal.emitKey("ENTER"); // open selected file in the center inspection tab
     await vi.waitFor(() => expect(stripAnsi(terminal.frames.at(-1) ?? "")).toContain("after staged"));
-    terminal.emitKey("/");
-    terminal.emitKey("a");
-    terminal.emitKey("p");
-    terminal.emitKey("p");
-    await vi.waitFor(() => expect(stripAnsi(terminal.frames.at(-1) ?? "")).toContain("Search: app"));
-    terminal.emitKey("ENTER"); // open src/app.ts from search results
+    terminal.emitKey("DOWN"); // src directory
+    terminal.emitKey("ENTER"); // expand src
+    terminal.emitKey("DOWN"); // src/app.ts
     await vi.waitFor(() => expect(stripAnsi(terminal.frames.at(-1) ?? "")).toContain("export const app = true;"));
     terminal.emitKey("q");
 
@@ -2069,7 +2066,7 @@ describe("terminal app PTY attach flow", () => {
     await vi.waitFor(() => expect(stripAnsi(terminal.frames.at(-1) ?? "")).toContain("TERMINAL  task_20260430_02"));
     terminal.emitKey("["); // focus left pane
     await vi.waitFor(() => expect(stripAnsi(terminal.frames.at(-1) ?? "")).toContain("n new task"));
-    terminal.emitKey("x");
+    terminal.emitKey("X");
     await vi.waitFor(() => expect(stripAnsi(terminal.frames.at(-1) ?? "")).toContain("Archived task task_20260430_02"));
     await vi.waitFor(async () => expect((await readTask(paths, task.id)).status).toBe("closed"), { timeout: 10000 });
     await vi.waitFor(() => expect(stripAnsi(terminal.frames.at(-1) ?? "")).toContain("· no tasks yet"));
@@ -2405,13 +2402,6 @@ describe("terminal app PTY attach flow", () => {
     terminal.emitKey("DOWN"); // projects
     terminal.emitKey("RIGHT");
     await vi.waitFor(() => expect(terminal.frames.at(-1) ?? "").toContain("repo-b [git repo]"));
-    terminal.emitKey("/");
-    terminal.emitKey("b");
-    await vi.waitFor(() => {
-      const frame = stripAnsi(terminal.frames.at(-1) ?? "");
-      expect(frame).toContain("Search: b");
-      expect(frame).toContain("repo-b [git repo]");
-    });
     terminal.emitKey("ENTER");
     await vi.waitFor(async () => {
       const repos = await listRepos(paths);
@@ -2469,7 +2459,7 @@ describe("terminal app PTY attach flow", () => {
     terminal.emitKey("["); // focus left pane
     terminal.emitKey("DOWN"); // + New Task under repo-a
     terminal.emitKey("DOWN"); // repo-b workspace
-    terminal.emitKey("x");
+    terminal.emitKey("X");
 
     await vi.waitFor(() => expect(stripAnsi(terminal.frames.join("\n"))).toContain("Removed workspace"));
     await expect(readFile(join(paths.workspacesDir, "workspace_repo_b.json"), "utf8")).rejects.toThrow();
