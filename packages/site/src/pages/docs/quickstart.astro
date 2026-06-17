@@ -26,8 +26,8 @@ import "../../styles/global.css";
       Craig creates a task record, branch, git worktree, and agent tab.
     </p>
     <p>
-      The task text is used as Craig task metadata. It is not pasted into the agent automatically;
-      once the agent PTY opens, give the runner the instructions you want it to follow.
+      The task text is stored as metadata on the task record — Craig doesn't paste it into the agent.
+      Once the PTY opens, tell the runner what you want it to do.
     </p>
 
     <h2>4. Watch the agent work</h2>
@@ -42,14 +42,12 @@ import "../../styles/global.css";
   <div class="max-w-3xl mx-auto px-10 prose">
     <h2>5. Review the work</h2>
     <p>
-      Use the <strong>Changes</strong> and <strong>Review</strong> inspector panels to check the diff,
-      inspect PR status, and refresh tracked check state. The Review panel is a read-only status surface;
-      ask the agent in its PTY to run checks, commit, open PRs, or merge when that work is ready.
+      Use the <strong>Changes</strong> and <strong>Review</strong> panels to check the diff and PR status.
+      Review is read-only — when you're ready to commit, push, or merge, do it in the agent PTY.
     </p>
     <p>
-      The command layer exposes lower-level task operations such as
-      <code>craig task check &lt;task-id&gt;</code> and <code>craig task commit &lt;task-id&gt;</code>
-      for automation or agent-driven workflows.
+      The CLI has lower-level commands too: <code>craig task check &lt;task-id&gt;</code> and
+      <code>craig task commit &lt;task-id&gt;</code> if you need them for scripting.
     </p>
   </div>
   <div class="max-w-6xl mx-auto px-6 my-6"><div class="rounded-xl overflow-hidden border border-[#292e42]">

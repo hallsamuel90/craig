@@ -10,16 +10,15 @@ import "../../styles/global.css";
     <p class="subtitle">Choose which agent Craig launches in managed TUI sessions.</p>
 
     <p>
-      Craig supports <strong>Claude Code</strong>, <strong>Codex</strong>, and <strong>Cursor</strong> as runner backends.
-      Each runner must be installed and available in your <code>PATH</code>. When you create or attach an agent tab,
-      Craig starts the selected runner inside that task's isolated worktree and managed PTY. Craig stores the
-      task prompt as task metadata; it does not automatically send that text to the runner.
+      Craig supports <strong>Claude Code</strong>, <strong>Codex</strong>, and <strong>Cursor</strong>.
+      Each one needs to be installed and on your <code>PATH</code>. When you create a task or add an agent tab,
+      Craig drops the runner into that task's worktree and starts it in a managed PTY. The task prompt is stored
+      as metadata — Craig doesn't paste it into the runner for you.
     </p>
 
     <h2>Selecting a runner</h2>
     <p>
-      In the TUI, choose the runner while creating a task or when adding an agent tab. For automation,
-      the same choice is exposed through command options:
+      Pick your runner while creating a task or adding an agent tab in the TUI. From the command line:
     </p>
     <pre><code>craig task new --runner claude "your task prompt"</code></pre>
 
@@ -35,8 +34,7 @@ import "../../styles/global.css";
 
     <h2>Custom runner path</h2>
     <p>
-      If your runner binary isn't on your default <code>PATH</code>, override the path in config.
-      Path changes apply to newly created task sessions.
+      If the binary isn't on your <code>PATH</code>, point Craig at it in config. Takes effect on the next session you create.
     </p>
     <pre><code>{`{
   "runners": {
