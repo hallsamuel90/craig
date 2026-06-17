@@ -1,5 +1,11 @@
 # craig-cli
 
+## 0.7.2
+
+### Patch Changes
+
+- befc189: Correct the published README and site docs to match Craig's current TUI keybindings, read-only review panel, and agent-driven task workflow.
+
 ## 0.7.1
 
 ### Patch Changes
