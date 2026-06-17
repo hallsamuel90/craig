@@ -20,6 +20,7 @@ const groups = [
   {
     name: "Workspaces",
     commands: [
+      { cmd: "craig workspace add <path>", desc: "Register a repo or parent-directory workspace" },
       { cmd: "craig workspace list", desc: "List workspaces" },
       { cmd: "craig workspace list --archived", desc: "Include archived workspaces" },
       { cmd: "craig workspace archive <id>", desc: "Archive a workspace" },
@@ -31,17 +32,17 @@ const groups = [
     name: "Tasks",
     commands: [
       { cmd: 'craig task new --repo <id> "<prompt>"', desc: "Create a task (optionally with --runner)" },
+      { cmd: 'craig task new --workspace <id> "<prompt>"', desc: "Create a project workspace task" },
       { cmd: "craig task list", desc: "List all tasks" },
       { cmd: "craig task list --repo <id>", desc: "List tasks for a specific repo" },
       { cmd: "craig task show <id>", desc: "Show task details" },
       { cmd: "craig task attach <id>", desc: "Attach to task PTY" },
-      { cmd: "craig task open <id>", desc: "Open task in TUI" },
+      { cmd: "craig task focus <id>", desc: "Focus the task tmux pane" },
+      { cmd: "craig task open <id>", desc: "Open or print the task worktree path" },
       { cmd: "craig task logs <id>", desc: "Stream task logs" },
       { cmd: "craig task diff <id>", desc: "Show task diff" },
       { cmd: "craig task check <id>", desc: "Run configured check commands" },
       { cmd: "craig task commit <id>", desc: "Commit task changes" },
-      { cmd: "craig task pr <id> [--watch]", desc: "Create PR, optionally watch and merge" },
-      { cmd: "craig task merge <id>", desc: "Merge task PR" },
     ],
   },
   {
@@ -58,7 +59,13 @@ const groups = [
   <div class="max-w-3xl mx-auto px-10">
   <div class="prose">
     <h1>CLI Reference</h1>
-    <p class="subtitle">Command-mode entry points for scripting and automation.</p>
+    <p class="subtitle">Lower-level commands for automation, scripting, and agent-driven workflows.</p>
+
+    <p>
+      Most people should start Craig with <code>craig</code> and work in the full-screen TUI. These commands
+      mirror the underlying task, repo, and workspace operations so scripts or an agent running inside Craig
+      can inspect and manipulate the local Craig environment without driving the interface manually.
+    </p>
   </div>
 
   {groups.map(({ name, commands }) => (

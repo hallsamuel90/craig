@@ -9,7 +9,11 @@ import "../../styles/global.css";
     <h1>Config</h1>
     <p class="subtitle">Workspace-local configuration via <code>.craig/config.json</code>.</p>
 
-    <p>All config is optional. Craig works out of the box with defaults.</p>
+    <p>
+      All config is optional. Craig works out of the box with defaults, and the TUI reads this workspace-local
+      file when deciding which runners to show, which local check commands to run, and how often to refresh
+      tracked GitHub PR state.
+    </p>
 
     <pre><code>{`{
   "runners": {
@@ -29,24 +33,25 @@ import "../../styles/global.css";
     <h2>runners</h2>
     <p>
       Controls which agent runners are available in this workspace. Set <code>enabled: false</code> to hide a runner,
-      or provide a custom <code>path</code> to override the binary location. See <a href="/docs/runners">Runners</a> for full details.
+      or provide a custom <code>path</code> to override the binary location Craig uses when opening a managed agent
+      tab. See <a href="/docs/runners">Runners</a> for full details.
     </p>
 
     <h2>checks.commands</h2>
     <p>
       Commands run by <code>craig task check &lt;id&gt;</code>. Typically your test, typecheck, and lint scripts.
-      Output is shown in the Review inspector panel.
+      Results are stored on the task record and written to the task check summary artifact.
     </p>
 
     <h2>github.mergeMethod</h2>
     <p>
-      Merge strategy used when merging PRs via Craig. Accepts <code>squash</code>, <code>merge</code>, or <code>rebase</code>.
+      Merge strategy used by Craig-managed PR merge helpers. Accepts <code>squash</code>, <code>merge</code>, or <code>rebase</code>.
       Defaults to <code>squash</code>.
     </p>
 
     <h2>github.watchIntervalSeconds</h2>
     <p>
-      How often Craig polls GitHub for PR check status when using <code>--watch</code>. Default is 5 seconds.
+      How often the TUI refreshes tracked GitHub PR and check state. Default is 5 seconds.
     </p>
   </div>
   </div>

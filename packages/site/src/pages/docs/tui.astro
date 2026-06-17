@@ -12,7 +12,7 @@ import "../../styles/global.css";
     <p>
       Craig's TUI has three zones: a <strong>left panel</strong> for repo and task navigation,
       a <strong>center area</strong> with tabbed agent and terminal views, and a
-      <strong>right inspector</strong> with Files, Changes, and Review modes.
+      <strong>right inspector</strong> with Files, Changes, and read-only Review modes.
     </p>
   </div>
   <div class="max-w-6xl mx-auto px-6 my-6"><div class="rounded-xl overflow-hidden border border-[#292e42]">
@@ -32,8 +32,13 @@ import "../../styles/global.css";
         <tbody class="divide-y divide-[#1a1b26]">
           {[
             ["?", "Show help"],
-            ["Esc", "Pause / back"],
-            ["Tab", "Cycle panels"],
+            ["Esc", "Open pause menu"],
+            ["Tab / ]", "Move focus forward"],
+            ["Shift+Tab / [", "Move focus backward"],
+            ["↑↓ / j k", "Move the focused selection"],
+            ["PgUp / PgDn / wheel", "Scroll the focused inspection or terminal view"],
+            ["z", "Zoom the center panel"],
+            ["n", "Start a new task prompt"],
             ["q", "Quit"],
           ].map(([key, action]) => (
             <tr class="hover:bg-[#06060f] transition-colors">
@@ -50,9 +55,13 @@ import "../../styles/global.css";
       <table class="w-full">
         <tbody class="divide-y divide-[#1a1b26]">
           {[
-            ["↑↓ / j k", "Navigate tasks"],
-            ["n", "New task"],
-            ["Enter", "Attach to selected task PTY"],
+            ["↑↓ / j k", "Navigate workspaces and tasks"],
+            ["Enter on + New Task", "Open the task prompt"],
+            ["Enter on + New Workspace", "Open the workspace browser"],
+            ["Enter on task", "Attach the selected task PTY"],
+            ["r on + New Task", "Cycle the runner for the next task"],
+            ["X on task", "Close the selected task"],
+            ["X on workspace", "Remove the selected workspace"],
           ].map(([key, action]) => (
             <tr class="hover:bg-[#06060f] transition-colors">
               <td class="px-4 py-2 w-36"><kbd class="bg-[#1a1b26] border border-[#292e42] rounded px-1.5 py-0.5 text-xs text-[#c0caf5]">{key}</kbd></td>
@@ -69,9 +78,10 @@ import "../../styles/global.css";
         <tbody class="divide-y divide-[#1a1b26]">
           {[
             ["← → / h l", "Switch tabs"],
-            ["+", "New tab"],
-            ["a", "Codex tab"],
+            ["+", "Create the preferred tab kind"],
+            ["a", "Agent tab"],
             ["t", "Terminal tab"],
+            ["r", "Cycle the runner for the next agent tab"],
             ["x", "Close tab"],
             ["Enter", "Attach PTY"],
           ].map(([key, action]) => (
@@ -91,8 +101,11 @@ import "../../styles/global.css";
           {[
             ["↑↓ / j k", "Navigate"],
             ["← → / h l", "Switch mode (Files / Changes / Review)"],
-            ["R", "Sync PR"],
-            ["X", "Close task"],
+            ["Enter in Files", "Open the selected file or collapse/expand a directory"],
+            ["Enter in Changes", "Open the selected diff"],
+            ["Enter in Review", "Refresh status or close the task, depending on selected action"],
+            ["R in Review", "Refresh read-only PR/check state"],
+            ["X in Review", "Close the task record"],
           ].map(([key, action]) => (
             <tr class="hover:bg-[#06060f] transition-colors">
               <td class="px-4 py-2 w-36"><kbd class="bg-[#1a1b26] border border-[#292e42] rounded px-1.5 py-0.5 text-xs text-[#c0caf5]">{key}</kbd></td>
@@ -109,7 +122,7 @@ import "../../styles/global.css";
         <tbody class="divide-y divide-[#1a1b26]">
           {[
             ["Ctrl+]", "Return to control mode"],
-            ["Wheel / PgUp / PgDn", "Scroll"],
+            ["↑↓ / PgUp / PgDn / wheel", "Scroll terminal history"],
           ].map(([key, action]) => (
             <tr class="hover:bg-[#06060f] transition-colors">
               <td class="px-4 py-2 w-36"><kbd class="bg-[#1a1b26] border border-[#292e42] rounded px-1.5 py-0.5 text-xs text-[#c0caf5]">{key}</kbd></td>
@@ -120,7 +133,28 @@ import "../../styles/global.css";
       </table>
     </div>
 
-    <div class="prose"><h2>Pause menu</h2><p>Press <kbd>Esc</kbd> at any time to pause. Your agents keep running in the background.</p></div>
+    <div class="prose">
+      <h2>Task prompt</h2>
+      <p>
+        While entering a new task, <kbd>Ctrl+R</kbd> cycles runners, <kbd>Enter</kbd> creates the task,
+        and <kbd>Esc</kbd> cancels. The entered text becomes Craig task metadata; it is not sent to the agent PTY.
+      </p>
+
+      <h2>Workspace browser</h2>
+      <p>
+        The workspace browser uses <kbd>↑↓</kbd> or <kbd>j k</kbd> to move, <kbd>→</kbd> or <kbd>l</kbd> to open a directory,
+        <kbd>←</kbd> or <kbd>h</kbd> to go up, <kbd>Enter</kbd> to add the selected path, and <kbd>Esc</kbd> to cancel.
+      </p>
+
+      <h2>Review mode</h2>
+      <p>
+        Review mode is for inspection. It shows tracked PR state, check status, and comments; repo actions such as
+        running checks, committing, opening PRs, and merging should happen in the agent PTY or command layer.
+      </p>
+
+      <h2>Pause menu</h2>
+      <p>Press <kbd>Esc</kbd> from control mode to pause. Your agents keep running in the background.</p>
+    </div>
   </div>
   <div class="max-w-6xl mx-auto px-6 my-6"><div class="rounded-xl overflow-hidden border border-[#292e42]">
     <img src="/screenshots/pause-menu.png" alt="Craig pause menu" class="w-full block" /></div>

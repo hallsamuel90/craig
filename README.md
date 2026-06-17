@@ -26,7 +26,7 @@
 
 ---
 
-Craig is a full-screen TUI that lets you run multiple AI agents across multiple repos at the same time — each in its own isolated git worktree, each with a live PTY, all from one terminal. Spin up Claude, Codex, and Cursor simultaneously. Watch them cook. Review diffs, run checks, and merge PRs without ever leaving Craig.
+Craig is a full-screen TUI that lets you run multiple AI agents across multiple repos at the same time — each in its own isolated git worktree, each with a live PTY, all from one terminal. Spin up Claude, Codex, and Cursor simultaneously. Watch them cook. Inspect diffs and review state while the agent handles repo actions from its PTY.
 
 it's like a game, except the PRs are real.
 
@@ -51,11 +51,11 @@ Craig writes all local state under `.craig/` — worktrees, logs, task records, 
 
 ## Workflow
 
-1. Press `n` to create a task — type a prompt, pick a runner, press `Enter`.
-2. Craig creates the branch, worktree, and agent tab automatically.
+1. Press `n` to create a task — type a short task description, pick a runner, press `Enter`.
+2. Craig creates the task record, branch, worktree, and agent tab automatically.
 3. Press `Enter` on the task to attach its live PTY. `Ctrl+]` to return to control mode.
-4. Use the **Files**, **Changes**, and **Review** inspector panels to check the diff and CI status.
-5. `craig task pr <task-id> --watch` — creates the PR and waits for checks before merging.
+4. Give the runner its instructions in the agent PTY. The task description is Craig metadata; it is not pasted into the runner automatically.
+5. Use the **Files**, **Changes**, and read-only **Review** inspector panels to check the diff, PR state, checks, and comments.
 
 ## Polyrepo support
 
@@ -71,31 +71,51 @@ craig
 ```
 Global
   ?             help
-  Esc           pause / back
+  Esc           pause
   Tab, ]        next panel
   Shift+Tab, [  previous panel
+  Up/Down, j/k  move selection
+  PgUp/PgDn, Wheel  scroll focused inspection or terminal view
+  z             zoom center panel
+  n             new task
   q             quit
 
 Navigation
-  Up/Down, j/k  move selection
   Left/Right, h/l  switch tabs or inspector mode
 
 Tasks
-  n             new task
-  Enter         attach selected task PTY
-  X             close selected task
+  Enter on + New Task       open task prompt
+  Enter on + New Workspace  open workspace browser
+  Enter on task             attach selected task PTY
+  r on + New Task           cycle runner for next task
+  X on task                 close selected task
+  X on workspace            remove selected workspace
 
 Center panel
   Enter         attach PTY
-  +             new tab
+  +             create preferred tab kind
   a             new agent tab
   t             new terminal tab
+  r             cycle runner for next agent tab
   x             close tab
-  z             zoom center panel
 
 Review
-  R             sync PR / refresh checks
-  X             close task
+  Enter         refresh status or close task, depending on selected action
+  R             refresh read-only PR/check state
+  o             open tracked PR URL
+  X             close task record
+
+Task prompt
+  Ctrl+R        cycle runner
+  Enter         create task
+  Esc           cancel
+
+Workspace browser
+  Up/Down, j/k  move selection
+  Right, l      open directory
+  Left, h       parent directory
+  Enter         add selected path
+  Esc           cancel
 
 Terminal mode
   Ctrl+]        return to control mode
@@ -109,21 +129,25 @@ craig repo add <path>
 craig repo list
 craig repo remove <repo-id>
 
+craig workspace add <path>
 craig workspace list
+craig workspace list --archived
 craig workspace archive <workspace-id>
 craig workspace restore <workspace-id>
 craig workspace remove <workspace-id>
 
 craig task new --repo <repo-id> [--runner codex|cursor|claude] "<task>"
+craig task new --workspace <workspace-id> [--runner codex|cursor|claude] "<task>"
 craig task list
+craig task list --repo <repo-id>
 craig task show <task-id>
 craig task attach <task-id>
+craig task focus <task-id>
+craig task open <task-id>
 craig task logs <task-id>
 craig task diff <task-id>
 craig task check <task-id>
 craig task commit <task-id>
-craig task pr <task-id> [--watch]
-craig task merge <task-id> [--preserve-worktree]
 
 craig link add <task-id> <repo-id>
 craig link list <task-id>
