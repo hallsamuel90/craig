@@ -7,12 +7,13 @@ import "../../styles/global.css";
   <div class="max-w-3xl mx-auto px-10">
   <div class="prose">
     <h1>Craig</h1>
-    <p class="subtitle">A local terminal control plane for repo-backed agent work.</p>
+    <p class="subtitle">A local TUI for repo-backed agent work.</p>
 
     <p>
       Craig is a full-screen TUI that lets you run AI coding agents — Claude Code, Codex, Cursor — across
-      one or many repos simultaneously. Each task gets its own git worktree and branch. You watch the agents
-      work, review the diffs, run checks, and merge to main without ever leaving the terminal.
+      one or many repos simultaneously. The TUI is the primary product: create tasks, attach to live agent
+      sessions, inspect diffs, and monitor read-only review state without leaving the terminal. The command
+      surface exists for automation, scripting, and agents that need to manipulate Craig's local environment directly.
     </p>
 
     <h2>Core features</h2>
@@ -21,11 +22,11 @@ import "../../styles/global.css";
   <div class="grid sm:grid-cols-2 gap-3 mb-8">
     {[
       { title: "Parallel agents", body: "Multiple agents running at the same time, each in an isolated worktree. No conflicts, no waiting." },
-      { title: "Polyrepo support", body: "Register all your repos. Drive agents across any of them from a single dashboard." },
+      { title: "Polyrepo support", body: "Register all your repos. Drive agents across any of them from one TUI workspace." },
       { title: "Any agent runner", body: "Works with Claude Code, Codex, and Cursor. Switch runners per task." },
-      { title: "Built-in review flow", body: "Files, Changes, and Review inspector panels. Check diffs, run your test suite, and merge — all in Craig." },
+      { title: "Read-only review panel", body: "Files, Changes, and Review inspector panels. Inspect diffs, PR state, checks, and comments while the agent performs repo actions in its PTY." },
       { title: "Worktree isolation", body: "Every task is a real git worktree on its own branch. Reversible, trackable, mergeable." },
-      { title: "Pure TUI", body: "No Electron, no cloud dashboard, no account. Just your terminal." },
+      { title: "Agent-facing commands", body: "The CLI mirrors core operations so Craig, scripts, or an agent can provision tasks and inspect state programmatically." },
     ].map(({ title, body }) => (
       <div class="border border-[#292e42] rounded-lg p-4 hover:border-[#3b4261] transition-colors">
         <p class="text-[#c0caf5] font-semibold text-sm mb-1">{title}</p>

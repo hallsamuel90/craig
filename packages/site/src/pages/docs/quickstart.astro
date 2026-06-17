@@ -17,13 +17,17 @@ import "../../styles/global.css";
   </div>
   <div class="max-w-3xl mx-auto px-10 prose">
     <h2>2. Add a repo (first time only)</h2>
-    <p>Select <strong>Add repo</strong> from the left panel, or run:</p>
-    <pre><code>craig repo add /path/to/your/repo</code></pre>
+    <p>Select <strong>+ New Workspace</strong> from the left panel, or run:</p>
+    <pre><code>craig workspace add /path/to/your/repo</code></pre>
 
     <h2>3. Create a task</h2>
     <p>
-      Press <kbd>n</kbd> from the TUI, type your task prompt, and press <kbd>Enter</kbd>.
-      Craig creates a branch, a git worktree, and spawns the agent.
+      Press <kbd>n</kbd> from the TUI, type a short task description, and press <kbd>Enter</kbd>.
+      Craig creates a task record, branch, git worktree, and agent tab.
+    </p>
+    <p>
+      The task text is used as Craig task metadata. It is not pasted into the agent automatically;
+      once the agent PTY opens, give the runner the instructions you want it to follow.
     </p>
 
     <h2>4. Watch the agent work</h2>
@@ -36,12 +40,17 @@ import "../../styles/global.css";
     <img src="/screenshots/agent-working.png" alt="Agent working in Craig TUI" class="w-full block" /></div>
   </div>
   <div class="max-w-3xl mx-auto px-10 prose">
-    <h2>5. Review and merge</h2>
+    <h2>5. Review the work</h2>
     <p>
-      Use the <strong>Changes</strong> and <strong>Review</strong> inspector panels to check the diff and run checks, then:
+      Use the <strong>Changes</strong> and <strong>Review</strong> inspector panels to check the diff,
+      inspect PR status, and refresh tracked check state. The Review panel is a read-only status surface;
+      ask the agent in its PTY to run checks, commit, open PRs, or merge when that work is ready.
     </p>
-    <pre><code>craig task pr &lt;task-id&gt; --watch</code></pre>
-    <p>Craig creates the PR and waits for checks to pass before merging.</p>
+    <p>
+      The command layer exposes lower-level task operations such as
+      <code>craig task check &lt;task-id&gt;</code> and <code>craig task commit &lt;task-id&gt;</code>
+      for automation or agent-driven workflows.
+    </p>
   </div>
   <div class="max-w-6xl mx-auto px-6 my-6"><div class="rounded-xl overflow-hidden border border-[#292e42]">
     <img src="/screenshots/ci-review.png" alt="CI checks passing in review panel" class="w-full block" /></div>

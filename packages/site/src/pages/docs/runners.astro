@@ -7,15 +7,20 @@ import "../../styles/global.css";
   <div class="max-w-3xl mx-auto px-10">
   <div class="prose">
     <h1>Runners</h1>
-    <p class="subtitle">Connect Craig to your preferred AI agent CLI.</p>
+    <p class="subtitle">Choose which agent Craig launches in managed TUI sessions.</p>
 
     <p>
       Craig supports <strong>Claude Code</strong>, <strong>Codex</strong>, and <strong>Cursor</strong> as runner backends.
-      Each runner must be installed and available in your <code>PATH</code>.
+      Each runner must be installed and available in your <code>PATH</code>. When you create or attach an agent tab,
+      Craig starts the selected runner inside that task's isolated worktree and managed PTY. Craig stores the
+      task prompt as task metadata; it does not automatically send that text to the runner.
     </p>
 
     <h2>Selecting a runner</h2>
-    <p>When creating a task, Craig presents available runners. You can also specify one explicitly:</p>
+    <p>
+      In the TUI, choose the runner while creating a task or when adding an agent tab. For automation,
+      the same choice is exposed through command options:
+    </p>
     <pre><code>craig task new --runner claude "your task prompt"</code></pre>
 
     <h2>Enabling / disabling runners</h2>
