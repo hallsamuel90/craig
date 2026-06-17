@@ -10,10 +10,9 @@ import "../../styles/global.css";
     <p class="subtitle">A local TUI for repo-backed agent work.</p>
 
     <p>
-      Craig is a full-screen TUI that lets you run AI coding agents — Claude Code, Codex, Cursor — across
-      one or many repos simultaneously. The TUI is the primary product: create tasks, attach to live agent
-      sessions, inspect diffs, and monitor read-only review state without leaving the terminal. The command
-      surface exists for automation, scripting, and agents that need to manipulate Craig's local environment directly.
+      Craig is a full-screen TUI for running AI coding agents — Claude Code, Codex, Cursor — across one or
+      many repos at once. Open tasks, watch agents work, flip through diffs, and review PRs without leaving
+      your terminal. The CLI is there when you need to script things or let an agent drive.
     </p>
 
     <h2>Core features</h2>
@@ -24,9 +23,9 @@ import "../../styles/global.css";
       { title: "Parallel agents", body: "Multiple agents running at the same time, each in an isolated worktree. No conflicts, no waiting." },
       { title: "Polyrepo support", body: "Register all your repos. Drive agents across any of them from one TUI workspace." },
       { title: "Any agent runner", body: "Works with Claude Code, Codex, and Cursor. Switch runners per task." },
-      { title: "Read-only review panel", body: "Files, Changes, and Review inspector panels. Inspect diffs, PR state, checks, and comments while the agent performs repo actions in its PTY." },
+      { title: "Read-only review panel", body: "Flip through Files, Changes, and Review to check diffs, PR state, and CI comments while the agent keeps working." },
       { title: "Worktree isolation", body: "Every task is a real git worktree on its own branch. Reversible, trackable, mergeable." },
-      { title: "Agent-facing commands", body: "The CLI mirrors core operations so Craig, scripts, or an agent can provision tasks and inspect state programmatically." },
+      { title: "Agent-facing commands", body: "The CLI exposes core task operations so scripts and agents can drive Craig without touching the UI." },
     ].map(({ title, body }) => (
       <div class="border border-[#292e42] rounded-lg p-4 hover:border-[#3b4261] transition-colors">
         <p class="text-[#c0caf5] font-semibold text-sm mb-1">{title}</p>
