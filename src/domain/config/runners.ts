@@ -1,12 +1,4 @@
-import type { RunnerType } from "../types/task.js";
-import type { CraigConfig } from "../types/config.js";
-
-export interface RunnerProfile {
-  id: RunnerType;
-  displayName: string;
-  executable: string;
-  defaultAgentTitle: string;
-}
+import type { CraigConfig, RunnerProfile, RunnerType } from "./types.js";
 
 export const RUNNER_IDS = ["codex", "cursor", "claude"] as const satisfies readonly RunnerType[];
 
@@ -31,12 +23,12 @@ const RUNNER_PROFILES: Record<RunnerType, RunnerProfile> = {
   },
 };
 
-export function getRunnerProfile(runner: RunnerType): RunnerProfile {
+export function getProfile(runner: RunnerType): RunnerProfile {
   return RUNNER_PROFILES[runner];
 }
 
-export function getConfiguredRunnerProfile(runner: RunnerType, config: CraigConfig = {}): RunnerProfile {
-  const profile = getRunnerProfile(runner);
+export function getConfiguredProfile(runner: RunnerType, config: CraigConfig = {}): RunnerProfile {
+  const profile = getProfile(runner);
   const configuredPath = config.runners?.[runner]?.path?.trim();
   return {
     ...profile,
@@ -44,20 +36,19 @@ export function getConfiguredRunnerProfile(runner: RunnerType, config: CraigConf
   };
 }
 
-export function getEnabledRunnerIds(config: CraigConfig = {}): RunnerType[] {
+export function getEnabled(config: CraigConfig = {}): RunnerType[] {
   return RUNNER_IDS.filter((runner) => config.runners?.[runner]?.enabled !== false);
 }
 
-export function getDefaultRunner(config: CraigConfig = {}): RunnerType {
-  const enabledRunners = getEnabledRunnerIds(config);
-  if (enabledRunners.length === 0) {
+export function getDefault(config: CraigConfig = {}): RunnerType {
+  const enabled = getEnabled(config);
+  if (enabled.length === 0) {
     throw new Error("No runners are enabled. Enable at least one runner in .craig/config.json.");
   }
-
-  return enabledRunners.includes("codex") ? "codex" : enabledRunners[0]!;
+  return enabled.includes("codex") ? "codex" : enabled[0]!;
 }
 
-export function assertRunnerEnabled(runner: RunnerType, config: CraigConfig = {}): void {
+export function assertEnabled(runner: RunnerType, config: CraigConfig = {}): void {
   if (config.runners?.[runner]?.enabled === false) {
     throw new Error(`Runner "${runner}" is disabled in .craig/config.json.`);
   }
@@ -67,24 +58,22 @@ export function isRunnerType(value: string): value is RunnerType {
   return (RUNNER_IDS as readonly string[]).includes(value);
 }
 
-export function parseRunnerType(value: string | null | undefined): RunnerType {
+export function parse(value: string | null | undefined): RunnerType {
   if (!value || value.length === 0) {
     return "codex";
   }
-
   if (!isRunnerType(value)) {
     throw new Error(`Unsupported runner "${value}". Expected one of: ${RUNNER_IDS.join(", ")}.`);
   }
-
   return value;
 }
 
-export function getRunnerDisplayName(runner: RunnerType): string {
-  return getRunnerProfile(runner).displayName;
+export function getDisplayName(runner: RunnerType): string {
+  return getProfile(runner).displayName;
 }
 
-export function buildRunnerCommand(runner: RunnerType, prompt?: string, config: CraigConfig = {}): string[] {
-  const command = [getConfiguredRunnerProfile(runner, config).executable];
+export function buildCommand(runner: RunnerType, prompt?: string, config: CraigConfig = {}): string[] {
+  const command = [getConfiguredProfile(runner, config).executable];
   if (prompt && prompt.length > 0) {
     command.push(prompt);
   }

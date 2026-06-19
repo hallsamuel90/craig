@@ -1,13 +1,9 @@
+import type { VersionCheckResult } from "./types.js";
+
 declare const __CRAIG_VERSION__: string | undefined;
 
 const REGISTRY_URL = "https://registry.npmjs.org/craig-cli/latest";
-const CACHE_TTL_MS = 60 * 60 * 1000; // 1 hour
-
-interface VersionCheckResult {
-  current: string;
-  latest: string | null;
-  updateAvailable: boolean;
-}
+const CACHE_TTL_MS = 60 * 60 * 1000;
 
 interface VersionCheckCache {
   result: VersionCheckResult;
@@ -16,7 +12,7 @@ interface VersionCheckCache {
 
 let cache: VersionCheckCache | null = null;
 
-export function getCurrentVersion(): string {
+export function getCurrent(): string {
   try {
     return typeof __CRAIG_VERSION__ !== "undefined" ? __CRAIG_VERSION__ : "unknown";
   } catch {
@@ -25,7 +21,7 @@ export function getCurrentVersion(): string {
 }
 
 export async function checkForUpdate(): Promise<VersionCheckResult> {
-  const current = getCurrentVersion();
+  const current = getCurrent();
   const now = Date.now();
 
   if (cache && now - cache.cachedAt < CACHE_TTL_MS) {
@@ -46,14 +42,14 @@ export async function checkForUpdate(): Promise<VersionCheckResult> {
   const result: VersionCheckResult = {
     current,
     latest,
-    updateAvailable: latest !== null && latest !== current && isNewerVersion(latest, current),
+    updateAvailable: latest !== null && latest !== current && isNewer(latest, current),
   };
 
   cache = { result, cachedAt: now };
   return result;
 }
 
-function isNewerVersion(latest: string, current: string): boolean {
+function isNewer(latest: string, current: string): boolean {
   const parseSemver = (v: string) => v.split(".").map(Number);
   const [lMaj = 0, lMin = 0, lPat = 0] = parseSemver(latest);
   const [cMaj = 0, cMin = 0, cPat = 0] = parseSemver(current);

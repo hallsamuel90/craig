@@ -3,14 +3,16 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { describe, expect, test } from "vitest";
 
-import {
-  assertRunnerEnabled,
-  buildRunnerCommand,
-  getDefaultRunner,
-  getEnabledRunnerIds,
-  getRunnerProfile,
-  parseRunnerType,
-} from "../src/services/runner-profiles.js";
+import { configService } from "../src/domain/config/index.js";
+
+const {
+  assertEnabled: assertRunnerEnabled,
+  buildCommand: buildRunnerCommand,
+  getDefault: getDefaultRunner,
+  getEnabled: getEnabledRunnerIds,
+  getProfile: getRunnerProfile,
+  parse: parseRunnerType,
+} = configService.runners;
 import { requireExecutablePath, withDefaultCommandPath } from "../src/utils/command-path.js";
 
 describe("runner profiles", () => {

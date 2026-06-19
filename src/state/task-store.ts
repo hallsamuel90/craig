@@ -4,7 +4,7 @@ import type { ProjectTaskRepoTarget, RunnerSession, RunnerType, TaskPR, TaskPtyT
 import type { CraigPaths } from "./craig-paths.js";
 import { atomicWriteJson } from "./atomic-write.js";
 import { readCraigIndex, writeCraigIndex } from "./state-store.js";
-import { buildRunnerCommand, getRunnerProfile, isRunnerType } from "../services/runner-profiles.js";
+import { configService } from "../domain/config/index.js";
 
 export async function readTask(paths: CraigPaths, taskId: string): Promise<TaskRecord> {
   const raw = await readFile(getTaskFilePath(paths, taskId), "utf8");
@@ -100,7 +100,7 @@ function buildLegacyRunnerSession(candidate: Partial<TaskRecord>): RunnerSession
   const runner = normalizeRunner(candidate.runner);
 
   return {
-    command: buildRunnerCommand(runner, candidate.title),
+    command: configService.runners.buildCommand(runner, candidate.title),
     pid: null,
     startedAt: null,
     lastKnownState: candidate.status === "running" ? "running" : "starting",
@@ -122,7 +122,7 @@ function isTaskRecord(value: unknown): value is TaskRecord {
     typeof candidate.slug === "string" &&
     (candidate.type === "repo" || candidate.type === "project") &&
     typeof candidate.status === "string" &&
-    isRunnerType(candidate.runner ?? "") &&
+    configService.runners.isRunnerType(candidate.runner ?? "") &&
     typeof candidate.repoId === "string" &&
     typeof candidate.workspaceId === "string" &&
     (typeof candidate.sessionId === "string" || candidate.sessionId === null) &&
@@ -202,13 +202,13 @@ function normalizeTaskPtyTabs(candidate: Partial<TaskRecord>): TaskPtyTabRecord[
 }
 
 function buildDefaultTaskPtyTabs(taskId: string, _prompt: string, timestamp: string, runner: RunnerType): TaskPtyTabRecord[] {
-  const profile = getRunnerProfile(runner);
+  const profile = configService.runners.getProfile(runner);
   return [
     {
       id: `${taskId}:agent`,
       kind: "agent",
       title: profile.defaultAgentTitle,
-      command: buildRunnerCommand(runner),
+      command: configService.runners.buildCommand(runner),
       createdAt: timestamp,
       updatedAt: timestamp,
     },
@@ -224,7 +224,7 @@ function buildDefaultTaskPtyTabs(taskId: string, _prompt: string, timestamp: str
 }
 
 function normalizeRunner(value: string | null | undefined): RunnerType {
-  return value && isRunnerType(value) ? value : "codex";
+  return value && configService.runners.isRunnerType(value) ? value : "codex";
 }
 
 function isTaskPtyTabs(value: TaskRecord["ptyTabs"] | undefined): value is TaskPtyTabRecord[] {

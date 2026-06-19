@@ -1,5 +1,5 @@
 import type { AppCommand } from "../types/command.js";
-import { parseRunnerType } from "../services/runner-profiles.js";
+import { configService } from "../domain/config/index.js";
 
 export interface ParsedArgvCommand {
   mode: "interactive" | "command";
@@ -89,7 +89,7 @@ export function parseArgv(argv: string[]): ParsedArgvCommand {
     const workspaceId = workspaceFlagIndex === -1 ? undefined : trimmedArgv[workspaceFlagIndex + 1]?.trim() ?? "";
     const runner = runnerFlagIndex === -1
       ? undefined
-      : parseRunnerType(trimmedArgv[runnerFlagIndex + 1]?.trim() ?? "");
+      : configService.runners.parse(trimmedArgv[runnerFlagIndex + 1]?.trim() ?? "");
     const promptParts = trimmedArgv.filter(
       (_, index) =>
         index > 1 &&

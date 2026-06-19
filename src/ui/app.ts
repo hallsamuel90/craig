@@ -6,8 +6,8 @@ import type * as TerminalKitModule from "terminal-kit";
 import { listRepos } from "../state/repo-store.js";
 import { listWorkspaceRecords } from "../state/workspace-store.js";
 import { getDefaultUiState, readUiState, writeUiState } from "../state/ui-state-store.js";
-import { readCraigConfig, writeCraigConfig } from "../state/config-store.js";
-import type { CraigConfig } from "../types/config.js";
+import { configService, RUNNER_IDS } from "../domain/config/index.js";
+import type { CraigConfig } from "../domain/config/index.js";
 import { readTask, writeTask } from "../state/task-store.js";
 import { getCraigPaths } from "../state/craig-paths.js";
 import { ensureCraigState } from "../state/ensure-state.js";
@@ -20,15 +20,6 @@ import { loadTaskLocalInspection, reloadSelectedContent, type InspectionTreeRow 
 import { discoverOrRefreshAllProjectPullRequests, discoverOrRefreshPullRequest, discoverOrRefreshPullRequests } from "../services/open-pull-request.js";
 import { getTaskPrimaryPr } from "../services/github-pr.js";
 import { closeTask } from "../services/close-task.js";
-import {
-  assertRunnerEnabled,
-  buildRunnerCommand,
-  getConfiguredRunnerProfile,
-  getDefaultRunner,
-  getEnabledRunnerIds,
-  getRunnerProfile,
-  RUNNER_IDS,
-} from "../services/runner-profiles.js";
 import { runCommand } from "../utils/exec.js";
 import { requireExecutablePath, withDefaultCommandPath } from "../utils/command-path.js";
 import { buildShellData, getReviewInspectionRowCount, type WorkspaceShellModel } from "./shell-data.js";
@@ -36,7 +27,6 @@ import { getViewport, SHELL_LAYOUT, type Viewport } from "./layout.js";
 import type { PtyRuntimeOptions, PtySize } from "./pty-runtime.js";
 import { createDaemonPtyRuntime } from "./pty-daemon.js";
 import { CENTER_TERMINAL_GUTTER, renderBootOverlayFrame, renderErrorLogOverlayFrame, renderHelpOverlayFrame, renderMainShellFrame, renderOptionsOverlayFrame, renderPauseOverlayFrame } from "./render.js";
-import { checkForUpdate, getCurrentVersion } from "../services/version-check.js";
 import {
   buildRunnersSubmenuItems,
   getRunnersSubmenuMessage,
@@ -128,8 +118,8 @@ export async function startTerminalApp(options: TerminalAppOptions = {}): Promis
   const workspaceRoot = options.workspaceRoot ?? process.cwd();
   const paths = getCraigPaths(workspaceRoot);
   await ensureCraigState(workspaceRoot);
-  let config = await readCraigConfig(paths);
-  let enabledRunnerIds = getEnabledRunnerIds(config);
+  let config = await configService.load(paths);
+  let enabledRunnerIds = configService.runners.getEnabled(config);
   let runtimeState = options.uiStateFile ? await readUiState({ uiStateFile: options.uiStateFile }) : null;
   let persistQueue = Promise.resolve();
   let taskMutationQueue = Promise.resolve();
@@ -186,7 +176,7 @@ export async function startTerminalApp(options: TerminalAppOptions = {}): Promis
     let prPollTimer: ReturnType<typeof setInterval> | null = null;
     let prPollInFlight = false;
     let lastBackgroundPrPollError: string | null = null;
-    let versionText: string | null = `Craig v${getCurrentVersion()}`;
+    let versionText: string | null = `Craig v${configService.version.getCurrent()}`;
     let updateText: string | null = null;
     let inspectionRefreshSequence = 0;
     let pendingClear = true;
@@ -351,9 +341,9 @@ export async function startTerminalApp(options: TerminalAppOptions = {}): Promis
     }
 
     async function updateRunnerOptions(nextConfig: CraigConfig): Promise<void> {
-      await writeCraigConfig(paths, nextConfig);
+      await configService.save(paths, nextConfig);
       config = nextConfig;
-      enabledRunnerIds = getEnabledRunnerIds(config);
+      enabledRunnerIds = configService.runners.getEnabled(config);
       model = {
         ...model,
         enabledRunnerIds,
@@ -365,7 +355,7 @@ export async function startTerminalApp(options: TerminalAppOptions = {}): Promis
             ...state.shell,
             selectedRunner: enabledRunnerIds.includes(state.shell.selectedRunner)
               ? state.shell.selectedRunner
-              : getDefaultRunner(config),
+              : configService.runners.getDefault(config),
           }),
         };
       } else {
@@ -375,7 +365,7 @@ export async function startTerminalApp(options: TerminalAppOptions = {}): Promis
             ...state.shell,
             selectedRunner: enabledRunnerIds.includes(state.shell.selectedRunner)
               ? state.shell.selectedRunner
-              : getDefaultRunner(config),
+              : configService.runners.getDefault(config),
           }),
         };
       }
@@ -1808,7 +1798,7 @@ export async function startTerminalApp(options: TerminalAppOptions = {}): Promis
     prPollTimer = setInterval(() => {
       void pollPullRequests();
     }, (config.github?.watchIntervalSeconds ?? 5) * 1000);
-    void checkForUpdate().then((result) => {
+    void configService.version.checkForUpdate().then((result) => {
       if (result.updateAvailable && result.latest) {
         updateText = `Update available: v${result.latest}`;
         render();
@@ -1947,7 +1937,7 @@ function createNextPtyTab(
   config: CraigConfig = {},
 ): TaskPtyTabRecord {
   const effectiveRunner = runner ?? task.runner;
-  const runnerProfile = getRunnerProfile(effectiveRunner);
+  const runnerProfile = configService.runners.getProfile(effectiveRunner);
   const baseTitle = kind === "agent" ? runnerProfile.defaultAgentTitle : "Terminal";
   const baseId = kind === "agent" && runner && runner !== task.runner
     ? `${task.id}:${runner}`
@@ -1968,7 +1958,7 @@ function createNextPtyTab(
     kind,
     ...(tabRunner ? { runner: tabRunner } : {}),
     title: ordinal === 1 ? baseTitle : `${baseTitle} ${ordinal}`,
-    command: kind === "agent" ? buildRunnerCommand(effectiveRunner, undefined, config) : [],
+    command: kind === "agent" ? configService.runners.buildCommand(effectiveRunner, undefined, config) : [],
     createdAt: timestamp,
     updatedAt: timestamp,
   };
@@ -1981,14 +1971,14 @@ async function createInteractiveTask(
   prompt: string,
   runner: RunnerType,
 ): Promise<TaskRecord> {
-  const config = await readCraigConfig(paths);
-  assertRunnerEnabled(runner, config);
+  const config = await configService.load(paths);
+  configService.runners.assertEnabled(runner, config);
   const provisioned = workspaceId
     ? await provisionProjectTask(paths, workspaceId, prompt, { runner, config })
     : await provisionTask(paths, repoId ?? "", prompt, { runner, config });
   try {
     const env = withDefaultCommandPath();
-    await runCommand(requireExecutablePath(getConfiguredRunnerProfile(runner, config).executable, { cwd: provisioned.repoRoot, env }), ["--help"], {
+    await runCommand(requireExecutablePath(configService.runners.getConfiguredProfile(runner, config).executable, { cwd: provisioned.repoRoot, env }), ["--help"], {
       cwd: provisioned.repoRoot,
       env,
     });

@@ -5,7 +5,7 @@ import type { ProjectTaskRepoTarget, TaskPR, TaskPullRequest, TaskPullRequestChe
 import type { CraigPaths } from "../state/craig-paths.js";
 import { atomicWriteJson } from "../state/atomic-write.js";
 import { readTask, writeTask } from "../state/task-store.js";
-import { readCraigConfig } from "../state/config-store.js";
+import { configService } from "../domain/config/index.js";
 import { runCommand, runCommandAllowingFailure } from "../utils/exec.js";
 import { resolveArtifactPath } from "./task-artifacts.js";
 
@@ -305,7 +305,7 @@ export async function waitForPullRequestState(
   paths: CraigPaths,
   task: TaskRecord,
 ): Promise<TaskRecord> {
-  const config = await readCraigConfig(paths);
+  const config = await configService.load(paths);
   const interval = (config.github?.watchIntervalSeconds ?? 5) * 1000;
 
   while (true) {

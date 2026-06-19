@@ -1,4 +1,4 @@
-import type { RunnerType } from "./task.js";
+import type { RunnerType } from "../domain/config/index.js";
 
 export interface RepoRecord {
   id: string;

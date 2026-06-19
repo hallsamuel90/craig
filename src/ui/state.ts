@@ -1,10 +1,8 @@
 import { getDefaultUiState } from "../state/ui-state-store.js";
-import type { CraigConfig } from "../types/config.js";
-import type { RunnerType, TaskPtyTabKind, TaskRecord } from "../types/task.js";
-import type { RepoRecord } from "../types/workspace.js";
-import type { WorkspaceRecord } from "../types/workspace.js";
-import type { CraigUiRuntime } from "../types/workspace.js";
-import { RUNNER_IDS, getDefaultRunner, getEnabledRunnerIds, isRunnerType } from "../services/runner-profiles.js";
+import { configService, RUNNER_IDS } from "../domain/config/index.js";
+import type { CraigConfig, RunnerType } from "../domain/config/index.js";
+import type { TaskPtyTabKind, TaskRecord } from "../types/task.js";
+import type { RepoRecord, WorkspaceRecord, CraigUiRuntime } from "../types/workspace.js";
 import type { TerminalScreenRow } from "./terminal-emulator.js";
 
 export const FOCUS_REGIONS = ["tasks", "center", "inspector", "actions"] as const;
@@ -147,7 +145,7 @@ export interface RestoreShellStateOptions {
 export function createInitialShellState(runtime: CraigUiRuntime | null, config: CraigConfig = {}): ControlShellState {
   const legacyInspectionKind = runtime?.activeTab === "files" ? "file" : runtime?.activeTab === "diff" ? "diff" : null;
   const openInspectionKind = getValidOpenInspectionKind(runtime?.openInspectionKind) ?? legacyInspectionKind;
-  const enabledRunnerIds = getEnabledRunnerIds(config);
+  const enabledRunnerIds = configService.runners.getEnabled(config);
   return {
     inputMode: getValidInputMode(runtime?.inputMode),
     focusedRegion: getValidFocusRegion(runtime?.focusedRegion),
@@ -170,7 +168,7 @@ export function createInitialShellState(runtime: CraigUiRuntime | null, config: 
     reviewScrollOffset: 0,
     selectedActionId: getValidValue(runtime?.selectedActionId, ACTION_IDS, "commit"),
     selectedProjectTargetId: null,
-    selectedRunner: getValidRunner(runtime?.selectedRunner, enabledRunnerIds, getDefaultRunner(config)),
+    selectedRunner: getValidRunner(runtime?.selectedRunner, enabledRunnerIds, configService.runners.getDefault(config)),
     centerTabRunner: null,
     actionMessage: null,
     footerToast: null,
@@ -1244,7 +1242,7 @@ function getValidRunner(
   enabledRunnerIds: RunnerType[] = [...RUNNER_IDS],
   fallback: RunnerType = "codex",
 ): RunnerType {
-  return value && isRunnerType(value) && enabledRunnerIds.includes(value) ? value : fallback;
+  return value && configService.runners.isRunnerType(value) && enabledRunnerIds.includes(value) ? value : fallback;
 }
 
 export function getNextRunner(runner: RunnerType, enabledRunnerIds: readonly RunnerType[] = RUNNER_IDS): RunnerType {

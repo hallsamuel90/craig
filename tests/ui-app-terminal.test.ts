@@ -9,7 +9,7 @@ import type { TerminalViewState } from "../src/ui/state.js";
 import { listRepos } from "../src/state/repo-store.js";
 import { runCommand, runCommandAllowingFailure } from "../src/utils/exec.js";
 import { readTask, writeTask } from "../src/state/task-store.js";
-import { readCraigConfig } from "../src/state/config-store.js";
+import { configService } from "../src/domain/config/index.js";
 import { createCraigState, createGitRepo, createStubCommands, writeRepoRecord, writeTaskRecord } from "./test-helpers.js";
 
 /* eslint-disable no-unused-vars */
@@ -2307,7 +2307,7 @@ describe("terminal app PTY attach flow", () => {
     await vi.waitFor(() => expect(terminal.frames.at(-1) ?? "").toContain("Codex  enabled"));
 
     terminal.emitKey("ENTER"); // Codex toggle (already at index 0)
-    await vi.waitFor(async () => expect((await readCraigConfig(paths)).runners?.codex?.enabled).toBe(false));
+    await vi.waitFor(async () => expect((await configService.load(paths)).runners?.codex?.enabled).toBe(false));
 
     terminal.emitKey("DOWN"); // Cursor (index 1)
     terminal.emitKey("e"); // edit Cursor executable path
@@ -2315,7 +2315,7 @@ describe("terminal app PTY attach flow", () => {
       terminal.emitKey(char);
     }
     terminal.emitKey("ENTER");
-    await vi.waitFor(async () => expect((await readCraigConfig(paths)).runners?.cursor?.path).toBe("/tmp/cursor-agent"));
+    await vi.waitFor(async () => expect((await configService.load(paths)).runners?.cursor?.path).toBe("/tmp/cursor-agent"));
 
     terminal.emitKey("ESCAPE"); // back to options menu
     terminal.emitKey("ESCAPE"); // back to boot menu

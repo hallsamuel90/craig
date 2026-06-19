@@ -4,7 +4,7 @@ import { afterEach, describe, expect, test, vi } from "vitest";
 // persisting across tests.
 async function freshImport() {
   vi.resetModules();
-  return import("../src/services/version-check.js");
+  return import("../src/domain/config/version.js");
 }
 
 describe("version-check", () => {
@@ -15,10 +15,10 @@ describe("version-check", () => {
     vi.restoreAllMocks();
   });
 
-  describe("getCurrentVersion", () => {
+  describe("getCurrent", () => {
     test("returns 'unknown' when __CRAIG_VERSION__ is not defined at runtime", async () => {
-      const { getCurrentVersion } = await freshImport();
-      expect(getCurrentVersion()).toBe("unknown");
+      const { getCurrent } = await freshImport();
+      expect(getCurrent()).toBe("unknown");
     });
   });
 
