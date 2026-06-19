@@ -1,4 +1,5 @@
-export type { RunnerType } from "../domain/config/index.js";
+import type { RunnerType } from "../domain/config/index.js";
+export type { RunnerType };
 
 export type TaskType = "repo" | "project";
 export type TaskStatus =
