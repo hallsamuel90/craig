@@ -2,7 +2,7 @@ import { describe, expect, test } from "vitest";
 import { checkForUpdate } from "./check-for-update.js";
 
 const mockFetch = (response: { ok: boolean; json: () => Promise<unknown> }) =>
-  async (_url: string, _init?: RequestInit) => response as Response;
+  async (_url: string | URL | Request, _init?: RequestInit) => response as Response;
 
 const deps = (fetchImpl: typeof globalThis.fetch, version = "1.0.0") => ({
   fetch: fetchImpl,
