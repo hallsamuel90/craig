@@ -4,7 +4,7 @@ import type { CraigConfig } from "../types.js";
 import { validate } from "./validate.js";
 
 interface Deps {
-  readConfigFile: (filePath: string) => Promise<string | null>;
+  readConfigFile: typeof readConfigFile;
 }
 
 export const load = async (paths: CraigPaths, deps: Deps = { readConfigFile }): Promise<CraigConfig> => {
