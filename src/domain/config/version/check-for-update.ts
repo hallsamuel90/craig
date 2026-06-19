@@ -9,7 +9,13 @@ interface VersionCheckCache {
   cachedAt: number;
 }
 
-let cache: VersionCheckCache | null = null;
+interface Deps {
+  fetch: typeof globalThis.fetch;
+  getCurrent: () => string;
+  cache: { value: VersionCheckCache | null };
+}
+
+const moduleCache: { value: VersionCheckCache | null } = { value: null };
 
 const isNewer = (latest: string, current: string): boolean => {
   const parseSemver = (v: string) => v.split(".").map(Number);
@@ -21,17 +27,19 @@ const isNewer = (latest: string, current: string): boolean => {
   return lPat > cPat;
 };
 
-export const checkForUpdate = async (): Promise<VersionCheckResult> => {
-  const current = getCurrent();
+export const checkForUpdate = async (
+  deps: Deps = { fetch: globalThis.fetch, getCurrent, cache: moduleCache },
+): Promise<VersionCheckResult> => {
+  const current = deps.getCurrent();
   const now = Date.now();
 
-  if (cache && now - cache.cachedAt < CACHE_TTL_MS) {
-    return cache.result;
+  if (deps.cache.value && now - deps.cache.value.cachedAt < CACHE_TTL_MS) {
+    return deps.cache.value.result;
   }
 
   let latest: string | null = null;
   try {
-    const response = await fetch(REGISTRY_URL, { signal: AbortSignal.timeout(5000) });
+    const response = await deps.fetch(REGISTRY_URL, { signal: AbortSignal.timeout(5000) });
     if (response.ok) {
       const data = (await response.json()) as { version?: string };
       latest = data.version ?? null;
@@ -46,6 +54,6 @@ export const checkForUpdate = async (): Promise<VersionCheckResult> => {
     updateAvailable: latest !== null && latest !== current && isNewer(latest, current),
   };
 
-  cache = { result, cachedAt: now };
+  deps.cache.value = { result, cachedAt: now };
   return result;
 };
