@@ -51,6 +51,30 @@ export function upsertTaskPr(task: TaskRecord, pr: TaskPR): TaskRecord {
   return { ...task, prs };
 }
 
+export function unlinkTaskPr(task: TaskRecord, prNumber?: number): { task: TaskRecord; removed: TaskPR } {
+  const target = prNumber
+    ? task.prs.find((pr) => pr.number === prNumber)
+    : getTaskPrimaryPr(task);
+
+  if (!target?.number) {
+    throw new Error(
+      prNumber
+        ? `Task ${task.id} is not linked to pull request #${prNumber}.`
+        : `Task ${task.id} has no linked pull request.`,
+    );
+  }
+
+  const prs = task.prs.filter((pr) => pr.number !== target.number);
+  return {
+    removed: target,
+    task: {
+      ...task,
+      prs,
+      status: deriveTaskStatusAfterPrUnlink(task, prs),
+    },
+  };
+}
+
 export interface GitHubRepositoryLocator {
   owner: string;
   name: string;
@@ -402,6 +426,14 @@ function deriveTaskStatusFromPrs(prs: TaskPR[]): TaskRecord["status"] {
   return "checked";
 }
 
+function deriveTaskStatusAfterPrUnlink(task: TaskRecord, prs: TaskPR[]): TaskRecord["status"] {
+  if (task.status === "closed" || task.status === "running" || task.status === "draft" || task.status === "review") {
+    return task.status;
+  }
+
+  return deriveTaskStatusFromPrs(prs);
+}
+
 function buildPrViewArgs(selector: string): string[] {
   return [
     "pr",
@@ -410,6 +442,10 @@ function buildPrViewArgs(selector: string): string[] {
     "--json",
     "number,url,baseRefName,headRefName,headRefOid,state,isDraft,title,createdAt,updatedAt,mergedAt,mergeable,mergeStateStatus,reviewDecision,statusCheckRollup,comments",
   ];
+}
+
+export function buildPullRequestViewArgs(selector: string): string[] {
+  return buildPrViewArgs(selector);
 }
 
 function parseGitHubRemoteUrl(value: string): GitHubRepositoryLocator | null {

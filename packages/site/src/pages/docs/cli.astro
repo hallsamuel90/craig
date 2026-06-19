@@ -24,6 +24,7 @@ const groups = [
       { cmd: "craig workspace list", desc: "List workspaces" },
       { cmd: "craig workspace list --archived", desc: "Include archived workspaces" },
       { cmd: "craig workspace archive <id>", desc: "Archive a workspace" },
+      { cmd: "craig workspace refresh <id>", desc: "Rescan a project workspace" },
       { cmd: "craig workspace restore <id>", desc: "Restore an archived workspace" },
       { cmd: "craig workspace remove <id>", desc: "Delete a workspace" },
     ],
@@ -35,6 +36,7 @@ const groups = [
       { cmd: 'craig task new --workspace <id> "<prompt>"', desc: "Create a project workspace task" },
       { cmd: "craig task list", desc: "List all tasks" },
       { cmd: "craig task list --repo <id>", desc: "List tasks for a specific repo" },
+      { cmd: "craig task workspace sync <id>", desc: "Add missing workspace repos to a project task" },
       { cmd: "craig task show <id>", desc: "Show task details" },
       { cmd: "craig task attach <id>", desc: "Attach to task PTY" },
       { cmd: "craig task focus <id>", desc: "Focus the task tmux pane" },
@@ -50,6 +52,8 @@ const groups = [
     commands: [
       { cmd: "craig link add <task-id> <repo-id>", desc: "Link a task to an additional repo" },
       { cmd: "craig link list <task-id>", desc: "List linked repos for a task" },
+      { cmd: "craig pr link <task-id> <number|url|branch>", desc: "Link an existing GitHub PR to a task" },
+      { cmd: "craig pr unlink <task-id> [number]", desc: "Remove a task's local PR link" },
     ],
   },
 ];

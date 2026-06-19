@@ -2,6 +2,7 @@ import type { TaskPullRequest, TaskRecord } from "../types/task.js";
 import type { CraigPaths } from "../state/craig-paths.js";
 import { readTask, writeTask } from "../state/task-store.js";
 import {
+  buildPullRequestViewArgs,
   discoverPullRequestState,
   ensureGhAuthenticated,
   fetchPullRequestViewsBatch,
@@ -13,9 +14,12 @@ import {
   persistTaskPullRequestView,
   refreshOrDiscoverTargetPullRequest,
   refreshPullRequestState,
+  unlinkTaskPr,
   writePrStatusArtifact,
+  type GhPrView,
 } from "./github-pr.js";
 import { assertTaskWorktreeExists, getTaskOrThrow } from "./task-inspection.js";
+import { runCommand } from "../utils/exec.js";
 
 export type PullRequestSyncDisposition = "discovered" | "synced" | "not_found";
 
@@ -27,6 +31,40 @@ export interface PullRequestPollResult {
   hadPr: boolean;
   firstDiscoveredPrNumber: number | null;
   firstDiscoveredPrUrl: string | null;
+}
+
+export async function linkPullRequestToTask(
+  paths: CraigPaths,
+  taskId: string,
+  selector: string,
+) {
+  const task = await getTaskOrThrow(paths, taskId);
+  await assertTaskWorktreeExists(task);
+  await ensureGhAuthenticated(task.worktreePath);
+
+  const result = await runCommand("gh", buildPullRequestViewArgs(selector), {
+    cwd: task.worktreePath,
+  });
+  const linkedTask = await persistTaskPullRequestView(paths, task, JSON.parse(result.stdout) as GhPrView);
+  return {
+    task: linkedTask,
+    pullRequest: getTaskPrimaryPr(linkedTask),
+  };
+}
+
+export async function unlinkPullRequestFromTask(
+  paths: CraigPaths,
+  taskId: string,
+  prNumber?: number,
+) {
+  const task = await getTaskOrThrow(paths, taskId);
+  const { task: nextTask, removed } = unlinkTaskPr(task, prNumber);
+  await writeTask(paths, nextTask);
+  await writePrStatusArtifact(paths, nextTask);
+  return {
+    task: nextTask,
+    pullRequest: removed,
+  };
 }
 
 export async function refreshTrackedPullRequest(paths: CraigPaths, taskId: string) {

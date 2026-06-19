@@ -11,9 +11,11 @@ import { focusTask } from "../services/focus-task.js";
 import { openTask } from "../services/open-task.js";
 import { runChecks } from "../services/run-checks.js";
 import { commitTask } from "../services/commit-task.js";
+import { linkPullRequestToTask, unlinkPullRequestFromTask } from "../services/open-pull-request.js";
 import { addRepo, listRegisteredRepos, removeRepo } from "../services/repo-registry.js";
 import { addTaskLink, listTaskLinks } from "../services/task-links.js";
-import { addWorkspace, archiveWorkspace, listWorkspaces, removeWorkspace, restoreWorkspace } from "../services/workspace-registry.js";
+import { syncTaskWorkspace } from "../services/task-provisioning.js";
+import { addWorkspace, archiveWorkspace, listWorkspaces, refreshWorkspace, removeWorkspace, restoreWorkspace } from "../services/workspace-registry.js";
 
 export interface CommandContext {
   paths: CraigPaths;
@@ -35,6 +37,8 @@ export async function executeCommand(
       return removeRepo(context.paths, command.repoId);
     case "listWorkspaces":
       return listWorkspaces(context.paths, { archived: command.archived });
+    case "refreshWorkspace":
+      return refreshWorkspace(context.paths, command.workspaceId);
     case "archiveWorkspace":
       return archiveWorkspace(context.paths, command.workspaceId);
     case "restoreWorkspace":
@@ -52,12 +56,25 @@ export async function executeCommand(
       return command.repoId || command.workspaceId
         ? listTasks(context.paths, { ...(command.repoId ? { repoId: command.repoId } : {}), ...(command.workspaceId ? { workspaceId: command.workspaceId } : {}) })
         : listTasks(context.paths);
+    case "syncTaskWorkspace":
+      return syncTaskWorkspace(context.paths, command.taskId);
     case "attachTask":
       return attachTask(context.paths, command.taskId);
     case "addTaskLink":
       return addTaskLink(context.paths, command.taskId, command.repoId);
     case "listTaskLinks":
       return listTaskLinks(context.paths, command.taskId);
+    case "linkPullRequest": {
+      const result = await linkPullRequestToTask(context.paths, command.taskId, command.selector);
+      if (!result.pullRequest) {
+        throw new Error(`No pull request was linked to task ${command.taskId}.`);
+      }
+      return { kind: "linkPullRequest", taskId: result.task.id, pullRequest: result.pullRequest };
+    }
+    case "unlinkPullRequest": {
+      const result = await unlinkPullRequestFromTask(context.paths, command.taskId, command.prNumber);
+      return { kind: "unlinkPullRequest", taskId: result.task.id, pullRequest: result.pullRequest };
+    }
     case "refreshInteractiveState":
       throw new Error("Interactive refresh should be handled by the interactive app.");
     case "showTask":

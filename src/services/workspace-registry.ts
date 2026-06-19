@@ -6,6 +6,7 @@ import type {
   CommandArchiveWorkspaceResult,
   CommandListWorkspacesResult,
   CommandRemoveWorkspaceResult,
+  CommandRefreshWorkspaceResult,
   CommandRestoreWorkspaceResult,
 } from "../types/command.js";
 import type { CraigPaths } from "../state/craig-paths.js";
@@ -47,6 +48,53 @@ export async function listWorkspaces(
     kind: "listWorkspaces",
     workspaces: workspaces.filter((workspace) => workspace.status === (options.archived ? "archived" : "active")),
     archivedOnly: options.archived,
+  };
+}
+
+export async function refreshWorkspace(paths: CraigPaths, workspaceId: string): Promise<CommandRefreshWorkspaceResult> {
+  const workspace = await readWorkspace(paths, workspaceId);
+
+  if (workspace.status === "archived") {
+    throw new Error(`Cannot refresh archived workspace ${workspaceId}. Restore it first.`);
+  }
+
+  if (workspace.kind !== "project") {
+    throw new Error(`Workspace ${workspaceId} is not a project workspace.`);
+  }
+
+  if (!workspace.rootPath) {
+    throw new Error(`Workspace ${workspaceId} does not have a root path.`);
+  }
+
+  const previousRepoIds = workspace.discoveredRepoIds ?? [];
+  const discovered = await discoverDirectChildRepos(paths, workspace.rootPath);
+  if (discovered.length === 0) {
+    throw new Error(`Workspace path does not contain direct child Git repos: ${workspace.rootPath}`);
+  }
+
+  const nextRepoIds = discovered.map((repo) => repo.id);
+  const previous = new Set(previousRepoIds);
+  const next = new Set(nextRepoIds);
+  const addedRepoIds = nextRepoIds.filter((repoId) => !previous.has(repoId));
+  const removedRepoIds = previousRepoIds.filter((repoId) => !next.has(repoId));
+  const unchangedRepoIds = nextRepoIds.filter((repoId) => previous.has(repoId));
+  const refreshed: WorkspaceRecord = {
+    ...workspace,
+    discoveredRepoIds: nextRepoIds,
+    primaryRepoId: nextRepoIds[0] ?? workspace.primaryRepoId,
+    linkedRepoIds: nextRepoIds,
+  };
+
+  await Promise.all(discovered.map((repo) => writeRepo(paths, repo)));
+  await writeWorkspace(paths, refreshed);
+  await appendIndexIds(paths, { repoIds: nextRepoIds, workspaceIds: [workspace.id] });
+
+  return {
+    kind: "refreshWorkspace",
+    workspace: refreshed,
+    addedRepoIds,
+    removedRepoIds,
+    unchangedRepoIds,
   };
 }
 

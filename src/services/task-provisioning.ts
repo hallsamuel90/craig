@@ -3,7 +3,8 @@ import path from "node:path";
 
 import type { CraigPaths } from "../state/craig-paths.js";
 import { readRepo } from "../state/repo-store.js";
-import { appendTaskId, writeTask } from "../state/task-store.js";
+import { appendTaskId, readTask, writeTask } from "../state/task-store.js";
+import type { CommandSyncTaskWorkspaceResult } from "../types/command.js";
 import type { CraigConfig, RunnerType } from "../domain/config/index.js";
 import { configService } from "../domain/config/index.js";
 import type { ProjectTaskRepoTarget, TaskChecks, TaskCleanup, TaskPullRequest, TaskPtyTabRecord, TaskRecord } from "../types/task.js";
@@ -125,35 +126,7 @@ export async function provisionProjectTask(
     );
   }
 
-  await writeFile(
-    path.join(bundlePath, "manifest.json"),
-    JSON.stringify({
-      taskId,
-      workspaceId,
-      prompt,
-      repos: repoTargets.map((target) => ({
-        repoId: target.repoId,
-        repoName: repos.find((repo) => repo.id === target.repoId)?.name ?? target.repoId,
-        path: path.relative(bundlePath, target.worktreePath),
-        status: target.status,
-        worktreePath: target.worktreePath,
-        failureReason: target.failureReason,
-      })),
-    }, null, 2),
-    "utf8",
-  );
-  await writeFile(
-    path.join(bundlePath, PROJECT_BUNDLE_GUIDE_FILENAME),
-    buildProjectBundleAgentsMarkdown({
-      taskId,
-      workspaceId,
-      prompt,
-      repos,
-      repoTargets,
-      bundlePath,
-    }),
-    "utf8",
-  );
+  await writeProjectBundleFiles({ bundlePath, taskId, workspaceId, prompt, repos, repoTargets });
 
   const ptyTabs = createDefaultTaskPtyTabs(taskId, prompt, timestamp, runner, options.config ?? {});
   const task: TaskRecord = {
@@ -215,6 +188,83 @@ export async function provisionProjectTask(
     task,
     bundlePath,
     repoTargets,
+  };
+}
+
+export async function syncTaskWorkspace(
+  paths: CraigPaths,
+  taskId: string,
+): Promise<CommandSyncTaskWorkspaceResult> {
+  const task = await readTask(paths, taskId);
+
+  if (task.type !== "project") {
+    throw new Error(`Task ${taskId} is not a project workspace task.`);
+  }
+
+  const workspace = (await listWorkspaceRecords(paths)).find((entry) => entry.id === task.workspaceId && entry.status === "active");
+  if (!workspace) {
+    throw new Error(`Workspace ${task.workspaceId} does not exist or is archived.`);
+  }
+
+  if (workspace.kind !== "project") {
+    throw new Error(`Workspace ${workspace.id} is not a project workspace.`);
+  }
+
+  const bundlePath = task.bundlePath ?? task.worktreePath;
+  const existingTargets = task.repoTargets ?? [];
+  const existingTargetIds = existingTargets.map((target) => target.repoId);
+  const existingTargetIdSet = new Set(existingTargetIds);
+  const missingRepoIds = (workspace.discoveredRepoIds ?? []).filter((repoId) => !existingTargetIdSet.has(repoId));
+
+  if (missingRepoIds.length === 0) {
+    return {
+      kind: "syncTaskWorkspace",
+      taskId: task.id,
+      workspaceId: workspace.id,
+      addedTargetIds: [],
+      existingTargetIds,
+      skippedTargetIds: [],
+    };
+  }
+
+  const missingRepos = await Promise.all(missingRepoIds.map((repoId) => readRepo(paths, repoId)));
+  const repoDirectoryNames = allocateProjectRepoDirectoryNamesForMissing(existingTargets, missingRepos, bundlePath);
+  const addedTargets = await Promise.all(
+    missingRepos.map((repo) =>
+      provisionProjectRepoTarget(paths, repo, task.id, task.branch, path.join(bundlePath, repoDirectoryNames.get(repo.id)!)),
+    ),
+  );
+  const repoTargets = [...existingTargets, ...addedTargets];
+  const allRepos = await Promise.all(repoTargets.map((target) => readRepo(paths, target.repoId)));
+  const readyAddedTargets = addedTargets.filter((target) => target.status === "ready");
+  const unavailableTargets = addedTargets.filter((target) => target.status === "unavailable");
+  const nextTask: TaskRecord = {
+    ...task,
+    repoTargets,
+    linkedRepoIds: repoTargets.map((target) => target.repoId).filter((repoId) => repoId !== task.repoId),
+    selectedRepoTargetId: task.selectedRepoTargetId ?? readyAddedTargets[0]?.repoId ?? task.repoId,
+    lastFailureReason: unavailableTargets.length > 0
+      ? `Some workspace targets could not be synced: ${unavailableTargets.map((target) => `${target.repoId}: ${target.failureReason ?? "unknown error"}`).join("; ")}`
+      : task.lastFailureReason ?? null,
+  };
+
+  await writeProjectBundleFiles({
+    bundlePath,
+    taskId: task.id,
+    workspaceId: workspace.id,
+    prompt: task.prompt.value,
+    repos: allRepos,
+    repoTargets,
+  });
+  await writeTask(paths, nextTask);
+
+  return {
+    kind: "syncTaskWorkspace",
+    taskId: task.id,
+    workspaceId: workspace.id,
+    addedTargetIds: readyAddedTargets.map((target) => target.repoId),
+    existingTargetIds,
+    skippedTargetIds: unavailableTargets.map((target) => target.repoId),
   };
 }
 
@@ -354,6 +404,66 @@ function allocateProjectRepoDirectoryNames(repos: RepoRecord[]): Map<string, str
   }
 
   return names;
+}
+
+function allocateProjectRepoDirectoryNamesForMissing(
+  existingTargets: ProjectTaskRepoTarget[],
+  repos: RepoRecord[],
+  bundlePath: string,
+): Map<string, string> {
+  const usedNames = new Set(["manifest.json", PROJECT_BUNDLE_GUIDE_FILENAME]);
+  for (const target of existingTargets) {
+    usedNames.add(path.basename(path.relative(bundlePath, target.worktreePath)));
+  }
+
+  const names = new Map<string, string>();
+  for (const repo of repos) {
+    const baseName = usedNames.has(repo.name) ? `${repo.name}-repo` : repo.name;
+    let candidate = baseName;
+    let suffix = 2;
+
+    while (usedNames.has(candidate)) {
+      candidate = `${baseName}-${suffix}`;
+      suffix += 1;
+    }
+
+    usedNames.add(candidate);
+    names.set(repo.id, candidate);
+  }
+
+  return names;
+}
+
+async function writeProjectBundleFiles(input: {
+  bundlePath: string;
+  taskId: string;
+  workspaceId: string;
+  prompt: string;
+  repos: RepoRecord[];
+  repoTargets: ProjectTaskRepoTarget[];
+}): Promise<void> {
+  await writeFile(
+    path.join(input.bundlePath, "manifest.json"),
+    JSON.stringify({
+      taskId: input.taskId,
+      workspaceId: input.workspaceId,
+      prompt: input.prompt,
+      repos: input.repoTargets.map((target) => ({
+        repoId: target.repoId,
+        repoName: input.repos.find((repo) => repo.id === target.repoId)?.name ?? target.repoId,
+        path: path.relative(input.bundlePath, target.worktreePath),
+        status: target.status,
+        worktreePath: target.worktreePath,
+        failureReason: target.failureReason,
+      })),
+    }, null, 2),
+    "utf8",
+  );
+  await writeFile(
+    path.join(input.bundlePath, PROJECT_BUNDLE_GUIDE_FILENAME),
+    buildProjectBundleAgentsMarkdown(input),
+    "utf8",
+  );
 }
 
 function buildProjectBundleAgentsMarkdown(input: {

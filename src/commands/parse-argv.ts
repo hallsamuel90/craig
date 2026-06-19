@@ -64,6 +64,10 @@ export function parseArgv(argv: string[]): ParsedArgvCommand {
     return { mode: "command", command: { kind: "archiveWorkspace", workspaceId: trimmedArgv[2]!.trim() } };
   }
 
+  if (trimmedArgv.length === 3 && trimmedArgv[0] === "workspace" && trimmedArgv[1] === "refresh") {
+    return { mode: "command", command: { kind: "refreshWorkspace", workspaceId: requireWorkspaceId(trimmedArgv[2]!) } };
+  }
+
   if (trimmedArgv.length === 3 && trimmedArgv[0] === "workspace" && trimmedArgv[1] === "restore") {
     return { mode: "command", command: { kind: "restoreWorkspace", workspaceId: trimmedArgv[2]!.trim() } };
   }
@@ -141,6 +145,13 @@ export function parseArgv(argv: string[]): ParsedArgvCommand {
     return { mode: "command", command: { kind: "attachTask", taskId: requireTaskId(trimmedArgv[2]!) } };
   }
 
+  if (trimmedArgv.length === 4 && trimmedArgv[0] === "task" && trimmedArgv[1] === "workspace" && trimmedArgv[2] === "sync") {
+    return {
+      mode: "command",
+      command: { kind: "syncTaskWorkspace", taskId: requireTaskId(trimmedArgv[3]!) },
+    };
+  }
+
   if (trimmedArgv.length === 3 && trimmedArgv[0] === "task" && trimmedArgv[1] === "show") {
     return {
       mode: "command",
@@ -211,6 +222,33 @@ export function parseArgv(argv: string[]): ParsedArgvCommand {
     };
   }
 
+  if (trimmedArgv.length === 4 && trimmedArgv[0] === "pr" && trimmedArgv[1] === "link") {
+    return {
+      mode: "command",
+      command: {
+        kind: "linkPullRequest",
+        taskId: requireTaskId(trimmedArgv[2]!),
+        selector: requirePullRequestSelector(trimmedArgv[3]!),
+      },
+    };
+  }
+
+  if (
+    trimmedArgv.length >= 3 &&
+    trimmedArgv.length <= 4 &&
+    trimmedArgv[0] === "pr" &&
+    trimmedArgv[1] === "unlink"
+  ) {
+    return {
+      mode: "command",
+      command: {
+        kind: "unlinkPullRequest",
+        taskId: requireTaskId(trimmedArgv[2]!),
+        ...(trimmedArgv[3] ? { prNumber: requirePullRequestNumber(trimmedArgv[3]) } : {}),
+      },
+    };
+  }
+
   throw new Error(`Unsupported command: ${trimmedArgv.join(" ")}\n\n${getHelpText()}`);
 }
 
@@ -224,12 +262,14 @@ export function getHelpText(): string {
     "  craig repo remove  Remove a registered repo",
     "  craig workspace list      List active workspaces",
     "  craig workspace list --archived  List archived workspaces",
+    "  craig workspace refresh   Rescan a project workspace for child repos",
     "  craig workspace archive   Archive a workspace",
     "  craig workspace restore   Restore an archived workspace",
     "  craig workspace remove    Remove an archived workspace",
     "  craig task new --repo <repo-id> [--runner codex|cursor|claude] <prompt>  Create a new Craig repo task",
     "  craig task new --workspace <workspace-id> [--runner codex|cursor|claude] <prompt>  Create a new Craig workspace task",
     "  craig task list [--repo <repo-id>]  List known Craig tasks",
+    "  craig task workspace sync <task-id>  Add missing workspace repos to a project task",
     "  craig task show    Show details for a Craig task",
     "  craig task logs    Stream Craig-managed logs for a task",
     "  craig task diff    Show the current worktree diff for a task",
@@ -240,6 +280,8 @@ export function getHelpText(): string {
     "  craig task commit  Commit all task worktree changes",
     "  craig link add     Add a linked repo to a task",
     "  craig link list    List linked repos for a task",
+    "  craig pr link      Link an existing GitHub PR to a task",
+    "  craig pr unlink    Unlink a GitHub PR from a task",
   ].join("\n");
 }
 
@@ -261,4 +303,35 @@ function requireRepoId(value: string): string {
   }
 
   return repoId;
+}
+
+function requireWorkspaceId(value: string): string {
+  const workspaceId = value.trim();
+
+  if (workspaceId.length === 0) {
+    throw new Error(`Workspace id cannot be empty.\n\n${getHelpText()}`);
+  }
+
+  return workspaceId;
+}
+
+function requirePullRequestSelector(value: string): string {
+  const selector = value.trim();
+
+  if (selector.length === 0) {
+    throw new Error(`Pull request selector cannot be empty.\n\n${getHelpText()}`);
+  }
+
+  return selector;
+}
+
+function requirePullRequestNumber(value: string): number {
+  const raw = value.trim().replace(/^#/, "");
+  const number = Number(raw);
+
+  if (!Number.isInteger(number) || number <= 0) {
+    throw new Error(`Pull request number must be a positive integer.\n\n${getHelpText()}`);
+  }
+
+  return number;
 }

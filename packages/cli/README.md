@@ -133,6 +133,7 @@ craig workspace add <path>
 craig workspace list
 craig workspace list --archived
 craig workspace archive <workspace-id>
+craig workspace refresh <workspace-id>
 craig workspace restore <workspace-id>
 craig workspace remove <workspace-id>
 
@@ -140,6 +141,7 @@ craig task new --repo <repo-id> [--runner codex|cursor|claude] "<task>"
 craig task new --workspace <workspace-id> [--runner codex|cursor|claude] "<task>"
 craig task list
 craig task list --repo <repo-id>
+craig task workspace sync <task-id>
 craig task show <task-id>
 craig task attach <task-id>
 craig task focus <task-id>
@@ -151,6 +153,9 @@ craig task commit <task-id>
 
 craig link add <task-id> <repo-id>
 craig link list <task-id>
+
+craig pr link <task-id> <number|url|branch>
+craig pr unlink <task-id> [number]
 ```
 
 ## Config

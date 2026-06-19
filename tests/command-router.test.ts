@@ -32,6 +32,10 @@ describe("command routing", () => {
       kind: "listWorkspaces",
       archived: true,
     });
+    expect(parseArgv(["workspace", "refresh", "workspace_repo_one"]).command).toEqual({
+      kind: "refreshWorkspace",
+      workspaceId: "workspace_repo_one",
+    });
     expect(parseArgv(["workspace", "archive", "workspace_repo_one"]).command).toEqual({
       kind: "archiveWorkspace",
       workspaceId: "workspace_repo_one",
@@ -59,6 +63,36 @@ describe("command routing", () => {
       runner: "claude",
     });
     expect(() => parseArgv(["task", "new", "--repo", "repo_a", "--runner", "vim", "ship"])).toThrow(/Unsupported runner/);
+  });
+
+  test("argv task workspace sync normalizes consistently", () => {
+    expect(parseArgv(["task", "workspace", "sync", "task_1"]).command).toEqual({
+      kind: "syncTaskWorkspace",
+      taskId: "task_1",
+    });
+  });
+
+  test("argv pr link and unlink commands normalize consistently", () => {
+    expect(parseArgv(["pr", "link", "task_1", "42"]).command).toEqual({
+      kind: "linkPullRequest",
+      taskId: "task_1",
+      selector: "42",
+    });
+    expect(parseArgv(["pr", "link", "task_1", "https://github.com/example/repo/pull/42"]).command).toEqual({
+      kind: "linkPullRequest",
+      taskId: "task_1",
+      selector: "https://github.com/example/repo/pull/42",
+    });
+    expect(parseArgv(["pr", "unlink", "task_1"]).command).toEqual({
+      kind: "unlinkPullRequest",
+      taskId: "task_1",
+    });
+    expect(parseArgv(["pr", "unlink", "task_1", "#42"]).command).toEqual({
+      kind: "unlinkPullRequest",
+      taskId: "task_1",
+      prNumber: 42,
+    });
+    expect(() => parseArgv(["pr", "unlink", "task_1", "nope"])).toThrow(/Pull request number/);
   });
 
   test("shared executor registers a repo and creates a matching active workspace", async () => {
@@ -223,6 +257,60 @@ describe("command routing", () => {
     expect(agentsGuide).toContain("Run repo Git commands from a repo worktree directory, not from the bundle root.");
     expect(agentsGuide).toContain("`repo-a/`");
     expect(agentsGuide).toContain("`repo-b/`");
+  });
+
+  test("workspace refresh and task workspace sync add newly cloned project repos to an existing task", async () => {
+    const workspaceRoot = await createRepoRoot("craig-router-project-sync-");
+    tempRoots.push(workspaceRoot);
+    await createCraigState(workspaceRoot);
+    const paths = getCraigPaths(workspaceRoot);
+
+    for (const name of ["repo-a", "repo-b"]) {
+      const repoRoot = path.join(workspaceRoot, name);
+      await mkdir(repoRoot, { recursive: true });
+      await createGitRepo(repoRoot);
+      await writeFile(path.join(repoRoot, "README.md"), `${name}\n`, "utf8");
+      await runCommand("git", ["add", "README.md"], { cwd: repoRoot });
+      await runCommand("git", ["commit", "-m", "seed"], { cwd: repoRoot });
+    }
+
+    const project = await executeCommand({ kind: "addWorkspace", path: "." }, { paths });
+    if (project.kind !== "createWorkspace") {
+      throw new Error("Expected project workspace.");
+    }
+
+    const provisioned = await provisionProjectTask(paths, project.workspace.id, "ship project");
+    const repoCRoot = path.join(workspaceRoot, "repo-c");
+    await mkdir(repoCRoot, { recursive: true });
+    await createGitRepo(repoCRoot);
+    await writeFile(path.join(repoCRoot, "README.md"), "repo-c\n", "utf8");
+    await runCommand("git", ["add", "README.md"], { cwd: repoCRoot });
+    await runCommand("git", ["commit", "-m", "seed"], { cwd: repoCRoot });
+
+    const refreshed = await executeCommand({ kind: "refreshWorkspace", workspaceId: project.workspace.id }, { paths });
+    if (refreshed.kind !== "refreshWorkspace") {
+      throw new Error("Expected refreshWorkspace result.");
+    }
+    expect(refreshed.addedRepoIds).toEqual(["repo_repo-c"]);
+
+    const synced = await executeCommand({ kind: "syncTaskWorkspace", taskId: provisioned.task.id }, { paths });
+    if (synced.kind !== "syncTaskWorkspace") {
+      throw new Error("Expected syncTaskWorkspace result.");
+    }
+
+    const task = await readTask(paths, provisioned.task.id);
+    const manifest = JSON.parse(await readFile(path.join(task.bundlePath ?? "", "manifest.json"), "utf8")) as {
+      repos: Array<{ repoId: string; path: string; status: string }>;
+    };
+    const agentsGuide = await readFile(path.join(task.bundlePath ?? "", "AGENTS.md"), "utf8");
+
+    expect(synced.addedTargetIds).toEqual(["repo_repo-c"]);
+    expect(synced.existingTargetIds.sort()).toEqual(["repo_repo-a", "repo_repo-b"]);
+    expect(task.repoTargets?.map((target) => target.repoId).sort()).toEqual(["repo_repo-a", "repo_repo-b", "repo_repo-c"]);
+    expect(task.repoTargets?.find((target) => target.repoId === "repo_repo-c")?.status).toBe("ready");
+    expect(manifest.repos.map((repo) => repo.repoId).sort()).toEqual(["repo_repo-a", "repo_repo-b", "repo_repo-c"]);
+    expect(manifest.repos.find((repo) => repo.repoId === "repo_repo-c")?.path).toBe("repo-c");
+    expect(agentsGuide).toContain("`repo-c/`");
   });
 
   test("project task provisioning uses each repo default branch instead of requiring main", async () => {

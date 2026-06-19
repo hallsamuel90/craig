@@ -6,7 +6,7 @@ import { afterEach, describe, expect, test } from "vitest";
 
 import { commitTask } from "../src/services/commit-task.js";
 import { closeTask } from "../src/services/close-task.js";
-import { discoverOrRefreshAllProjectPullRequests, discoverOrRefreshPullRequest, discoverOrRefreshPullRequests, refreshPullRequestChecks } from "../src/services/open-pull-request.js";
+import { discoverOrRefreshAllProjectPullRequests, discoverOrRefreshPullRequest, discoverOrRefreshPullRequests, linkPullRequestToTask, refreshPullRequestChecks, unlinkPullRequestFromTask } from "../src/services/open-pull-request.js";
 import { runChecks } from "../src/services/run-checks.js";
 import { showTask } from "../src/services/show-task.js";
 import { listTasks } from "../src/services/list-tasks.js";
@@ -153,6 +153,86 @@ describe("task lifecycle services", () => {
     expect(task.prs[0]?.url).toBe("https://github.com/example/repo/pull/21");
     expect(task.prs[0]?.lastSyncedHeadSha).toBe(headSha);
     expect(task.status).toBe("merge_ready");
+  });
+
+  test("linkPullRequestToTask records an explicit PR selector", async () => {
+    const repoRoot = await createRepoRoot("craig-pr-link-");
+    tempRoots.push(repoRoot);
+    const { paths, worktreePath, stubDir } = await createTrackedTaskRepo(repoRoot);
+    process.env.PATH = `${stubDir}:${originalPath}`;
+
+    const viewFile = path.join(repoRoot, "gh-link-view.json");
+    await writeFile(
+      viewFile,
+      JSON.stringify({
+        number: 42,
+        url: "https://github.com/example/repo/pull/42",
+        title: "Bump dependency",
+        baseRefName: "main",
+        headRefName: "dependabot/npm/pkg-1.2.3",
+        headRefOid: "dependabot123",
+        state: "OPEN",
+        mergeable: "MERGEABLE",
+        mergeStateStatus: "CLEAN",
+        statusCheckRollup: [{ context: "ci", state: "SUCCESS", conclusion: "SUCCESS" }],
+      }),
+      "utf8",
+    );
+    process.env.CRAIG_TEST_GH_VIEW_FILE = viewFile;
+    await writeTaskRecord(paths.repoRoot, {
+      id: "task_1",
+      status: "checked",
+      branch: "craig/task_1",
+      worktreePath,
+    });
+
+    const result = await linkPullRequestToTask(paths, "task_1", "42");
+    const task = await readTask(paths, "task_1");
+
+    expect(result.pullRequest?.number).toBe(42);
+    expect(task.prs[0]?.headBranch).toBe("dependabot/npm/pkg-1.2.3");
+    expect(task.prs[0]?.title).toBe("Bump dependency");
+    expect(task.status).toBe("merge_ready");
+  });
+
+  test("unlinkPullRequestFromTask removes the selected PR link", async () => {
+    const repoRoot = await createRepoRoot("craig-pr-unlink-");
+    tempRoots.push(repoRoot);
+    const paths = await createCraigState(repoRoot);
+    await createGitRepo(repoRoot);
+    await seedGitRepo(repoRoot);
+    await writeTaskRecord(paths.repoRoot, {
+      id: "task_1",
+      status: "pr_open",
+      worktreePath: repoRoot,
+      prs: [{
+        provider: "github",
+        owner: null,
+        repo: null,
+        number: 42,
+        url: "https://github.com/example/repo/pull/42",
+        title: "Bump dependency",
+        status: "open",
+        draft: false,
+        baseBranch: "main",
+        headBranch: "dependabot/npm/pkg-1.2.3",
+        mergeable: false,
+        mergeStateStatus: "DIRTY",
+        requiredChecks: [],
+        createdAt: null,
+        updatedAt: null,
+        mergedAt: null,
+        lastSyncedAt: "2026-04-21T00:00:00.000Z",
+        lastSyncedHeadSha: "dependabot123",
+      }],
+    });
+
+    const result = await unlinkPullRequestFromTask(paths, "task_1", 42);
+    const task = await readTask(paths, "task_1");
+
+    expect(result.pullRequest.number).toBe(42);
+    expect(task.prs).toHaveLength(0);
+    expect(task.status).toBe("checked");
   });
 
   test("discoverOrRefreshPullRequests batches tasks that share a GitHub repository", async () => {

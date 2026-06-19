@@ -36,6 +36,13 @@ export function formatCommandResult(result: CommandResult): string {
         "ID\tKIND\tSTATUS\tREPOS\tPATH",
         ...result.workspaces.map((workspace) => `${workspace.id}\t${workspace.kind ?? "repo"}\t${workspace.status}\t${(workspace.discoveredRepoIds ?? [workspace.primaryRepoId]).join(",")}\t${workspace.rootPath ?? ""}`),
       ].join("\n");
+    case "refreshWorkspace":
+      return [
+        `Refreshed workspace ${result.workspace.id}`,
+        `Added: ${formatIdList(result.addedRepoIds)}`,
+        `Removed: ${formatIdList(result.removedRepoIds)}`,
+        `Unchanged: ${formatIdList(result.unchangedRepoIds)}`,
+      ].join("\n");
     case "archiveWorkspace":
       return `Archived workspace ${result.workspaceId} on branch ${result.branch}`;
     case "restoreWorkspace":
@@ -65,6 +72,10 @@ export function formatCommandResult(result: CommandResult): string {
       return ["ID\tNAME\tBRANCH\tPATH", ...result.repos.map((repo) => `${repo.id}\t${repo.name}\t${repo.defaultBranch}\t${repo.rootPath}`)].join(
         "\n",
       );
+    case "linkPullRequest":
+      return `Linked PR #${result.pullRequest.number} to task ${result.taskId}: ${result.pullRequest.url ?? "<no url>"}`;
+    case "unlinkPullRequest":
+      return `Unlinked PR #${result.pullRequest.number} from task ${result.taskId}`;
     case "help":
       return result.text;
     case "exit":
@@ -85,6 +96,13 @@ export function formatCommandResult(result: CommandResult): string {
           (task) =>
             `${task.id}\t${task.repoId}\t${task.status}\t${summarizeListChecks(task)}\t${summarizeListPr(task)}\t${task.title}`,
         ),
+      ].join("\n");
+    case "syncTaskWorkspace":
+      return [
+        `Synced task ${result.taskId} with workspace ${result.workspaceId}`,
+        `Added targets: ${formatIdList(result.addedTargetIds)}`,
+        `Existing targets: ${formatIdList(result.existingTargetIds)}`,
+        `Skipped targets: ${formatIdList(result.skippedTargetIds)}`,
       ].join("\n");
     case "showTask":
       return [
@@ -167,6 +185,10 @@ function buildShowWarnings(result: Extract<CommandResult, { kind: "showTask" }>)
 
 function assertNever(value: never): never {
   throw new Error(`Unsupported result: ${JSON.stringify(value)}`);
+}
+
+function formatIdList(ids: string[]): string {
+  return ids.length > 0 ? ids.join(", ") : "none";
 }
 
 function summarizeListChecks(task: Extract<CommandResult, { kind: "listTasks" }>["tasks"][number]): string {

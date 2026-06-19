@@ -1,5 +1,5 @@
 import type { SessionRecord } from "./session.js";
-import type { TaskRecord } from "./task.js";
+import type { TaskPR, TaskRecord } from "./task.js";
 import type { RunnerType } from "../domain/config/index.js";
 import type { RepoRecord, WorkspaceRecord } from "./workspace.js";
 
@@ -9,14 +9,18 @@ export type AppCommand =
   | { kind: "listRepos" }
   | { kind: "removeRepo"; repoId: string }
   | { kind: "listWorkspaces"; archived: boolean }
+  | { kind: "refreshWorkspace"; workspaceId: string }
   | { kind: "archiveWorkspace"; workspaceId: string }
   | { kind: "restoreWorkspace"; workspaceId: string }
   | { kind: "removeWorkspace"; workspaceId: string }
   | { kind: "createTask"; repoId?: string; workspaceId?: string; prompt: string; runner?: RunnerType }
   | { kind: "listTasks"; repoId?: string; workspaceId?: string }
+  | { kind: "syncTaskWorkspace"; taskId: string }
   | { kind: "attachTask"; taskId: string }
   | { kind: "addTaskLink"; taskId: string; repoId: string }
   | { kind: "listTaskLinks"; taskId: string }
+  | { kind: "linkPullRequest"; taskId: string; selector: string }
+  | { kind: "unlinkPullRequest"; taskId: string; prNumber?: number }
   | { kind: "refreshInteractiveState" }
   | { kind: "showTask"; taskId: string }
   | { kind: "showSelectedTask" }
@@ -78,6 +82,14 @@ export interface CommandListWorkspacesResult {
   archivedOnly: boolean;
 }
 
+export interface CommandRefreshWorkspaceResult {
+  kind: "refreshWorkspace";
+  workspace: WorkspaceRecord;
+  addedRepoIds: string[];
+  removedRepoIds: string[];
+  unchangedRepoIds: string[];
+}
+
 export interface CommandArchiveWorkspaceResult {
   kind: "archiveWorkspace";
   workspaceId: string;
@@ -114,6 +126,15 @@ export interface CommandListResult {
   repoId: string | null;
 }
 
+export interface CommandSyncTaskWorkspaceResult {
+  kind: "syncTaskWorkspace";
+  taskId: string;
+  workspaceId: string;
+  addedTargetIds: string[];
+  existingTargetIds: string[];
+  skippedTargetIds: string[];
+}
+
 export interface CommandAttachTaskResult {
   kind: "attachTask";
   taskId: string;
@@ -132,6 +153,18 @@ export interface CommandListTaskLinksResult {
   kind: "listTaskLinks";
   taskId: string;
   repos: RepoRecord[];
+}
+
+export interface CommandLinkPullRequestResult {
+  kind: "linkPullRequest";
+  taskId: string;
+  pullRequest: TaskPR;
+}
+
+export interface CommandUnlinkPullRequestResult {
+  kind: "unlinkPullRequest";
+  taskId: string;
+  pullRequest: TaskPR;
 }
 
 export interface TaskInspection {
@@ -200,6 +233,7 @@ export type CommandResult =
   | CommandListReposResult
   | CommandRemoveRepoResult
   | CommandListWorkspacesResult
+  | CommandRefreshWorkspaceResult
   | CommandArchiveWorkspaceResult
   | CommandRestoreWorkspaceResult
   | CommandRemoveWorkspaceResult
@@ -207,9 +241,12 @@ export type CommandResult =
   | CommandAttachTaskResult
   | CommandAddTaskLinkResult
   | CommandListTaskLinksResult
+  | CommandLinkPullRequestResult
+  | CommandUnlinkPullRequestResult
   | CommandHelpResult
   | CommandExitResult
   | CommandListResult
+  | CommandSyncTaskWorkspaceResult
   | CommandShowTaskResult
   | CommandLogsResult
   | CommandDiffResult
