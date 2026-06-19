@@ -1,39 +1,7 @@
-import type { CraigPaths } from "../../state/craig-paths.js";
-import { RUNNER_IDS } from "./runners.js";
-import type { CraigConfig } from "./types.js";
-import { readConfigFile, writeConfigFile } from "./adapters/config-store.js";
+import { RUNNER_IDS } from "../runners/runner-ids.js";
+import type { CraigConfig } from "../types.js";
 
-export async function load(paths: CraigPaths): Promise<CraigConfig> {
-  const raw = await readConfigFile(paths.configFile);
-
-  if (!raw) {
-    return {};
-  }
-
-  if (raw.trimStart()[0] !== "{") {
-    throw new Error(
-      `Craig config at ${paths.configFile} is malformed. Remove or repair the file before rerunning Craig.`,
-    );
-  }
-
-  let parsed: unknown;
-  try {
-    parsed = JSON.parse(raw);
-  } catch {
-    throw new Error(
-      `Craig config at ${paths.configFile} is malformed. Remove or repair the file before rerunning Craig.`,
-    );
-  }
-
-  return validate(parsed, paths.configFile);
-}
-
-export async function save(paths: CraigPaths, config: CraigConfig): Promise<void> {
-  validate(config, paths.configFile);
-  await writeConfigFile(paths.configFile, `${JSON.stringify(config, null, 2)}\n`);
-}
-
-function validate(value: unknown, filePath: string): CraigConfig {
+export const validate = (value: unknown, filePath: string): CraigConfig => {
   if (typeof value !== "object" || value === null) {
     throw new Error(`Craig config at ${filePath} is invalid. Expected a JSON object.`);
   }
@@ -121,4 +89,4 @@ function validate(value: unknown, filePath: string): CraigConfig {
   }
 
   return candidate;
-}
+};

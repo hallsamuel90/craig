@@ -1,6 +1,5 @@
-import type { VersionCheckResult } from "./types.js";
-
-declare const __CRAIG_VERSION__: string | undefined;
+import type { VersionCheckResult } from "../types.js";
+import { getCurrent } from "./get-current.js";
 
 const REGISTRY_URL = "https://registry.npmjs.org/craig-cli/latest";
 const CACHE_TTL_MS = 60 * 60 * 1000;
@@ -12,15 +11,17 @@ interface VersionCheckCache {
 
 let cache: VersionCheckCache | null = null;
 
-export function getCurrent(): string {
-  try {
-    return typeof __CRAIG_VERSION__ !== "undefined" ? __CRAIG_VERSION__ : "unknown";
-  } catch {
-    return "unknown";
-  }
-}
+const isNewer = (latest: string, current: string): boolean => {
+  const parseSemver = (v: string) => v.split(".").map(Number);
+  const [lMaj = 0, lMin = 0, lPat = 0] = parseSemver(latest);
+  const [cMaj = 0, cMin = 0, cPat = 0] = parseSemver(current);
 
-export async function checkForUpdate(): Promise<VersionCheckResult> {
+  if (lMaj !== cMaj) return lMaj > cMaj;
+  if (lMin !== cMin) return lMin > cMin;
+  return lPat > cPat;
+};
+
+export const checkForUpdate = async (): Promise<VersionCheckResult> => {
   const current = getCurrent();
   const now = Date.now();
 
@@ -32,7 +33,7 @@ export async function checkForUpdate(): Promise<VersionCheckResult> {
   try {
     const response = await fetch(REGISTRY_URL, { signal: AbortSignal.timeout(5000) });
     if (response.ok) {
-      const data = await response.json() as { version?: string };
+      const data = (await response.json()) as { version?: string };
       latest = data.version ?? null;
     }
   } catch {
@@ -47,14 +48,4 @@ export async function checkForUpdate(): Promise<VersionCheckResult> {
 
   cache = { result, cachedAt: now };
   return result;
-}
-
-function isNewer(latest: string, current: string): boolean {
-  const parseSemver = (v: string) => v.split(".").map(Number);
-  const [lMaj = 0, lMin = 0, lPat = 0] = parseSemver(latest);
-  const [cMaj = 0, cMin = 0, cPat = 0] = parseSemver(current);
-
-  if (lMaj !== cMaj) return lMaj > cMaj;
-  if (lMin !== cMin) return lMin > cMin;
-  return lPat > cPat;
-}
+};

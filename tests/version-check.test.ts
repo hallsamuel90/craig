@@ -4,7 +4,7 @@ import { afterEach, describe, expect, test, vi } from "vitest";
 // persisting across tests.
 async function freshImport() {
   vi.resetModules();
-  return import("../src/domain/config/version.js");
+  return import("../src/domain/config/version/index.js");
 }
 
 describe("version-check", () => {
