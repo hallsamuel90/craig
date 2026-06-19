@@ -9,12 +9,6 @@ interface VersionCheckCache {
   cachedAt: number;
 }
 
-interface Deps {
-  fetch: typeof globalThis.fetch;
-  getCurrent: () => string;
-  cache: { value: VersionCheckCache | null };
-}
-
 const moduleCache: { value: VersionCheckCache | null } = { value: null };
 
 const isNewer = (latest: string, current: string): boolean => {
@@ -28,7 +22,11 @@ const isNewer = (latest: string, current: string): boolean => {
 };
 
 export const checkForUpdate = async (
-  deps: Deps = { fetch: globalThis.fetch, getCurrent, cache: moduleCache },
+  deps: {
+    fetch: typeof globalThis.fetch;
+    getCurrent: () => string;
+    cache: { value: VersionCheckCache | null };
+  } = { fetch: globalThis.fetch, getCurrent, cache: moduleCache },
 ): Promise<VersionCheckResult> => {
   const current = deps.getCurrent();
   const now = Date.now();

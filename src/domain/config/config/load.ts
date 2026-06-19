@@ -3,11 +3,10 @@ import { readConfigFile } from "../adapters/config-store.js";
 import type { CraigConfig } from "../types.js";
 import { validate } from "./validate.js";
 
-interface Deps {
-  readConfigFile: typeof readConfigFile;
-}
-
-export const load = async (paths: CraigPaths, deps: Deps = { readConfigFile }): Promise<CraigConfig> => {
+export const load = async (
+  paths: CraigPaths,
+  deps: { readConfigFile: typeof readConfigFile } = { readConfigFile },
+): Promise<CraigConfig> => {
   const raw = await deps.readConfigFile(paths.configFile);
 
   if (!raw) {
