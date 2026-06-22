@@ -2,13 +2,13 @@ import { mkdir, rm, writeFile } from "node:fs/promises";
 import path from "node:path";
 
 import type { CraigPaths } from "../state/craig-paths.js";
-import { readRepo } from "../state/repo-store.js";
+import { readRepo } from "../domain/workspace/adapters/repo-store.js";
 import { appendTaskId, writeTask } from "../state/task-store.js";
 import type { CraigConfig, RunnerType } from "../domain/config/index.js";
 import { configService } from "../domain/config/index.js";
 import type { ProjectTaskRepoTarget, TaskChecks, TaskCleanup, TaskPullRequest, TaskPtyTabRecord, TaskRecord } from "../types/task.js";
 import type { RepoRecord } from "../types/workspace.js";
-import { listWorkspaceRecords } from "../state/workspace-store.js";
+import { listWorkspaceRecords } from "../domain/workspace/adapters/workspace-store.js";
 import { createWorktree } from "./git-task.js";
 import { allocateProjectTaskId, allocateTaskIdForRepo } from "./task-id.js";
 

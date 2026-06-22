@@ -2,7 +2,7 @@
 
 import { executeCommand } from "./commands/command-router.js";
 import { parseArgv } from "./commands/parse-argv.js";
-import { ensureCraigState } from "./state/ensure-state.js";
+import { ensureCraigState } from "./domain/workspace/index.js";
 import { getCraigPaths } from "./state/craig-paths.js";
 import { formatCommandResult } from "./main.js";
 import { startTerminalApp } from "./ui/app.js";
