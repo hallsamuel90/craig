@@ -9,7 +9,6 @@ import { configService, RUNNER_IDS } from "../domain/config/index.js";
 import type { CraigConfig } from "../domain/config/index.js";
 import { readTask, writeTask } from "../state/task-store.js";
 import { getCraigPaths } from "../state/craig-paths.js";
-import { ensureCraigState } from "../domain/workspace/index.js";
 import type { RunnerType, TaskPtyTabRecord, TaskRecord } from "../types/task.js";
 import { listTasks } from "../services/list-tasks.js";
 import { appendCraigErrorLogBestEffort, readRecentCraigErrorLog, type CraigErrorLogSnapshot } from "../services/error-log.js";
@@ -115,7 +114,7 @@ export async function startTerminalApp(options: TerminalAppOptions = {}): Promis
 
   const workspaceRoot = options.workspaceRoot ?? process.cwd();
   const paths = getCraigPaths(workspaceRoot);
-  await ensureCraigState(workspaceRoot);
+  await workspaceService.workspaces.ensureCraigState(workspaceRoot);
   let config = await configService.load(paths);
   let enabledRunnerIds = configService.runners.getEnabled(config);
   let runtimeState = options.uiStateFile ? await readUiState({ uiStateFile: options.uiStateFile }) : null;
