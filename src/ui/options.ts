@@ -1,6 +1,5 @@
-import type { CraigConfig } from "../types/config.js";
-import type { RunnerType } from "../types/task.js";
-import { getRunnerProfile, RUNNER_IDS } from "../services/runner-profiles.js";
+import { configService, RUNNER_IDS } from "../domain/config/index.js";
+import type { CraigConfig, RunnerType } from "../domain/config/index.js";
 
 export interface RunnerOptionsPathEdit {
   runner: RunnerType;
@@ -31,7 +30,7 @@ export const OPTIONS_MENU_ITEMS = ["Runners", "Error Log", "Help"];
 
 export function buildRunnersSubmenuItems(config: CraigConfig, state: RunnerOptionsState): string[] {
   return RUNNER_IDS.map((runner) => {
-    const profile = getRunnerProfile(runner);
+    const profile = configService.runners.getProfile(runner);
     const enabled = config.runners?.[runner]?.enabled !== false;
     const configuredPath = config.runners?.[runner]?.path?.trim();
     const pathDisplay = state.pathEdit?.runner === runner
@@ -157,7 +156,7 @@ export function reduceRunnerOptionsKey(
     config: updateRunnerEnabled(config, runner, !enabled),
     state: {
       ...state,
-      message: `${getRunnerProfile(runner).displayName} ${enabled ? "disabled" : "enabled"}.`,
+      message: `${configService.runners.getProfile(runner).displayName} ${enabled ? "disabled" : "enabled"}.`,
     },
   };
 }
@@ -199,8 +198,8 @@ function reducePathEditKey(
       state: clearPathEdit({
         ...state,
         message: value.length > 0
-          ? `${getRunnerProfile(runner).displayName} executable saved.`
-          : `${getRunnerProfile(runner).displayName} executable reset to default.`,
+          ? `${configService.runners.getProfile(runner).displayName} executable saved.`
+          : `${configService.runners.getProfile(runner).displayName} executable reset to default.`,
       }),
     };
   }

@@ -2,7 +2,7 @@ import { spawn } from "node:child_process";
 
 import type { CommandOpenResult } from "../types/command.js";
 import type { CraigPaths } from "../state/craig-paths.js";
-import { readCraigConfig } from "../state/config-store.js";
+import { configService } from "../domain/config/index.js";
 import { assertTaskWorktreeExists, getTaskOrThrow } from "./task-inspection.js";
 
 export async function openTask(paths: CraigPaths, taskId: string): Promise<CommandOpenResult> {
@@ -10,7 +10,7 @@ export async function openTask(paths: CraigPaths, taskId: string): Promise<Comma
 
   await assertTaskWorktreeExists(task);
 
-  const config = await readCraigConfig(paths);
+  const config = await configService.load(paths);
   const openCommand = config.open?.command ?? [];
 
   if (openCommand.length === 0) {

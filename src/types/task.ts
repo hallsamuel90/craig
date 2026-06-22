@@ -1,3 +1,6 @@
+import type { RunnerType } from "../domain/config/index.js";
+export type { RunnerType };
+
 export type TaskType = "repo" | "project";
 export type TaskStatus =
   | "draft"
@@ -8,7 +11,6 @@ export type TaskStatus =
   | "merge_ready"
   | "merged"
   | "closed";
-export type RunnerType = "codex" | "cursor" | "claude";
 export type TaskPRStatus = "open" | "closed" | "merged" | "draft";
 
 export interface TaskPromptSource {

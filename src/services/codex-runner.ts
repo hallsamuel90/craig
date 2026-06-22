@@ -4,7 +4,7 @@ import type { TaskRecord } from "../types/task.js";
 import { runCommand } from "../utils/exec.js";
 import { shellEscape } from "../utils/shell-escape.js";
 import { requireExecutablePath, withDefaultCommandPath } from "../utils/command-path.js";
-import { buildRunnerCommand } from "./runner-profiles.js";
+import { configService } from "../domain/config/index.js";
 import { sendCommandToPane } from "./tmux-session.js";
 
 export interface RunnerAdapter {
@@ -17,7 +17,7 @@ export interface RunnerAdapter {
 
 export const commandRunnerAdapter: RunnerAdapter = {
   async prepare(task, input) {
-    const executable = task.runnerSession.command[0] ?? buildRunnerCommand(task.runner)[0]!;
+    const executable = task.runnerSession.command[0] ?? configService.runners.buildCommand(task.runner)[0]!;
     const env = withDefaultCommandPath();
     await runCommand(requireExecutablePath(executable, { cwd: input.repoRoot, env }), ["--help"], {
       cwd: input.repoRoot,
@@ -28,7 +28,7 @@ export const commandRunnerAdapter: RunnerAdapter = {
   async launch(task, input) {
     const command = task.runnerSession.command.length > 0
       ? task.runnerSession.command
-      : buildRunnerCommand(task.runner, task.prompt.value);
+      : configService.runners.buildCommand(task.runner, task.prompt.value);
     const executable = requireExecutablePath(command[0]!, { cwd: task.worktreePath, env: withDefaultCommandPath() });
     await sendCommandToPane(
       input.session.paneId,

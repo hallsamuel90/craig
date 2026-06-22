@@ -15,10 +15,11 @@ import {
   getFileIcon,
   getFileIconColor,
 } from "./icons.js";
-import type { ProjectTaskRepoTarget, RunnerType, TaskPullRequest, TaskPullRequestCheck, TaskPullRequestComment, TaskPtyTabRecord, TaskRecord } from "../types/task.js";
+import type { ProjectTaskRepoTarget, TaskPullRequest, TaskPullRequestCheck, TaskPullRequestComment, TaskPtyTabRecord, TaskRecord } from "../types/task.js";
 import { getTaskPrimaryPr } from "../services/github-pr.js";
 import type { RepoRecord, WorkspaceRecord } from "../types/workspace.js";
-import { getRunnerDisplayName } from "../services/runner-profiles.js";
+import { configService } from "../domain/config/index.js";
+import type { RunnerType } from "../domain/config/index.js";
 import { INSPECTION_TAB_ID, isTaskLeftItemId } from "./state.js";
 import type { TerminalCellStyle, TerminalRowSegment } from "./terminal-emulator.js";
 import type {
@@ -164,7 +165,7 @@ export function buildShellData(state: ControlShellState, model: WorkspaceShellMo
   const activeTab = tabs.find((tab) => tab.id === activeTabId) ?? tabs[0] ?? { id: "agent", label: "CODEX" };
   const selectedInspection = model.inspection?.taskId === selectedTask?.id ? model.inspection : null;
   const repoLabel = selectedRepo?.name ?? "no repo";
-  const agentLabel = selectedTask ? getRunnerDisplayName(selectedTask.runner) : getRunnerDisplayName(state.selectedRunner);
+  const agentLabel = selectedTask ? configService.runners.getDisplayName(selectedTask.runner) : configService.runners.getDisplayName(state.selectedRunner);
 
   return {
     inputMode: state.inputMode,
@@ -177,13 +178,13 @@ export function buildShellData(state: ControlShellState, model: WorkspaceShellMo
       state.workspaceBrowser !== null
         ? `BROWSE WORKSPACE ${state.workspaceBrowser.cwd}   ↑↓ move   → open   ← up   Enter add repo   Esc cancel`
         : state.taskPromptInput !== null
-        ? `NEW TASK ${selectedRepo ? `[${selectedRepo.name}]` : "[no repo]"} · ${getRunnerDisplayName(state.selectedRunner)}   Ctrl+R switch runner   Enter create   Esc cancel   ›   ${state.taskPromptInput}${state.taskPromptError ? `   ✗ ${state.taskPromptError}` : ""}`
+        ? `NEW TASK ${selectedRepo ? `[${selectedRepo.name}]` : "[no repo]"} · ${configService.runners.getDisplayName(state.selectedRunner)}   Ctrl+R switch runner   Enter create   Esc cancel   ›   ${state.taskPromptInput}${state.taskPromptError ? `   ✗ ${state.taskPromptError}` : ""}`
         : state.inputMode === "terminal"
         ? "TERMINAL   ↑↓/PgUp/PgDn scroll   Ctrl+] return to control"
         : state.focusedRegion === "tasks"
           ? state.selectedLeftItemId?.startsWith("new-task:")
             || state.selectedLeftItemId?.startsWith("new-task-workspace:")
-            ? `r runner [${getRunnerDisplayName(state.selectedRunner)}]   Enter create task   Esc pause   ? help`
+            ? `r runner [${configService.runners.getDisplayName(state.selectedRunner)}]   Enter create task   Esc pause   ? help`
             : isTaskLeftItemId(state.selectedLeftItemId)
             ? "n new task   Enter attach   X close task   Esc pause   ? help"
             : state.selectedLeftItemId?.startsWith("workspace:")
@@ -194,7 +195,7 @@ export function buildShellData(state: ControlShellState, model: WorkspaceShellMo
             ? "n new task   Tab tasks   Esc pause   ? help"
             : activeTabId === INSPECTION_TAB_ID
             ? "↑↓/wheel/PgUp/PgDn scroll   ←/→ switch   Tab inspector   Esc pause   ? help"
-            : `+ new tab   a ${getRunnerDisplayName(state.centerTabRunner ?? (selectedTask?.runner ?? state.selectedRunner))}   r runner   t terminal   x close   Enter attach   Esc pause   ? help`
+            : `+ new tab   a ${configService.runners.getDisplayName(state.centerTabRunner ?? (selectedTask?.runner ?? state.selectedRunner))}   r runner   t terminal   x close   Enter attach   Esc pause   ? help`
           : state.inspectionMode === "review"
           ? isProjectTask
             ? "↑↓ targets   Wheel/PgUp/PgDn scroll   o open PR   R refresh checks   X close task   ←/→ mode   Esc pause   ? help"
@@ -274,7 +275,7 @@ function buildLeftTree(state: ControlShellState, model: WorkspaceShellModel): Sh
         const newTaskSelected = state.selectedLeftItemId === newTaskId;
         rows.push({
           id: newTaskId,
-          text: `+ New Project Task [${getRunnerDisplayName(state.selectedRunner)}]`,
+          text: `+ New Project Task [${configService.runners.getDisplayName(state.selectedRunner)}]`,
           indent: 2,
           selected: newTaskSelected,
           focused: newTaskSelected && state.focusedRegion === "tasks",
@@ -287,7 +288,7 @@ function buildLeftTree(state: ControlShellState, model: WorkspaceShellModel): Sh
         const newTaskSelected = state.selectedLeftItemId === newTaskId;
         rows.push({
           id: newTaskId,
-          text: `+ New Task [${getRunnerDisplayName(state.selectedRunner)}]`,
+          text: `+ New Task [${configService.runners.getDisplayName(state.selectedRunner)}]`,
           indent: 2,
           selected: newTaskSelected,
           focused: newTaskSelected && state.focusedRegion === "tasks",
@@ -359,7 +360,7 @@ function buildLegacyRepoLeftTree(rows: ShellTreeRow[], state: ControlShellState,
       const newTaskSelected = state.selectedLeftItemId === newTaskId;
       rows.push({
         id: newTaskId,
-        text: `+ New Task [${getRunnerDisplayName(state.selectedRunner)}]`,
+        text: `+ New Task [${configService.runners.getDisplayName(state.selectedRunner)}]`,
         indent: 2,
         selected: newTaskSelected,
         focused: newTaskSelected && state.focusedRegion === "tasks",
@@ -438,7 +439,7 @@ function buildCenterTranscript(
     return textLines([
       `No tasks in ${contextLabel}.`,
       "",
-      `Press n or choose + New ${taskKind} to create one with ${getRunnerDisplayName(state.selectedRunner)}.`,
+      `Press n or choose + New ${taskKind} to create one with ${configService.runners.getDisplayName(state.selectedRunner)}.`,
     ]);
   }
 
@@ -1494,7 +1495,7 @@ function buildContextRows(repo: RepoRecord | null, task: TaskRecord | null): She
   return [
     { label: "Task", value: task.id },
     { label: "Repo", value: repo.name },
-    { label: "Agent", value: getRunnerDisplayName(task.runner) },
+    { label: "Agent", value: configService.runners.getDisplayName(task.runner) },
     { label: "Branch", value: task.branch },
     { label: "Status", value: task.status },
     { label: "Worktree", value: path.basename(task.worktreePath) },
@@ -1513,7 +1514,7 @@ function countRunners(tasks: TaskRecord[]): Record<RunnerType, number> {
 
 function renderRunnerRow(name: RunnerType, count: number): ShellRunnerRow {
   return {
-    name: getRunnerDisplayName(name).toLowerCase(),
+    name: configService.runners.getDisplayName(name).toLowerCase(),
     health: count > 0 ? 1.0 : 0.0,
     count: String(count),
   };

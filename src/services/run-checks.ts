@@ -5,7 +5,7 @@ import type { CommandChecksResult } from "../types/command.js";
 import type { TaskCheckResult } from "../types/task.js";
 import type { CraigPaths } from "../state/craig-paths.js";
 import { atomicWriteJson } from "../state/atomic-write.js";
-import { readCraigConfig } from "../state/config-store.js";
+import { configService } from "../domain/config/index.js";
 import { writeTask } from "../state/task-store.js";
 import { hasUncommittedDiff } from "./git-task.js";
 import { getTaskOrThrow, assertTaskWorktreeExists } from "./task-inspection.js";
@@ -28,7 +28,7 @@ export async function runChecks(paths: CraigPaths, taskId: string): Promise<Comm
     throw new Error(`Task ${task.id} cannot run checks from status "${task.status}".`);
   }
 
-  const config = await readCraigConfig(paths);
+  const config = await configService.load(paths);
   const commands = config.checks?.commands ?? [];
 
   if (commands.length === 0) {

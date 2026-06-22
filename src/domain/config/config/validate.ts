@@ -1,38 +1,7 @@
-import { mkdir, readFile, writeFile } from "node:fs/promises";
-import path from "node:path";
+import { RUNNER_IDS } from "../runners/runner-ids.js";
+import type { CraigConfig } from "../types.js";
 
-import type { CraigConfig } from "../types/config.js";
-import type { CraigPaths } from "./craig-paths.js";
-import { RUNNER_IDS } from "../services/runner-profiles.js";
-
-export async function readCraigConfig(paths: CraigPaths): Promise<CraigConfig> {
-  try {
-    const raw = await readFile(paths.configFile, "utf8");
-    const parsed = JSON.parse(raw) as unknown;
-
-    return validateCraigConfig(parsed, paths.configFile);
-  } catch (error) {
-    if (isFileMissingError(error)) {
-      return {};
-    }
-
-    if (error instanceof SyntaxError) {
-      throw new Error(
-        `Craig config at ${paths.configFile} is malformed. Remove or repair the file before rerunning Craig.`,
-      );
-    }
-
-    throw error;
-  }
-}
-
-export async function writeCraigConfig(paths: CraigPaths, config: CraigConfig): Promise<void> {
-  validateCraigConfig(config, paths.configFile);
-  await mkdir(path.dirname(paths.configFile), { recursive: true });
-  await writeFile(paths.configFile, `${JSON.stringify(config, null, 2)}\n`, "utf8");
-}
-
-function validateCraigConfig(value: unknown, filePath: string): CraigConfig {
+export const validate = (value: unknown, filePath: string): CraigConfig => {
   if (typeof value !== "object" || value === null) {
     throw new Error(`Craig config at ${filePath} is invalid. Expected a JSON object.`);
   }
@@ -120,14 +89,4 @@ function validateCraigConfig(value: unknown, filePath: string): CraigConfig {
   }
 
   return candidate;
-}
-
-function isFileMissingError(error: unknown): error is { code: string } {
-  return (
-    typeof error === "object" &&
-    error !== null &&
-    "code" in error &&
-    typeof error.code === "string" &&
-    error.code === "ENOENT"
-  );
-}
+};

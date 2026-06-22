@@ -4,12 +4,12 @@ import path from "node:path";
 import type { CraigPaths } from "../state/craig-paths.js";
 import { readRepo } from "../state/repo-store.js";
 import { appendTaskId, writeTask } from "../state/task-store.js";
-import type { CraigConfig } from "../types/config.js";
-import type { ProjectTaskRepoTarget, RunnerType, TaskChecks, TaskCleanup, TaskPullRequest, TaskPtyTabRecord, TaskRecord } from "../types/task.js";
+import type { CraigConfig, RunnerType } from "../domain/config/index.js";
+import { configService } from "../domain/config/index.js";
+import type { ProjectTaskRepoTarget, TaskChecks, TaskCleanup, TaskPullRequest, TaskPtyTabRecord, TaskRecord } from "../types/task.js";
 import type { RepoRecord } from "../types/workspace.js";
 import { listWorkspaceRecords } from "../state/workspace-store.js";
 import { createWorktree } from "./git-task.js";
-import { buildRunnerCommand, getRunnerProfile } from "./runner-profiles.js";
 import { allocateProjectTaskId, allocateTaskIdForRepo } from "./task-id.js";
 
 export interface ProvisionedTask {
@@ -176,7 +176,7 @@ export async function provisionProjectTask(
     repoTargets,
     ptyTabs,
     runnerSession: {
-      command: buildRunnerCommand(runner, prompt, options.config ?? {}),
+      command: configService.runners.buildCommand(runner, prompt, options.config ?? {}),
       pid: null,
       startedAt: null,
       lastKnownState: "starting",
@@ -225,13 +225,13 @@ export function createDefaultTaskPtyTabs(
   runner: RunnerType = "codex",
   config: CraigConfig = {},
 ): TaskPtyTabRecord[] {
-  const profile = getRunnerProfile(runner);
+  const profile = configService.runners.getProfile(runner);
   return [
     {
       id: `${taskId}:agent`,
       kind: "agent",
       title: profile.defaultAgentTitle,
-      command: buildRunnerCommand(runner, undefined, config),
+      command: configService.runners.buildCommand(runner, undefined, config),
       createdAt: timestamp,
       updatedAt: timestamp,
     },
@@ -267,7 +267,7 @@ function buildDraftTask(paths: CraigPaths, input: DraftTaskInput): TaskRecord {
     branch: input.branch,
     ptyTabs,
     runnerSession: {
-      command: buildRunnerCommand(input.runner, input.prompt, input.config),
+      command: configService.runners.buildCommand(input.runner, input.prompt, input.config),
       pid: null,
       startedAt: null,
       lastKnownState: "starting",

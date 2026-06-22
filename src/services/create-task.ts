@@ -1,14 +1,14 @@
 import path from "node:path";
 
 import type { CommandCreateTaskResult } from "../types/command.js";
-import type { RunnerType, TaskRecord } from "../types/task.js";
+import type { TaskRecord } from "../types/task.js";
 import type { CraigPaths } from "../state/craig-paths.js";
-import { readCraigConfig } from "../state/config-store.js";
+import { configService } from "../domain/config/index.js";
+import type { RunnerType } from "../domain/config/index.js";
 import { writeSession } from "../state/session-store.js";
 import { writeTask } from "../state/task-store.js";
 import { readUiState, writeUiState, getDefaultUiState } from "../state/ui-state-store.js";
 import { commandRunnerAdapter } from "./codex-runner.js";
-import { assertRunnerEnabled, buildRunnerCommand, getDefaultRunner } from "./runner-profiles.js";
 import { tmuxSessionManager } from "./session-manager.js";
 import { provisionProjectTask, provisionTask } from "./task-provisioning.js";
 
@@ -19,9 +19,9 @@ export async function createTask(
   options: { runner?: RunnerType; workspaceId?: string } = {},
 ): Promise<CommandCreateTaskResult> {
   const trimmedPrompt = prompt.trim();
-  const config = await readCraigConfig(paths);
-  const runner = options.runner ?? getDefaultRunner(config);
-  assertRunnerEnabled(runner, config);
+  const config = await configService.load(paths);
+  const runner = options.runner ?? configService.runners.getDefault(config);
+  configService.runners.assertEnabled(runner, config);
 
   if (repoIdOrWorkspaceId.trim().length === 0) {
     throw new Error(options.workspaceId ? "Workspace id cannot be empty." : "Repo id cannot be empty.");
@@ -34,7 +34,7 @@ export async function createTask(
     ? await provisionProjectTask(paths, options.workspaceId, trimmedPrompt, { runner, config })
     : await provisionTask(paths, repoIdOrWorkspaceId, trimmedPrompt, { runner, config });
   const draftTask = provisioned.task;
-  const runnerCommand = buildRunnerCommand(runner, trimmedPrompt, config);
+  const runnerCommand = configService.runners.buildCommand(runner, trimmedPrompt, config);
   const sessionId = `session_${draftTask.id}`;
   const logPath = draftTask.artifacts.logPath
     ? path.resolve(paths.workspaceRoot, draftTask.artifacts.logPath)

@@ -7,7 +7,7 @@ import type { SessionRecord } from "../src/types/session.js";
 import type { TaskRecord } from "../src/types/task.js";
 import type { RepoRecord, WorkspaceRecord } from "../src/types/workspace.js";
 import { createDefaultTaskPtyTabs } from "../src/services/task-provisioning.js";
-import { buildRunnerCommand } from "../src/services/runner-profiles.js";
+import { configService } from "../src/domain/config/index.js";
 import { runCommand } from "../src/utils/exec.js";
 
 export async function createRepoRoot(prefix: string): Promise<string> {
@@ -125,7 +125,7 @@ export function buildTaskRecord(
     branch: task.branch ?? `craig/${task.id}`,
     ptyTabs,
     runnerSession: task.runnerSession ?? {
-      command: buildRunnerCommand(runner, task.title ?? "test task"),
+      command: configService.runners.buildCommand(runner, task.title ?? "test task"),
       pid: null,
       startedAt: now,
       lastKnownState: "running",
