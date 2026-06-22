@@ -1,7 +1,5 @@
 import type { RunnerType } from "../domain/config/index.js";
 
-export type { RepoRecord, WorkspaceStatus, WorkspaceRecord } from "../domain/workspace/index.js";
-
 export interface CraigUiRuntime {
   version: 1;
   selectedRepoId: string | null;

@@ -7,7 +7,7 @@ import { appendTaskId, writeTask } from "../state/task-store.js";
 import type { CraigConfig, RunnerType } from "../domain/config/index.js";
 import { configService } from "../domain/config/index.js";
 import type { ProjectTaskRepoTarget, TaskChecks, TaskCleanup, TaskPullRequest, TaskPtyTabRecord, TaskRecord } from "../types/task.js";
-import type { RepoRecord } from "../types/workspace.js";
+import type { RepoRecord } from "../domain/workspace/index.js";
 import { listWorkspaceRecords } from "../domain/workspace/adapters/workspace-store.js";
 import { createWorktree } from "./git-task.js";
 import { allocateProjectTaskId, allocateTaskIdForRepo } from "./task-id.js";
