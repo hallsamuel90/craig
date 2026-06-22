@@ -1,5 +1,11 @@
 # craig-cli
 
+## 0.7.4
+
+### Patch Changes
+
+- e4ec618: Introduce workspace domain with colocated unit tests
+
 ## 0.7.3
 
 ### Patch Changes
