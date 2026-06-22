@@ -5,7 +5,7 @@ import path from "node:path";
 import { afterEach, describe, expect, test } from "vitest";
 
 import { getCraigPaths } from "../src/state/craig-paths.js";
-import { ensureCraigState } from "../src/state/ensure-state.js";
+import { ensureCraigState } from "../src/domain/workspace/workspaces/ensure.js";
 
 const tempRoots: string[] = [];
 

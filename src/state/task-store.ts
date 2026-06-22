@@ -1,9 +1,10 @@
 import { readFile } from "node:fs/promises";
 
-import type { ProjectTaskRepoTarget, RunnerSession, RunnerType, TaskPR, TaskPtyTabRecord, TaskPullRequest, TaskPullRequestComment, TaskPullRequestReviewDecision, TaskRecord } from "../types/task.js";
+import type { RunnerType } from "../domain/config/index.js";
+import type { ProjectTaskRepoTarget, RunnerSession, TaskPR, TaskPtyTabRecord, TaskPullRequest, TaskPullRequestComment, TaskPullRequestReviewDecision, TaskRecord } from "../types/task.js";
 import type { CraigPaths } from "./craig-paths.js";
 import { atomicWriteJson } from "./atomic-write.js";
-import { readCraigIndex, writeCraigIndex } from "./state-store.js";
+import { readCraigIndex, writeCraigIndex } from "../domain/workspace/adapters/index-store.js";
 import { configService } from "../domain/config/index.js";
 
 export async function readTask(paths: CraigPaths, taskId: string): Promise<TaskRecord> {

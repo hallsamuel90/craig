@@ -2,7 +2,8 @@ import { getDefaultUiState } from "../state/ui-state-store.js";
 import { configService, RUNNER_IDS } from "../domain/config/index.js";
 import type { CraigConfig, RunnerType } from "../domain/config/index.js";
 import type { TaskPtyTabKind, TaskRecord } from "../types/task.js";
-import type { RepoRecord, WorkspaceRecord, CraigUiRuntime } from "../types/workspace.js";
+import type { RepoRecord, WorkspaceRecord } from "../domain/workspace/index.js";
+import type { CraigUiRuntime } from "../types/workspace.js";
 import type { TerminalScreenRow } from "./terminal-emulator.js";
 
 export const FOCUS_REGIONS = ["tasks", "center", "inspector", "actions"] as const;

@@ -11,9 +11,8 @@ import { focusTask } from "../services/focus-task.js";
 import { openTask } from "../services/open-task.js";
 import { runChecks } from "../services/run-checks.js";
 import { commitTask } from "../services/commit-task.js";
-import { addRepo, listRegisteredRepos, removeRepo } from "../services/repo-registry.js";
+import { workspaceService } from "../domain/workspace/index.js";
 import { addTaskLink, listTaskLinks } from "../services/task-links.js";
-import { addWorkspace, archiveWorkspace, listWorkspaces, removeWorkspace, restoreWorkspace } from "../services/workspace-registry.js";
 
 export interface CommandContext {
   paths: CraigPaths;
@@ -26,21 +25,21 @@ export async function executeCommand(
 ): Promise<CommandResult> {
   switch (command.kind) {
     case "addWorkspace":
-      return addWorkspace(context.paths, command.path);
+      return workspaceService.addWorkspace(context.paths, command.path);
     case "addRepo":
-      return addRepo(context.paths, command.path);
+      return workspaceService.repos.addRepo(context.paths, command.path);
     case "listRepos":
-      return listRegisteredRepos(context.paths);
+      return workspaceService.repos.listRegisteredRepos(context.paths);
     case "removeRepo":
-      return removeRepo(context.paths, command.repoId);
+      return workspaceService.repos.removeRepo(context.paths, command.repoId);
     case "listWorkspaces":
-      return listWorkspaces(context.paths, { archived: command.archived });
+      return workspaceService.listWorkspaces(context.paths, { archived: command.archived });
     case "archiveWorkspace":
-      return archiveWorkspace(context.paths, command.workspaceId);
+      return workspaceService.archiveWorkspace(context.paths, command.workspaceId);
     case "restoreWorkspace":
-      return restoreWorkspace(context.paths, command.workspaceId);
+      return workspaceService.restoreWorkspace(context.paths, command.workspaceId);
     case "removeWorkspace":
-      return removeWorkspace(context.paths, command.workspaceId);
+      return workspaceService.removeWorkspace(context.paths, command.workspaceId);
     case "createTask":
       return createTask(
         context.paths,

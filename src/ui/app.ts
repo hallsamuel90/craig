@@ -3,19 +3,16 @@ import { readdir, stat } from "node:fs/promises";
 import path from "node:path";
 import type * as TerminalKitModule from "terminal-kit";
 
-import { listRepos } from "../state/repo-store.js";
-import { listWorkspaceRecords } from "../state/workspace-store.js";
+import { listWorkspaceRecords, workspaceService } from "../domain/workspace/index.js";
 import { getDefaultUiState, readUiState, writeUiState } from "../state/ui-state-store.js";
 import { configService, RUNNER_IDS } from "../domain/config/index.js";
-import type { CraigConfig } from "../domain/config/index.js";
+import type { CraigConfig, RunnerType } from "../domain/config/index.js";
 import { readTask, writeTask } from "../state/task-store.js";
 import { getCraigPaths } from "../state/craig-paths.js";
-import { ensureCraigState } from "../state/ensure-state.js";
-import type { RunnerType, TaskPtyTabRecord, TaskRecord } from "../types/task.js";
+import type { TaskPtyTabRecord, TaskRecord } from "../types/task.js";
 import { listTasks } from "../services/list-tasks.js";
 import { appendCraigErrorLogBestEffort, readRecentCraigErrorLog, type CraigErrorLogSnapshot } from "../services/error-log.js";
 import { provisionProjectTask, provisionTask } from "../services/task-provisioning.js";
-import { addWorkspace, archiveWorkspace, removeWorkspace } from "../services/workspace-registry.js";
 import { loadTaskLocalInspection, reloadSelectedContent, type InspectionTreeRow } from "../services/task-local-inspection.js";
 import { discoverOrRefreshAllProjectPullRequests, discoverOrRefreshPullRequest, discoverOrRefreshPullRequests } from "../services/open-pull-request.js";
 import { getTaskPrimaryPr } from "../services/github-pr.js";
@@ -117,7 +114,6 @@ export async function startTerminalApp(options: TerminalAppOptions = {}): Promis
 
   const workspaceRoot = options.workspaceRoot ?? process.cwd();
   const paths = getCraigPaths(workspaceRoot);
-  await ensureCraigState(workspaceRoot);
   let config = await configService.load(paths);
   let enabledRunnerIds = configService.runners.getEnabled(config);
   let runtimeState = options.uiStateFile ? await readUiState({ uiStateFile: options.uiStateFile }) : null;
@@ -701,8 +697,8 @@ export async function startTerminalApp(options: TerminalAppOptions = {}): Promis
         throw new Error(`Cannot remove workspace ${syncedShell.selectedWorkspaceId} while task records still reference it.`);
       }
 
-      await archiveWorkspace(paths, syncedShell.selectedWorkspaceId);
-      const removed = await removeWorkspace(paths, syncedShell.selectedWorkspaceId);
+      await workspaceService.archiveWorkspace(paths, syncedShell.selectedWorkspaceId);
+      const removed = await workspaceService.removeWorkspace(paths, syncedShell.selectedWorkspaceId);
       await reloadModel();
 
       return syncShell({
@@ -1108,7 +1104,7 @@ export async function startTerminalApp(options: TerminalAppOptions = {}): Promis
           return;
         }
 
-        void addWorkspace(paths, selectedEntry.path)
+        void workspaceService.addWorkspace(paths, selectedEntry.path)
           .then(async (result) => {
             await reloadModel();
             const selectedRepo = result.repos[0] ?? null;
@@ -1815,7 +1811,7 @@ async function loadWorkspaceShellModel(
   enabledRunnerIds?: RunnerType[],
 ): Promise<WorkspaceShellModel> {
   const paths = getCraigPaths(workspaceRoot);
-  const [repos, workspaces, taskResult] = await Promise.all([listRepos(paths), listWorkspaceRecords(paths), listTasks(paths)]);
+  const [repos, workspaces, taskResult] = await Promise.all([workspaceService.repos.listRegisteredRepos(paths).then((r) => r.repos), listWorkspaceRecords(paths), listTasks(paths)]);
   const selectedTask = resolveSelectedTaskForInspection(taskResult.tasks, shell);
   const selection = shell
     ? {

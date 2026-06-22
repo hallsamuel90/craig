@@ -6,10 +6,10 @@ import { afterEach, describe, expect, test } from "vitest";
 import { executeCommand } from "../src/commands/command-router.js";
 import { parseArgv } from "../src/commands/parse-argv.js";
 import { getCraigPaths } from "../src/state/craig-paths.js";
-import { readRepo, writeRepo } from "../src/state/repo-store.js";
+import { readRepo, writeRepo } from "../src/domain/workspace/adapters/repo-store.js";
 import { readTask } from "../src/state/task-store.js";
 import { readUiState } from "../src/state/ui-state-store.js";
-import { readWorkspace } from "../src/state/workspace-store.js";
+import { readWorkspace } from "../src/domain/workspace/adapters/workspace-store.js";
 import { createCraigState, createGitRepo, createRepoRoot } from "./test-helpers.js";
 import { runCommand } from "../src/utils/exec.js";
 import { provisionProjectTask } from "../src/services/task-provisioning.js";
@@ -452,6 +452,48 @@ describe("command routing", () => {
 
   test("unknown argv commands are rejected", () => {
     expect(() => parseArgv(["repo", "unknown"])).toThrow(/Unsupported command/);
+  });
+});
+
+describe("cold start (no pre-seeded .craig state)", () => {
+  test("repo list returns empty list without error", async () => {
+    const workspaceRoot = await createRepoRoot("craig-cold-repo-list-");
+    tempRoots.push(workspaceRoot);
+    const paths = getCraigPaths(workspaceRoot);
+
+    const result = await executeCommand({ kind: "listRepos" }, { paths });
+
+    expect(result.kind).toBe("listRepos");
+    if (result.kind !== "listRepos") throw new Error();
+    expect(result.repos).toEqual([]);
+  });
+
+  test("workspace list returns empty list without error", async () => {
+    const workspaceRoot = await createRepoRoot("craig-cold-workspace-list-");
+    tempRoots.push(workspaceRoot);
+    const paths = getCraigPaths(workspaceRoot);
+
+    const result = await executeCommand({ kind: "listWorkspaces", archived: false }, { paths });
+
+    expect(result.kind).toBe("listWorkspaces");
+    if (result.kind !== "listWorkspaces") throw new Error();
+    expect(result.workspaces).toEqual([]);
+  });
+
+  test("repo add bootstraps state and registers the repo", async () => {
+    const workspaceRoot = await createRepoRoot("craig-cold-repo-add-");
+    const repoRoot = path.join(workspaceRoot, "repo-a");
+    tempRoots.push(workspaceRoot);
+    await mkdir(repoRoot, { recursive: true });
+    await createGitRepo(repoRoot);
+    const paths = getCraigPaths(workspaceRoot);
+
+    const result = await executeCommand({ kind: "addRepo", path: "./repo-a" }, { paths });
+
+    expect(result.kind).toBe("createRepo");
+    if (result.kind !== "createRepo") throw new Error();
+    expect(result.repo.rootPath).toBe(repoRoot);
+    expect(result.created).toBe(true);
   });
 });
 
