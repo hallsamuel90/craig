@@ -6,8 +6,8 @@ import { workspaceService } from "./domain/workspace/index.js";
 export async function renderControlView(context: CommandContext, recentEvent: string | null): Promise<string> {
   const [repos, workspaces, archived] = await Promise.all([
     workspaceService.repos.listRegisteredRepos(context.paths),
-    workspaceService.workspaces.listWorkspaces(context.paths, { archived: false }),
-    workspaceService.workspaces.listWorkspaces(context.paths, { archived: true }),
+    workspaceService.listWorkspaces(context.paths, { archived: false }),
+    workspaceService.listWorkspaces(context.paths, { archived: true }),
   ]);
   const lines = [
     "CRAIG WORKSPACE",

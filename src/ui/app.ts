@@ -114,7 +114,6 @@ export async function startTerminalApp(options: TerminalAppOptions = {}): Promis
 
   const workspaceRoot = options.workspaceRoot ?? process.cwd();
   const paths = getCraigPaths(workspaceRoot);
-  await workspaceService.workspaces.ensureCraigState(workspaceRoot);
   let config = await configService.load(paths);
   let enabledRunnerIds = configService.runners.getEnabled(config);
   let runtimeState = options.uiStateFile ? await readUiState({ uiStateFile: options.uiStateFile }) : null;
@@ -698,8 +697,8 @@ export async function startTerminalApp(options: TerminalAppOptions = {}): Promis
         throw new Error(`Cannot remove workspace ${syncedShell.selectedWorkspaceId} while task records still reference it.`);
       }
 
-      await workspaceService.workspaces.archiveWorkspace(paths, syncedShell.selectedWorkspaceId);
-      const removed = await workspaceService.workspaces.removeWorkspace(paths, syncedShell.selectedWorkspaceId);
+      await workspaceService.archiveWorkspace(paths, syncedShell.selectedWorkspaceId);
+      const removed = await workspaceService.removeWorkspace(paths, syncedShell.selectedWorkspaceId);
       await reloadModel();
 
       return syncShell({
@@ -1105,7 +1104,7 @@ export async function startTerminalApp(options: TerminalAppOptions = {}): Promis
           return;
         }
 
-        void workspaceService.workspaces.addWorkspace(paths, selectedEntry.path)
+        void workspaceService.addWorkspace(paths, selectedEntry.path)
           .then(async (result) => {
             await reloadModel();
             const selectedRepo = result.repos[0] ?? null;

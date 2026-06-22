@@ -8,6 +8,7 @@ import { readCraigIndex, writeCraigIndex } from "../adapters/index-store.js";
 import { listRepos, writeRepo } from "../adapters/repo-store.js";
 import { listWorkspaceRecords, writeWorkspace } from "../adapters/workspace-store.js";
 import { getDefaultBranch, isGitRepo } from "../adapters/git.js";
+import { ensureCraigState } from "./ensure.js";
 import type { RepoRecord, WorkspaceRecord } from "../types.js";
 
 const buildRepo = (existingRepos: RepoRecord[], rootPath: string, defaultBranch: string): RepoRecord => {
@@ -153,6 +154,7 @@ const addProjectWorkspace = async (paths: CraigPaths, rootPath: string): Promise
 };
 
 export const addWorkspace = async (paths: CraigPaths, rawPath: string): Promise<CommandCreateWorkspaceResult> => {
+  await ensureCraigState(paths.workspaceRoot);
   const rootPath = path.resolve(paths.workspaceRoot, rawPath);
   const stats = await stat(rootPath).catch(() => null);
 

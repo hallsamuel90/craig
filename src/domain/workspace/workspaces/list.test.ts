@@ -23,7 +23,7 @@ const makeWorkspace = (id: string, status: "active" | "archived"): WorkspaceReco
 describe("listWorkspaces", () => {
   test("returns only active workspaces when archived=false", async () => {
     const records = [makeWorkspace("a", "active"), makeWorkspace("b", "archived")];
-    const deps = { listWorkspaceRecords: async () => records };
+    const deps = { listWorkspaceRecords: async () => records, ensureCraigState: async () => ({} as never) };
     const result = await listWorkspaces(makePaths(), { archived: false }, deps);
     expect(result.workspaces.map((w) => w.id)).toEqual(["a"]);
     expect(result.archivedOnly).toBe(false);
@@ -31,14 +31,14 @@ describe("listWorkspaces", () => {
 
   test("returns only archived workspaces when archived=true", async () => {
     const records = [makeWorkspace("a", "active"), makeWorkspace("b", "archived")];
-    const deps = { listWorkspaceRecords: async () => records };
+    const deps = { listWorkspaceRecords: async () => records, ensureCraigState: async () => ({} as never) };
     const result = await listWorkspaces(makePaths(), { archived: true }, deps);
     expect(result.workspaces.map((w) => w.id)).toEqual(["b"]);
     expect(result.archivedOnly).toBe(true);
   });
 
   test("returns empty when no workspaces exist", async () => {
-    const deps = { listWorkspaceRecords: async () => [] };
+    const deps = { listWorkspaceRecords: async () => [], ensureCraigState: async () => ({} as never) };
     const result = await listWorkspaces(makePaths(), { archived: false }, deps);
     expect(result.workspaces).toEqual([]);
   });

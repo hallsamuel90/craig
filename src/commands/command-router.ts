@@ -25,7 +25,7 @@ export async function executeCommand(
 ): Promise<CommandResult> {
   switch (command.kind) {
     case "addWorkspace":
-      return workspaceService.workspaces.addWorkspace(context.paths, command.path);
+      return workspaceService.addWorkspace(context.paths, command.path);
     case "addRepo":
       return workspaceService.repos.addRepo(context.paths, command.path);
     case "listRepos":
@@ -33,13 +33,13 @@ export async function executeCommand(
     case "removeRepo":
       return workspaceService.repos.removeRepo(context.paths, command.repoId);
     case "listWorkspaces":
-      return workspaceService.workspaces.listWorkspaces(context.paths, { archived: command.archived });
+      return workspaceService.listWorkspaces(context.paths, { archived: command.archived });
     case "archiveWorkspace":
-      return workspaceService.workspaces.archiveWorkspace(context.paths, command.workspaceId);
+      return workspaceService.archiveWorkspace(context.paths, command.workspaceId);
     case "restoreWorkspace":
-      return workspaceService.workspaces.restoreWorkspace(context.paths, command.workspaceId);
+      return workspaceService.restoreWorkspace(context.paths, command.workspaceId);
     case "removeWorkspace":
-      return workspaceService.workspaces.removeWorkspace(context.paths, command.workspaceId);
+      return workspaceService.removeWorkspace(context.paths, command.workspaceId);
     case "createTask":
       return createTask(
         context.paths,
