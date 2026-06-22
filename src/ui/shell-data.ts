@@ -1,6 +1,6 @@
 import path from "node:path";
 
-import type { InspectionDiffGroup, InspectionDiffRow, TaskLocalInspection } from "../services/task-local-inspection.js";
+import type { InspectionDiffGroup, InspectionDiffRow, TaskLocalInspection } from "./task-local-inspection.js";
 import {
   CHECK_ICON_FAILED,
   CHECK_ICON_NONE,
@@ -16,8 +16,8 @@ import {
   getFileIconColor,
 } from "./icons.js";
 import type { ProjectTaskRepoTarget, TaskPullRequest, TaskPullRequestCheck, TaskPullRequestComment, TaskPtyTabRecord, TaskRecord } from "../types/task.js";
-import { getTaskPrimaryPr } from "../services/github-pr.js";
-import type { RepoRecord, WorkspaceRecord } from "../domain/workspace/index.js";
+import { getTaskPrimaryPr } from "../domain/task/prs/state.js";
+import type { RepoRecord, WorkspaceRecord } from "../types/workspace.js";
 import { configService } from "../domain/config/index.js";
 import type { RunnerType } from "../domain/config/index.js";
 import { INSPECTION_TAB_ID, isTaskLeftItemId } from "./state.js";
