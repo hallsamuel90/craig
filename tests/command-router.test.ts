@@ -455,6 +455,48 @@ describe("command routing", () => {
   });
 });
 
+describe("cold start (no pre-seeded .craig state)", () => {
+  test("repo list returns empty list without error", async () => {
+    const workspaceRoot = await createRepoRoot("craig-cold-repo-list-");
+    tempRoots.push(workspaceRoot);
+    const paths = getCraigPaths(workspaceRoot);
+
+    const result = await executeCommand({ kind: "listRepos" }, { paths });
+
+    expect(result.kind).toBe("listRepos");
+    if (result.kind !== "listRepos") throw new Error();
+    expect(result.repos).toEqual([]);
+  });
+
+  test("workspace list returns empty list without error", async () => {
+    const workspaceRoot = await createRepoRoot("craig-cold-workspace-list-");
+    tempRoots.push(workspaceRoot);
+    const paths = getCraigPaths(workspaceRoot);
+
+    const result = await executeCommand({ kind: "listWorkspaces", archived: false }, { paths });
+
+    expect(result.kind).toBe("listWorkspaces");
+    if (result.kind !== "listWorkspaces") throw new Error();
+    expect(result.workspaces).toEqual([]);
+  });
+
+  test("repo add bootstraps state and registers the repo", async () => {
+    const workspaceRoot = await createRepoRoot("craig-cold-repo-add-");
+    const repoRoot = path.join(workspaceRoot, "repo-a");
+    tempRoots.push(workspaceRoot);
+    await mkdir(repoRoot, { recursive: true });
+    await createGitRepo(repoRoot);
+    const paths = getCraigPaths(workspaceRoot);
+
+    const result = await executeCommand({ kind: "addRepo", path: "./repo-a" }, { paths });
+
+    expect(result.kind).toBe("createRepo");
+    if (result.kind !== "createRepo") throw new Error();
+    expect(result.repo.rootPath).toBe(repoRoot);
+    expect(result.created).toBe(true);
+  });
+});
+
 async function createGitRepoOnBranch(repoRoot: string, branch: string, readme: string): Promise<void> {
   await runCommand("git", ["init", "-b", branch], { cwd: repoRoot });
   await runCommand("git", ["config", "user.name", "Craig Tests"], { cwd: repoRoot });
