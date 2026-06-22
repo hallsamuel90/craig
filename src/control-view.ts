@@ -1,14 +1,13 @@
 import path from "node:path";
 
 import type { CommandContext } from "./commands/command-router.js";
-import { listRegisteredRepos } from "./services/repo-registry.js";
-import { listWorkspaces } from "./services/workspace-registry.js";
+import { workspaceService } from "./domain/workspace/index.js";
 
 export async function renderControlView(context: CommandContext, recentEvent: string | null): Promise<string> {
   const [repos, workspaces, archived] = await Promise.all([
-    listRegisteredRepos(context.paths),
-    listWorkspaces(context.paths, { archived: false }),
-    listWorkspaces(context.paths, { archived: true }),
+    workspaceService.repos.listRegisteredRepos(context.paths),
+    workspaceService.workspaces.listWorkspaces(context.paths, { archived: false }),
+    workspaceService.workspaces.listWorkspaces(context.paths, { archived: true }),
   ]);
   const lines = [
     "CRAIG WORKSPACE",

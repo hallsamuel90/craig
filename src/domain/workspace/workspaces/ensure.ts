@@ -1,11 +1,18 @@
 import { mkdir, readFile } from "node:fs/promises";
 
-import type { CraigIndex } from "../types/index.js";
-import { atomicWriteJson } from "./atomic-write.js";
-import { getCraigPaths } from "./craig-paths.js";
-import { validateCraigIndex } from "./state-store.js";
+import { getCraigPaths } from "../../../state/craig-paths.js";
+import { atomicWriteJson } from "../../../state/atomic-write.js";
+import { validateCraigIndex } from "../adapters/index-store.js";
+import type { CraigIndex } from "../types.js";
 
-export async function ensureCraigState(workspaceRoot: string): Promise<CraigIndex> {
+const isFileMissingError = (error: unknown): error is { code: string } =>
+  typeof error === "object" &&
+  error !== null &&
+  "code" in error &&
+  typeof (error as { code?: unknown }).code === "string" &&
+  (error as { code: string }).code === "ENOENT";
+
+export const ensureCraigState = async (workspaceRoot: string): Promise<CraigIndex> => {
   const paths = getCraigPaths(workspaceRoot);
 
   await mkdir(paths.craigDir, { recursive: true });
@@ -24,7 +31,6 @@ export async function ensureCraigState(workspaceRoot: string): Promise<CraigInde
   try {
     const existing = await readFile(paths.indexFile, "utf8");
     const parsed = JSON.parse(existing) as unknown;
-
     return validateCraigIndex(parsed, workspaceRoot, paths.indexFile);
   } catch (error) {
     if (!isFileMissingError(error)) {
@@ -33,7 +39,6 @@ export async function ensureCraigState(workspaceRoot: string): Promise<CraigInde
           `Craig index at ${paths.indexFile} is malformed. Remove or repair the file before rerunning Craig.`,
         );
       }
-
       throw error;
     }
   }
@@ -51,16 +56,5 @@ export async function ensureCraigState(workspaceRoot: string): Promise<CraigInde
   };
 
   await atomicWriteJson(paths.indexFile, index);
-
   return index;
-}
-
-function isFileMissingError(error: unknown): error is { code: string } {
-  return (
-    typeof error === "object" &&
-    error !== null &&
-    "code" in error &&
-    typeof (error as { code?: unknown }).code === "string" &&
-    (error as { code: string }).code === "ENOENT"
-  );
-}
+};
