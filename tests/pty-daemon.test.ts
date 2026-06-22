@@ -8,7 +8,9 @@ import { describe, expect, test, vi } from "vitest";
 
 import { createDaemonPtyRuntime, requestDaemonShutdown, servePtyDaemon } from "../src/ui/pty-daemon.js";
 import { getCraigPaths } from "../src/state/craig-paths.js";
-import { ensureCraigState } from "../src/domain/workspace/index.js";
+import { workspaceService } from "../src/domain/workspace/index.js";
+
+const { ensureCraigState } = workspaceService.workspaces;
 
 const DAEMON_TEST_TIMEOUT_MS = 15000;
 
