@@ -1,5 +1,11 @@
 # craig-cli
 
+## 0.7.3
+
+### Patch Changes
+
+- ac64aef: Introduce config domain with colocated unit tests
+
 ## 0.7.2
 
 ### Patch Changes
