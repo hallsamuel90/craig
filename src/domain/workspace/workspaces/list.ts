@@ -1,12 +1,14 @@
 import type { CraigPaths } from "../../../state/craig-paths.js";
 import type { CommandListWorkspacesResult } from "../../../types/command.js";
 import { listWorkspaceRecords } from "../adapters/workspace-store.js";
+import { ensureCraigState } from "./ensure.js";
 
 export const listWorkspaces = async (
   paths: CraigPaths,
   options: { archived: boolean },
-  deps: { listWorkspaceRecords: typeof listWorkspaceRecords } = { listWorkspaceRecords },
+  deps: { listWorkspaceRecords: typeof listWorkspaceRecords; ensureCraigState: typeof ensureCraigState } = { listWorkspaceRecords, ensureCraigState },
 ): Promise<CommandListWorkspacesResult> => {
+  await deps.ensureCraigState(paths.workspaceRoot);
   const workspaces = await deps.listWorkspaceRecords(paths);
   return {
     kind: "listWorkspaces",

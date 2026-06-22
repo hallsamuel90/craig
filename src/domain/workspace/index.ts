@@ -3,7 +3,15 @@ export { validateWorkspaceRecord, listWorkspaceRecords } from "./adapters/worksp
 export { validateRepoRecord } from "./adapters/repo-store.js";
 export { validateCraigIndex } from "./adapters/index-store.js";
 
-import * as workspaces from "./workspaces/index.js";
+import { addWorkspace, listWorkspaces, archiveWorkspace, restoreWorkspace, removeWorkspace, removeWorkspaceRecord } from "./workspaces/index.js";
 import * as repos from "./repos/index.js";
 
-export const workspaceService = { workspaces, repos };
+export const workspaceService = {
+  addWorkspace,
+  listWorkspaces,
+  archiveWorkspace,
+  restoreWorkspace,
+  removeWorkspace,
+  removeWorkspaceRecord,
+  repos,
+};
