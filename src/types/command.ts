@@ -1,7 +1,7 @@
 import type { SessionRecord } from "./session.js";
 import type { TaskRecord } from "./task.js";
 import type { RunnerType } from "../domain/config/index.js";
-import type { RepoRecord, WorkspaceRecord } from "./workspace.js";
+import type { RepoRecord, WorkspaceRecord } from "../domain/workspace/index.js";
 
 export type AppCommand =
   | { kind: "addWorkspace"; path: string }
