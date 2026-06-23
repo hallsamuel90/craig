@@ -34,11 +34,14 @@ export const recordStartupFailure = async (paths: CraigPaths, taskId: string, me
 
 export const markTaskStarted = async (paths: CraigPaths, taskId: string): Promise<TaskRecord> => {
   const task = await readTask(paths, taskId);
-  const agentTab = task.ptyTabs.find((t) => t.kind === "agent") ?? null;
+  const agentTab = task.ptyTabs.find((t) => t.kind === "agent");
+  if (!agentTab) {
+    throw new Error(`Task ${taskId} is missing its agent PTY tab.`);
+  }
   const running: TaskRecord = {
     ...task,
     status: "running",
-    selectedPtyTabId: agentTab?.id ?? task.selectedPtyTabId,
+    selectedPtyTabId: agentTab.id,
     runnerSession: {
       ...task.runnerSession,
       startedAt: new Date().toISOString(),
