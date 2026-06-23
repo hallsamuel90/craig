@@ -119,7 +119,7 @@ export const tmuxSessionManager: SessionManager = {
     throw new Error("Direct session reads are owned by the terminal bridge.");
   },
 
-  async terminate(paths, session, reason) {
+  async terminate(paths, session, _reason) {
     const terminated: SessionRecord = {
       ...session,
       status: "failed",
@@ -134,7 +134,7 @@ export const tmuxSessionManager: SessionManager = {
         alive: false,
         capturedAt: new Date().toISOString(),
       },
-      command: reason.length > 0 ? session.command : session.command,
+      command: session.command,
     };
     await writeSession(paths, terminated);
     return terminated;

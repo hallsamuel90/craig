@@ -1,4 +1,4 @@
-import { readCraigIndex } from "../../../domain/workspace/adapters/index-store.js";
+import { readCraigIndex } from "../../../domain/workspace/index.js";
 import type { CraigPaths } from "../../../state/craig-paths.js";
 import { branchExists } from "../adapters/git.js";
 

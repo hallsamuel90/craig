@@ -26,6 +26,11 @@ export type {
 // re-export validators for external test use
 export { validateTaskRecord, normalizeLegacyTaskRecord } from "./tasks/validate.js";
 
+// re-export for UI layer access through the domain boundary (not the private adapter path)
+export { readTask, writeTask } from "./adapters/task-store.js";
+export { getTaskPrimaryPr } from "./prs/state.js";
+export { assertTaskWorktreeExists } from "./tasks/inspect.js";
+
 import {
   allocateTaskId,
   allocateTaskIdForRepo,
@@ -55,6 +60,9 @@ import {
   attachTask,
   focusTask,
   openTask,
+  markRunnerFailed,
+  recordStartupFailure,
+  markTaskStarted,
 } from "./tasks/index.js";
 
 import {
@@ -104,6 +112,9 @@ export const taskService = {
   attachTask,
   focusTask,
   openTask,
+  markRunnerFailed,
+  recordStartupFailure,
+  markTaskStarted,
   prs: {
     refresh: refreshTrackedPullRequest,
     refreshChecks: refreshPullRequestChecks,

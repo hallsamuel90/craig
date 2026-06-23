@@ -7,14 +7,14 @@ import { listWorkspaceRecords, workspaceService } from "../domain/workspace/inde
 import { getDefaultUiState, readUiState, writeUiState } from "../state/ui-state-store.js";
 import { configService, RUNNER_IDS } from "../domain/config/index.js";
 import type { CraigConfig } from "../domain/config/index.js";
-import { writeTask, readTask } from "../domain/task/adapters/task-store.js";
+import { writeTask, readTask } from "../domain/task/index.js";
 import { getCraigPaths } from "../state/craig-paths.js";
 import type { TaskPtyTabRecord, TaskRecord } from "../types/task.js";
 import type { RunnerType } from "../domain/config/index.js";
 import { taskService } from "../domain/task/index.js";
 import { errorService, type CraigErrorLogSnapshot } from "../domain/error/index.js";
 import { loadTaskLocalInspection, reloadSelectedContent, type InspectionTreeRow } from "./task-local-inspection.js";
-import { getTaskPrimaryPr } from "../domain/task/prs/state.js";
+import { getTaskPrimaryPr } from "../domain/task/index.js";
 import { runCommand } from "../utils/exec.js";
 import { requireExecutablePath, withDefaultCommandPath } from "../utils/command-path.js";
 import { buildShellData, getReviewInspectionRowCount, type WorkspaceShellModel } from "./shell-data.js";
@@ -507,17 +507,7 @@ export async function startTerminalApp(options: TerminalAppOptions = {}): Promis
 
     async function markTaskRunnerFailed(taskId: string, message: string): Promise<void> {
       await queueTaskMutation(async () => {
-        const task = await readTask(paths, taskId);
-        await writeTask(paths, {
-          ...task,
-          status: task.status === "running" ? "draft" : task.status,
-          runnerSession: {
-            ...task.runnerSession,
-            lastKnownState: "failed",
-            exitedAt: new Date().toISOString(),
-          },
-          lastFailureReason: message,
-        });
+        await taskService.markRunnerFailed(paths, taskId, message);
       });
     }
 
@@ -1978,32 +1968,10 @@ async function createInteractiveTask(
     });
   } catch (error) {
     const message = error instanceof Error ? error.message : "Failed to start runner.";
-    const failedTask: TaskRecord = {
-      ...provisioned.task,
-      status: "draft",
-      runnerSession: {
-        ...provisioned.task.runnerSession,
-        lastKnownState: "failed",
-        exitedAt: new Date().toISOString(),
-      },
-      lastFailureReason: message,
-    };
-    await writeTask(paths, failedTask);
+    const failedTask = await taskService.recordStartupFailure(paths, provisioned.task.id, message);
     throw new InteractiveTaskStartupError(message, failedTask);
   }
-  const agentTabId = getRequiredPtyTabId(provisioned.task, "agent");
-  const runningTask: TaskRecord = {
-    ...provisioned.task,
-    status: "running",
-    selectedPtyTabId: agentTabId,
-    runnerSession: {
-      ...provisioned.task.runnerSession,
-      startedAt: new Date().toISOString(),
-      lastKnownState: "running",
-    },
-  };
-
-  await writeTask(paths, runningTask);
+  const runningTask = await taskService.markTaskStarted(paths, provisioned.task.id);
   await writeUiState(
     { uiStateFile: paths.uiStateFile },
     {
