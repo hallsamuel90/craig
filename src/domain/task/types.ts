@@ -1,5 +1,5 @@
 export type {
-  RunnerType,
+
   TaskType,
   TaskStatus,
   TaskPRStatus,
@@ -22,3 +22,4 @@ export type {
   ProjectTaskRepoTarget,
   TaskRecord,
 } from "../../types/task.js";
+export type { RunnerType } from "../config/index.js";

@@ -1,4 +1,5 @@
-import type { ProjectTaskRepoTarget, RunnerSession, RunnerType, TaskPR, TaskPullRequest, TaskPullRequestComment, TaskPullRequestReviewDecision, TaskRecord, TaskPtyTabRecord } from "../../../types/task.js";
+import type { ProjectTaskRepoTarget, RunnerSession, TaskPR, TaskPullRequest, TaskPullRequestComment, TaskPullRequestReviewDecision, TaskRecord, TaskPtyTabRecord } from "../../../types/task.js";
+import type { RunnerType } from "../../config/index.js";
 import { configService } from "../../config/index.js";
 
 export const validateTaskRecord = (value: unknown, filePath: string): TaskRecord => {

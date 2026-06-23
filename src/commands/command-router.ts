@@ -21,7 +21,7 @@ export async function executeCommand(
     case "listRepos":
       return workspaceService.repos.listRegisteredRepos(context.paths);
     case "removeRepo":
-      return workspaceService.repos.removeRepo(context.paths, command.repoId);
+      return workspaceService.repos.removeRepo(context.paths, command.repoId, { listTasks: taskService.listTasks });
     case "listWorkspaces":
       return workspaceService.listWorkspaces(context.paths, { archived: command.archived });
     case "archiveWorkspace":
@@ -29,7 +29,7 @@ export async function executeCommand(
     case "restoreWorkspace":
       return workspaceService.restoreWorkspace(context.paths, command.workspaceId);
     case "removeWorkspace":
-      return workspaceService.removeWorkspace(context.paths, command.workspaceId);
+      return workspaceService.removeWorkspace(context.paths, command.workspaceId, { listTasks: taskService.listTasks });
     case "createTask":
       return taskService.createTask(
         context.paths,

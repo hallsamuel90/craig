@@ -1,18 +1,23 @@
 import type { CraigPaths } from "../../../state/craig-paths.js";
 import { readUiState, writeUiState } from "../../../state/ui-state-store.js";
-import type { CommandRemoveRepoResult } from "../../../types/command.js";
+import type { CommandListResult, CommandRemoveRepoResult } from "../../../types/command.js";
 import { readCraigIndex, writeCraigIndex } from "../adapters/index-store.js";
 import { deleteRepo, readRepo } from "../adapters/repo-store.js";
 import { listWorkspaceRecords } from "../adapters/workspace-store.js";
 import { removeWorkspaceRecord } from "../workspaces/remove-record.js";
-import { listTasks } from "../../../services/list-tasks.js";
 
-export const removeRepo = async (paths: CraigPaths, repoId: string): Promise<CommandRemoveRepoResult> => {
+type ListTasksFn = (paths: CraigPaths, filter: { repoId: string }) => Promise<CommandListResult>; // eslint-disable-line no-unused-vars
+
+export const removeRepo = async (
+  paths: CraigPaths,
+  repoId: string,
+  deps: { listTasks: ListTasksFn },
+): Promise<CommandRemoveRepoResult> => {
   const repo = await readRepo(paths, repoId);
   const workspaces = await listWorkspaceRecords(paths);
   const referencing = workspaces.filter((workspace) => workspace.primaryRepoId === repoId);
   const activeReferences = referencing.filter((workspace) => workspace.status === "active");
-  const tasks = await listTasks(paths, { repoId });
+  const tasks = await deps.listTasks(paths, { repoId });
 
   if (activeReferences.length > 0) {
     throw new Error(`Cannot remove repo ${repoId} while active workspace records still reference it.`);

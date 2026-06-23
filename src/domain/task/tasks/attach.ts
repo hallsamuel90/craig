@@ -1,6 +1,6 @@
 import type { CommandAttachTaskResult } from "../../../types/command.js";
 import type { CraigPaths } from "../../../state/craig-paths.js";
-import { readRepo } from "../../../state/repo-store.js";
+import { readRepo } from "../../../domain/workspace/adapters/repo-store.js";
 import { readSession } from "../adapters/session.js";
 import { tmuxSessionManager } from "../adapters/runner.js";
 import { getTask } from "./inspect.js";

@@ -9,8 +9,8 @@ import { configService, RUNNER_IDS } from "../domain/config/index.js";
 import type { CraigConfig } from "../domain/config/index.js";
 import { writeTask, readTask } from "../domain/task/adapters/task-store.js";
 import { getCraigPaths } from "../state/craig-paths.js";
-import { ensureCraigState } from "../state/ensure-state.js";
-import type { RunnerType, TaskPtyTabRecord, TaskRecord } from "../types/task.js";
+import type { TaskPtyTabRecord, TaskRecord } from "../types/task.js";
+import type { RunnerType } from "../domain/config/index.js";
 import { taskService } from "../domain/task/index.js";
 import { errorService, type CraigErrorLogSnapshot } from "../domain/error/index.js";
 import { loadTaskLocalInspection, reloadSelectedContent, type InspectionTreeRow } from "./task-local-inspection.js";
@@ -696,7 +696,7 @@ export async function startTerminalApp(options: TerminalAppOptions = {}): Promis
       }
 
       await workspaceService.archiveWorkspace(paths, syncedShell.selectedWorkspaceId);
-      const removed = await workspaceService.removeWorkspace(paths, syncedShell.selectedWorkspaceId);
+      const removed = await workspaceService.removeWorkspace(paths, syncedShell.selectedWorkspaceId, { listTasks: taskService.listTasks });
       await reloadModel();
 
       return syncShell({
@@ -1809,11 +1809,7 @@ async function loadWorkspaceShellModel(
   enabledRunnerIds?: RunnerType[],
 ): Promise<WorkspaceShellModel> {
   const paths = getCraigPaths(workspaceRoot);
-<<<<<<< HEAD
-  const [repos, workspaces, taskResult] = await Promise.all([workspaceService.repos.listRegisteredRepos(paths).then((r) => r.repos), listWorkspaceRecords(paths), listTasks(paths)]);
-=======
-  const [repos, workspaces, taskResult] = await Promise.all([listRepos(paths), listWorkspaceRecords(paths), taskService.listTasks(paths)]);
->>>>>>> 30a8763 (refactor: delete migrated service files and update all consumers to use task domain)
+  const [repos, workspaces, taskResult] = await Promise.all([workspaceService.repos.listRegisteredRepos(paths).then((r) => r.repos), listWorkspaceRecords(paths), taskService.listTasks(paths)]);
   const selectedTask = resolveSelectedTaskForInspection(taskResult.tasks, shell);
   const selection = shell
     ? {

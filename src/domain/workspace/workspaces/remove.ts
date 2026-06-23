@@ -1,9 +1,10 @@
 import type { CraigPaths } from "../../../state/craig-paths.js";
 import { readUiState, writeUiState } from "../../../state/ui-state-store.js";
-import type { CommandRemoveWorkspaceResult } from "../../../types/command.js";
+import type { CommandListResult, CommandRemoveWorkspaceResult } from "../../../types/command.js";
 import { readWorkspace } from "../adapters/workspace-store.js";
 import { removeWorkspaceRecord } from "./remove-record.js";
-import { listTasks } from "../../../services/list-tasks.js";
+
+type ListTasksFn = (paths: CraigPaths, filter: { workspaceId: string; includeClosed: boolean }) => Promise<CommandListResult>; // eslint-disable-line no-unused-vars
 
 const clearUiSelection = async (paths: CraigPaths, workspaceId: string): Promise<void> => {
   const ui = await readUiState({ uiStateFile: paths.uiStateFile });
@@ -14,9 +15,13 @@ const clearUiSelection = async (paths: CraigPaths, workspaceId: string): Promise
   );
 };
 
-export const removeWorkspace = async (paths: CraigPaths, workspaceId: string): Promise<CommandRemoveWorkspaceResult> => {
+export const removeWorkspace = async (
+  paths: CraigPaths,
+  workspaceId: string,
+  deps: { listTasks: ListTasksFn },
+): Promise<CommandRemoveWorkspaceResult> => {
   const workspace = await readWorkspace(paths, workspaceId);
-  const tasks = await listTasks(paths, { workspaceId, includeClosed: true });
+  const tasks = await deps.listTasks(paths, { workspaceId, includeClosed: true });
 
   if (workspace.status === "active") {
     throw new Error(`Cannot remove workspace ${workspaceId} while it is active. Archive it first.`);
