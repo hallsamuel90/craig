@@ -141,7 +141,7 @@ const normalizeReviewDecision = (value: string | null): TaskPullRequestReviewDec
 
 type NormalizedCheckWithSortKey = TaskPullRequestCheck & { sortTime: number | null };
 
-const normalizeRequiredChecks = (entries: unknown[]): TaskPullRequestCheck[] => {
+export const normalizeRequiredChecks = (entries: unknown[]): TaskPullRequestCheck[] => {
   const checks = entries
     .map((entry) => normalizeRequiredCheckWithSortKey(entry))
     .filter((entry): entry is NormalizedCheckWithSortKey => entry !== null);

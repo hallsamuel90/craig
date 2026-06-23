@@ -2,7 +2,7 @@ import { mkdir, rm, writeFile } from "node:fs/promises";
 
 import { afterEach, describe, expect, test } from "vitest";
 
-import { showTaskDiff } from "../src/services/show-task-diff.js";
+import { taskService } from "../src/domain/task/index.js";
 import { createCraigState, createGitRepo, createRepoRoot, writeTaskRecord } from "./test-helpers.js";
 import { runCommand } from "../src/utils/exec.js";
 
@@ -26,7 +26,7 @@ describe("showTaskDiff", () => {
     await runCommand("git", ["commit", "-m", "initial"], { cwd: worktreePath });
     await writeTaskRecord(repoRoot, { id: "task_1", worktreePath });
 
-    const result = await showTaskDiff(paths, "task_1");
+    const result = await taskService.showTaskDiff(paths, "task_1");
 
     expect(result.isEmpty).toBe(true);
     expect(result.diffText).toBe("");
@@ -46,7 +46,7 @@ describe("showTaskDiff", () => {
     await writeFile(`${worktreePath}/tracked.txt`, "hello world\n", "utf8");
     await writeTaskRecord(repoRoot, { id: "task_1", worktreePath });
 
-    const result = await showTaskDiff(paths, "task_1");
+    const result = await taskService.showTaskDiff(paths, "task_1");
 
     expect(result.isEmpty).toBe(false);
     expect(result.diffText).toContain("tracked.txt");
@@ -68,7 +68,7 @@ describe("showTaskDiff", () => {
     await runCommand("git", ["add", "tracked.txt"], { cwd: worktreePath });
     await writeTaskRecord(repoRoot, { id: "task_1", worktreePath });
 
-    const result = await showTaskDiff(paths, "task_1");
+    const result = await taskService.showTaskDiff(paths, "task_1");
 
     expect(result.isEmpty).toBe(false);
     expect(result.diffText).toContain("tracked.txt");
@@ -89,7 +89,7 @@ describe("showTaskDiff", () => {
     await writeFile(`${worktreePath}/new-file.txt`, "brand new\n", "utf8");
     await writeTaskRecord(repoRoot, { id: "task_1", worktreePath });
 
-    const result = await showTaskDiff(paths, "task_1");
+    const result = await taskService.showTaskDiff(paths, "task_1");
 
     expect(result.isEmpty).toBe(false);
     expect(result.diffText).toContain("new-file.txt");
@@ -106,6 +106,6 @@ describe("showTaskDiff", () => {
       worktreePath: `${repoRoot}/missing-worktree`,
     });
 
-    await expect(showTaskDiff(paths, "task_1")).rejects.toThrow(/worktree does not exist/);
+    await expect(taskService.showTaskDiff(paths, "task_1")).rejects.toThrow(/worktree does not exist/);
   });
 });

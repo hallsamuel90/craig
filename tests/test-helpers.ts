@@ -5,8 +5,9 @@ import path from "node:path";
 import { getCraigPaths } from "../src/state/craig-paths.js";
 import type { SessionRecord } from "../src/types/session.js";
 import type { TaskRecord } from "../src/types/task.js";
-import type { RepoRecord, WorkspaceRecord } from "../src/domain/workspace/index.js";
-import { createDefaultTaskPtyTabs } from "../src/services/task-provisioning.js";
+import type { RepoRecord, WorkspaceRecord } from "../src/types/workspace.js";
+import { taskService } from "../src/domain/task/index.js";
+const { createDefaultTaskPtyTabs } = taskService;
 import { configService } from "../src/domain/config/index.js";
 import { runCommand } from "../src/utils/exec.js";
 

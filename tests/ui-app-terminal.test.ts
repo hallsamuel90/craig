@@ -2358,7 +2358,8 @@ describe("terminal app PTY attach flow", () => {
     }
     terminal.emitKey("ENTER");
     await vi.waitFor(async () => {
-      const tasks = await import("../src/services/list-tasks.js").then(({ listTasks }) => listTasks(paths));
+      const { taskService } = await import("../src/domain/task/index.js");
+      const tasks = await taskService.listTasks(paths);
       expect(tasks.tasks.some((task) => task.runner === "claude" && task.runnerSession.lastKnownState === "failed")).toBe(true);
     });
     await vi.waitFor(() => expect(stripAnsi(terminal.frames.at(-1) ?? "")).toContain("▸ missing claude"));
@@ -2366,7 +2367,8 @@ describe("terminal app PTY attach flow", () => {
 
     await expect(app).resolves.toBe(0);
     expect(ptyRuntime.ensureSession).not.toHaveBeenCalled();
-    const taskIds = (await import("../src/services/list-tasks.js").then(({ listTasks }) => listTasks(paths))).tasks.map((task) => task.id);
+    const { taskService: ts2 } = await import("../src/domain/task/index.js");
+    const taskIds = (await ts2.listTasks(paths)).tasks.map((task) => task.id);
     const createdTaskId = taskIds.find((id) => id !== "task_20260430_02");
     expect(createdTaskId).toBeDefined();
     const task = await readTask(paths, createdTaskId!);

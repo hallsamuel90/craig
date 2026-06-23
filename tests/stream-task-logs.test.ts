@@ -3,7 +3,8 @@ import { rm, writeFile } from "node:fs/promises";
 
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 
-import { prepareTaskLogs, streamTaskLogs } from "../src/services/stream-task-logs.js";
+import { taskService } from "../src/domain/task/index.js";
+const { prepareTaskLogs, streamTaskLogs } = taskService;
 import { createCraigState, createRepoRoot, writeTaskRecord } from "./test-helpers.js";
 
 const tempRoots: string[] = [];

@@ -4,13 +4,10 @@ import path from "node:path";
 
 import { afterEach, describe, expect, test } from "vitest";
 
-import { commitTask } from "../src/services/commit-task.js";
-import { closeTask } from "../src/services/close-task.js";
-import { discoverOrRefreshAllProjectPullRequests, discoverOrRefreshPullRequest, discoverOrRefreshPullRequests, refreshPullRequestChecks } from "../src/services/open-pull-request.js";
-import { runChecks } from "../src/services/run-checks.js";
-import { showTask } from "../src/services/show-task.js";
-import { listTasks } from "../src/services/list-tasks.js";
-import { readTask } from "../src/state/task-store.js";
+import { taskService } from "../src/domain/task/index.js";
+const { commitTask, closeTask, runChecks, showTask, listTasks } = taskService;
+const { discoverOrRefresh: discoverOrRefreshPullRequest, discoverOrRefreshAll: discoverOrRefreshAllProjectPullRequests, discoverOrRefreshMany: discoverOrRefreshPullRequests, refreshChecks: refreshPullRequestChecks } = taskService.prs;
+import { readTask } from "../src/domain/task/adapters/task-store.js";
 import { runCommand } from "../src/utils/exec.js";
 import {
   createCraigState,
@@ -884,8 +881,8 @@ describe("task lifecycle services", () => {
       }],
     });
 
-    const { refreshTrackedPullRequest } = await import("../src/services/open-pull-request.js");
-    await refreshTrackedPullRequest(paths, "task_1");
+    const { taskService: ts } = await import("../src/domain/task/index.js");
+    await ts.prs.refresh(paths, "task_1");
     const task = await readTask(paths, "task_1");
 
     // Original merged PR preserved, new PR appended

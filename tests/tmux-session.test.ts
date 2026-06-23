@@ -8,7 +8,7 @@ import {
   getSessionNameForRepo,
   getSessionNameForTask,
   resizeSessionWindow,
-} from "../src/services/tmux-session.js";
+} from "../src/domain/task/adapters/tmux.js";
 import { createRepoRoot, createStubCommands } from "./test-helpers.js";
 
 const tempRoots: string[] = [];

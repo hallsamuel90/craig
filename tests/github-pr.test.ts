@@ -1,6 +1,6 @@
 import { describe, expect, test } from "vitest";
 
-import { getTaskPrimaryPr, isPrTerminal, upsertTaskPr } from "../src/services/github-pr.js";
+import { getTaskPrimaryPr, isPrTerminal, upsertTaskPr } from "../src/domain/task/prs/state.js";
 import { buildTaskRecord } from "./test-helpers.js";
 
 function makePr(number: number, status: "open" | "merged" | "closed"): ReturnType<typeof buildTaskRecord>["prs"][number] {

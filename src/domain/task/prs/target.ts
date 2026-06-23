@@ -3,6 +3,7 @@ import type { CraigPaths } from "../../../state/craig-paths.js";
 import { readRawTask, writeTask } from "../adapters/task-store.js";
 import { validateTaskRecord } from "../tasks/validate.js";
 import { fetchPrView, discoverPrView } from "../adapters/github.js";
+import { normalizeRequiredChecks } from "./state.js";
 
 export const refreshOrDiscoverTargetPullRequest = async (
   paths: CraigPaths,
@@ -59,7 +60,7 @@ const normalizePullRequest = (view: { number: number; url: string; baseRefName: 
     mergeable: view.mergeable === "MERGEABLE",
     mergeStateStatus: view.mergeStateStatus,
     reviewDecision: normalizeReviewDecision(view.reviewDecision ?? null),
-    requiredChecks: [],
+    requiredChecks: normalizeRequiredChecks(view.statusCheckRollup),
     comments: [],
     lastSyncedAt: new Date().toISOString(),
     lastSyncedHeadSha: view.headRefOid ?? null,

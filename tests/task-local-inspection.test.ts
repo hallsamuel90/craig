@@ -3,7 +3,7 @@ import path from "node:path";
 
 import { describe, expect, test } from "vitest";
 
-import { loadTaskLocalInspection } from "../src/services/task-local-inspection.js";
+import { loadTaskLocalInspection } from "../src/ui/task-local-inspection.js";
 import { runCommand } from "../src/utils/exec.js";
 import { buildTaskRecord, createGitRepo, createRepoRoot } from "./test-helpers.js";
 

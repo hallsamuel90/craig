@@ -3,8 +3,8 @@ import path from "node:path";
 
 import { afterEach, describe, expect, test } from "vitest";
 
-import { createTask } from "../src/services/create-task.js";
-import { getSessionNameForTask } from "../src/services/tmux-session.js";
+import { taskService } from "../src/domain/task/index.js";
+import { getSessionNameForTask } from "../src/domain/task/adapters/tmux.js";
 import { readSession } from "../src/state/session-store.js";
 import { readTask } from "../src/state/task-store.js";
 import {
@@ -43,7 +43,7 @@ afterEach(async () => {
   process.env.CRAIG_TEST_TMUX_SESSION_NAME = originalEnv.CRAIG_TEST_TMUX_SESSION_NAME;
 });
 
-describe("createTask", () => {
+describe("taskService.createTask", () => {
   test("creates a running task with a hidden per-task tmux session", async () => {
     const workspaceRoot = await createRepoRoot("craig-create-");
     const { paths, repoRoot, repoId, workspaceId } = await setupRegisteredRepo(workspaceRoot, "repo-a");
@@ -57,7 +57,7 @@ describe("createTask", () => {
     process.env.CRAIG_TEST_TMUX_COMMAND_LOG = tmuxCommandLog;
     process.env.CRAIG_TEST_TMUX_SESSION_NAME = expectedSessionName;
 
-    const result = await createTask(paths, repoId, "refactor auth");
+    const result = await taskService.createTask(paths, repoId, "refactor auth");
     const task = await readTask(paths, result.taskId);
     const session = await readSession(paths, result.sessionId);
     const tmuxCommands = await readFile(tmuxCommandLog, "utf8");
@@ -97,7 +97,7 @@ describe("createTask", () => {
     process.env.CRAIG_TEST_TMUX_STATE_FILE = tmuxStateFile;
     process.env.CRAIG_TEST_TMUX_COMMAND_LOG = tmuxCommandLog;
 
-    const result = await createTask(paths, repoId, `${runner} task`, { runner });
+    const result = await taskService.createTask(paths, repoId, `${runner} task`, { runner });
     const task = await readTask(paths, result.taskId);
     const tmuxCommands = await readFile(tmuxCommandLog, "utf8");
 
@@ -134,7 +134,7 @@ describe("createTask", () => {
     process.env.CRAIG_TEST_TMUX_STATE_FILE = tmuxStateFile;
     process.env.CRAIG_TEST_TMUX_COMMAND_LOG = tmuxCommandLog;
 
-    const result = await createTask(paths, repoId, "use cursor");
+    const result = await taskService.createTask(paths, repoId, "use cursor");
     const task = await readTask(paths, result.taskId);
     const tmuxCommands = await readFile(tmuxCommandLog, "utf8");
 
@@ -142,7 +142,7 @@ describe("createTask", () => {
     expect(task.runnerSession.command).toEqual([cursorPath, "use cursor"]);
     expect(task.ptyTabs.find((tab) => tab.kind === "agent")?.command).toEqual([cursorPath]);
     expect(tmuxCommands).toContain(`'${cursorPath}' 'use cursor'`);
-    await expect(createTask(paths, repoId, "use codex", { runner: "codex" })).rejects.toThrow(/disabled/);
+    await expect(taskService.createTask(paths, repoId, "use codex", { runner: "codex" })).rejects.toThrow(/disabled/);
   });
 
   test("sizes a detached task session from the current terminal when available", async () => {
@@ -161,7 +161,7 @@ describe("createTask", () => {
     process.env.CRAIG_TEST_TMUX_COMMAND_LOG = tmuxCommandLog;
     process.env.CRAIG_TEST_TMUX_SESSION_NAME = expectedSessionName;
 
-    await createTask(paths, repoId, "session sizing");
+    await taskService.createTask(paths, repoId, "session sizing");
 
     const tmuxCommands = await readFile(tmuxCommandLog, "utf8");
 
@@ -181,7 +181,7 @@ describe("createTask", () => {
     process.env.CRAIG_TEST_TMUX_STATE_FILE = tmuxStateFile;
     process.env.CRAIG_TEST_GIT_EXISTING_BRANCHES = `refs/heads/craig/task_${dateSegment}_01`;
 
-    const result = await createTask(paths, repoId, "branch collision");
+    const result = await taskService.createTask(paths, repoId, "branch collision");
 
     expect(result.taskId).toBe(`task_${dateSegment}_02`);
   });
@@ -194,9 +194,9 @@ describe("createTask", () => {
     process.env.PATH = `${stubDir}:${originalPath}`;
     process.env.CRAIG_TEST_TMUX_FAIL = "1";
 
-    await expect(createTask(paths, repoId, "tmux missing")).rejects.toThrow(/tmux/);
+    await expect(taskService.createTask(paths, repoId, "tmux missing")).rejects.toThrow(/tmux/);
 
-    const tasks = await import("../src/services/list-tasks.js").then(({ listTasks }) => listTasks(paths));
+    const tasks = await taskService.listTasks(paths);
     expect(tasks.tasks).toHaveLength(1);
     const failedTask = tasks.tasks[0];
 

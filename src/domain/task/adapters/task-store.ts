@@ -4,10 +4,16 @@ import type { TaskRecord } from "../../../types/task.js";
 import type { CraigPaths } from "../../../state/craig-paths.js";
 import { atomicWriteJson } from "../../../state/atomic-write.js";
 import { readCraigIndex, writeCraigIndex } from "../../../state/state-store.js";
+import { validateTaskRecord } from "../tasks/validate.js";
 
 export const readRawTask = async (paths: CraigPaths, taskId: string): Promise<unknown> => {
   const raw = await readFile(getTaskFilePath(paths, taskId), "utf8");
   return JSON.parse(raw) as unknown;
+};
+
+export const readTask = async (paths: CraigPaths, taskId: string): Promise<TaskRecord> => {
+  const raw = await readRawTask(paths, taskId);
+  return validateTaskRecord(raw, getTaskFilePath(paths, taskId));
 };
 
 export const writeTask = async (paths: CraigPaths, task: TaskRecord): Promise<void> => {

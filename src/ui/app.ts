@@ -6,18 +6,15 @@ import type * as TerminalKitModule from "terminal-kit";
 import { listWorkspaceRecords, workspaceService } from "../domain/workspace/index.js";
 import { getDefaultUiState, readUiState, writeUiState } from "../state/ui-state-store.js";
 import { configService, RUNNER_IDS } from "../domain/config/index.js";
-import type { CraigConfig, RunnerType } from "../domain/config/index.js";
-import { readTask, writeTask } from "../state/task-store.js";
+import type { CraigConfig } from "../domain/config/index.js";
+import { writeTask, readTask } from "../domain/task/adapters/task-store.js";
 import { getCraigPaths } from "../state/craig-paths.js";
-import type { TaskPtyTabRecord, TaskRecord } from "../types/task.js";
-import { listTasks } from "../services/list-tasks.js";
-import { appendCraigErrorLogBestEffort, readRecentCraigErrorLog, type CraigErrorLogSnapshot } from "../services/error-log.js";
-import { provisionProjectTask, provisionTask } from "../services/task-provisioning.js";
-import { addWorkspace, archiveWorkspace, removeWorkspace } from "../services/workspace-registry.js";
+import { ensureCraigState } from "../state/ensure-state.js";
+import type { RunnerType, TaskPtyTabRecord, TaskRecord } from "../types/task.js";
+import { taskService } from "../domain/task/index.js";
+import { errorService, type CraigErrorLogSnapshot } from "../domain/error/index.js";
 import { loadTaskLocalInspection, reloadSelectedContent, type InspectionTreeRow } from "./task-local-inspection.js";
-import { discoverOrRefreshAllProjectPullRequests, discoverOrRefreshPullRequest, discoverOrRefreshPullRequests } from "../services/open-pull-request.js";
 import { getTaskPrimaryPr } from "../domain/task/prs/state.js";
-import { closeTask } from "../services/close-task.js";
 import { runCommand } from "../utils/exec.js";
 import { requireExecutablePath, withDefaultCommandPath } from "../utils/command-path.js";
 import { buildShellData, getReviewInspectionRowCount, type WorkspaceShellModel } from "./shell-data.js";
@@ -296,7 +293,7 @@ export async function startTerminalApp(options: TerminalAppOptions = {}): Promis
     function reportRecoverableError(context: string, error: unknown, fallbackMessage: string): string {
       const message = error instanceof Error ? error.message : fallbackMessage;
       const details = error instanceof Error ? error.stack ?? error.message : String(error);
-      void appendCraigErrorLogBestEffort(paths, { context, message, details });
+      void errorService.appendErrorLogBestEffort(paths, { context, message, details });
       return message;
     }
 
@@ -601,12 +598,12 @@ export async function startTerminalApp(options: TerminalAppOptions = {}): Promis
       let footerToast: string | null = null;
 
       if (selectedTask?.type === "project" && selectedTask.repoTargets?.length) {
-        const counts = await discoverOrRefreshAllProjectPullRequests(paths, syncedShell.selectedTaskId);
+        const counts = await taskService.prs.discoverOrRefreshAll(paths, syncedShell.selectedTaskId);
         await reloadModel();
         const total = counts.synced + counts.discovered + counts.notFound;
         footerToast = `Refreshed ${counts.synced}/${total} targets`;
       } else {
-        const { disposition, task } = await discoverOrRefreshPullRequest(paths, syncedShell.selectedTaskId);
+        const { disposition, task } = await taskService.prs.discoverOrRefresh(paths, syncedShell.selectedTaskId);
         await reloadModel();
         actionMessage = disposition === "not_found"
           ? `No PR found for ${task.branch}`
@@ -634,7 +631,7 @@ export async function startTerminalApp(options: TerminalAppOptions = {}): Promis
       prPollInFlight = true;
 
       try {
-        await discoverOrRefreshPullRequests(paths, tasksToPoll);
+        await taskService.prs.discoverOrRefreshMany(paths, tasksToPoll);
         lastBackgroundPrPollError = null;
 
         if (state.mode !== "main") {
@@ -651,7 +648,7 @@ export async function startTerminalApp(options: TerminalAppOptions = {}): Promis
         const message = error instanceof Error ? error.message : "Background PR discovery failed.";
         if (message !== lastBackgroundPrPollError) {
           lastBackgroundPrPollError = message;
-          void appendCraigErrorLogBestEffort(paths, {
+          void errorService.appendErrorLogBestEffort(paths, {
             context: "background PR polling",
             message,
             details: error instanceof Error ? error.stack ?? error.message : String(error),
@@ -670,7 +667,7 @@ export async function startTerminalApp(options: TerminalAppOptions = {}): Promis
 
       const { taskBeforeClose, task } = await queueTaskMutation(async () => {
         const taskBeforeClose = await readTask(paths, syncedShell.selectedTaskId!);
-        const task = await closeTask(paths, syncedShell.selectedTaskId!);
+        const task = await taskService.closeTask(paths, syncedShell.selectedTaskId!);
         return { taskBeforeClose, task };
       });
       for (const tab of taskBeforeClose.ptyTabs) {
@@ -693,7 +690,7 @@ export async function startTerminalApp(options: TerminalAppOptions = {}): Promis
         throw new Error("Select a workspace before removing it.");
       }
 
-      const taskResult = await listTasks(paths, { workspaceId: syncedShell.selectedWorkspaceId, includeClosed: true });
+      const taskResult = await taskService.listTasks(paths, { workspaceId: syncedShell.selectedWorkspaceId, includeClosed: true });
       if (taskResult.tasks.length > 0) {
         throw new Error(`Cannot remove workspace ${syncedShell.selectedWorkspaceId} while task records still reference it.`);
       }
@@ -1540,7 +1537,7 @@ export async function startTerminalApp(options: TerminalAppOptions = {}): Promis
     async function openErrorLogOverlay(parentVariant: "boot" | "pause" | undefined): Promise<void> {
       let errorLog: CraigErrorLogSnapshot;
       try {
-        errorLog = await readRecentCraigErrorLog(paths);
+        errorLog = await errorService.readRecentErrorLines(paths);
       } catch (error) {
         const message = reportRecoverableError("open error log", error, "Failed to read Craig error log.");
         errorLog = {
@@ -1812,7 +1809,11 @@ async function loadWorkspaceShellModel(
   enabledRunnerIds?: RunnerType[],
 ): Promise<WorkspaceShellModel> {
   const paths = getCraigPaths(workspaceRoot);
+<<<<<<< HEAD
   const [repos, workspaces, taskResult] = await Promise.all([workspaceService.repos.listRegisteredRepos(paths).then((r) => r.repos), listWorkspaceRecords(paths), listTasks(paths)]);
+=======
+  const [repos, workspaces, taskResult] = await Promise.all([listRepos(paths), listWorkspaceRecords(paths), taskService.listTasks(paths)]);
+>>>>>>> 30a8763 (refactor: delete migrated service files and update all consumers to use task domain)
   const selectedTask = resolveSelectedTaskForInspection(taskResult.tasks, shell);
   const selection = shell
     ? {
@@ -1971,8 +1972,8 @@ async function createInteractiveTask(
   const config = await configService.load(paths);
   configService.runners.assertEnabled(runner, config);
   const provisioned = workspaceId
-    ? await provisionProjectTask(paths, workspaceId, prompt, { runner, config })
-    : await provisionTask(paths, repoId ?? "", prompt, { runner, config });
+    ? await taskService.provisionProjectTask(paths, workspaceId, prompt, { runner, config })
+    : await taskService.provisionTask(paths, repoId ?? "", prompt, { runner, config });
   try {
     const env = withDefaultCommandPath();
     await runCommand(requireExecutablePath(configService.runners.getConfiguredProfile(runner, config).executable, { cwd: provisioned.repoRoot, env }), ["--help"], {

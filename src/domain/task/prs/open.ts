@@ -15,7 +15,7 @@ import {
   type GitHubRepositoryLocator,
 } from "../adapters/github.js";
 import { assertTaskWorktreeExists, getTask } from "../tasks/inspect.js";
-import { getTaskPrimaryPr, isPrTerminal } from "./state.js";
+import { getTaskPrimaryPr, isPrTerminal, normalizeRequiredChecks } from "./state.js";
 import { refreshOrDiscoverTargetPullRequest } from "./target.js";
 
 export type PullRequestSyncDisposition = "discovered" | "synced" | "not_found";
@@ -267,7 +267,7 @@ const normalizePullRequest = (view: { number: number; url: string; baseRefName: 
     mergeable: view.mergeable === "MERGEABLE",
     mergeStateStatus: view.mergeStateStatus,
     reviewDecision: normalizeReviewDecision(view.reviewDecision ?? null),
-    requiredChecks: [],
+    requiredChecks: normalizeRequiredChecks(view.statusCheckRollup),
     comments: [],
     lastSyncedAt: new Date().toISOString(),
     lastSyncedHeadSha: view.headRefOid ?? null,

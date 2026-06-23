@@ -7,12 +7,13 @@ import { executeCommand } from "../src/commands/command-router.js";
 import { parseArgv } from "../src/commands/parse-argv.js";
 import { getCraigPaths } from "../src/state/craig-paths.js";
 import { readRepo, writeRepo } from "../src/domain/workspace/adapters/repo-store.js";
-import { readTask } from "../src/state/task-store.js";
+import { readTask } from "../src/domain/task/adapters/task-store.js";
 import { readUiState } from "../src/state/ui-state-store.js";
 import { readWorkspace } from "../src/domain/workspace/adapters/workspace-store.js";
 import { createCraigState, createGitRepo, createRepoRoot } from "./test-helpers.js";
 import { runCommand } from "../src/utils/exec.js";
-import { provisionProjectTask } from "../src/services/task-provisioning.js";
+import { taskService } from "../src/domain/task/index.js";
+const { provisionProjectTask } = taskService;
 
 const tempRoots: string[] = [];
 
