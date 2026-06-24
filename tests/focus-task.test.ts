@@ -5,10 +5,13 @@ import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 import { createCraigState, createRepoRoot, writeSessionRecord, writeTaskRecord } from "./test-helpers.js";
 
 const tempRoots: string[] = [];
-const focusPaneMock = vi.fn();
 
-vi.mock("../src/services/tmux-session.js", () => ({
-  focusPane: focusPaneMock,
+const mocks = vi.hoisted(() => ({
+  focusPane: vi.fn(),
+}));
+
+vi.mock("../src/domain/task/adapters/tmux.js", () => ({
+  focusPane: mocks.focusPane,
 }));
 
 afterEach(async () => {
@@ -16,7 +19,7 @@ afterEach(async () => {
 });
 
 beforeEach(() => {
-  focusPaneMock.mockReset();
+  mocks.focusPane.mockReset();
 });
 
 describe("focusTask", () => {
@@ -33,11 +36,11 @@ describe("focusTask", () => {
       windowTarget: "@1",
     });
 
-    const { focusTask } = await import("../src/services/focus-task.js");
-    const result = await focusTask(paths, "task_1");
+    const { taskService } = await import("../src/domain/task/index.js");
+    const result = await taskService.focusTask(paths, "task_1");
 
     expect(result.tmuxTarget).toBe("%77");
-    expect(focusPaneMock).toHaveBeenCalledWith(repoRoot, "%77", "@1", "craig-test-task_1");
+    expect(mocks.focusPane).toHaveBeenCalledWith(repoRoot, "%77", "@1", "craig-test-task_1");
   });
 
   test("fails when the task does not have a Craig session", async () => {
@@ -46,8 +49,8 @@ describe("focusTask", () => {
     const paths = await createCraigState(repoRoot);
     await writeTaskRecord(repoRoot, { id: "task_1", sessionId: null });
 
-    const { focusTask } = await import("../src/services/focus-task.js");
+    const { taskService } = await import("../src/domain/task/index.js");
 
-    await expect(focusTask(paths, "task_1")).rejects.toThrow(/does not have a Craig session/);
+    await expect(taskService.focusTask(paths, "task_1")).rejects.toThrow(/does not have a Craig session/);
   });
 });

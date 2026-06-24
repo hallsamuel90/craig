@@ -2,7 +2,8 @@ import { mkdir, rm, writeFile } from "node:fs/promises";
 
 import { afterEach, describe, expect, test } from "vitest";
 
-import { showTask } from "../src/services/show-task.js";
+import { taskService } from "../src/domain/task/index.js";
+const { showTask } = taskService;
 import { createCraigState, createRepoRoot, createStubCommands, writeTaskRecord } from "./test-helpers.js";
 
 const tempRoots: string[] = [];
