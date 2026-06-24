@@ -2,7 +2,7 @@
 import type { CraigPaths } from "../../../state/craig-paths.js";
 import { writeSession } from "./session.js";
 import type { SessionRecord, SessionSnapshot, SessionTerminalSize } from "../../../types/session.js";
-import { runCommandAllowingFailure } from "../../../utils/exec.js";
+import { runCommandAllowingFailure } from "../../../shared/exec.js";
 import {
   createDetachedTaskSession,
   enablePaneLogging,
@@ -10,9 +10,9 @@ import {
   getSessionNameForTask,
   resizeSessionWindow,
 } from "./tmux.js";
-import { requireExecutablePath, withDefaultCommandPath } from "../../../utils/command-path.js";
-import { shellEscape } from "../../../utils/shell-escape.js";
-import { runCommand } from "../../../utils/exec.js";
+import { requireExecutablePath, withDefaultCommandPath } from "../../../shared/command-path.js";
+import { shellEscape } from "../../../shared/shell-escape.js";
+import { runCommand } from "../../../shared/exec.js";
 import type { TaskRecord } from "../../../types/task.js";
 import { sendCommandToPane } from "./tmux.js";
 

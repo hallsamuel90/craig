@@ -1,7 +1,7 @@
 import { mkdir, readFile } from "node:fs/promises";
 
 import { getCraigPaths } from "../../../state/craig-paths.js";
-import { atomicWriteJson } from "../../../state/atomic-write.js";
+import { atomicWriteJson } from "../../../shared/atomic-write.js";
 import { validateCraigIndex } from "../adapters/index-store.js";
 import type { CraigIndex } from "../types.js";
 

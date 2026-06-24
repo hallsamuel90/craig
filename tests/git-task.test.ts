@@ -5,7 +5,7 @@ import path from "node:path";
 import { afterEach, describe, expect, test } from "vitest";
 
 import { createWorktree } from "../src/domain/task/adapters/git.js";
-import { runCommand } from "../src/utils/exec.js";
+import { runCommand } from "../src/shared/exec.js";
 import { createGitRepo } from "./test-helpers.js";
 
 const tempRoots: string[] = [];

@@ -3,7 +3,7 @@ import path from "node:path";
 
 import type { TaskPR, TaskRecord } from "../../../types/task.js";
 import type { CraigPaths } from "../../../state/craig-paths.js";
-import { atomicWriteJson } from "../../../state/atomic-write.js";
+import { atomicWriteJson } from "../../../shared/atomic-write.js";
 import { readRawTask, writeTask } from "../adapters/task-store.js";
 import { validateTaskRecord } from "../tasks/validate.js";
 import { fetchPrView, discoverPrView } from "../adapters/github.js";

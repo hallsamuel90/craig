@@ -5,8 +5,8 @@ import { afterEach, describe, expect, test } from "vitest";
 
 import { taskService } from "../src/domain/task/index.js";
 import { getSessionNameForTask } from "../src/domain/task/adapters/tmux.js";
-import { readSession } from "../src/state/session-store.js";
-import { readTask } from "../src/state/task-store.js";
+import { readSession } from "../src/domain/task/adapters/session.js";
+import { readTask } from "../src/domain/task/index.js";
 import {
   createCraigState,
   createRepoRoot,

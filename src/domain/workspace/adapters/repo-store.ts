@@ -2,7 +2,7 @@ import { readFile, readdir, rm } from "node:fs/promises";
 import path from "node:path";
 
 import type { CraigPaths } from "../../../state/craig-paths.js";
-import { atomicWriteJson } from "../../../state/atomic-write.js";
+import { atomicWriteJson } from "../../../shared/atomic-write.js";
 import type { RepoRecord } from "../types.js";
 
 const getRepoFilePath = (paths: CraigPaths, repoId: string): string =>

@@ -1,4 +1,4 @@
-import { runCommand, runCommandAllowingFailure } from "../../../utils/exec.js";
+import { runCommand, runCommandAllowingFailure } from "../../../shared/exec.js";
 
 export const branchExists = async (repoRoot: string, branch: string): Promise<boolean> => {
   const result = await runCommandAllowingFailure(

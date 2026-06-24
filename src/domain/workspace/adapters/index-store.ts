@@ -1,7 +1,7 @@
 import { readFile } from "node:fs/promises";
 
 import type { CraigPaths } from "../../../state/craig-paths.js";
-import { atomicWriteJson } from "../../../state/atomic-write.js";
+import { atomicWriteJson } from "../../../shared/atomic-write.js";
 import type { CraigIndex } from "../types.js";
 
 const isCraigIndex = (value: unknown): value is CraigIndex => {

@@ -8,3 +8,5 @@ export { isRunnerType } from "./is-runner-type.js";
 export { parse } from "./parse.js";
 export { getDisplayName } from "./get-display-name.js";
 export { buildCommand } from "./build-command.js";
+export { setRunnerEnabled } from "./set-runner-enabled.js";
+export { setRunnerPath } from "./set-runner-path.js";

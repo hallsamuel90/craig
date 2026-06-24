@@ -7,8 +7,8 @@ import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 import { startTerminalApp, type PtyRuntimePort, type TerminalRuntime } from "../src/ui/app.js";
 import type { TerminalViewState } from "../src/ui/state.js";
 import { listRepos } from "../src/domain/workspace/adapters/repo-store.js";
-import { runCommand, runCommandAllowingFailure } from "../src/utils/exec.js";
-import { readTask, writeTask } from "../src/state/task-store.js";
+import { runCommand, runCommandAllowingFailure } from "../src/shared/exec.js";
+import { readTask, writeTask } from "../src/domain/task/index.js";
 import { configService } from "../src/domain/config/index.js";
 import { createCraigState, createGitRepo, createStubCommands, writeRepoRecord, writeTaskRecord } from "./test-helpers.js";
 
