@@ -1,5 +1,11 @@
 # craig-cli
 
+## 0.7.5
+
+### Patch Changes
+
+- cf202b0: Introduce task domain with colocated unit tests
+
 ## 0.7.4
 
 ### Patch Changes
