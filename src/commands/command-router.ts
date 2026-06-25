@@ -1,5 +1,6 @@
 import type { CommandResult, AppCommand } from "../types/command.js";
 import type { CraigPaths } from "../state/craig-paths.js";
+import { getDefaultUiState, readUiState, writeUiState } from "../state/ui-state-store.js";
 import { getHelpText } from "./parse-argv.js";
 import { taskService } from "../domain/task/index.js";
 import { workspaceService } from "../domain/workspace/index.js";
@@ -14,20 +15,38 @@ export async function executeCommand(
   context: CommandContext,
 ): Promise<CommandResult> {
   switch (command.kind) {
-    case "addWorkspace":
-      return workspaceService.addWorkspace(context.paths, command.path);
-    case "addRepo":
-      return workspaceService.repos.addRepo(context.paths, command.path);
+    case "addWorkspace": {
+      const result = await workspaceService.addWorkspace(context.paths, command.path);
+      const selectedRepoId = result.workspace.kind === "project"
+        ? (result.workspace.discoveredRepoIds?.[0] ?? null)
+        : result.repos[0]?.id ?? null;
+      await selectWorkspaceInUi(context.paths, result.workspace.id, selectedRepoId);
+      return result;
+    }
+    case "addRepo": {
+      const result = await workspaceService.repos.addRepo(context.paths, command.path);
+      await selectWorkspaceInUi(context.paths, result.workspaceId, result.repo.id);
+      return result;
+    }
     case "listRepos":
       return workspaceService.repos.listRegisteredRepos(context.paths);
     case "removeRepo":
       return workspaceService.repos.removeRepo(context.paths, command.repoId, { listTasks: taskService.listTasks });
     case "listWorkspaces":
       return workspaceService.listWorkspaces(context.paths, { archived: command.archived });
-    case "archiveWorkspace":
-      return workspaceService.archiveWorkspace(context.paths, command.workspaceId);
-    case "restoreWorkspace":
-      return workspaceService.restoreWorkspace(context.paths, command.workspaceId);
+    case "archiveWorkspace": {
+      const result = await workspaceService.archiveWorkspace(context.paths, command.workspaceId);
+      const ui = await readUiState({ uiStateFile: context.paths.uiStateFile });
+      if (ui?.selectedWorkspaceId === command.workspaceId) {
+        await writeUiState({ uiStateFile: context.paths.uiStateFile }, { ...ui, selectedWorkspaceId: null, selectedRepoId: null, selectedTaskId: null });
+      }
+      return result;
+    }
+    case "restoreWorkspace": {
+      const result = await workspaceService.restoreWorkspace(context.paths, command.workspaceId);
+      await selectWorkspaceInUi(context.paths, command.workspaceId, result.primaryRepoId);
+      return result;
+    }
     case "removeWorkspace":
       return workspaceService.removeWorkspace(context.paths, command.workspaceId, { listTasks: taskService.listTasks });
     case "createTask":
@@ -84,6 +103,11 @@ export async function executeCommand(
     default:
       return assertNever(command);
   }
+}
+
+async function selectWorkspaceInUi(paths: CraigPaths, workspaceId: string, selectedRepoId: string | null): Promise<void> {
+  const ui = (await readUiState({ uiStateFile: paths.uiStateFile })) ?? getDefaultUiState();
+  await writeUiState({ uiStateFile: paths.uiStateFile }, { ...ui, selectedWorkspaceId: workspaceId, selectedRepoId, selectedTaskId: null });
 }
 
 function assertNever(value: never): never {

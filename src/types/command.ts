@@ -90,6 +90,7 @@ export interface CommandRestoreWorkspaceResult {
   workspaceId: string;
   status: "active";
   branch: string;
+  primaryRepoId: string | null;
 }
 
 export interface CommandRemoveWorkspaceResult {
