@@ -4,7 +4,7 @@ import path from "node:path";
 import type * as TerminalKitModule from "terminal-kit";
 
 import { listWorkspaceRecords, workspaceService } from "../domain/workspace/index.js";
-import { getDefaultUiState, readUiState, writeUiState } from "../state/ui-state-store.js";
+import { readUiState, writeUiState } from "../state/ui-state-store.js";
 import { configService, RUNNER_IDS } from "../domain/config/index.js";
 import { writeTask } from "../domain/task/index.js";
 import { getCraigPaths } from "../state/craig-paths.js";
@@ -14,8 +14,6 @@ import { taskService } from "../domain/task/index.js";
 import { errorService, type CraigErrorLogSnapshot } from "../domain/error/index.js";
 import { loadTaskLocalInspection, reloadSelectedContent, type InspectionTreeRow } from "./task-local-inspection.js";
 import { getTaskPrimaryPr } from "../domain/task/index.js";
-import { runCommand } from "../shared/exec.js";
-import { requireExecutablePath, withDefaultCommandPath } from "../shared/command-path.js";
 import {
   type ActionContext,
   createPtyTab,
@@ -29,6 +27,8 @@ import {
   removeWorkspace as removeWorkspaceAction,
   saveRunnerEnabled,
   saveRunnerPath,
+  createInteractiveTask,
+  InteractiveTaskStartupError,
 } from "./actions/index.js";
 import { buildShellData, getReviewInspectionRowCount, type WorkspaceShellModel } from "./shell-data.js";
 import { getViewport, SHELL_LAYOUT, type Viewport } from "./layout.js";
@@ -690,18 +690,14 @@ export async function startTerminalApp(options: TerminalAppOptions = {}): Promis
 
       let createdTask: TaskRecord | null = null;
       try {
-        createdTask = await createInteractiveTask(paths, shell.selectedRepoId, shell.selectedWorkspaceId, prompt, shell.selectedRunner);
+        const created = await createInteractiveTask(shell.selectedRepoId, shell.selectedWorkspaceId, prompt, shell.selectedRunner, buildActionContext());
+        createdTask = created.task;
         await reloadModel();
         const nextShell = syncShell({
           ...state.shell,
-          selectedRepoId: createdTask.repoId,
-          selectedWorkspaceId: createdTask.workspaceId,
-          selectedTaskId: createdTask.id,
-          selectedPtyTabId: createdTask.selectedPtyTabId,
+          ...created.nextShell,
           selectedLeftItemId: `task:${createdTask.id}`,
-          activeTab: createdTask.selectedPtyTabId ?? "agent",
           inputMode: "terminal",
-          focusedRegion: "center",
           taskPromptInput: null,
           taskPromptError: null,
           actionMessage: null,
@@ -719,7 +715,7 @@ export async function startTerminalApp(options: TerminalAppOptions = {}): Promis
           createdTask = error.task;
         }
         const message = reportRecoverableError("create task", error, "Failed to create task.");
-        if (createdTask) {
+        if (createdTask && !(error instanceof InteractiveTaskStartupError)) {
           await writeTask(paths, {
             ...createdTask,
             status: "draft",
@@ -730,6 +726,8 @@ export async function startTerminalApp(options: TerminalAppOptions = {}): Promis
             },
             lastFailureReason: message,
           }).catch(() => undefined);
+          await reloadModel().catch(() => undefined);
+        } else if (createdTask) {
           await reloadModel().catch(() => undefined);
         }
         state = {
@@ -1739,60 +1737,6 @@ function getRunnerOptionsState(state: Extract<AppState, { mode: "overlay" }>): R
   };
 }
 
-
-async function createInteractiveTask(
-  paths: ReturnType<typeof getCraigPaths>,
-  repoId: string | null,
-  workspaceId: string | null,
-  prompt: string,
-  runner: RunnerType,
-): Promise<TaskRecord> {
-  const config = await configService.load(paths);
-  configService.runners.assertEnabled(runner, config);
-  const provisioned = workspaceId
-    ? await taskService.provisionProjectTask(paths, workspaceId, prompt, { runner, config })
-    : await taskService.provisionTask(paths, repoId ?? "", prompt, { runner, config });
-  try {
-    const env = withDefaultCommandPath();
-    await runCommand(requireExecutablePath(configService.runners.getConfiguredProfile(runner, config).executable, { cwd: provisioned.repoRoot, env }), ["--help"], {
-      cwd: provisioned.repoRoot,
-      env,
-    });
-  } catch (error) {
-    const message = error instanceof Error ? error.message : "Failed to start runner.";
-    const failedTask = await taskService.recordStartupFailure(paths, provisioned.task.id, message);
-    throw new InteractiveTaskStartupError(message, failedTask);
-  }
-  const runningTask = await taskService.markTaskStarted(paths, provisioned.task.id);
-  await writeUiState(
-    { uiStateFile: paths.uiStateFile },
-    {
-      ...((await readUiState({ uiStateFile: paths.uiStateFile })) ?? getDefaultUiState()),
-      version: 1,
-      selectedRepoId: runningTask.repoId,
-      selectedWorkspaceId: runningTask.workspaceId,
-      selectedTaskId: runningTask.id,
-      selectedPtyTabId: runningTask.selectedPtyTabId,
-      inputMode: "control",
-      focusedRegion: "center",
-      activeTab: runningTask.selectedPtyTabId ?? "agent",
-      selectedActionId: "commit",
-      updatedAt: new Date().toISOString(),
-    },
-  );
-
-  return runningTask;
-}
-
-class InteractiveTaskStartupError extends Error {
-  readonly task: TaskRecord;
-
-  constructor(message: string, task: TaskRecord) {
-    super(message);
-    this.name = "InteractiveTaskStartupError";
-    this.task = task;
-  }
-}
 
 function getRequiredPtyTabId(task: TaskRecord, kind: TaskPtyTabRecord["kind"]): string {
   const tab = task.ptyTabs.find((entry) => entry.kind === kind);

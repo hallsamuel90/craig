@@ -1,8 +1,59 @@
 import { readTask } from "../../domain/task/index.js";
 import { errorService } from "../../domain/error/index.js";
+import { configService } from "../../domain/config/index.js";
+import type { RunnerType } from "../../domain/config/index.js";
+import { runCommand } from "../../shared/exec.js";
+import { requireExecutablePath, withDefaultCommandPath } from "../../shared/command-path.js";
 import type { TaskRecord } from "../../types/task.js";
 import type { ControlShellState } from "../state.js";
 import type { ActionContext } from "./context.js";
+
+export class InteractiveTaskStartupError extends Error {
+  readonly task: TaskRecord;
+
+  constructor(message: string, task: TaskRecord) {
+    super(message);
+    this.name = "InteractiveTaskStartupError";
+    this.task = task;
+  }
+}
+
+export const createInteractiveTask = async (
+  repoId: string | null,
+  workspaceId: string | null,
+  prompt: string,
+  runner: RunnerType,
+  ctx: ActionContext,
+): Promise<{ task: TaskRecord; nextShell: Partial<ControlShellState> }> => {
+  configService.runners.assertEnabled(runner, ctx.config);
+  const provisioned = workspaceId
+    ? await ctx.taskService.provisionProjectTask(ctx.paths, workspaceId, prompt, { runner, config: ctx.config })
+    : await ctx.taskService.provisionTask(ctx.paths, repoId ?? "", prompt, { runner, config: ctx.config });
+  try {
+    const env = withDefaultCommandPath();
+    await runCommand(
+      requireExecutablePath(configService.runners.getConfiguredProfile(runner, ctx.config).executable, { cwd: provisioned.repoRoot, env }),
+      ["--help"],
+      { cwd: provisioned.repoRoot, env },
+    );
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "Failed to start runner.";
+    const failedTask = await ctx.taskService.recordStartupFailure(ctx.paths, provisioned.task.id, message);
+    throw new InteractiveTaskStartupError(message, failedTask);
+  }
+  const task = await ctx.taskService.markTaskStarted(ctx.paths, provisioned.task.id);
+  const nextShell: Partial<ControlShellState> = {
+    selectedRepoId: task.repoId,
+    selectedWorkspaceId: task.workspaceId,
+    selectedTaskId: task.id,
+    selectedPtyTabId: task.selectedPtyTabId,
+    inputMode: "control",
+    focusedRegion: "center",
+    activeTab: task.selectedPtyTabId ?? "agent",
+    selectedActionId: "commit",
+  };
+  return { task, nextShell };
+};
 
 export const markRunnerFailed = async (
   taskId: string,
