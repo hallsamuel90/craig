@@ -728,6 +728,7 @@ export async function startTerminalApp(options: TerminalAppOptions = {}): Promis
           }).catch(() => undefined);
           await reloadModel().catch(() => undefined);
         } else if (createdTask) {
+          await writeTask(paths, { ...createdTask, lastFailureReason: message }).catch(() => undefined);
           await reloadModel().catch(() => undefined);
         }
         state = {

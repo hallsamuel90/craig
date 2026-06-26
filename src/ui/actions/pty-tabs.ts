@@ -63,8 +63,7 @@ export const closePtyTab = async (
 
     const closedTab = task.ptyTabs[closedIndex]!;
     const remainingTabs = task.ptyTabs.filter((tab) => tab.id !== closedTab.id);
-    const nextSelectedTab =
-      remainingTabs[Math.min(closedIndex, remainingTabs.length - 1)] ?? remainingTabs[closedIndex - 1] ?? null;
+    const nextSelectedTab = remainingTabs[Math.min(closedIndex, remainingTabs.length - 1)] ?? null;
     await writeTask(ctx.paths, {
       ...task,
       ptyTabs: remainingTabs,

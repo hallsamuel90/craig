@@ -1,20 +1,13 @@
 import type { CraigConfig, RunnerType } from "../types.js";
 
 export const setRunnerPath = (config: CraigConfig, runner: RunnerType, executablePath: string | null): CraigConfig => {
-  const runnerConfig = {
-    ...(config.runners?.[runner] ?? {}),
-    ...(executablePath ? { path: executablePath } : {}),
-  };
-
-  if (!executablePath) {
-    delete runnerConfig.path;
-  }
-
+  const existing = config.runners?.[runner] ?? {};
+  const { path: _removed, ...withoutPath } = existing;
   return {
     ...config,
     runners: {
       ...(config.runners ?? {}),
-      [runner]: runnerConfig,
+      [runner]: executablePath != null ? { ...existing, path: executablePath } : withoutPath,
     },
   };
 };
