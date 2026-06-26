@@ -1,10 +1,10 @@
 import path from "node:path";
 
-import type { TaskPtyTabRecord } from "../types/task.js";
-import type { WorkspaceShellModel } from "./shell-data.js";
-import { CENTER_TERMINAL_GUTTER } from "./render.js";
-import { SHELL_LAYOUT, type Viewport } from "./layout.js";
-import type { PtySize } from "./pty-runtime.js";
+import type { TaskPtyTabRecord } from "../../types/task.js";
+import type { WorkspaceShellModel } from "../shell/data.js";
+import { CENTER_TERMINAL_GUTTER } from "../render.js";
+import { SHELL_LAYOUT, type Viewport } from "../layout.js";
+import type { PtySize } from "./runtime.js";
 
 export function resolvePtySessionSpec(model: WorkspaceShellModel, tabId: string, workspaceRoot: string) {
   const task = model.tasks.find((entry) => entry.ptyTabs.some((tab) => tab.id === tabId)) ?? null;

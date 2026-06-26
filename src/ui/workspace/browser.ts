@@ -1,7 +1,7 @@
 import { readdir, stat } from "node:fs/promises";
 import path from "node:path";
 
-import type { WorkspaceBrowserEntry, WorkspaceBrowserState } from "./state.js";
+import type { WorkspaceBrowserEntry, WorkspaceBrowserState } from "../state.js";
 
 export async function loadWorkspaceBrowser(rootPath: string): Promise<WorkspaceBrowserState> {
   const directoryEntries = await readdir(rootPath, { withFileTypes: true });

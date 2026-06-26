@@ -1,6 +1,6 @@
 import path from "node:path";
 
-import type { InspectionDiffGroup, InspectionDiffRow, TaskLocalInspection } from "./task-local-inspection.js";
+import type { InspectionDiffGroup, InspectionDiffRow, TaskLocalInspection } from "../task-local-inspection.js";
 import {
   CHECK_ICON_FAILED,
   CHECK_ICON_NONE,
@@ -14,14 +14,14 @@ import {
   PR_ICON_OPEN,
   getFileIcon,
   getFileIconColor,
-} from "./icons.js";
-import type { ProjectTaskRepoTarget, TaskPullRequest, TaskPullRequestCheck, TaskPullRequestComment, TaskPtyTabRecord, TaskRecord } from "../types/task.js";
-import { getTaskPrimaryPr } from "../domain/task/index.js";
-import type { RepoRecord, WorkspaceRecord } from "../domain/workspace/index.js";
-import { configService } from "../domain/config/index.js";
-import type { RunnerType } from "../domain/config/index.js";
-import { INSPECTION_TAB_ID, isTaskLeftItemId } from "./state.js";
-import type { TerminalCellStyle, TerminalRowSegment } from "./terminal-emulator.js";
+} from "../icons.js";
+import type { ProjectTaskRepoTarget, TaskPullRequest, TaskPullRequestCheck, TaskPullRequestComment, TaskPtyTabRecord, TaskRecord } from "../../types/task.js";
+import { getTaskPrimaryPr } from "../../domain/task/index.js";
+import type { RepoRecord, WorkspaceRecord } from "../../domain/workspace/index.js";
+import { configService } from "../../domain/config/index.js";
+import type { RunnerType } from "../../domain/config/index.js";
+import { INSPECTION_TAB_ID, isTaskLeftItemId } from "../state.js";
+import type { TerminalCellStyle, TerminalRowSegment } from "../terminal-emulator.js";
 import type {
   CenterTabId,
   ControlShellState,
@@ -30,7 +30,7 @@ import type {
   InputMode,
   TerminalViewState,
   WorkspaceBrowserState,
-} from "./state.js";
+} from "../state.js";
 
 const EMPTY_CENTER_TAB_ID = "empty";
 

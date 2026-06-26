@@ -4,11 +4,11 @@ import type * as TerminalKitModule from "terminal-kit";
 import { readUiState } from "../state/ui-state-store.js";
 import { configService } from "../domain/config/index.js";
 import { getCraigPaths } from "../state/craig-paths.js";
-import { loadWorkspaceShellModel } from "./model-loader.js";
-import { resolvePtySessionSpec, getPtySize } from "./pty-session.js";
-import { positionFrameRows } from "./keyboard.js";
-import type { PtyRuntimeOptions } from "./pty-runtime.js";
-import { createDaemonPtyRuntime } from "./pty-daemon.js";
+import { loadWorkspaceShellModel } from "./shell/loader.js";
+import { resolvePtySessionSpec, getPtySize } from "./pty/session.js";
+import { positionFrameRows } from "./input/keyboard.js";
+import type { PtyRuntimeOptions } from "./pty/runtime.js";
+import { createDaemonPtyRuntime } from "./pty/daemon.js";
 import {
   renderBootOverlayFrame,
   renderErrorLogOverlayFrame,
@@ -20,12 +20,12 @@ import {
 import { buildRunnersSubmenuItems, getRunnersSubmenuMessage, OPTIONS_MENU_ITEMS, type RunnerOptionsState } from "./options.js";
 import { createInitialShellState, restoreShellState } from "./state.js";
 import { getViewport } from "./layout.js";
-import { buildShellData } from "./shell-data.js";
+import { buildShellData } from "./shell/data.js";
 import type { AppContext, AppState, TerminalRuntime, PtyRuntimePort, TerminalEventListener } from "./app-context.js";
-import { syncShell, withTerminalView, restoreTerminalScreen } from "./shell-sync.js";
-import { hydrateOpenPtyTabs, syncInputCapture } from "./pty-manager.js";
-import { pollPullRequests } from "./pr-polling.js";
-import { onKey, onUnknown, onMouse } from "./key-dispatch.js";
+import { syncShell, withTerminalView, restoreTerminalScreen } from "./shell/sync.js";
+import { hydrateOpenPtyTabs, syncInputCapture } from "./pty/manager.js";
+import { pollPullRequests } from "./workspace/pr-polling.js";
+import { onKey, onUnknown, onMouse } from "./input/dispatch.js";
 
 export type { TerminalRuntime, PtyRuntimePort, TerminalEventListener };
 

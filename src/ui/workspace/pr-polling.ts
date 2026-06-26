@@ -1,14 +1,14 @@
-import { taskService } from "../domain/task/index.js";
-import { getTaskPrimaryPr } from "../domain/task/index.js";
-import { loadWorkspaceShellModel } from "./model-loader.js";
+import { taskService } from "../../domain/task/index.js";
+import { getTaskPrimaryPr } from "../../domain/task/index.js";
+import { loadWorkspaceShellModel } from "../shell/loader.js";
 import {
   pollPullRequests as pollPullRequestsAction,
   logBackgroundError,
-} from "./actions/index.js";
-import { syncShell, setSuccessToast, buildActionContext, reloadModel } from "./shell-sync.js";
-import { getSelectedTask } from "./shell-state.js";
-import type { ControlShellState } from "./state.js";
-import type { AppContext } from "./app-context.js";
+} from "../actions/index.js";
+import { syncShell, setSuccessToast, buildActionContext, reloadModel } from "../shell/sync.js";
+import { getSelectedTask } from "../shell/sync.js";
+import type { ControlShellState } from "../state.js";
+import type { AppContext } from "../app-context.js";
 
 export async function pollPullRequests(ctx: AppContext): Promise<void> {
   if (ctx.prPollInFlight || ctx.state.mode !== "main") {

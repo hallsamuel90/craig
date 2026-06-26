@@ -1,12 +1,12 @@
-import type { RunnerType } from "../domain/config/index.js";
-import { taskService } from "../domain/task/index.js";
-import { listWorkspaceRecords, workspaceService } from "../domain/workspace/index.js";
-import { getCraigPaths } from "../state/craig-paths.js";
-import type { TaskRecord } from "../types/task.js";
-import { loadTaskLocalInspection, type InspectionTreeRow } from "./task-local-inspection.js";
-import type { WorkspaceShellModel } from "./shell-data.js";
-import { restoreShellState } from "./state.js";
-import type { ControlShellState } from "./state.js";
+import type { RunnerType } from "../../domain/config/index.js";
+import { taskService } from "../../domain/task/index.js";
+import { listWorkspaceRecords, workspaceService } from "../../domain/workspace/index.js";
+import { getCraigPaths } from "../../state/craig-paths.js";
+import type { TaskRecord } from "../../types/task.js";
+import { loadTaskLocalInspection, type InspectionTreeRow } from "../task-local-inspection.js";
+import type { WorkspaceShellModel } from "./data.js";
+import { restoreShellState } from "../state.js";
+import type { ControlShellState } from "../state.js";
 
 export async function loadWorkspaceShellModel(
   workspaceRoot: string,

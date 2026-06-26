@@ -1,25 +1,25 @@
 import path from "node:path";
 
-import { configService } from "../domain/config/index.js";
-import { writeTask } from "../domain/task/index.js";
-import { errorService } from "../domain/error/index.js";
-import { getViewport } from "./layout.js";
-import { getPtySize, getRequiredPtyTabId } from "./pty-session.js";
-import { openUrl } from "./workspace-browser.js";
-import { getSelectedTask } from "./shell-state.js";
-import { getTaskPrimaryPr } from "../domain/task/index.js";
+import { configService } from "../../domain/config/index.js";
+import { writeTask } from "../../domain/task/index.js";
+import { errorService } from "../../domain/error/index.js";
+import { getViewport } from "../layout.js";
+import { getPtySize, getRequiredPtyTabId } from "../pty/session.js";
+import { openUrl } from "../workspace/browser.js";
+import { getSelectedTask } from "../shell/sync.js";
+import { getTaskPrimaryPr } from "../../domain/task/index.js";
 import {
   isEnterKey,
   isPrintableKey,
   getNextRunner,
   reduceMainKey,
   updateTerminalViewState,
-} from "./state.js";
+} from "../state.js";
 import {
   reduceOptionsMenuKey,
   reduceRunnerOptionsKey,
   type RunnerOptionsState,
-} from "./options.js";
+} from "../options.js";
 import {
   isAgentTabId,
   inputToString,
@@ -35,7 +35,7 @@ import {
   InteractiveTaskStartupError,
   saveRunnerEnabled,
   saveRunnerPath,
-} from "./actions/index.js";
+} from "../actions/index.js";
 import {
   syncShell,
   applyErrorToast,
@@ -49,7 +49,7 @@ import {
   scheduleTerminalViewportScroll,
   scheduleInspectionViewportScroll,
   buildActionContext,
-} from "./shell-sync.js";
+} from "../shell/sync.js";
 import {
   attachPtyFromShell,
   createPtyTabFromShell,
@@ -58,9 +58,9 @@ import {
   removeWorkspaceFromShell,
   hydrateAndRenderOpenPtyTabs,
   warmSelectedPtyTab,
-} from "./pty-manager.js";
-import { refreshPullRequestChecksFromShell } from "./pr-polling.js";
-import type { AppContext } from "./app-context.js";
+} from "../pty/manager.js";
+import { refreshPullRequestChecksFromShell } from "../workspace/pr-polling.js";
+import type { AppContext } from "../app-context.js";
 
 function getRunnerOptionsState(ctx: AppContext): RunnerOptionsState {
   const state = ctx.state as Extract<typeof ctx.state, { mode: "overlay" }>;

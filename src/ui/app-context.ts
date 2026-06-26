@@ -2,9 +2,9 @@ import type { CraigConfig, RunnerType } from "../domain/config/index.js";
 import type { CraigUiRuntime } from "../types/workspace.js";
 import type { CraigPaths } from "../state/craig-paths.js";
 import type { CraigErrorLogSnapshot } from "../domain/error/index.js";
-import type { WorkspaceShellModel } from "./shell-data.js";
+import type { WorkspaceShellModel } from "./shell/data.js";
 import type { RunnerOptionsState } from "./options.js";
-import type { PtySize } from "./pty-runtime.js";
+import type { PtySize } from "./pty/runtime.js";
 import type { ControlShellState } from "./state.js";
 
 type OverlayVariant = "boot" | "pause" | "help" | "options" | "runners" | "error-log";

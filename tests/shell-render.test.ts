@@ -7,7 +7,7 @@ import { MIN_VIEWPORT } from "../src/ui/layout.js";
 import { OPTIONS_MENU_ITEMS } from "../src/ui/options.js";
 import { renderBootOverlayFrame, renderErrorLogOverlayFrame, renderMainShellFrame, renderOptionsOverlayFrame, renderPauseOverlayFrame } from "../src/ui/render.js";
 import { createInitialShellState } from "../src/ui/state.js";
-import { buildShellData } from "../src/ui/shell-data.js";
+import { buildShellData } from "../src/ui/shell/data.js";
 import { buildTaskRecord } from "./test-helpers.js";
 
 describe("terminal shell renderer", () => {

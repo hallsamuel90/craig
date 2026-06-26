@@ -8,7 +8,7 @@ import { spawn } from "node-pty";
 import { createCraigState, createGitRepo, writeRepoRecord, writeTaskRecord } from "./test-helpers.js";
 import { runCommand } from "../src/shared/exec.js";
 import { getCraigPaths } from "../src/state/craig-paths.js";
-import { requestDaemonShutdown } from "../src/ui/pty-daemon.js";
+import { requestDaemonShutdown } from "../src/ui/pty/daemon.js";
 import { resolveExecutablePath } from "../src/shared/command-path.js";
 
 describe("Craig terminal mode E2E", () => {

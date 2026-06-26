@@ -2,7 +2,7 @@ import XtermHeadless from "@xterm/headless";
 import type { IBufferCell } from "@xterm/headless";
 import type { Terminal } from "@xterm/headless";
 
-import type { PtySize } from "./pty-runtime.js";
+import type { PtySize } from "./pty/runtime.js";
 
 export interface TerminalCellStyle {
   fg?: string;

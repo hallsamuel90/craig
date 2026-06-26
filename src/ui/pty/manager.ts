@@ -1,5 +1,5 @@
-import type { TaskPtyTabRecord, TaskRecord } from "../types/task.js";
-import type { RunnerType } from "../domain/config/index.js";
+import type { TaskPtyTabRecord, TaskRecord } from "../../types/task.js";
+import type { RunnerType } from "../../domain/config/index.js";
 import {
   createPtyTab,
   closePtyTab,
@@ -7,14 +7,14 @@ import {
   markRunnerFailed as markRunnerFailedAction,
   closeTask as closeTaskAction,
   removeWorkspace as removeWorkspaceAction,
-} from "./actions/index.js";
-import { getViewport } from "./layout.js";
-import { getPtySize } from "./pty-session.js";
-import { getSelectedTask } from "./shell-state.js";
-import { updateTerminalViewState, markTerminalAttachFailed, type ControlShellState } from "./state.js";
-import { isAgentTabId } from "./keyboard.js";
-import { syncShell, applyErrorToast, reportRecoverableError, reloadModel, buildActionContext, persistShellState } from "./shell-sync.js";
-import type { AppContext } from "./app-context.js";
+} from "../actions/index.js";
+import { getViewport } from "../layout.js";
+import { getPtySize } from "./session.js";
+import { getSelectedTask } from "../shell/sync.js";
+import { updateTerminalViewState, markTerminalAttachFailed, type ControlShellState } from "../state.js";
+import { isAgentTabId } from "../input/keyboard.js";
+import { syncShell, applyErrorToast, reportRecoverableError, reloadModel, buildActionContext, persistShellState } from "../shell/sync.js";
+import type { AppContext } from "../app-context.js";
 
 export async function hydrateOpenPtyTabs(ctx: AppContext): Promise<void> {
   const activeTabIds = ctx.model.tasks.flatMap((task) => task.ptyTabs.map((tab) => tab.id));

@@ -1,7 +1,7 @@
 import { describe, expect, test, vi } from "vitest";
 
 import { isTerminalDetachKey } from "../src/ui/state.js";
-import { mapKeyToPtyInput, PtyRuntime } from "../src/ui/pty-runtime.js";
+import { mapKeyToPtyInput, PtyRuntime } from "../src/ui/pty/runtime.js";
 import { createTerminalEmulator, renderTerminalScreenRows, writeTerminalEmulator } from "../src/ui/terminal-emulator.js";
 
 describe("PTY runtime", () => {

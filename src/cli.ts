@@ -5,7 +5,7 @@ import { parseArgv } from "./commands/parse-argv.js";
 import { getCraigPaths } from "./state/craig-paths.js";
 import { formatCommandResult } from "./main.js";
 import { startTerminalApp } from "./ui/app.js";
-import { requestDaemonShutdown, servePtyDaemon } from "./ui/pty-daemon.js";
+import { requestDaemonShutdown, servePtyDaemon } from "./ui/pty/daemon.js";
 async function main(): Promise<number> {
   try {
     if (process.argv[2] === "__craig-daemon") {

@@ -1,17 +1,21 @@
-import { writeUiState } from "../state/ui-state-store.js";
-import { errorService } from "../domain/error/index.js";
-import { taskService } from "../domain/task/index.js";
-import { workspaceService } from "../domain/workspace/index.js";
-import { reloadSelectedContent } from "./task-local-inspection.js";
-import { loadWorkspaceShellModel, resolveShellState, resolveSelectedTaskForInspection, getVisibleFileTreeRows, getLeftItemIds } from "./model-loader.js";
-import { getViewport, SHELL_LAYOUT } from "./layout.js";
-import { buildShellData, getReviewInspectionRowCount } from "./shell-data.js";
-import { loadWorkspaceBrowser } from "./workspace-browser.js";
-import { getSelectedTask } from "./shell-state.js";
-import { scrollInspectionContent, toPersistedUiState, updateTerminalViewState, buildCenterTabIds, type ControlShellState, type FooterToast } from "./state.js";
-import type { ActionContext } from "./actions/index.js";
-import { persistPtyTabSelection } from "./actions/index.js";
-import type { AppContext } from "./app-context.js";
+import { writeUiState } from "../../state/ui-state-store.js";
+import { errorService } from "../../domain/error/index.js";
+import { taskService } from "../../domain/task/index.js";
+import { workspaceService } from "../../domain/workspace/index.js";
+import { reloadSelectedContent } from "../task-local-inspection.js";
+import { loadWorkspaceShellModel, resolveShellState, resolveSelectedTaskForInspection, getVisibleFileTreeRows, getLeftItemIds } from "./loader.js";
+import { getViewport, SHELL_LAYOUT } from "../layout.js";
+import { buildShellData, getReviewInspectionRowCount } from "./data.js";
+import { loadWorkspaceBrowser } from "../workspace/browser.js";
+import type { TaskRecord } from "../../types/task.js";
+import { scrollInspectionContent, toPersistedUiState, updateTerminalViewState, buildCenterTabIds, type ControlShellState, type FooterToast } from "../state.js";
+import type { ActionContext } from "../actions/index.js";
+import { persistPtyTabSelection } from "../actions/index.js";
+import type { AppContext } from "../app-context.js";
+
+export function getSelectedTask(tasks: TaskRecord[], shell: ControlShellState): TaskRecord | null {
+  return tasks.find((task) => task.id === shell.selectedTaskId) ?? null;
+}
 
 export function withTerminalView(ctx: AppContext, shell: ControlShellState): ControlShellState {
   return updateTerminalViewState(shell, ctx.ptyRuntime.getViewState(resolveTerminalViewTabId(ctx, shell)));

@@ -6,7 +6,7 @@ import type {
   ShellRunnerRow,
   ShellTab,
   ShellTreeRow,
-} from "./shell-data.js";
+} from "./shell/data.js";
 import { SHELL_LAYOUT, type Viewport } from "./layout.js";
 import type { TerminalCellStyle, TerminalRowSegment } from "./terminal-emulator.js";
 import type { FooterToast } from "./state.js";

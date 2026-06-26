@@ -1,5 +1,5 @@
-import { RUNNER_IDS } from "../domain/config/index.js";
-import { isEnterKey } from "./state.js";
+import { RUNNER_IDS } from "../../domain/config/index.js";
+import { isEnterKey } from "../state.js";
 
 export function shouldTrackTerminalKey(key: string): boolean {
   return key.length === 1 || isEnterKey(key) || key === "BACKSPACE" || key === "TAB";
