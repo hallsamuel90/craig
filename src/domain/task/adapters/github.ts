@@ -1,4 +1,4 @@
-import { runCommand, runCommandAllowingFailure } from "../../../utils/exec.js";
+import { runCommand, runCommandAllowingFailure } from "../../../shared/exec.js";
 import type { TaskRecord } from "../../../types/task.js";
 
 export interface GhPrView {

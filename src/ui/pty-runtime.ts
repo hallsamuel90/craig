@@ -9,7 +9,7 @@ import {
   resizeTerminalEmulator,
   writeTerminalEmulator,
 } from "./terminal-emulator.js";
-import { requireExecutablePath, withDefaultCommandPath } from "../utils/command-path.js";
+import { requireExecutablePath, withDefaultCommandPath } from "../shared/command-path.js";
 
 export interface PtySize {
   columns: number;

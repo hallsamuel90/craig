@@ -4,10 +4,9 @@ import path from "node:path";
 import type * as TerminalKitModule from "terminal-kit";
 
 import { listWorkspaceRecords, workspaceService } from "../domain/workspace/index.js";
-import { getDefaultUiState, readUiState, writeUiState } from "../state/ui-state-store.js";
+import { readUiState, writeUiState } from "../state/ui-state-store.js";
 import { configService, RUNNER_IDS } from "../domain/config/index.js";
-import type { CraigConfig } from "../domain/config/index.js";
-import { writeTask, readTask } from "../domain/task/index.js";
+import { writeTask } from "../domain/task/index.js";
 import { getCraigPaths } from "../state/craig-paths.js";
 import type { TaskPtyTabRecord, TaskRecord } from "../types/task.js";
 import type { RunnerType } from "../domain/config/index.js";
@@ -15,8 +14,22 @@ import { taskService } from "../domain/task/index.js";
 import { errorService, type CraigErrorLogSnapshot } from "../domain/error/index.js";
 import { loadTaskLocalInspection, reloadSelectedContent, type InspectionTreeRow } from "./task-local-inspection.js";
 import { getTaskPrimaryPr } from "../domain/task/index.js";
-import { runCommand } from "../utils/exec.js";
-import { requireExecutablePath, withDefaultCommandPath } from "../utils/command-path.js";
+import {
+  type ActionContext,
+  createPtyTab,
+  closePtyTab,
+  persistPtyTabSelection,
+  ensureAgentTab,
+  markRunnerFailed as markRunnerFailedAction,
+  closeTask as closeTaskAction,
+  pollPullRequests as pollPullRequestsAction,
+  logBackgroundError,
+  removeWorkspace as removeWorkspaceAction,
+  saveRunnerEnabled,
+  saveRunnerPath,
+  createInteractiveTask,
+  InteractiveTaskStartupError,
+} from "./actions/index.js";
 import { buildShellData, getReviewInspectionRowCount, type WorkspaceShellModel } from "./shell-data.js";
 import { getViewport, SHELL_LAYOUT, type Viewport } from "./layout.js";
 import type { PtyRuntimeOptions, PtySize } from "./pty-runtime.js";
@@ -310,6 +323,10 @@ export async function startTerminalApp(options: TerminalAppOptions = {}): Promis
       return next;
     }
 
+    function buildActionContext(): ActionContext {
+      return { paths, config, taskService, workspaceService, queueTaskMutation };
+    }
+
     function getShellKeyOptions(shell: ControlShellState) {
       const selectedTask = getSelectedTask(shell);
       const inspection = model.inspection;
@@ -334,57 +351,8 @@ export async function startTerminalApp(options: TerminalAppOptions = {}): Promis
       };
     }
 
-    async function updateRunnerOptions(nextConfig: CraigConfig): Promise<void> {
-      await configService.save(paths, nextConfig);
-      config = nextConfig;
-      enabledRunnerIds = configService.runners.getEnabled(config);
-      model = {
-        ...model,
-        enabledRunnerIds,
-      };
-      if (state.mode === "main") {
-        state = {
-          mode: "main",
-          shell: syncShell({
-            ...state.shell,
-            selectedRunner: enabledRunnerIds.includes(state.shell.selectedRunner)
-              ? state.shell.selectedRunner
-              : configService.runners.getDefault(config),
-          }),
-        };
-      } else {
-        state = {
-          ...state,
-          shell: syncShell({
-            ...state.shell,
-            selectedRunner: enabledRunnerIds.includes(state.shell.selectedRunner)
-              ? state.shell.selectedRunner
-              : configService.runners.getDefault(config),
-          }),
-        };
-      }
-    }
-
     async function persistTaskPtySelection(shell: ControlShellState): Promise<void> {
-      const taskId = shell.selectedTaskId;
-      if (!taskId) {
-        return;
-      }
-
-      await queueTaskMutation(async () => {
-        const latestTask = await readTask(paths, taskId);
-        if (
-          !latestTask.ptyTabs.some((tab) => tab.id === shell.activeTab) ||
-          latestTask.selectedPtyTabId === shell.activeTab
-        ) {
-          return;
-        }
-
-        await writeTask(paths, {
-          ...latestTask,
-          selectedPtyTabId: shell.activeTab,
-        });
-      });
+      await persistPtyTabSelection(shell, buildActionContext());
     }
 
     async function reloadModel(): Promise<void> {
@@ -506,98 +474,39 @@ export async function startTerminalApp(options: TerminalAppOptions = {}): Promis
     }
 
     async function markTaskRunnerFailed(taskId: string, message: string): Promise<void> {
-      await queueTaskMutation(async () => {
-        await taskService.markRunnerFailed(paths, taskId, message);
-      });
+      await markRunnerFailedAction(taskId, message, buildActionContext());
     }
 
     async function createPtyTabFromShell(shell: ControlShellState, requestedKind: TaskPtyTabRecord["kind"] | null, requestedRunner?: RunnerType | null): Promise<ControlShellState> {
       const syncedShell = syncShell(shell);
-      if (!syncedShell.selectedTaskId) {
-        throw new Error("Select a task before creating a tab.");
-      }
-
-      const updatedTask = await queueTaskMutation(async () => {
-        const task = await readTask(paths, syncedShell.selectedTaskId!);
-        const kind = requestedKind ?? resolveNewPtyTabKind(task, syncedShell.activeTab, syncedShell.preferredPtyTabKind);
-        const tab = createNextPtyTab(task, kind, requestedRunner ?? undefined, config);
-        const nextTask: TaskRecord = {
-          ...task,
-          ptyTabs: [...task.ptyTabs, tab],
-          selectedPtyTabId: tab.id,
-        };
-        await writeTask(paths, nextTask);
-        return nextTask;
-      });
+      const { nextShell } = await createPtyTab(syncedShell, requestedKind, requestedRunner, buildActionContext());
       await reloadModel();
-
-      return syncShell({
-        ...syncedShell,
-        activeTab: updatedTask.selectedPtyTabId ?? syncedShell.activeTab,
-        selectedPtyTabId: updatedTask.selectedPtyTabId,
-        preferredPtyTabKind: updatedTask.ptyTabs.at(-1)?.kind ?? syncedShell.preferredPtyTabKind,
-        focusedRegion: "center",
-        actionMessage: `Created tab: ${updatedTask.ptyTabs.at(-1)?.title ?? "tab"}`,
-      });
+      return syncShell({ ...syncedShell, ...nextShell });
     }
 
     async function closePtyTabFromShell(shell: ControlShellState): Promise<ControlShellState> {
       const syncedShell = syncShell(shell);
-      if (!syncedShell.selectedTaskId) {
-        throw new Error("Select a task before closing a tab.");
-      }
-
-      const { closedTab, nextSelectedTab } = await queueTaskMutation(async () => {
-        const task = await readTask(paths, syncedShell.selectedTaskId!);
-        const closedIndex = task.ptyTabs.findIndex((tab) => tab.id === syncedShell.activeTab);
-        if (closedIndex === -1) {
-          throw new Error("Only PTY tabs can be closed.");
-        }
-
-        const closedTab = task.ptyTabs[closedIndex]!;
-        const remainingTabs = task.ptyTabs.filter((tab) => tab.id !== closedTab.id);
-        const nextSelectedTab =
-          remainingTabs[Math.min(closedIndex, remainingTabs.length - 1)] ?? remainingTabs[closedIndex - 1] ?? null;
-        await writeTask(paths, {
-          ...task,
-          ptyTabs: remainingTabs,
-          selectedPtyTabId: nextSelectedTab?.id ?? null,
-        });
-        return { closedTab, nextSelectedTab };
-      });
+      const { closedTab, nextShell } = await closePtyTab(syncedShell, buildActionContext());
       ptyRuntime.disposeSession(closedTab.id);
       await reloadModel();
-
-      return syncShell({
-        ...syncedShell,
-        activeTab: nextSelectedTab?.id ?? (syncedShell.openInspectionKind ? "inspection" : syncedShell.activeTab),
-        selectedPtyTabId: nextSelectedTab?.id ?? null,
-        focusedRegion: "center",
-        actionMessage: `Closed tab: ${closedTab.title}`,
-      });
+      return syncShell({ ...syncedShell, ...nextShell });
     }
 
     async function refreshPullRequestChecksFromShell(shell: ControlShellState): Promise<ControlShellState> {
       const syncedShell = syncShell(shell);
-      if (!syncedShell.selectedTaskId) {
-        throw new Error("Select a task before refreshing PR checks.");
-      }
-
       const selectedTask = getSelectedTask(syncedShell);
       let actionMessage: string | null = null;
       let footerToast: string | null = null;
 
       if (selectedTask?.type === "project" && selectedTask.repoTargets?.length) {
-        const counts = await taskService.prs.discoverOrRefreshAll(paths, syncedShell.selectedTaskId);
+        const counts = await taskService.prs.discoverOrRefreshAll(paths, syncedShell.selectedTaskId!);
         await reloadModel();
         const total = counts.synced + counts.discovered + counts.notFound;
         footerToast = `Refreshed ${counts.synced}/${total} targets`;
       } else {
-        const { disposition, task } = await taskService.prs.discoverOrRefresh(paths, syncedShell.selectedTaskId);
+        const { disposition, task } = await taskService.prs.discoverOrRefresh(paths, syncedShell.selectedTaskId!);
         await reloadModel();
-        actionMessage = disposition === "not_found"
-          ? `No PR found for ${task.branch}`
-          : null;
+        actionMessage = disposition === "not_found" ? `No PR found for ${task.branch}` : null;
         if (disposition !== "not_found") {
           footerToast = `Refreshed checks: ${getTaskPrimaryPr(task)?.requiredChecks.length ?? 0} reported`;
         }
@@ -617,32 +526,19 @@ export async function startTerminalApp(options: TerminalAppOptions = {}): Promis
         return;
       }
 
-      const tasksToPoll = model.tasks;
       prPollInFlight = true;
-
       try {
-        await taskService.prs.discoverOrRefreshMany(paths, tasksToPoll);
+        await pollPullRequestsAction(model.tasks, buildActionContext());
         lastBackgroundPrPollError = null;
-
-        if (state.mode !== "main") {
-          return;
-        }
-
+        if (state.mode !== "main") return;
         model = await loadWorkspaceShellModel(workspaceRoot, state.shell, enabledRunnerIds);
-        state = {
-          mode: "main",
-          shell: syncShell(state.shell),
-        };
+        state = { mode: "main", shell: syncShell(state.shell) };
         render();
       } catch (error) {
         const message = error instanceof Error ? error.message : "Background PR discovery failed.";
         if (message !== lastBackgroundPrPollError) {
           lastBackgroundPrPollError = message;
-          void errorService.appendErrorLogBestEffort(paths, {
-            context: "background PR polling",
-            message,
-            details: error instanceof Error ? error.stack ?? error.message : String(error),
-          });
+          void logBackgroundError("background PR polling", error, buildActionContext());
         }
       } finally {
         prPollInFlight = false;
@@ -651,101 +547,23 @@ export async function startTerminalApp(options: TerminalAppOptions = {}): Promis
 
     async function closeTaskFromShell(shell: ControlShellState): Promise<ControlShellState> {
       const syncedShell = syncShell(shell);
-      if (!syncedShell.selectedTaskId) {
-        throw new Error("Select a task before closing it.");
-      }
-
-      const { taskBeforeClose, task } = await queueTaskMutation(async () => {
-        const taskBeforeClose = await readTask(paths, syncedShell.selectedTaskId!);
-        const task = await taskService.closeTask(paths, syncedShell.selectedTaskId!);
-        return { taskBeforeClose, task };
-      });
-      for (const tab of taskBeforeClose.ptyTabs) {
-        ptyRuntime.disposeSession(tab.id);
+      const { closedTabIds, nextShell } = await closeTaskAction(syncedShell, buildActionContext());
+      for (const tabId of closedTabIds) {
+        ptyRuntime.disposeSession(tabId);
       }
       await reloadModel();
-
-      return syncShell({
-        ...syncedShell,
-        selectedActionId: "close-task",
-        actionMessage: task.cleanup.preservedWorktree
-          ? `Archived task ${task.id}; worktree preserved`
-          : `Archived task ${task.id}`,
-      });
+      return syncShell({ ...syncedShell, ...nextShell });
     }
 
     async function removeWorkspaceFromShell(shell: ControlShellState): Promise<ControlShellState> {
       const syncedShell = syncShell(shell);
-      if (!syncedShell.selectedWorkspaceId) {
-        throw new Error("Select a workspace before removing it.");
-      }
-
-      const taskResult = await taskService.listTasks(paths, { workspaceId: syncedShell.selectedWorkspaceId, includeClosed: true });
-      if (taskResult.tasks.length > 0) {
-        throw new Error(`Cannot remove workspace ${syncedShell.selectedWorkspaceId} while task records still reference it.`);
-      }
-
-      await workspaceService.archiveWorkspace(paths, syncedShell.selectedWorkspaceId);
-      const removed = await workspaceService.removeWorkspace(paths, syncedShell.selectedWorkspaceId, { listTasks: taskService.listTasks });
+      const { nextShell } = await removeWorkspaceAction(syncedShell, buildActionContext());
       await reloadModel();
-
-      return syncShell({
-        ...syncedShell,
-        selectedWorkspaceId: null,
-        selectedRepoId: null,
-        selectedTaskId: null,
-        selectedPtyTabId: null,
-        selectedLeftItemId: null,
-        actionMessage: `Removed workspace ${removed.workspaceId}`,
-      });
+      return syncShell({ ...syncedShell, ...nextShell });
     }
 
     async function ensureDefaultAgentTab(task: TaskRecord): Promise<TaskRecord> {
-      const agentTab = task.ptyTabs.find((tab) => tab.kind === "agent") ?? null;
-      if (agentTab) {
-        const updatedTask = {
-          ...task,
-          selectedPtyTabId: agentTab.id,
-        };
-        await queueTaskMutation(async () => {
-          const latestTask = await readTask(paths, task.id);
-          const latestAgentTab = latestTask.ptyTabs.find((tab) => tab.kind === "agent") ?? null;
-          if (!latestAgentTab) {
-            return;
-          }
-
-          await writeTask(paths, {
-            ...latestTask,
-            selectedPtyTabId: latestAgentTab.id,
-          });
-        });
-        return updatedTask;
-      }
-
-      const tab = createNextPtyTab(task, "agent", undefined, config);
-      const updatedTask = {
-        ...task,
-        ptyTabs: [...task.ptyTabs, tab],
-        selectedPtyTabId: tab.id,
-      };
-      await queueTaskMutation(async () => {
-        const latestTask = await readTask(paths, task.id);
-        const latestAgentTab = latestTask.ptyTabs.find((entry) => entry.kind === "agent") ?? null;
-        if (latestAgentTab) {
-          await writeTask(paths, {
-            ...latestTask,
-            selectedPtyTabId: latestAgentTab.id,
-          });
-          return;
-        }
-
-        await writeTask(paths, {
-          ...latestTask,
-          ptyTabs: [...latestTask.ptyTabs, tab],
-          selectedPtyTabId: tab.id,
-        });
-      });
-      return updatedTask;
+      return ensureAgentTab(task, buildActionContext());
     }
 
     render = () => {
@@ -872,18 +690,14 @@ export async function startTerminalApp(options: TerminalAppOptions = {}): Promis
 
       let createdTask: TaskRecord | null = null;
       try {
-        createdTask = await createInteractiveTask(paths, shell.selectedRepoId, shell.selectedWorkspaceId, prompt, shell.selectedRunner);
+        const created = await createInteractiveTask(shell.selectedRepoId, shell.selectedWorkspaceId, prompt, shell.selectedRunner, buildActionContext());
+        createdTask = created.task;
         await reloadModel();
         const nextShell = syncShell({
           ...state.shell,
-          selectedRepoId: createdTask.repoId,
-          selectedWorkspaceId: createdTask.workspaceId,
-          selectedTaskId: createdTask.id,
-          selectedPtyTabId: createdTask.selectedPtyTabId,
+          ...created.nextShell,
           selectedLeftItemId: `task:${createdTask.id}`,
-          activeTab: createdTask.selectedPtyTabId ?? "agent",
           inputMode: "terminal",
-          focusedRegion: "center",
           taskPromptInput: null,
           taskPromptError: null,
           actionMessage: null,
@@ -901,7 +715,7 @@ export async function startTerminalApp(options: TerminalAppOptions = {}): Promis
           createdTask = error.task;
         }
         const message = reportRecoverableError("create task", error, "Failed to create task.");
-        if (createdTask) {
+        if (createdTask && !(error instanceof InteractiveTaskStartupError)) {
           await writeTask(paths, {
             ...createdTask,
             status: "draft",
@@ -912,6 +726,9 @@ export async function startTerminalApp(options: TerminalAppOptions = {}): Promis
             },
             lastFailureReason: message,
           }).catch(() => undefined);
+          await reloadModel().catch(() => undefined);
+        } else if (createdTask) {
+          await writeTask(paths, { ...createdTask, lastFailureReason: message }).catch(() => undefined);
           await reloadModel().catch(() => undefined);
         }
         state = {
@@ -1578,12 +1395,28 @@ export async function startTerminalApp(options: TerminalAppOptions = {}): Promis
         return;
       }
 
-      void updateRunnerOptions(result.config)
-        .then(() => {
+      const savePromise = result.kind === "save-enabled"
+        ? saveRunnerEnabled(result.runner, result.enabled, buildActionContext())
+        : saveRunnerPath(result.runner, result.path, buildActionContext());
+
+      void savePromise
+        .then((nextConfig) => {
           if (state.mode !== "overlay" || state.variant !== "runners") {
             return;
           }
-          state = { ...state, runnerOptions: result.state };
+          config = nextConfig;
+          enabledRunnerIds = configService.runners.getEnabled(config);
+          model = { ...model, enabledRunnerIds };
+          state = {
+            ...state,
+            shell: syncShell({
+              ...state.shell,
+              selectedRunner: enabledRunnerIds.includes(state.shell.selectedRunner)
+                ? state.shell.selectedRunner
+                : configService.runners.getDefault(config),
+            }),
+            runnerOptions: result.state,
+          };
           render();
         })
         .catch((error: unknown) => {
@@ -1591,14 +1424,10 @@ export async function startTerminalApp(options: TerminalAppOptions = {}): Promis
             return;
           }
           const message = reportRecoverableError("save runner option", error, "Failed to save runner option.");
-          const shell = applyErrorToast(syncShell(state.shell), message);
           state = {
             ...state,
-            shell,
-            runnerOptions: {
-              ...getRunnerOptionsState(state),
-              message,
-            },
+            shell: applyErrorToast(syncShell(state.shell), message),
+            runnerOptions: { ...getRunnerOptionsState(state), message },
           };
           render();
         });
@@ -1909,98 +1738,6 @@ function getRunnerOptionsState(state: Extract<AppState, { mode: "overlay" }>): R
   };
 }
 
-
-function resolveNewPtyTabKind(task: TaskRecord, activeTab: string, preferredKind: TaskPtyTabRecord["kind"]): TaskPtyTabRecord["kind"] {
-  return task.ptyTabs.find((tab) => tab.id === activeTab)?.kind ?? preferredKind;
-}
-
-function createNextPtyTab(
-  task: TaskRecord,
-  kind: TaskPtyTabRecord["kind"],
-  runner?: RunnerType,
-  config: CraigConfig = {},
-): TaskPtyTabRecord {
-  const effectiveRunner = runner ?? task.runner;
-  const runnerProfile = configService.runners.getProfile(effectiveRunner);
-  const baseTitle = kind === "agent" ? runnerProfile.defaultAgentTitle : "Terminal";
-  const baseId = kind === "agent" && runner && runner !== task.runner
-    ? `${task.id}:${runner}`
-    : `${task.id}:${kind}`;
-  const existingIds = new Set(task.ptyTabs.map((tab) => tab.id));
-  let ordinal = 1;
-  let id = baseId;
-
-  while (existingIds.has(id)) {
-    ordinal += 1;
-    id = `${baseId}-${ordinal}`;
-  }
-
-  const timestamp = new Date().toISOString();
-  const tabRunner = runner && runner !== task.runner ? runner : undefined;
-  return {
-    id,
-    kind,
-    ...(tabRunner ? { runner: tabRunner } : {}),
-    title: ordinal === 1 ? baseTitle : `${baseTitle} ${ordinal}`,
-    command: kind === "agent" ? configService.runners.buildCommand(effectiveRunner, undefined, config) : [],
-    createdAt: timestamp,
-    updatedAt: timestamp,
-  };
-}
-
-async function createInteractiveTask(
-  paths: ReturnType<typeof getCraigPaths>,
-  repoId: string | null,
-  workspaceId: string | null,
-  prompt: string,
-  runner: RunnerType,
-): Promise<TaskRecord> {
-  const config = await configService.load(paths);
-  configService.runners.assertEnabled(runner, config);
-  const provisioned = workspaceId
-    ? await taskService.provisionProjectTask(paths, workspaceId, prompt, { runner, config })
-    : await taskService.provisionTask(paths, repoId ?? "", prompt, { runner, config });
-  try {
-    const env = withDefaultCommandPath();
-    await runCommand(requireExecutablePath(configService.runners.getConfiguredProfile(runner, config).executable, { cwd: provisioned.repoRoot, env }), ["--help"], {
-      cwd: provisioned.repoRoot,
-      env,
-    });
-  } catch (error) {
-    const message = error instanceof Error ? error.message : "Failed to start runner.";
-    const failedTask = await taskService.recordStartupFailure(paths, provisioned.task.id, message);
-    throw new InteractiveTaskStartupError(message, failedTask);
-  }
-  const runningTask = await taskService.markTaskStarted(paths, provisioned.task.id);
-  await writeUiState(
-    { uiStateFile: paths.uiStateFile },
-    {
-      ...((await readUiState({ uiStateFile: paths.uiStateFile })) ?? getDefaultUiState()),
-      version: 1,
-      selectedRepoId: runningTask.repoId,
-      selectedWorkspaceId: runningTask.workspaceId,
-      selectedTaskId: runningTask.id,
-      selectedPtyTabId: runningTask.selectedPtyTabId,
-      inputMode: "control",
-      focusedRegion: "center",
-      activeTab: runningTask.selectedPtyTabId ?? "agent",
-      selectedActionId: "commit",
-      updatedAt: new Date().toISOString(),
-    },
-  );
-
-  return runningTask;
-}
-
-class InteractiveTaskStartupError extends Error {
-  readonly task: TaskRecord;
-
-  constructor(message: string, task: TaskRecord) {
-    super(message);
-    this.name = "InteractiveTaskStartupError";
-    this.task = task;
-  }
-}
 
 function getRequiredPtyTabId(task: TaskRecord, kind: TaskPtyTabRecord["kind"]): string {
   const tab = task.ptyTabs.find((entry) => entry.kind === kind);

@@ -1,5 +1,4 @@
 import type { CraigPaths } from "../../../state/craig-paths.js";
-import { readUiState, writeUiState } from "../../../state/ui-state-store.js";
 import type { CommandListResult, CommandRemoveRepoResult } from "../../../types/command.js";
 import { readCraigIndex, writeCraigIndex } from "../adapters/index-store.js";
 import { deleteRepo, readRepo } from "../adapters/repo-store.js";
@@ -35,15 +34,6 @@ export const removeRepo = async (
     ...index,
     repoIds: index.repoIds.filter((id) => id !== repoId),
   });
-
-  const ui = await readUiState({ uiStateFile: paths.uiStateFile });
-
-  if (ui?.selectedRepoId === repoId) {
-    await writeUiState(
-      { uiStateFile: paths.uiStateFile },
-      { ...ui, selectedRepoId: null, selectedWorkspaceId: null, selectedTaskId: null },
-    );
-  }
 
   return { kind: "removeRepo", repoId: repo.id, rootPath: repo.rootPath };
 };

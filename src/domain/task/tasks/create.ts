@@ -7,7 +7,6 @@ import { configService } from "../../config/index.js";
 import type { RunnerType } from "../../config/index.js";
 import { writeSession } from "../adapters/session.js";
 import { writeTask } from "../adapters/task-store.js";
-import { readUiState, writeUiState, getDefaultUiState } from "../../../state/ui-state-store.js";
 import { commandRunnerAdapter, tmuxSessionManager } from "../adapters/runner.js";
 import { provisionProjectTask, provisionTask } from "./provision.js";
 
@@ -80,16 +79,6 @@ export const createTask = async (
 
     await writeTask(paths, runningTask);
     await writeSession(paths, session);
-    await writeUiState(
-      { uiStateFile: paths.uiStateFile },
-      {
-        ...((await readUiState({ uiStateFile: paths.uiStateFile })) ?? getDefaultUiState()),
-        selectedRepoId: runningTask.repoId,
-        selectedWorkspaceId: runningTask.workspaceId,
-        selectedTaskId: runningTask.id,
-        selectedPtyTabId: runningTask.selectedPtyTabId,
-      },
-    );
 
     return {
       kind: "createTask",

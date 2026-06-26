@@ -2,8 +2,8 @@ import { spawn } from "node:child_process";
 import { createHash } from "node:crypto";
 import path from "node:path";
 
-import { runCommand, runCommandAllowingFailure } from "../../../utils/exec.js";
-import { shellEscape } from "../../../utils/shell-escape.js";
+import { runCommand, runCommandAllowingFailure } from "../../../shared/exec.js";
+import { shellEscape } from "../../../shared/shell-escape.js";
 
 const SESSION_PREFIX = "craig";
 

@@ -8,7 +8,7 @@ import { taskService } from "../src/domain/task/index.js";
 const { commitTask, closeTask, runChecks, showTask, listTasks } = taskService;
 const { discoverOrRefresh: discoverOrRefreshPullRequest, discoverOrRefreshAll: discoverOrRefreshAllProjectPullRequests, discoverOrRefreshMany: discoverOrRefreshPullRequests, refreshChecks: refreshPullRequestChecks } = taskService.prs;
 import { readTask } from "../src/domain/task/adapters/task-store.js";
-import { runCommand } from "../src/utils/exec.js";
+import { runCommand } from "../src/shared/exec.js";
 import {
   createCraigState,
   createGitRepo,

@@ -4,13 +4,13 @@ import path from "node:path";
 import type { CommandChecksResult } from "../../../types/command.js";
 import type { TaskCheckResult } from "../../../types/task.js";
 import type { CraigPaths } from "../../../state/craig-paths.js";
-import { atomicWriteJson } from "../../../state/atomic-write.js";
+import { atomicWriteJson } from "../../../shared/atomic-write.js";
 import { configService } from "../../config/index.js";
 import { writeTask } from "../adapters/task-store.js";
 import { hasUncommittedDiff } from "../adapters/git.js";
 import { getTask, assertTaskWorktreeExists } from "./inspect.js";
 import { resolveArtifactPath } from "./artifacts.js";
-import { runCommandAllowingFailure } from "../../../utils/exec.js";
+import { runCommandAllowingFailure } from "../../../shared/exec.js";
 
 export const runChecks = async (paths: CraigPaths, taskId: string): Promise<CommandChecksResult> => {
   const task = await getTask(paths, taskId);

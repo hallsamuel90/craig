@@ -1,6 +1,6 @@
 import type { CommandDiffResult } from "../../../types/command.js";
 import type { CraigPaths } from "../../../state/craig-paths.js";
-import { runCommand, runCommandAllowingFailure } from "../../../utils/exec.js";
+import { runCommand, runCommandAllowingFailure } from "../../../shared/exec.js";
 import { assertTaskWorktreeExists, getTask } from "./inspect.js";
 
 export const showTaskDiff = async (paths: CraigPaths, taskId: string): Promise<CommandDiffResult> => {

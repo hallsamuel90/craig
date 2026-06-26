@@ -1,7 +1,7 @@
 import { readFile } from "node:fs/promises";
 
 import type { CraigUiRuntime } from "../types/workspace.js";
-import { atomicWriteJson } from "./atomic-write.js";
+import { atomicWriteJson } from "../shared/atomic-write.js";
 
 export async function readUiState(input: { uiStateFile: string }): Promise<CraigUiRuntime | null> {
   try {

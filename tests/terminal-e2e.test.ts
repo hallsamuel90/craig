@@ -6,10 +6,10 @@ import { describe, expect, test } from "vitest";
 import { spawn } from "node-pty";
 
 import { createCraigState, createGitRepo, writeRepoRecord, writeTaskRecord } from "./test-helpers.js";
-import { runCommand } from "../src/utils/exec.js";
+import { runCommand } from "../src/shared/exec.js";
 import { getCraigPaths } from "../src/state/craig-paths.js";
 import { requestDaemonShutdown } from "../src/ui/pty-daemon.js";
-import { resolveExecutablePath } from "../src/utils/command-path.js";
+import { resolveExecutablePath } from "../src/shared/command-path.js";
 
 describe("Craig terminal mode E2E", () => {
   test("enters terminal mode and supports detach and reattach", async () => {

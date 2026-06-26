@@ -2,7 +2,7 @@ import { readFile, readdir, rm } from "node:fs/promises";
 import path from "node:path";
 
 import type { CraigPaths } from "../../../state/craig-paths.js";
-import { atomicWriteJson } from "../../../state/atomic-write.js";
+import { atomicWriteJson } from "../../../shared/atomic-write.js";
 import type { WorkspaceRecord } from "../types.js";
 
 const getWorkspaceFilePath = (paths: CraigPaths, workspaceId: string): string =>

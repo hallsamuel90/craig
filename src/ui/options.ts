@@ -16,7 +16,8 @@ export type RunnerOptionsKeyResult =
   | { kind: "back"; state: RunnerOptionsState }
   | { kind: "noop"; state: RunnerOptionsState }
   | { kind: "render"; state: RunnerOptionsState }
-  | { kind: "save"; config: CraigConfig; state: RunnerOptionsState };
+  | { kind: "save-enabled"; runner: RunnerType; enabled: boolean; state: RunnerOptionsState }
+  | { kind: "save-path"; runner: RunnerType; path: string | null; state: RunnerOptionsState };
 
 export type OptionsMenuKeyResult =
   | { kind: "back" }
@@ -95,25 +96,11 @@ export function reduceRunnerOptionsKey(
 
   const menuItemCount = buildRunnersSubmenuItems(config, state).length;
   if (key === "UP" || key === "k") {
-    return {
-      kind: "render",
-      state: {
-        ...state,
-        menuIndex: Math.max(0, state.menuIndex - 1),
-        message: null,
-      },
-    };
+    return { kind: "render", state: { ...state, menuIndex: Math.max(0, state.menuIndex - 1), message: null } };
   }
 
   if (key === "DOWN" || key === "j") {
-    return {
-      kind: "render",
-      state: {
-        ...state,
-        menuIndex: Math.min(menuItemCount - 1, state.menuIndex + 1),
-        message: null,
-      },
-    };
+    return { kind: "render", state: { ...state, menuIndex: Math.min(menuItemCount - 1, state.menuIndex + 1), message: null } };
   }
 
   if (key === "ESCAPE") {
@@ -124,14 +111,7 @@ export function reduceRunnerOptionsKey(
     const runner = RUNNER_IDS[state.menuIndex] ?? "codex";
     return {
       kind: "render",
-      state: {
-        ...state,
-        message: null,
-        pathEdit: {
-          runner,
-          value: config.runners?.[runner]?.path ?? "",
-        },
-      },
+      state: { ...state, message: null, pathEdit: { runner, value: config.runners?.[runner]?.path ?? "" } },
     };
   }
 
@@ -142,18 +122,13 @@ export function reduceRunnerOptionsKey(
   const runner = RUNNER_IDS[state.menuIndex] ?? "codex";
   const enabled = config.runners?.[runner]?.enabled !== false;
   if (enabled && enabledRunnerIds.length <= 1) {
-    return {
-      kind: "render",
-      state: {
-        ...state,
-        message: "At least one runner must stay enabled.",
-      },
-    };
+    return { kind: "render", state: { ...state, message: "At least one runner must stay enabled." } };
   }
 
   return {
-    kind: "save",
-    config: updateRunnerEnabled(config, runner, !enabled),
+    kind: "save-enabled",
+    runner,
+    enabled: !enabled,
     state: {
       ...state,
       message: `${configService.runners.getProfile(runner).displayName} ${enabled ? "disabled" : "enabled"}.`,
@@ -163,29 +138,17 @@ export function reduceRunnerOptionsKey(
 
 function reducePathEditKey(
   state: RunnerOptionsState & { pathEdit: RunnerOptionsPathEdit },
-  config: CraigConfig,
+  _config: CraigConfig,
   key: string,
 ): RunnerOptionsKeyResult {
   if (key === "ESCAPE") {
-    return {
-      kind: "render",
-      state: clearPathEdit({
-        ...state,
-        message: null,
-      }),
-    };
+    return { kind: "render", state: clearPathEdit({ ...state, message: null }) };
   }
 
   if (key === "BACKSPACE") {
     return {
       kind: "render",
-      state: {
-        ...state,
-        pathEdit: {
-          ...state.pathEdit,
-          value: state.pathEdit.value.slice(0, -1),
-        },
-      },
+      state: { ...state, pathEdit: { ...state.pathEdit, value: state.pathEdit.value.slice(0, -1) } },
     };
   }
 
@@ -193,8 +156,9 @@ function reducePathEditKey(
     const runner = state.pathEdit.runner;
     const value = state.pathEdit.value.trim();
     return {
-      kind: "save",
-      config: updateRunnerPath(config, runner, value.length > 0 ? value : null),
+      kind: "save-path",
+      runner,
+      path: value.length > 0 ? value : null,
       state: clearPathEdit({
         ...state,
         message: value.length > 0
@@ -207,49 +171,11 @@ function reducePathEditKey(
   if (isPrintableKey(key)) {
     return {
       kind: "render",
-      state: {
-        ...state,
-        pathEdit: {
-          ...state.pathEdit,
-          value: `${state.pathEdit.value}${key}`,
-        },
-      },
+      state: { ...state, pathEdit: { ...state.pathEdit, value: `${state.pathEdit.value}${key}` } },
     };
   }
 
   return { kind: "noop", state };
-}
-
-function updateRunnerEnabled(config: CraigConfig, runner: RunnerType, enabled: boolean): CraigConfig {
-  return {
-    ...config,
-    runners: {
-      ...(config.runners ?? {}),
-      [runner]: {
-        ...(config.runners?.[runner] ?? {}),
-        enabled,
-      },
-    },
-  };
-}
-
-function updateRunnerPath(config: CraigConfig, runner: RunnerType, executablePath: string | null): CraigConfig {
-  const runnerConfig = {
-    ...(config.runners?.[runner] ?? {}),
-    ...(executablePath ? { path: executablePath } : {}),
-  };
-
-  if (!executablePath) {
-    delete runnerConfig.path;
-  }
-
-  return {
-    ...config,
-    runners: {
-      ...(config.runners ?? {}),
-      [runner]: runnerConfig,
-    },
-  };
 }
 
 function clearPathEdit(state: RunnerOptionsState): RunnerOptionsState {
@@ -263,6 +189,5 @@ function isEnterKey(key: string): boolean {
 }
 
 function isPrintableKey(key: string): boolean {
-  return key.length === 1 && key >= " " && key !== "";
+  return key.length === 1 && key >= " " && key !== "";
 }
-

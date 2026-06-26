@@ -1,7 +1,7 @@
 import { realpath } from "node:fs/promises";
 import path from "node:path";
 
-import { runCommand, runCommandAllowingFailure } from "../../../utils/exec.js";
+import { runCommand, runCommandAllowingFailure } from "../../../shared/exec.js";
 
 export const isGitRepo = async (rootPath: string): Promise<boolean> => {
   try {

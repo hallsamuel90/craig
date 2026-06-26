@@ -1,8 +1,9 @@
 import type { CommandResult, AppCommand } from "../types/command.js";
 import type { CraigPaths } from "../state/craig-paths.js";
+import { getDefaultUiState, readUiState, writeUiState } from "../state/ui-state-store.js";
 import { getHelpText } from "./parse-argv.js";
 import { taskService } from "../domain/task/index.js";
-import { workspaceService } from "../domain/workspace/index.js";
+import { listWorkspaceRecords, workspaceService } from "../domain/workspace/index.js";
 
 export interface CommandContext {
   paths: CraigPaths;
@@ -14,20 +15,52 @@ export async function executeCommand(
   context: CommandContext,
 ): Promise<CommandResult> {
   switch (command.kind) {
-    case "addWorkspace":
-      return workspaceService.addWorkspace(context.paths, command.path);
-    case "addRepo":
-      return workspaceService.repos.addRepo(context.paths, command.path);
+    case "addWorkspace": {
+      const result = await workspaceService.addWorkspace(context.paths, command.path);
+      const selectedRepoId = result.workspace.kind === "project"
+        ? (result.workspace.discoveredRepoIds?.[0] ?? null)
+        : result.repos[0]?.id ?? null;
+      await selectWorkspaceInUi(context.paths, result.workspace.id, selectedRepoId);
+      return result;
+    }
+    case "addRepo": {
+      const result = await workspaceService.repos.addRepo(context.paths, command.path);
+      await selectWorkspaceInUi(context.paths, result.workspaceId, result.repo.id);
+      return result;
+    }
     case "listRepos":
       return workspaceService.repos.listRegisteredRepos(context.paths);
-    case "removeRepo":
-      return workspaceService.repos.removeRepo(context.paths, command.repoId, { listTasks: taskService.listTasks });
+    case "removeRepo": {
+      const ui = await readUiState({ uiStateFile: context.paths.uiStateFile });
+      const affectedWorkspaceIds = ui?.selectedWorkspaceId
+        ? (await listWorkspaceRecords(context.paths))
+            .filter((w) => w.primaryRepoId === command.repoId)
+            .map((w) => w.id)
+        : [];
+      const result = await workspaceService.repos.removeRepo(context.paths, command.repoId, { listTasks: taskService.listTasks });
+      if (ui) {
+        const workspaceCleared = affectedWorkspaceIds.includes(ui.selectedWorkspaceId ?? "");
+        const repoCleared = ui.selectedRepoId === command.repoId;
+        if (workspaceCleared) {
+          await writeUiState({ uiStateFile: context.paths.uiStateFile }, { ...ui, selectedRepoId: null, selectedWorkspaceId: null, selectedTaskId: null });
+        } else if (repoCleared) {
+          await writeUiState({ uiStateFile: context.paths.uiStateFile }, { ...ui, selectedRepoId: null });
+        }
+      }
+      return result;
+    }
     case "listWorkspaces":
       return workspaceService.listWorkspaces(context.paths, { archived: command.archived });
-    case "archiveWorkspace":
-      return workspaceService.archiveWorkspace(context.paths, command.workspaceId);
-    case "restoreWorkspace":
-      return workspaceService.restoreWorkspace(context.paths, command.workspaceId);
+    case "archiveWorkspace": {
+      const result = await workspaceService.archiveWorkspace(context.paths, command.workspaceId);
+      await clearWorkspaceInUi(context.paths, command.workspaceId);
+      return result;
+    }
+    case "restoreWorkspace": {
+      const result = await workspaceService.restoreWorkspace(context.paths, command.workspaceId);
+      await selectWorkspaceInUi(context.paths, command.workspaceId, result.primaryRepoId);
+      return result;
+    }
     case "removeWorkspace":
       return workspaceService.removeWorkspace(context.paths, command.workspaceId, { listTasks: taskService.listTasks });
     case "createTask":
@@ -83,6 +116,18 @@ export async function executeCommand(
       return { kind: "exit" };
     default:
       return assertNever(command);
+  }
+}
+
+async function selectWorkspaceInUi(paths: CraigPaths, workspaceId: string, selectedRepoId: string | null): Promise<void> {
+  const ui = (await readUiState({ uiStateFile: paths.uiStateFile })) ?? getDefaultUiState();
+  await writeUiState({ uiStateFile: paths.uiStateFile }, { ...ui, selectedWorkspaceId: workspaceId, selectedRepoId, selectedTaskId: null });
+}
+
+async function clearWorkspaceInUi(paths: CraigPaths, workspaceId: string): Promise<void> {
+  const ui = await readUiState({ uiStateFile: paths.uiStateFile });
+  if (ui?.selectedWorkspaceId === workspaceId) {
+    await writeUiState({ uiStateFile: paths.uiStateFile }, { ...ui, selectedWorkspaceId: null, selectedRepoId: null, selectedTaskId: null });
   }
 }
 

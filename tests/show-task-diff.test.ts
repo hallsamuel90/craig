@@ -4,7 +4,7 @@ import { afterEach, describe, expect, test } from "vitest";
 
 import { taskService } from "../src/domain/task/index.js";
 import { createCraigState, createGitRepo, createRepoRoot, writeTaskRecord } from "./test-helpers.js";
-import { runCommand } from "../src/utils/exec.js";
+import { runCommand } from "../src/shared/exec.js";
 
 const tempRoots: string[] = [];
 

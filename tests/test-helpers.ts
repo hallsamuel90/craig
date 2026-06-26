@@ -9,7 +9,7 @@ import type { RepoRecord, WorkspaceRecord } from "../src/domain/workspace/index.
 import { taskService } from "../src/domain/task/index.js";
 const { createDefaultTaskPtyTabs } = taskService;
 import { configService } from "../src/domain/config/index.js";
-import { runCommand } from "../src/utils/exec.js";
+import { runCommand } from "../src/shared/exec.js";
 
 export async function createRepoRoot(prefix: string): Promise<string> {
   return mkdtemp(path.join(os.tmpdir(), prefix));

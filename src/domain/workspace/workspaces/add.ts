@@ -2,7 +2,6 @@ import { readdir, stat } from "node:fs/promises";
 import path from "node:path";
 
 import type { CraigPaths } from "../../../state/craig-paths.js";
-import { getDefaultUiState, readUiState, writeUiState } from "../../../state/ui-state-store.js";
 import type { CommandCreateWorkspaceResult } from "../../../types/command.js";
 import { readCraigIndex, writeCraigIndex } from "../adapters/index-store.js";
 import { listRepos, writeRepo } from "../adapters/repo-store.js";
@@ -59,14 +58,6 @@ const appendIndexIds = async (paths: CraigPaths, input: { repoIds: string[]; wor
   });
 };
 
-const selectWorkspace = async (paths: CraigPaths, workspace: WorkspaceRecord, selectedRepoId: string | null): Promise<void> => {
-  const ui = (await readUiState({ uiStateFile: paths.uiStateFile })) ?? getDefaultUiState();
-  await writeUiState(
-    { uiStateFile: paths.uiStateFile },
-    { ...ui, selectedRepoId, selectedWorkspaceId: workspace.id, selectedTaskId: null },
-  );
-};
-
 const discoverDirectChildRepos = async (paths: CraigPaths, rootPath: string): Promise<RepoRecord[]> => {
   const entries = await readdir(rootPath, { withFileTypes: true });
   const existingRepos = await listRepos(paths);
@@ -112,7 +103,6 @@ const addRepoWorkspace = async (paths: CraigPaths, rootPath: string): Promise<Co
   await writeRepo(paths, repo);
   if (!existingWorkspace) await writeWorkspace(paths, workspace);
   await appendIndexIds(paths, { repoIds: [repo.id], workspaceIds: [workspace.id] });
-  await selectWorkspace(paths, workspace, repo.id);
 
   return { kind: "createWorkspace", workspace, repos: [repo], created: !existingWorkspace };
 };
@@ -148,7 +138,6 @@ const addProjectWorkspace = async (paths: CraigPaths, rootPath: string): Promise
   await Promise.all(discovered.map((repo) => writeRepo(paths, repo)));
   await writeWorkspace(paths, workspace);
   await appendIndexIds(paths, { repoIds, workspaceIds: [workspace.id] });
-  await selectWorkspace(paths, workspace, repoIds[0] ?? null);
 
   return { kind: "createWorkspace", workspace, repos: discovered, created: !existing };
 };
