@@ -1,19 +1,23 @@
 import { createRequire } from "node:module";
-import { readdir, stat } from "node:fs/promises";
 import path from "node:path";
 import type * as TerminalKitModule from "terminal-kit";
 
-import { listWorkspaceRecords, workspaceService } from "../domain/workspace/index.js";
+import { workspaceService } from "../domain/workspace/index.js";
 import { readUiState, writeUiState } from "../state/ui-state-store.js";
-import { configService, RUNNER_IDS } from "../domain/config/index.js";
+import { configService } from "../domain/config/index.js";
 import { writeTask } from "../domain/task/index.js";
 import { getCraigPaths } from "../state/craig-paths.js";
 import type { TaskPtyTabRecord, TaskRecord } from "../types/task.js";
 import type { RunnerType } from "../domain/config/index.js";
 import { taskService } from "../domain/task/index.js";
 import { errorService, type CraigErrorLogSnapshot } from "../domain/error/index.js";
-import { loadTaskLocalInspection, reloadSelectedContent, type InspectionTreeRow } from "./task-local-inspection.js";
+import { reloadSelectedContent } from "./task-local-inspection.js";
 import { getTaskPrimaryPr } from "../domain/task/index.js";
+import { loadWorkspaceShellModel, resolveShellState, resolveSelectedTaskForInspection, getVisibleFileTreeRows, getLeftItemIds } from "./model-loader.js";
+import { resolvePtySessionSpec, getRequiredPtyTabId, getPtySize } from "./pty-session.js";
+import { shouldTrackTerminalKey, isAgentTabId, getTerminalScrollLinesForKey, getTerminalScrollLinesForMouseEvent, getTerminalScrollLinesForRawInput, mapRawTerminalInputToKey, shouldSuppressRawTerminalInput, inputToString, positionFrameRows } from "./keyboard.js";
+import { loadWorkspaceBrowser, openUrl } from "./workspace-browser.js";
+import { getSelectedTask } from "./shell-state.js";
 import {
   type ActionContext,
   createPtyTab,
@@ -31,10 +35,10 @@ import {
   InteractiveTaskStartupError,
 } from "./actions/index.js";
 import { buildShellData, getReviewInspectionRowCount, type WorkspaceShellModel } from "./shell-data.js";
-import { getViewport, SHELL_LAYOUT, type Viewport } from "./layout.js";
+import { getViewport, SHELL_LAYOUT } from "./layout.js";
 import type { PtyRuntimeOptions, PtySize } from "./pty-runtime.js";
 import { createDaemonPtyRuntime } from "./pty-daemon.js";
-import { CENTER_TERMINAL_GUTTER, renderBootOverlayFrame, renderErrorLogOverlayFrame, renderHelpOverlayFrame, renderMainShellFrame, renderOptionsOverlayFrame, renderPauseOverlayFrame } from "./render.js";
+import { renderBootOverlayFrame, renderErrorLogOverlayFrame, renderHelpOverlayFrame, renderMainShellFrame, renderOptionsOverlayFrame, renderPauseOverlayFrame } from "./render.js";
 import {
   buildRunnersSubmenuItems,
   getRunnersSubmenuMessage,
@@ -57,8 +61,6 @@ import {
   updateTerminalViewState,
   type ControlShellState,
   type FooterToast,
-  type WorkspaceBrowserEntry,
-  type WorkspaceBrowserState,
 } from "./state.js";
 
 type OverlayVariant = "boot" | "pause" | "help" | "options" | "runners" | "error-log";
@@ -117,6 +119,10 @@ export interface PtyRuntimePort {
   getViewState(...args: [string | null]): ControlShellState["terminal"];
 }
 /* eslint-enable no-unused-vars */
+
+function getRunnerOptionsState(state: Extract<AppState, { mode: "overlay" }>): RunnerOptionsState {
+  return state.runnerOptions ?? { menuIndex: state.menuIndex, message: state.optionsMessage };
+}
 
 export async function startTerminalApp(options: TerminalAppOptions = {}): Promise<number> {
   if (!process.stdin.isTTY || !process.stdout.isTTY) {
@@ -212,7 +218,7 @@ export async function startTerminalApp(options: TerminalAppOptions = {}): Promis
     }
 
     function resolveTerminalViewTabId(shell: ControlShellState): string | null {
-      const selectedTask = getSelectedTask(shell);
+      const selectedTask = getSelectedTask(model.tasks, shell);
       if (!selectedTask) {
         return shell.selectedPtyTabId;
       }
@@ -230,10 +236,6 @@ export async function startTerminalApp(options: TerminalAppOptions = {}): Promis
 
     function syncShell(nextShell: ControlShellState): ControlShellState {
       return withTerminalView(resolveShellState(nextShell, model));
-    }
-
-    function getSelectedTask(shell: ControlShellState): TaskRecord | null {
-      return model.tasks.find((task) => task.id === shell.selectedTaskId) ?? null;
     }
 
     async function hydrateOpenPtyTabs(): Promise<void> {
@@ -257,7 +259,7 @@ export async function startTerminalApp(options: TerminalAppOptions = {}): Promis
 
     async function warmSelectedPtyTab(shell: ControlShellState): Promise<ControlShellState> {
       const syncedShell = syncShell(shell);
-      const selectedTask = getSelectedTask(syncedShell);
+      const selectedTask = getSelectedTask(model.tasks, syncedShell);
       const tabId = resolveTerminalViewTabId(syncedShell);
 
       if (!selectedTask || !tabId || !selectedTask.ptyTabs.some((tab) => tab.id === tabId)) {
@@ -328,7 +330,7 @@ export async function startTerminalApp(options: TerminalAppOptions = {}): Promis
     }
 
     function getShellKeyOptions(shell: ControlShellState) {
-      const selectedTask = getSelectedTask(shell);
+      const selectedTask = getSelectedTask(model.tasks, shell);
       const inspection = model.inspection;
       const selectedInspection = inspection && inspection.taskId === selectedTask?.id ? inspection : null;
       const fileTreeRows = getVisibleFileTreeRows(selectedInspection?.fileRows ?? [], shell.collapsedFileTreePaths);
@@ -414,7 +416,7 @@ export async function startTerminalApp(options: TerminalAppOptions = {}): Promis
     async function attachPtyFromShell(shell: ControlShellState): Promise<void> {
       try {
         const syncedShell = syncShell(shell);
-        let selectedTask = getSelectedTask(syncedShell);
+        let selectedTask = getSelectedTask(model.tasks, syncedShell);
         let tabId = syncedShell.selectedPtyTabId;
 
         if (selectedTask && syncedShell.focusedRegion === "tasks") {
@@ -494,7 +496,7 @@ export async function startTerminalApp(options: TerminalAppOptions = {}): Promis
 
     async function refreshPullRequestChecksFromShell(shell: ControlShellState): Promise<ControlShellState> {
       const syncedShell = syncShell(shell);
-      const selectedTask = getSelectedTask(syncedShell);
+      const selectedTask = getSelectedTask(model.tasks, syncedShell);
       let actionMessage: string | null = null;
       let footerToast: string | null = null;
 
@@ -1105,7 +1107,7 @@ export async function startTerminalApp(options: TerminalAppOptions = {}): Promis
         }
 
         if (result.openPrUrl) {
-          const selectedTask = getSelectedTask(result.state);
+          const selectedTask = getSelectedTask(model.tasks, result.state);
           const prUrl = selectedTask ? getTaskPrimaryPr(selectedTask)?.url ?? null : null;
           if (prUrl) {
             openUrl(prUrl).catch((error: unknown) => {
@@ -1622,315 +1624,3 @@ export async function startTerminalApp(options: TerminalAppOptions = {}): Promis
   });
 }
 
-async function loadWorkspaceShellModel(
-  workspaceRoot: string,
-  shell?: ControlShellState,
-  enabledRunnerIds?: RunnerType[],
-): Promise<WorkspaceShellModel> {
-  const paths = getCraigPaths(workspaceRoot);
-  const [repos, workspaces, taskResult] = await Promise.all([workspaceService.repos.listRegisteredRepos(paths).then((r) => r.repos), listWorkspaceRecords(paths), taskService.listTasks(paths)]);
-  const selectedTask = resolveSelectedTaskForInspection(taskResult.tasks, shell);
-  const selection = shell
-    ? {
-        selectedFilePath: shell.selectedFilePath,
-        selectedDiffPath: shell.selectedDiffPath,
-      }
-    : {};
-  const inspection = selectedTask ? await loadTaskLocalInspection(selectedTask, selection) : null;
-  return {
-    workspaceRoot,
-    workspaces: workspaces.filter((workspace) => workspace.status === "active"),
-    repos,
-    tasks: taskResult.tasks,
-    inspection,
-    ...(enabledRunnerIds ? { enabledRunnerIds } : {}),
-  };
-}
-
-function resolveSelectedTaskForInspection(tasks: TaskRecord[], shell: ControlShellState | undefined): TaskRecord | null {
-  if (!shell?.selectedTaskId) {
-    return null;
-  }
-
-  return tasks.find((task) => task.id === shell.selectedTaskId) ?? null;
-}
-
-function resolveShellState(state: ControlShellState, model: WorkspaceShellModel): ControlShellState {
-  return restoreShellState(state, model);
-}
-
-function getVisibleFileTreeRows(rows: InspectionTreeRow[], collapsedPaths: string[]): InspectionTreeRow[] {
-  const collapsed = new Set(collapsedPaths);
-  return rows.filter((row) => {
-    const parts = row.path.split("/");
-    for (let index = 1; index < parts.length; index += 1) {
-      if (collapsed.has(parts.slice(0, index).join("/"))) {
-        return false;
-      }
-    }
-    return true;
-  });
-}
-
-function getLeftItemIds(model: WorkspaceShellModel): string[] {
-  const itemIds: string[] = [];
-
-  if (model.workspaces?.length) {
-    for (const workspace of model.workspaces) {
-      itemIds.push(`workspace:${workspace.id}`);
-      for (const task of model.tasks.filter((entry) => entry.workspaceId === workspace.id)) {
-        itemIds.push(`task:${task.id}`);
-      }
-      if (workspace.kind === "project") {
-        itemIds.push(`new-task-workspace:${workspace.id}`);
-      }
-      if (workspace.kind === "repo") {
-        itemIds.push(`new-task:${workspace.primaryRepoId}`);
-      }
-    }
-  } else {
-    for (const repo of model.repos) {
-      itemIds.push(`repo:${repo.id}`);
-      for (const task of model.tasks.filter((entry) => entry.repoId === repo.id)) {
-        itemIds.push(`task:${task.id}`);
-      }
-      itemIds.push(`new-task:${repo.id}`);
-    }
-  }
-
-  itemIds.push("new-workspace");
-  return itemIds;
-}
-
-function resolvePtySessionSpec(model: WorkspaceShellModel, tabId: string, workspaceRoot: string) {
-  const task = model.tasks.find((entry) => entry.ptyTabs.some((tab) => tab.id === tabId)) ?? null;
-  const tab = task?.ptyTabs.find((entry) => entry.id === tabId) ?? null;
-  const cwd = task?.worktreePath ?? workspaceRoot;
-  const command = tab?.kind === "agent" ? resolveAgentCommand(tab) : [];
-
-  if (task?.type === "project") {
-    return {
-      cwd,
-      command,
-      env: { GIT_CEILING_DIRECTORIES: appendGitCeilingDirectory(process.env.GIT_CEILING_DIRECTORIES, cwd) },
-    };
-  }
-
-  return {
-    cwd,
-    command,
-  };
-}
-
-function appendGitCeilingDirectory(current: string | undefined, directory: string): string {
-  const entries = (current ?? "").split(path.delimiter).filter((entry) => entry.length > 0);
-  return entries.includes(directory) ? entries.join(path.delimiter) : [...entries, directory].join(path.delimiter);
-}
-
-function resolveAgentCommand(tab: TaskPtyTabRecord): string[] {
-  return tab.command.length > 0 ? tab.command : ["codex"];
-}
-
-function getRunnerOptionsState(state: Extract<AppState, { mode: "overlay" }>): RunnerOptionsState {
-  return state.runnerOptions ?? {
-    menuIndex: state.menuIndex,
-    message: state.optionsMessage,
-  };
-}
-
-
-function getRequiredPtyTabId(task: TaskRecord, kind: TaskPtyTabRecord["kind"]): string {
-  const tab = task.ptyTabs.find((entry) => entry.kind === kind);
-  if (!tab) {
-    throw new Error(`Task ${task.id} is missing its ${kind} PTY tab.`);
-  }
-
-  return tab.id;
-}
-
-function getPtySize(viewport: Viewport): PtySize {
-  // The center PTY surface reserves:
-  // 1. tab strip
-  // 2. active-tab underline
-  // 3. task header
-  // 4. spacer before the PTY surface
-  // 5. full-width footer row
-  return {
-    columns: Math.max(
-      20,
-      viewport.width -
-        SHELL_LAYOUT.leftWidth -
-        SHELL_LAYOUT.rightWidth -
-        SHELL_LAYOUT.dividerWidth -
-        CENTER_TERMINAL_GUTTER * 2,
-    ),
-    rows: Math.max(5, viewport.height - SHELL_LAYOUT.topRailHeight - 5),
-  };
-}
-
-function positionFrameRows(frame: string): string {
-  return frame
-    .split("\n")
-    .map((line, index) => `\u001B[${index + 1};1H${line}`)
-    .join("");
-}
-
-function inputToString(value: unknown): string {
-  if (typeof value === "string") {
-    return value;
-  }
-
-  if (Buffer.isBuffer(value)) {
-    return value.toString("utf8");
-  }
-
-  return "";
-}
-
-function shouldTrackTerminalKey(key: string): boolean {
-  return key.length === 1 || isEnterKey(key) || key === "BACKSPACE" || key === "TAB";
-}
-
-function isAgentTabId(tabId: string | null): boolean {
-  return typeof tabId === "string" && new RegExp(`:(?:agent|${RUNNER_IDS.join("|")})(?:-\\d+)?$`).test(tabId);
-}
-
-function getTerminalScrollLinesForKey(key: string, scrolledBack: boolean): number {
-  if (key === "UP" && scrolledBack) {
-    return -3;
-  }
-
-  if (key === "DOWN" && scrolledBack) {
-    return 3;
-  }
-
-  if (key === "PAGE_UP") {
-    return -5;
-  }
-
-  if (key === "PAGE_DOWN") {
-    return 5;
-  }
-
-  if (key === "MOUSE_WHEEL_UP") {
-    return -3;
-  }
-
-  if (key === "MOUSE_WHEEL_DOWN") {
-    return 3;
-  }
-
-  return 0;
-}
-
-function getTerminalScrollLinesForMouseEvent(name: unknown): number {
-  if (name === "MOUSE_WHEEL_UP") {
-    return -3;
-  }
-
-  if (name === "MOUSE_WHEEL_DOWN") {
-    return 3;
-  }
-
-  return 0;
-}
-
-function getTerminalScrollLinesForRawInput(raw: string): number {
-  const match = new RegExp(`${String.fromCharCode(27)}\\[<(\\d+);\\d+;\\d+[mM]`).exec(raw);
-  if (!match?.[1]) {
-    return 0;
-  }
-
-  const code = Number.parseInt(match[1], 10);
-  if (code === 64) {
-    return -3;
-  }
-
-  if (code === 65) {
-    return 3;
-  }
-
-  return 0;
-}
-
-function mapRawTerminalInputToKey(raw: string): string | null {
-  if (raw === "\u001B[13;2u") {
-    return "SHIFT_ENTER";
-  }
-
-  return null;
-}
-
-function shouldSuppressRawTerminalInput(
-  suppressTerminalEnterOnAttach: boolean,
-  previous: { key: string; at: number } | null,
-  raw: string,
-): boolean {
-  if (raw.length === 0) {
-    return false;
-  }
-
-  if (suppressTerminalEnterOnAttach && (raw === "\r" || raw === "\n" || raw === "\r\n")) {
-    return true;
-  }
-
-  if (!previous || Date.now() - previous.at >= 30) {
-    return false;
-  }
-
-  if (raw === previous.key) {
-    return true;
-  }
-
-  return raw.length <= 4 && raw.split("").every((char) => char === previous.key);
-}
-
-async function loadWorkspaceBrowser(rootPath: string): Promise<WorkspaceBrowserState> {
-  const directoryEntries = await readdir(rootPath, { withFileTypes: true });
-  const entries: WorkspaceBrowserEntry[] = [];
-
-  for (const entry of directoryEntries) {
-    if (!entry.isDirectory()) {
-      continue;
-    }
-
-    const entryPath = path.join(rootPath, entry.name);
-    entries.push({
-      name: entry.name,
-      path: entryPath,
-      kind: (await isGitRepoDirectory(entryPath)) ? "repo" : "directory",
-    });
-  }
-
-  entries.sort((left, right) => {
-    if (left.kind !== right.kind) {
-      return left.kind === "repo" ? -1 : 1;
-    }
-
-    return left.name.localeCompare(right.name);
-  });
-
-  return {
-    cwd: rootPath,
-    entries,
-    selectedIndex: 0,
-    error: null,
-  };
-}
-
-async function openUrl(url: string): Promise<void> {
-  const { spawn } = await import("node:child_process");
-  const opener = process.platform === "darwin" ? "open" : process.platform === "win32" ? "start" : "xdg-open";
-  await new Promise<void>((resolve, reject) => {
-    const child = spawn(opener, [url], { stdio: "ignore", detached: true });
-    child.unref();
-    child.on("error", reject);
-    child.on("spawn", resolve);
-  });
-}
-
-async function isGitRepoDirectory(rootPath: string): Promise<boolean> {
-  const gitPath = path.join(rootPath, ".git");
-  const stats = await stat(gitPath).catch(() => null);
-  return stats !== null;
-}
