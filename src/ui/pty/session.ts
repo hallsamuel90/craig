@@ -23,12 +23,12 @@ export function resolvePtySessionSpec(model: WorkspaceShellModel, tabId: string,
   return { cwd, command };
 }
 
-export function appendGitCeilingDirectory(current: string | undefined, directory: string): string {
+function appendGitCeilingDirectory(current: string | undefined, directory: string): string {
   const entries = (current ?? "").split(path.delimiter).filter((entry) => entry.length > 0);
   return entries.includes(directory) ? entries.join(path.delimiter) : [...entries, directory].join(path.delimiter);
 }
 
-export function resolveAgentCommand(tab: TaskPtyTabRecord): string[] {
+function resolveAgentCommand(tab: TaskPtyTabRecord): string[] {
   return tab.command.length > 0 ? tab.command : ["codex"];
 }
 

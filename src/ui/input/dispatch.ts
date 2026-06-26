@@ -67,7 +67,7 @@ function getRunnerOptionsState(ctx: AppContext): RunnerOptionsState {
   return state.runnerOptions ?? { menuIndex: state.menuIndex, message: state.optionsMessage };
 }
 
-export async function submitTaskPrompt(ctx: AppContext): Promise<void> {
+async function submitTaskPrompt(ctx: AppContext): Promise<void> {
   if (ctx.state.mode !== "main" || ctx.creatingTask) {
     return;
   }
@@ -170,7 +170,7 @@ export async function submitTaskPrompt(ctx: AppContext): Promise<void> {
   }
 }
 
-export function handlePromptKey(ctx: AppContext, key: string): void {
+function handlePromptKey(ctx: AppContext, key: string): void {
   if (ctx.state.mode !== "main") {
     return;
   }
@@ -233,7 +233,7 @@ export function handlePromptKey(ctx: AppContext, key: string): void {
   }
 }
 
-export function handleWorkspaceBrowserKey(ctx: AppContext, key: string): void {
+function handleWorkspaceBrowserKey(ctx: AppContext, key: string): void {
   if (ctx.state.mode !== "main") {
     return;
   }
@@ -340,7 +340,7 @@ export function handleWorkspaceBrowserKey(ctx: AppContext, key: string): void {
   }
 }
 
-export function handleOptionsMenuKey(ctx: AppContext, key: string): void {
+function handleOptionsMenuKey(ctx: AppContext, key: string): void {
   if (ctx.state.mode !== "overlay" || ctx.state.variant !== "options") {
     return;
   }
@@ -403,7 +403,7 @@ export function handleOptionsMenuKey(ctx: AppContext, key: string): void {
   }
 }
 
-export async function openErrorLogOverlay(ctx: AppContext, parentVariant: "boot" | "pause" | undefined): Promise<void> {
+async function openErrorLogOverlay(ctx: AppContext, parentVariant: "boot" | "pause" | undefined): Promise<void> {
   let errorLog;
   try {
     errorLog = await errorService.readRecentErrorLines(ctx.paths);
@@ -433,7 +433,7 @@ export async function openErrorLogOverlay(ctx: AppContext, parentVariant: "boot"
   ctx.render();
 }
 
-export function handleRunnersKey(ctx: AppContext, key: string): void {
+function handleRunnersKey(ctx: AppContext, key: string): void {
   if (ctx.state.mode !== "overlay" || ctx.state.variant !== "runners") {
     return;
   }
@@ -965,7 +965,7 @@ export function onMouse(ctx: AppContext, name: unknown): void {
   scheduleTerminalViewportScroll(ctx, scrollLines);
 }
 
-export function triggerFocusFlash(ctx: AppContext): void {
+function triggerFocusFlash(ctx: AppContext): void {
   ctx.focusFlashUntil = Date.now() + 600;
   if (ctx.focusFlashTimer) clearTimeout(ctx.focusFlashTimer);
   ctx.focusFlashTimer = setTimeout(() => {

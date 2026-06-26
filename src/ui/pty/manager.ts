@@ -150,7 +150,7 @@ export async function attachPtyFromShell(ctx: AppContext, shell: ControlShellSta
   ctx.render();
 }
 
-export async function markTaskRunnerFailed(ctx: AppContext, taskId: string, message: string): Promise<void> {
+async function markTaskRunnerFailed(ctx: AppContext, taskId: string, message: string): Promise<void> {
   await markRunnerFailedAction(taskId, message, buildActionContext(ctx));
 }
 
@@ -191,7 +191,7 @@ export async function removeWorkspaceFromShell(ctx: AppContext, shell: ControlSh
   return syncShell(ctx, { ...syncedShell, ...nextShell });
 }
 
-export async function ensureDefaultAgentTab(ctx: AppContext, task: TaskRecord): Promise<TaskRecord> {
+async function ensureDefaultAgentTab(ctx: AppContext, task: TaskRecord): Promise<TaskRecord> {
   return ensureAgentTab(task, buildActionContext(ctx));
 }
 

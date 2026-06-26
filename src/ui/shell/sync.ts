@@ -5,7 +5,7 @@ import { workspaceService } from "../../domain/workspace/index.js";
 import { reloadSelectedContent } from "../task-local-inspection.js";
 import { loadWorkspaceShellModel, resolveShellState, resolveSelectedTaskForInspection, getVisibleFileTreeRows, getLeftItemIds } from "./loader.js";
 import { getViewport, SHELL_LAYOUT } from "../layout.js";
-import { buildShellData, getReviewInspectionRowCount } from "./data.js";
+import { getReviewInspectionRowCount } from "./data.js";
 import type { TaskRecord } from "../../types/task.js";
 import { scrollInspectionContent, toPersistedUiState, updateTerminalViewState, buildCenterTabIds, type ControlShellState, type FooterToast } from "../state.js";
 import type { ActionContext } from "../actions/index.js";
@@ -223,6 +223,3 @@ export function restoreTerminalScreen(ctx: AppContext): void {
   ctx.pendingClear = true;
   ctx.activeTerminal.fullscreen(true);
 }
-
-// Re-export buildShellData for use by app.ts render function
-export { buildShellData };
