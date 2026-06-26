@@ -2,6 +2,8 @@ import { readdir, stat } from "node:fs/promises";
 import path from "node:path";
 
 import type { WorkspaceBrowserEntry, WorkspaceBrowserState } from "../state.js";
+import type { AppContext } from "../app-context.js";
+import { syncShell } from "../shell/sync.js";
 
 export async function loadWorkspaceBrowser(rootPath: string): Promise<WorkspaceBrowserState> {
   const directoryEntries = await readdir(rootPath, { withFileTypes: true });
@@ -34,6 +36,24 @@ export async function openUrl(url: string): Promise<void> {
     child.on("error", reject);
     child.on("spawn", resolve);
   });
+}
+
+export async function openWorkspaceBrowser(ctx: AppContext, rootPath: string): Promise<void> {
+  const browser = await loadWorkspaceBrowser(rootPath);
+  if (ctx.state.mode !== "main") {
+    return;
+  }
+
+  ctx.state = {
+    mode: "main",
+    shell: syncShell(ctx, {
+      ...ctx.state.shell,
+      workspaceBrowser: browser,
+      activeTab: ctx.state.shell.selectedPtyTabId ?? ctx.state.shell.activeTab,
+      actionMessage: null,
+    }),
+  };
+  ctx.render();
 }
 
 export async function isGitRepoDirectory(rootPath: string): Promise<boolean> {

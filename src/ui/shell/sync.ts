@@ -6,7 +6,6 @@ import { reloadSelectedContent } from "../task-local-inspection.js";
 import { loadWorkspaceShellModel, resolveShellState, resolveSelectedTaskForInspection, getVisibleFileTreeRows, getLeftItemIds } from "./loader.js";
 import { getViewport, SHELL_LAYOUT } from "../layout.js";
 import { buildShellData, getReviewInspectionRowCount } from "./data.js";
-import { loadWorkspaceBrowser } from "../workspace/browser.js";
 import type { TaskRecord } from "../../types/task.js";
 import { scrollInspectionContent, toPersistedUiState, updateTerminalViewState, buildCenterTabIds, type ControlShellState, type FooterToast } from "../state.js";
 import type { ActionContext } from "../actions/index.js";
@@ -176,45 +175,6 @@ export async function refreshInspection(ctx: AppContext, shell: ControlShellStat
   }
 }
 
-export async function openWorkspaceBrowser(ctx: AppContext, rootPath: string): Promise<void> {
-  const browser = await loadWorkspaceBrowser(rootPath);
-  if (ctx.state.mode !== "main") {
-    return;
-  }
-
-  ctx.state = {
-    mode: "main",
-    shell: syncShell(ctx, {
-      ...ctx.state.shell,
-      workspaceBrowser: browser,
-      activeTab: ctx.state.shell.selectedPtyTabId ?? ctx.state.shell.activeTab,
-      actionMessage: null,
-    }),
-  };
-  ctx.render();
-}
-
-export function scheduleTerminalViewportScroll(ctx: AppContext, lines: number): void {
-  ctx.pendingScrollLines += lines;
-
-  if (ctx.scrollRenderTimer) {
-    return;
-  }
-
-  ctx.scrollRenderTimer = setTimeout(() => {
-    ctx.scrollRenderTimer = null;
-    const linesToScroll = ctx.pendingScrollLines;
-    ctx.pendingScrollLines = 0;
-
-    if (linesToScroll === 0) {
-      return;
-    }
-
-    ctx.ptyRuntime.scrollViewport(linesToScroll);
-    ctx.state = { mode: "main", shell: withTerminalView(ctx, (ctx.state as { mode: "main"; shell: ControlShellState }).shell) };
-    ctx.render();
-  }, 16);
-}
 
 export function scheduleInspectionViewportScroll(ctx: AppContext, lines: number): void {
   if (lines === 0) {

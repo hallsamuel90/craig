@@ -45,8 +45,6 @@ import {
   getShellKeyOptions,
   refreshInspection,
   reloadModel,
-  openWorkspaceBrowser,
-  scheduleTerminalViewportScroll,
   scheduleInspectionViewportScroll,
   buildActionContext,
 } from "../shell/sync.js";
@@ -58,8 +56,10 @@ import {
   removeWorkspaceFromShell,
   hydrateAndRenderOpenPtyTabs,
   warmSelectedPtyTab,
+  scheduleTerminalViewportScroll,
 } from "../pty/manager.js";
 import { refreshPullRequestChecksFromShell } from "../workspace/pr-polling.js";
+import { openWorkspaceBrowser } from "../workspace/browser.js";
 import type { AppContext } from "../app-context.js";
 
 function getRunnerOptionsState(ctx: AppContext): RunnerOptionsState {

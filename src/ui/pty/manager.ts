@@ -10,10 +10,9 @@ import {
 } from "../actions/index.js";
 import { getViewport } from "../layout.js";
 import { getPtySize } from "./session.js";
-import { getSelectedTask } from "../shell/sync.js";
+import { getSelectedTask, withTerminalView, syncShell, applyErrorToast, reportRecoverableError, reloadModel, buildActionContext, persistShellState } from "../shell/sync.js";
 import { updateTerminalViewState, markTerminalAttachFailed, type ControlShellState } from "../state.js";
 import { isAgentTabId } from "../input/keyboard.js";
-import { syncShell, applyErrorToast, reportRecoverableError, reloadModel, buildActionContext, persistShellState } from "../shell/sync.js";
 import type { AppContext } from "../app-context.js";
 
 export async function hydrateOpenPtyTabs(ctx: AppContext): Promise<void> {
@@ -195,3 +194,26 @@ export async function removeWorkspaceFromShell(ctx: AppContext, shell: ControlSh
 export async function ensureDefaultAgentTab(ctx: AppContext, task: TaskRecord): Promise<TaskRecord> {
   return ensureAgentTab(task, buildActionContext(ctx));
 }
+
+export function scheduleTerminalViewportScroll(ctx: AppContext, lines: number): void {
+  ctx.pendingScrollLines += lines;
+
+  if (ctx.scrollRenderTimer) {
+    return;
+  }
+
+  ctx.scrollRenderTimer = setTimeout(() => {
+    ctx.scrollRenderTimer = null;
+    const linesToScroll = ctx.pendingScrollLines;
+    ctx.pendingScrollLines = 0;
+
+    if (linesToScroll === 0) {
+      return;
+    }
+
+    ctx.ptyRuntime.scrollViewport(linesToScroll);
+    ctx.state = { mode: "main", shell: withTerminalView(ctx, (ctx.state as { mode: "main"; shell: ControlShellState }).shell) };
+    ctx.render();
+  }, 16);
+}
+
