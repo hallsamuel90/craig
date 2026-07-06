@@ -1,4 +1,4 @@
-import type { TaskRecord, TaskStatus } from "../../../types/task.js";
+import type { TaskRecord, TaskStatus } from "../types.js";
 
 const NON_TERMINAL_PRIORITY: TaskStatus[] = [
   "merge_ready",

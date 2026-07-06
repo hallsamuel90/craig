@@ -1,5 +1,5 @@
 import type { CraigPaths } from "../../../state/craig-paths.js";
-import type { CommandListReposResult } from "../../../types/command.js";
+import type { CommandListReposResult } from "../../../commands/types.js";
 import { listRepos } from "../adapters/repo-store.js";
 import { ensureCraigState } from "../workspaces/ensure.js";
 

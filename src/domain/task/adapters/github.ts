@@ -1,5 +1,5 @@
 import { runCommand, runCommandAllowingFailure } from "../../../shared/exec.js";
-import type { TaskRecord } from "../../../types/task.js";
+import type { TaskRecord } from "../types.js";
 
 export interface GhPrView {
   number: number;

@@ -3,7 +3,7 @@ import { readSession } from "../adapters/session.js";
 import { writeTask } from "../adapters/task-store.js";
 import { removeWorktree } from "../adapters/git.js";
 import { killSession } from "../adapters/tmux.js";
-import type { TaskRecord } from "../../../types/task.js";
+import type { TaskRecord } from "../types.js";
 
 export const cleanupTask = async (
   paths: CraigPaths,

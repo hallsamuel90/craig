@@ -1,7 +1,7 @@
 import path from "node:path";
 
-import type { CommandCreateTaskResult } from "../../../types/command.js";
-import type { TaskRecord } from "../../../types/task.js";
+import type { CommandCreateTaskResult } from "../../../commands/types.js";
+import type { TaskRecord } from "../types.js";
 import type { CraigPaths } from "../../../state/craig-paths.js";
 import { configService } from "../../config/index.js";
 import type { RunnerType } from "../../config/index.js";

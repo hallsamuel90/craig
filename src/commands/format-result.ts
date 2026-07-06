@@ -1,4 +1,4 @@
-import type { CommandResult } from "../types/command.js";
+import type { CommandResult } from "./types.js";
 
 export function formatCommandResult(result: CommandResult): string {
   switch (result.kind) {

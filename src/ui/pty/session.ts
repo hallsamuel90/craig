@@ -1,6 +1,6 @@
 import path from "node:path";
 
-import type { TaskPtyTabRecord } from "../../types/task.js";
+import type { TaskPtyTabRecord } from "../../domain/task/index.js";
 import type { WorkspaceShellModel } from "../shell/data.js";
 import { CENTER_TERMINAL_GUTTER } from "../render.js";
 import { SHELL_LAYOUT, type Viewport } from "../layout.js";

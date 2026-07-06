@@ -1,4 +1,4 @@
-import type { TaskPR, TaskPullRequestCheck, TaskPullRequestReviewDecision, TaskRecord } from "../../../types/task.js";
+import type { TaskPR, TaskPullRequestCheck, TaskPullRequestReviewDecision, TaskRecord } from "../types.js";
 
 export const getTaskPrimaryPr = (task: TaskRecord): TaskPR | null => {
   if (task.prs.length === 0) return null;

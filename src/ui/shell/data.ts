@@ -15,7 +15,7 @@ import {
   getFileIcon,
   getFileIconColor,
 } from "../icons.js";
-import type { ProjectTaskRepoTarget, TaskPullRequest, TaskPullRequestCheck, TaskPullRequestComment, TaskPtyTabRecord, TaskRecord } from "../../types/task.js";
+import type { ProjectTaskRepoTarget, TaskPullRequest, TaskPullRequestCheck, TaskPullRequestComment, TaskPtyTabRecord, TaskRecord } from "../../domain/task/index.js";
 import { getTaskPrimaryPr } from "../../domain/task/index.js";
 import type { RepoRecord, WorkspaceRecord } from "../../domain/workspace/index.js";
 import { configService } from "../../domain/config/index.js";

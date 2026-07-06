@@ -2,7 +2,7 @@ import type { CraigConfig } from "../../domain/config/index.js";
 import { configService } from "../../domain/config/index.js";
 import type { RunnerType } from "../../domain/config/index.js";
 import { readTask, writeTask } from "../../domain/task/index.js";
-import type { TaskPtyTabRecord, TaskRecord } from "../../types/task.js";
+import type { TaskPtyTabRecord, TaskRecord } from "../../domain/task/index.js";
 import type { ActionContext } from "./context.js";
 import type { ControlShellState } from "../state.js";
 

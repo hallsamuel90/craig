@@ -1,4 +1,4 @@
-import type { CommandFocusResult } from "../../../types/command.js";
+import type { CommandFocusResult } from "../../../commands/types.js";
 import type { CraigPaths } from "../../../state/craig-paths.js";
 import { readSession } from "../adapters/session.js";
 import { focusPane } from "../adapters/tmux.js";

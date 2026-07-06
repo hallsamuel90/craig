@@ -7,7 +7,7 @@ import {
   isMergeReady,
   summarizeRequiredChecks,
 } from "./state.js";
-import type { TaskPR, TaskRecord } from "../../../types/task.js";
+import type { TaskPR, TaskRecord } from "../types.js";
 
 const makePr = (overrides: Partial<TaskPR> = {}): TaskPR => ({
   provider: "github",

@@ -1,4 +1,4 @@
-import type { CommandResult, AppCommand } from "../types/command.js";
+import type { CommandResult, AppCommand } from "./types.js";
 import type { CraigPaths } from "../state/craig-paths.js";
 import { getDefaultUiState, readUiState, writeUiState } from "../state/ui-state-store.js";
 import { getHelpText } from "./parse-argv.js";

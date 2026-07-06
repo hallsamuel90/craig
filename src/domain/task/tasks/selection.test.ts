@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { sortTasksForDisplay, resolveSelectedTaskId } from "./selection.js";
-import type { TaskRecord } from "../../../types/task.js";
+import type { TaskRecord } from "../types.js";
 
 const makeTask = (id: string, status: TaskRecord["status"], updatedAt = "2024-01-01T00:00:00.000Z"): TaskRecord => ({
   id,

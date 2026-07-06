@@ -1,5 +1,5 @@
 import type { CraigConfig, RunnerType } from "../domain/config/index.js";
-import type { CraigUiRuntime } from "../types/workspace.js";
+import type { CraigUiRuntime } from "../state/ui-runtime.js";
 import type { CraigPaths } from "../state/craig-paths.js";
 import type { CraigErrorLogSnapshot } from "../domain/error/index.js";
 import type { WorkspaceShellModel } from "./shell/data.js";

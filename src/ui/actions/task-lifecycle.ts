@@ -4,7 +4,7 @@ import { configService } from "../../domain/config/index.js";
 import type { RunnerType } from "../../domain/config/index.js";
 import { runCommand } from "../../shared/exec.js";
 import { requireExecutablePath, withDefaultCommandPath } from "../../shared/command-path.js";
-import type { TaskRecord } from "../../types/task.js";
+import type { TaskRecord } from "../../domain/task/index.js";
 import type { ControlShellState } from "../state.js";
 import type { ActionContext } from "./context.js";
 

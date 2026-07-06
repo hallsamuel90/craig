@@ -5,7 +5,7 @@ import type { CraigPaths } from "../../../state/craig-paths.js";
 import { writeTask, appendTaskId } from "../adapters/task-store.js";
 import type { CraigConfig, RunnerType } from "../../config/index.js";
 import { configService } from "../../config/index.js";
-import type { ProjectTaskRepoTarget, TaskChecks, TaskCleanup, TaskPullRequest, TaskPtyTabRecord, TaskRecord } from "../../../types/task.js";
+import type { ProjectTaskRepoTarget, TaskChecks, TaskCleanup, TaskPullRequest, TaskPtyTabRecord, TaskRecord } from "../types.js";
 import type { RepoRecord } from "../../../domain/workspace/index.js";
 import { readRepo, listWorkspaceRecords } from "../../../domain/workspace/index.js";
 import { createWorktree } from "../adapters/git.js";

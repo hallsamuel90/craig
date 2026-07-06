@@ -1,7 +1,7 @@
 import { readFile, stat } from "node:fs/promises";
 import path from "node:path";
 
-import type { TaskRecord } from "../../types/task.js";
+import type { TaskRecord } from "../../domain/task/index.js";
 import { runCommand, runCommandAllowingFailure } from "../../shared/exec.js";
 import { assertTaskWorktreeExists } from "../../domain/task/index.js";
 

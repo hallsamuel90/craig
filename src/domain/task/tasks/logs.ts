@@ -1,7 +1,7 @@
 import { spawn } from "node:child_process";
 import { access } from "node:fs/promises";
 
-import type { CommandLogsResult } from "../../../types/command.js";
+import type { CommandLogsResult } from "../../../commands/types.js";
 import type { CraigPaths } from "../../../state/craig-paths.js";
 import { getTask, resolveTaskLogPath } from "./inspect.js";
 

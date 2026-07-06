@@ -2,7 +2,7 @@ import { access } from "node:fs/promises";
 
 import type { CraigPaths } from "../../../state/craig-paths.js";
 import { writeTask } from "../adapters/task-store.js";
-import type { TaskRecord } from "../../../types/task.js";
+import type { TaskRecord } from "../types.js";
 import { getTask } from "./inspect.js";
 
 export const closeTask = async (paths: CraigPaths, taskId: string): Promise<TaskRecord> => {
