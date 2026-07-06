@@ -3,7 +3,7 @@
 import { executeCommand } from "./commands/command-router.js";
 import { parseArgv } from "./commands/parse-argv.js";
 import { getCraigPaths } from "./state/craig-paths.js";
-import { formatCommandResult } from "./main.js";
+import { formatCommandResult } from "./commands/format-result.js";
 import { startTerminalApp } from "./ui/app.js";
 import { requestDaemonShutdown, servePtyDaemon } from "./ui/pty/daemon.js";
 async function main(): Promise<number> {

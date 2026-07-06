@@ -1,7 +1,7 @@
 import path from "node:path";
 import pc from "picocolors";
 
-import type { CraigIndex } from "./domain/workspace/index.js";
+import type { CraigIndex } from "../domain/workspace/index.js";
 
 const BANNER_ART = [
   "   ▄████▄   ██▀███   ▄▄▄       ██▓  ▄████",

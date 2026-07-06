@@ -1,4 +1,4 @@
-import { getBannerArtLines } from "../banner.js";
+import { getBannerArtLines } from "./banner.js";
 import type {
   ShellContextRow,
   ShellData,
