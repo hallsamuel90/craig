@@ -3,9 +3,9 @@ import { errorService } from "../../domain/error/index.js";
 import { taskService } from "../../domain/task/index.js";
 import { workspaceService } from "../../domain/workspace/index.js";
 import { reloadSelectedContent } from "../task-local-inspection.js";
-import { loadWorkspaceShellModel, resolveShellState, resolveSelectedTaskForInspection, getVisibleFileTreeRows, getLeftItemIds } from "./loader.js";
+import { loadWorkspaceShellModel, resolveShellState, resolveSelectedTaskForInspection, getLeftItemIds } from "./loader.js";
 import { getViewport, SHELL_LAYOUT } from "../layout.js";
-import { getReviewInspectionRowCount } from "./data.js";
+import { getReviewInspectionRowCount, getVisibleFileTreeRows } from "./data.js";
 import type { TaskRecord } from "../../types/task.js";
 import { scrollInspectionContent, toPersistedUiState, updateTerminalViewState, buildCenterTabIds, type ControlShellState, type FooterToast } from "../state.js";
 import type { ActionContext } from "../actions/index.js";
@@ -20,7 +20,7 @@ export function withTerminalView(ctx: AppContext, shell: ControlShellState): Con
   return updateTerminalViewState(shell, ctx.ptyRuntime.getViewState(resolveTerminalViewTabId(ctx, shell)));
 }
 
-function resolveTerminalViewTabId(ctx: AppContext, shell: ControlShellState): string | null {
+export function resolveTerminalViewTabId(ctx: AppContext, shell: ControlShellState): string | null {
   const selectedTask = getSelectedTask(ctx.model.tasks, shell);
   if (!selectedTask) {
     return shell.selectedPtyTabId;

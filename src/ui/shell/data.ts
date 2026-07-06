@@ -1383,7 +1383,7 @@ function buildFileInspectionRows(state: ControlShellState, inspection: TaskLocal
   });
 }
 
-function getVisibleFileTreeRows(rows: TaskLocalInspection["fileRows"], collapsedPaths: string[]): TaskLocalInspection["fileRows"] {
+export function getVisibleFileTreeRows(rows: TaskLocalInspection["fileRows"], collapsedPaths: string[]): TaskLocalInspection["fileRows"] {
   const collapsed = new Set(collapsedPaths);
   return rows.filter((row) => {
     const parts = row.path.split("/");

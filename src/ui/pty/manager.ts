@@ -10,7 +10,7 @@ import {
 } from "../actions/index.js";
 import { getViewport } from "../layout.js";
 import { getPtySize } from "./session.js";
-import { getSelectedTask, withTerminalView, syncShell, applyErrorToast, reportRecoverableError, reloadModel, buildActionContext, persistShellState } from "../shell/sync.js";
+import { getSelectedTask, withTerminalView, syncShell, applyErrorToast, reportRecoverableError, reloadModel, buildActionContext, persistShellState, resolveTerminalViewTabId } from "../shell/sync.js";
 import { updateTerminalViewState, markTerminalAttachFailed, type ControlShellState } from "../state.js";
 import { isAgentTabId } from "../input/keyboard.js";
 import type { AppContext } from "../app-context.js";
@@ -55,23 +55,6 @@ export async function warmSelectedPtyTab(ctx: AppContext, shell: ControlShellSta
   );
 
   return updateTerminalViewState({ ...syncedShell, inputMode: "control" }, view);
-}
-
-function resolveTerminalViewTabId(ctx: AppContext, shell: ControlShellState): string | null {
-  const selectedTask = getSelectedTask(ctx.model.tasks, shell);
-  if (!selectedTask) {
-    return shell.selectedPtyTabId;
-  }
-
-  if (selectedTask.ptyTabs.some((tab) => tab.id === shell.activeTab)) {
-    return shell.activeTab;
-  }
-
-  if (shell.activeTab === "agent" || shell.activeTab === "terminal") {
-    return selectedTask.ptyTabs.find((tab) => tab.kind === shell.activeTab)?.id ?? shell.selectedPtyTabId;
-  }
-
-  return shell.selectedPtyTabId;
 }
 
 export function syncInputCapture(ctx: AppContext): void {

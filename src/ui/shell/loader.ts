@@ -3,7 +3,7 @@ import { taskService } from "../../domain/task/index.js";
 import { listWorkspaceRecords, workspaceService } from "../../domain/workspace/index.js";
 import { getCraigPaths } from "../../state/craig-paths.js";
 import type { TaskRecord } from "../../types/task.js";
-import { loadTaskLocalInspection, type InspectionTreeRow } from "../task-local-inspection.js";
+import { loadTaskLocalInspection } from "../task-local-inspection.js";
 import type { WorkspaceShellModel } from "./data.js";
 import { restoreShellState } from "../state.js";
 import type { ControlShellState } from "../state.js";
@@ -43,19 +43,6 @@ export function resolveSelectedTaskForInspection(tasks: TaskRecord[], shell: Con
 
 export function resolveShellState(state: ControlShellState, model: WorkspaceShellModel): ControlShellState {
   return restoreShellState(state, model);
-}
-
-export function getVisibleFileTreeRows(rows: InspectionTreeRow[], collapsedPaths: string[]): InspectionTreeRow[] {
-  const collapsed = new Set(collapsedPaths);
-  return rows.filter((row) => {
-    const parts = row.path.split("/");
-    for (let index = 1; index < parts.length; index += 1) {
-      if (collapsed.has(parts.slice(0, index).join("/"))) {
-        return false;
-      }
-    }
-    return true;
-  });
 }
 
 export function getLeftItemIds(model: WorkspaceShellModel): string[] {
