@@ -1,6 +1,6 @@
 import { describe, expect, test } from "vitest";
 
-import type { TaskLocalInspection } from "../src/ui/task-local-inspection.js";
+import type { TaskLocalInspection } from "../src/ui/shell/task-local-inspection.js";
 import type { ProjectTaskRepoTarget } from "../src/types/task.js";
 import { getMockShellData } from "../src/ui/mock-data.js";
 import { MIN_VIEWPORT } from "../src/ui/layout.js";

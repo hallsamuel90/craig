@@ -1,6 +1,6 @@
 import path from "node:path";
 
-import type { InspectionDiffGroup, InspectionDiffRow, TaskLocalInspection } from "../task-local-inspection.js";
+import type { InspectionDiffGroup, InspectionDiffRow, TaskLocalInspection } from "./task-local-inspection.js";
 import {
   CHECK_ICON_FAILED,
   CHECK_ICON_NONE,
