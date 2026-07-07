@@ -1,6 +1,6 @@
 import { describe, expect, test } from "vitest";
 
-import type { CraigUiRuntime } from "../src/types/workspace.js";
+import type { CraigUiRuntime } from "../src/state/ui-runtime.js";
 import { createInitialShellState, reduceMainKey, restoreShellState, toPersistedUiState } from "../src/ui/state.js";
 import { buildTaskRecord } from "./test-helpers.js";
 
