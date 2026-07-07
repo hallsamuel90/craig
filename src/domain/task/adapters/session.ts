@@ -1,7 +1,7 @@
 import { readFile, rm } from "node:fs/promises";
 import path from "node:path";
 
-import type { SessionRecord } from "../../../types/session.js";
+import type { SessionRecord } from "../types.js";
 import type { CraigPaths } from "../../../state/craig-paths.js";
 import { atomicWriteJson } from "../../../shared/atomic-write.js";
 

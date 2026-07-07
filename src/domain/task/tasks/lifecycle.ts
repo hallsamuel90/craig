@@ -1,5 +1,5 @@
 import type { CraigPaths } from "../../../state/craig-paths.js";
-import type { TaskRecord } from "../../../types/task.js";
+import type { TaskRecord } from "../types.js";
 import { readTask, writeTask } from "../adapters/task-store.js";
 
 export const markRunnerFailed = async (paths: CraigPaths, taskId: string, message: string): Promise<void> => {

@@ -6,10 +6,10 @@ import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 
-import type { CraigPaths } from "../state/craig-paths.js";
-import { resolveExecutablePath } from "../shared/command-path.js";
-import type { TerminalViewState } from "./state.js";
-import { PtyRuntime, type PtyRuntimeOptions, type PtySessionSpec, type PtySize } from "./pty-runtime.js";
+import type { CraigPaths } from "../../state/craig-paths.js";
+import { resolveExecutablePath } from "../../shared/command-path.js";
+import type { TerminalViewState } from "../state.js";
+import { PtyRuntime, type PtyRuntimeOptions, type PtySessionSpec, type PtySize } from "./runtime.js";
 
 const DAEMON_PROTOCOL_VERSION = 3;
 

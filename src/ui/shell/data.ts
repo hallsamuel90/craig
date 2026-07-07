@@ -14,14 +14,14 @@ import {
   PR_ICON_OPEN,
   getFileIcon,
   getFileIconColor,
-} from "./icons.js";
-import type { ProjectTaskRepoTarget, TaskPullRequest, TaskPullRequestCheck, TaskPullRequestComment, TaskPtyTabRecord, TaskRecord } from "../types/task.js";
-import { getTaskPrimaryPr } from "../domain/task/index.js";
-import type { RepoRecord, WorkspaceRecord } from "../domain/workspace/index.js";
-import { configService } from "../domain/config/index.js";
-import type { RunnerType } from "../domain/config/index.js";
-import { INSPECTION_TAB_ID, isTaskLeftItemId } from "./state.js";
-import type { TerminalCellStyle, TerminalRowSegment } from "./terminal-emulator.js";
+} from "../icons.js";
+import type { ProjectTaskRepoTarget, TaskPullRequest, TaskPullRequestCheck, TaskPullRequestComment, TaskPtyTabRecord, TaskRecord } from "../../domain/task/index.js";
+import { getTaskPrimaryPr } from "../../domain/task/index.js";
+import type { RepoRecord, WorkspaceRecord } from "../../domain/workspace/index.js";
+import { configService } from "../../domain/config/index.js";
+import type { RunnerType } from "../../domain/config/index.js";
+import { INSPECTION_TAB_ID, isTaskLeftItemId } from "../state.js";
+import type { TerminalCellStyle, TerminalRowSegment } from "../terminal-emulator.js";
 import type {
   CenterTabId,
   ControlShellState,
@@ -30,7 +30,7 @@ import type {
   InputMode,
   TerminalViewState,
   WorkspaceBrowserState,
-} from "./state.js";
+} from "../state.js";
 
 const EMPTY_CENTER_TAB_ID = "empty";
 
@@ -1383,7 +1383,7 @@ function buildFileInspectionRows(state: ControlShellState, inspection: TaskLocal
   });
 }
 
-function getVisibleFileTreeRows(rows: TaskLocalInspection["fileRows"], collapsedPaths: string[]): TaskLocalInspection["fileRows"] {
+export function getVisibleFileTreeRows(rows: TaskLocalInspection["fileRows"], collapsedPaths: string[]): TaskLocalInspection["fileRows"] {
   const collapsed = new Set(collapsedPaths);
   return rows.filter((row) => {
     const parts = row.path.split("/");

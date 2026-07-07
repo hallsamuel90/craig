@@ -1,4 +1,4 @@
-import type { ProjectTaskRepoTarget, RunnerSession, TaskPR, TaskPullRequest, TaskPullRequestComment, TaskPullRequestReviewDecision, TaskRecord, TaskPtyTabRecord } from "../../../types/task.js";
+import type { ProjectTaskRepoTarget, RunnerSession, TaskPR, TaskPullRequest, TaskPullRequestComment, TaskPullRequestReviewDecision, TaskRecord, TaskPtyTabRecord } from "../types.js";
 import type { RunnerType } from "../../config/index.js";
 import { configService } from "../../config/index.js";
 

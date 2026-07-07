@@ -1,4 +1,4 @@
-import type { CommandAttachTaskResult } from "../../../types/command.js";
+import type { CommandAttachTaskResult } from "../../../commands/types.js";
 import type { CraigPaths } from "../../../state/craig-paths.js";
 import { readRepo } from "../../../domain/workspace/index.js";
 import { readSession } from "../adapters/session.js";

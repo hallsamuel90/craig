@@ -1,6 +1,6 @@
 import { readFile } from "node:fs/promises";
 
-import type { TaskRecord } from "../../../types/task.js";
+import type { TaskRecord } from "../types.js";
 import type { CraigPaths } from "../../../state/craig-paths.js";
 import { atomicWriteJson } from "../../../shared/atomic-write.js";
 import { readCraigIndex, writeCraigIndex } from "../../../domain/workspace/index.js";

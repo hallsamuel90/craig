@@ -1,5 +1,5 @@
-import type { CommandListResult } from "../../../types/command.js";
-import type { TaskRecord } from "../../../types/task.js";
+import type { CommandListResult } from "../../../commands/types.js";
+import type { TaskRecord } from "../types.js";
 import type { CraigPaths } from "../../../state/craig-paths.js";
 import { readCraigIndex } from "../../../domain/workspace/index.js";
 import { readRawTask } from "../adapters/task-store.js";

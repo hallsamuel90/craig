@@ -1,4 +1,4 @@
-import type { AppCommand } from "../types/command.js";
+import type { AppCommand } from "./types.js";
 import { configService } from "../domain/config/index.js";
 
 export interface ParsedArgvCommand {

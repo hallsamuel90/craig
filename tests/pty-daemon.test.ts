@@ -6,7 +6,7 @@ import { tmpdir } from "node:os";
 
 import { describe, expect, test, vi } from "vitest";
 
-import { createDaemonPtyRuntime, requestDaemonShutdown, servePtyDaemon } from "../src/ui/pty-daemon.js";
+import { createDaemonPtyRuntime, requestDaemonShutdown, servePtyDaemon } from "../src/ui/pty/daemon.js";
 import { getCraigPaths } from "../src/state/craig-paths.js";
 import { ensureCraigState } from "../src/domain/workspace/workspaces/ensure.js";
 

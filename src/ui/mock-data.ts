@@ -1,5 +1,5 @@
 import type { ControlShellState } from "./state.js";
-import type { ShellData, ShellTreeRow } from "./shell-data.js";
+import type { ShellData, ShellTreeRow } from "./shell/data.js";
 
 type MockShellStateInput = Partial<
   Pick<

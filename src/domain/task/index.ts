@@ -1,5 +1,5 @@
+export type { RunnerType } from "../config/index.js";
 export type {
-  RunnerType,
   TaskType,
   TaskStatus,
   TaskPRStatus,
@@ -21,6 +21,12 @@ export type {
   ProjectTaskRepoTargetStatus,
   ProjectTaskRepoTarget,
   TaskRecord,
+  SessionSubstrate,
+  SessionStatus,
+  SessionTerminalSize,
+  SessionSnapshot,
+  SessionAttachState,
+  SessionRecord,
 } from "./types.js";
 
 // re-export validators for external test use

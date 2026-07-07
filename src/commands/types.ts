@@ -1,6 +1,4 @@
-import type { SessionRecord } from "./session.js";
-import type { TaskRecord } from "./task.js";
-import type { RunnerType } from "../domain/config/index.js";
+import type { SessionRecord, TaskRecord, RunnerType } from "../domain/task/index.js";
 import type { RepoRecord, WorkspaceRecord } from "../domain/workspace/index.js";
 
 export type AppCommand =

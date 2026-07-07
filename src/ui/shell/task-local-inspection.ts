@@ -1,9 +1,9 @@
 import { readFile, stat } from "node:fs/promises";
 import path from "node:path";
 
-import type { TaskRecord } from "../types/task.js";
-import { runCommand, runCommandAllowingFailure } from "../shared/exec.js";
-import { assertTaskWorktreeExists } from "../domain/task/index.js";
+import type { TaskRecord } from "../../domain/task/index.js";
+import { runCommand, runCommandAllowingFailure } from "../../shared/exec.js";
+import { assertTaskWorktreeExists } from "../../domain/task/index.js";
 
 export const FILE_CONTENT_LIMIT_BYTES = 200 * 1024;
 export const DIFF_CONTENT_LIMIT_BYTES = 500 * 1024;

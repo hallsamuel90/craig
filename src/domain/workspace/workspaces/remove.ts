@@ -1,5 +1,5 @@
 import type { CraigPaths } from "../../../state/craig-paths.js";
-import type { CommandListResult, CommandRemoveWorkspaceResult } from "../../../types/command.js";
+import type { CommandListResult, CommandRemoveWorkspaceResult } from "../../../commands/types.js";
 import { readWorkspace } from "../adapters/workspace-store.js";
 import { removeWorkspaceRecord } from "./remove-record.js";
 

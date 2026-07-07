@@ -1,7 +1,7 @@
 /* eslint-disable no-unused-vars */
 import type { CraigPaths } from "../../../state/craig-paths.js";
 import { writeSession } from "./session.js";
-import type { SessionRecord, SessionSnapshot, SessionTerminalSize } from "../../../types/session.js";
+import type { SessionRecord, SessionSnapshot, SessionTerminalSize } from "../types.js";
 import { runCommandAllowingFailure } from "../../../shared/exec.js";
 import {
   createDetachedTaskSession,
@@ -13,7 +13,7 @@ import {
 import { requireExecutablePath, withDefaultCommandPath } from "../../../shared/command-path.js";
 import { shellEscape } from "../../../shared/shell-escape.js";
 import { runCommand } from "../../../shared/exec.js";
-import type { TaskRecord } from "../../../types/task.js";
+import type { TaskRecord } from "../types.js";
 import { sendCommandToPane } from "./tmux.js";
 
 export interface SessionManager {

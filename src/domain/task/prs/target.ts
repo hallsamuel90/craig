@@ -1,4 +1,4 @@
-import type { ProjectTaskRepoTarget, TaskPullRequest, TaskRecord } from "../../../types/task.js";
+import type { ProjectTaskRepoTarget, TaskPullRequest, TaskRecord } from "../types.js";
 import type { CraigPaths } from "../../../state/craig-paths.js";
 import { readRawTask, writeTask } from "../adapters/task-store.js";
 import { validateTaskRecord } from "../tasks/validate.js";

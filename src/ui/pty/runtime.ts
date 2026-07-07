@@ -2,14 +2,14 @@ import { createRequire } from "node:module";
 import type * as NodePty from "node-pty";
 import type { Terminal } from "@xterm/headless";
 
-import type { TerminalStatus, TerminalViewState } from "./state.js";
+import type { TerminalStatus, TerminalViewState } from "../state.js";
 import {
   createTerminalEmulator,
   renderTerminalScreenRows,
   resizeTerminalEmulator,
   writeTerminalEmulator,
-} from "./terminal-emulator.js";
-import { requireExecutablePath, withDefaultCommandPath } from "../shared/command-path.js";
+} from "../terminal-emulator.js";
+import { requireExecutablePath, withDefaultCommandPath } from "../../shared/command-path.js";
 
 export interface PtySize {
   columns: number;

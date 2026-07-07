@@ -1,5 +1,5 @@
 import type { CraigPaths } from "../../../state/craig-paths.js";
-import type { CommandArchiveWorkspaceResult } from "../../../types/command.js";
+import type { CommandArchiveWorkspaceResult } from "../../../commands/types.js";
 import { readWorkspace, writeWorkspace } from "../adapters/workspace-store.js";
 
 export const archiveWorkspace = async (
