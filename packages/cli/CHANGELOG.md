@@ -1,5 +1,11 @@
 # craig-cli
 
+## 0.7.6
+
+### Patch Changes
+
+- 8331559: refactor: break up app.ts into focused modules and dissolve src/types/ directory
+
 ## 0.7.5
 
 ### Patch Changes
