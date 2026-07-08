@@ -7,7 +7,7 @@ import { MIN_VIEWPORT } from "../src/ui/layout.js";
 import { OPTIONS_MENU_ITEMS } from "../src/ui/options.js";
 import { renderBootOverlayFrame, renderErrorLogOverlayFrame, renderMainShellFrame, renderOptionsOverlayFrame, renderPauseOverlayFrame } from "../src/ui/render.js";
 import { createInitialShellState } from "../src/ui/state.js";
-import { buildShellData } from "../src/ui/shell/data.js";
+import { buildShellData, getVisibleFileTreeRows } from "../src/ui/shell/data.js";
 import { buildTaskRecord } from "./test-helpers.js";
 
 describe("terminal shell renderer", () => {
@@ -1318,6 +1318,114 @@ function characterWidth(character: string): number {
 
   return 1;
 }
+
+describe("file search in inspection panel", () => {
+  const task = buildTaskRecord("/tmp/craig", {
+    id: "task_20260430_02",
+    repoId: "repo_bug_fixes",
+    workspaceId: "workspace_bug_fixes",
+  });
+  const model = {
+    workspaceRoot: "/tmp/craig",
+    repos: [{ id: "repo_bug_fixes", name: "bug-fixes", rootPath: "/tmp/craig", defaultBranch: "main", createdAt: "", updatedAt: "" }],
+    tasks: [task],
+    inspection: inspectionFixture({}),
+  };
+  const baseState = {
+    ...createInitialShellState(null),
+    selectedRepoId: "repo_bug_fixes",
+    selectedTaskId: task.id,
+    selectedLeftItemId: `task:${task.id}`,
+    activeTab: "inspection" as const,
+    inspectionMode: "files" as const,
+    focusedRegion: "inspector" as const,
+  };
+
+  test("footer shows / search hint when search is inactive", () => {
+    const data = buildShellData(baseState, model);
+    expect(data.footerText).toContain("/ search");
+  });
+
+  test("footer shows active query when search is active", () => {
+    const data = buildShellData({ ...baseState, fileSearchQuery: "app" }, model);
+    expect(data.footerText).toContain("Search: app");
+    expect(data.footerText).not.toContain("/ search");
+  });
+
+  test("file tree rows are filtered by active query", () => {
+    const data = buildShellData({ ...baseState, fileSearchQuery: "app" }, model);
+    const inspectionRows = data.rightInspection?.rows ?? [];
+    const fileRows = inspectionRows.filter((r) => r.id !== "file-search" && !r.id.startsWith("mode-"));
+    expect(fileRows.some((r) => r.id === "src/app.ts")).toBe(true);
+    expect(fileRows.some((r) => r.id === "src")).toBe(false);
+  });
+
+  test("non-matching files are hidden when query is active", () => {
+    const data = buildShellData({ ...baseState, fileSearchQuery: "README" }, model);
+    const inspectionRows = data.rightInspection?.rows ?? [];
+    expect(inspectionRows.some((r) => r.id === "src/app.ts")).toBe(false);
+  });
+
+  test("search header row appears when query is active", () => {
+    const data = buildShellData({ ...baseState, fileSearchQuery: "src" }, model);
+    const inspectionRows = data.rightInspection?.rows ?? [];
+    expect(inspectionRows.some((r) => r.id === "file-search")).toBe(true);
+  });
+
+  test("no search header row when query is null", () => {
+    const data = buildShellData(baseState, model);
+    const inspectionRows = data.rightInspection?.rows ?? [];
+    expect(inspectionRows.some((r) => r.id === "file-search")).toBe(false);
+  });
+});
+
+describe("workspace browser search", () => {
+  const browserEntries = [
+    { name: "projects", path: "/home/user/projects", kind: "directory" as const },
+    { name: "craig", path: "/home/user/craig", kind: "repo" as const },
+    { name: "dotfiles", path: "/home/user/dotfiles", kind: "repo" as const },
+  ];
+
+  test("center transcript shows query line when browser search is active", () => {
+    const state = {
+      ...createInitialShellState(null),
+      workspaceBrowser: { cwd: "/home/user", entries: browserEntries, selectedIndex: 0, query: "dot", error: null },
+    };
+    const data = buildShellData(state, { workspaceRoot: "/home/user", repos: [], tasks: [] });
+    const transcript = data.centerTranscript.map((l) => l.text).join("\n");
+    expect(transcript).toContain("Search: dot");
+  });
+
+  test("center transcript shows only filtered entries when search is active", () => {
+    const state = {
+      ...createInitialShellState(null),
+      workspaceBrowser: { cwd: "/home/user", entries: browserEntries, selectedIndex: 0, query: "dot", error: null },
+    };
+    const data = buildShellData(state, { workspaceRoot: "/home/user", repos: [], tasks: [] });
+    const transcript = data.centerTranscript.map((l) => l.text).join("\n");
+    expect(transcript).toContain("dotfiles");
+    expect(transcript).not.toContain("craig");
+    expect(transcript).not.toContain("projects");
+  });
+
+  test("footer shows active query when browser search is active", () => {
+    const state = {
+      ...createInitialShellState(null),
+      workspaceBrowser: { cwd: "/home/user", entries: browserEntries, selectedIndex: 0, query: "cr", error: null },
+    };
+    const data = buildShellData(state, { workspaceRoot: "/home/user", repos: [], tasks: [] });
+    expect(data.footerText).toContain("Search: cr");
+  });
+
+  test("footer shows / search hint when browser search is inactive", () => {
+    const state = {
+      ...createInitialShellState(null),
+      workspaceBrowser: { cwd: "/home/user", entries: browserEntries, selectedIndex: 0, query: null, error: null },
+    };
+    const data = buildShellData(state, { workspaceRoot: "/home/user", repos: [], tasks: [] });
+    expect(data.footerText).toContain("/ search");
+  });
+});
 
 function inspectionFixture(input: { selectedFilePath?: string | null; selectedDiffPath?: string | null }): TaskLocalInspection {
   return {

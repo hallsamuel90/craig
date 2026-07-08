@@ -1,7 +1,7 @@
 import { describe, expect, test } from "vitest";
 
 import type { CraigUiRuntime } from "../src/state/ui-runtime.js";
-import { createInitialShellState, reduceMainKey, restoreShellState, toPersistedUiState } from "../src/ui/state.js";
+import { createInitialShellState, reduceFileSearchKey, reduceMainKey, restoreShellState, toPersistedUiState } from "../src/ui/state.js";
 import { buildTaskRecord } from "./test-helpers.js";
 
 const LEFT_ITEM_IDS = [
@@ -1104,6 +1104,109 @@ describe("terminal shell control state", () => {
       selectedActionId: "close-task",
     });
     expect(persisted).not.toHaveProperty("actionMessage");
+  });
+});
+
+describe("file search in inspection panel", () => {
+  const filesState = () => ({
+    ...createInitialShellState(null, {}),
+    focusedRegion: "inspector" as const,
+    inspectionMode: "files" as const,
+    fileSearchQuery: null as string | null,
+  });
+
+  test("/ opens search with empty query", () => {
+    const result = reduceMainKey(filesState(), "/", KEY_OPTIONS);
+
+    expect(result.state.fileSearchQuery).toBe("");
+    expect(result.changed).toBe(true);
+  });
+
+  test("/ does not open search when not in inspector files mode", () => {
+    const centerState = { ...filesState(), focusedRegion: "center" as const };
+    expect(reduceMainKey(centerState, "/", KEY_OPTIONS).state.fileSearchQuery).toBeNull();
+
+    const diffState = { ...filesState(), inspectionMode: "diff" as const };
+    expect(reduceMainKey(diffState, "/", KEY_OPTIONS).state.fileSearchQuery).toBeNull();
+  });
+
+  test("typing appends characters to query", () => {
+    const searching = { ...filesState(), fileSearchQuery: "" };
+    const after = reduceFileSearchKey(reduceFileSearchKey(searching, "s", KEY_OPTIONS).state, "r", KEY_OPTIONS).state;
+
+    expect(after.fileSearchQuery).toBe("sr");
+  });
+
+  test("BACKSPACE removes last character", () => {
+    const searching = { ...filesState(), fileSearchQuery: "src" };
+    const result = reduceFileSearchKey(searching, "BACKSPACE", KEY_OPTIONS);
+
+    expect(result.state.fileSearchQuery).toBe("sr");
+  });
+
+  test("ESCAPE clears search query", () => {
+    const searching = { ...filesState(), fileSearchQuery: "src" };
+    const result = reduceFileSearchKey(searching, "ESCAPE", KEY_OPTIONS);
+
+    expect(result.state.fileSearchQuery).toBeNull();
+    expect(result.changed).toBe(true);
+  });
+
+  test("ENTER exits search and delegates key normally", () => {
+    const searching = { ...filesState(), fileSearchQuery: "src" };
+    const result = reduceFileSearchKey(searching, "ENTER", KEY_OPTIONS);
+
+    expect(result.state.fileSearchQuery).toBeNull();
+  });
+
+  test("active query is intercepted before other key handlers", () => {
+    const searching = { ...filesState(), fileSearchQuery: "r" };
+    const result = reduceMainKey(searching, "q", KEY_OPTIONS);
+
+    expect(result.exit).toBeFalsy();
+    expect(result.state.fileSearchQuery).toBe("rq");
+  });
+});
+
+describe("workspace browser search", () => {
+  const browserState = () => ({
+    ...createInitialShellState(null, {}),
+    workspaceBrowser: {
+      cwd: "/home/user",
+      entries: [
+        { name: "projects", path: "/home/user/projects", kind: "directory" as const },
+        { name: "craig", path: "/home/user/craig", kind: "repo" as const },
+        { name: "dotfiles", path: "/home/user/dotfiles", kind: "repo" as const },
+      ],
+      selectedIndex: 0,
+      query: null as string | null,
+      error: null,
+    },
+  });
+
+  test("initial browser state has null query", () => {
+    expect(browserState().workspaceBrowser?.query).toBeNull();
+  });
+
+  test("getWorkspaceBrowserVisibleEntries returns all entries with null query", async () => {
+    const { getWorkspaceBrowserVisibleEntries } = await import("../src/ui/workspace/browser.js");
+    const browser = browserState().workspaceBrowser!;
+    expect(getWorkspaceBrowserVisibleEntries(browser)).toHaveLength(3);
+  });
+
+  test("getWorkspaceBrowserVisibleEntries filters by query (case-insensitive)", async () => {
+    const { getWorkspaceBrowserVisibleEntries } = await import("../src/ui/workspace/browser.js");
+    const browser = { ...browserState().workspaceBrowser!, query: "dot" };
+    const visible = getWorkspaceBrowserVisibleEntries(browser);
+
+    expect(visible).toHaveLength(1);
+    expect(visible[0]?.name).toBe("dotfiles");
+  });
+
+  test("getWorkspaceBrowserVisibleEntries empty query returns all", async () => {
+    const { getWorkspaceBrowserVisibleEntries } = await import("../src/ui/workspace/browser.js");
+    const browser = { ...browserState().workspaceBrowser!, query: "" };
+    expect(getWorkspaceBrowserVisibleEntries(browser)).toHaveLength(3);
   });
 });
 
