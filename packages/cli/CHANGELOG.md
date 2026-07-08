@@ -1,5 +1,11 @@
 # craig-cli
 
+## 0.7.7
+
+### Patch Changes
+
+- 27a9ada: fix: restore search in workspace browser and inspection files panel
+
 ## 0.7.6
 
 ### Patch Changes
