@@ -1391,7 +1391,7 @@ describe("workspace browser search", () => {
       ...createInitialShellState(null),
       workspaceBrowser: { cwd: "/home/user", entries: browserEntries, selectedIndex: 0, query: "dot", error: null },
     };
-    const data = buildShellData(state, { workspaceRoot: "/home/user", repos: [], tasks: [] });
+    const data = buildShellData(state, { workspaceRoot: "/home/user", repos: [], tasks: [], inspection: null });
     const transcript = data.centerTranscript.map((l) => l.text).join("\n");
     expect(transcript).toContain("Search: dot");
   });
@@ -1401,7 +1401,7 @@ describe("workspace browser search", () => {
       ...createInitialShellState(null),
       workspaceBrowser: { cwd: "/home/user", entries: browserEntries, selectedIndex: 0, query: "dot", error: null },
     };
-    const data = buildShellData(state, { workspaceRoot: "/home/user", repos: [], tasks: [] });
+    const data = buildShellData(state, { workspaceRoot: "/home/user", repos: [], tasks: [], inspection: null });
     const transcript = data.centerTranscript.map((l) => l.text).join("\n");
     expect(transcript).toContain("dotfiles");
     expect(transcript).not.toContain("craig");
@@ -1413,7 +1413,7 @@ describe("workspace browser search", () => {
       ...createInitialShellState(null),
       workspaceBrowser: { cwd: "/home/user", entries: browserEntries, selectedIndex: 0, query: "cr", error: null },
     };
-    const data = buildShellData(state, { workspaceRoot: "/home/user", repos: [], tasks: [] });
+    const data = buildShellData(state, { workspaceRoot: "/home/user", repos: [], tasks: [], inspection: null });
     expect(data.footerText).toContain("Search: cr");
   });
 
@@ -1422,7 +1422,7 @@ describe("workspace browser search", () => {
       ...createInitialShellState(null),
       workspaceBrowser: { cwd: "/home/user", entries: browserEntries, selectedIndex: 0, query: null, error: null },
     };
-    const data = buildShellData(state, { workspaceRoot: "/home/user", repos: [], tasks: [] });
+    const data = buildShellData(state, { workspaceRoot: "/home/user", repos: [], tasks: [], inspection: null });
     expect(data.footerText).toContain("/ search");
   });
 });

@@ -657,7 +657,7 @@ export function onKey(ctx: AppContext, name: unknown): void {
             ctx,
             syncShell(ctx, {
               ...result.state,
-              workspaceBrowser: { cwd: ctx.workspaceRoot, entries: [], selectedIndex: 0, error: message },
+              workspaceBrowser: { cwd: ctx.workspaceRoot, entries: [], selectedIndex: 0, query: null, error: message },
             }),
             message,
           ),
