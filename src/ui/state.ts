@@ -43,6 +43,7 @@ export interface WorkspaceBrowserState {
   cwd: string;
   entries: WorkspaceBrowserEntry[];
   selectedIndex: number;
+  query: string | null;
   error: string | null;
 }
 
@@ -81,6 +82,7 @@ export interface ControlShellState {
   footerToast: FooterToast | null;
   taskPromptInput: string | null;
   taskPromptError: string | null;
+  fileSearchQuery: string | null;
   workspaceBrowser: WorkspaceBrowserState | null;
   terminal: TerminalViewState;
   centerZoomed: boolean;
@@ -175,6 +177,7 @@ export function createInitialShellState(runtime: CraigUiRuntime | null, config: 
     footerToast: null,
     taskPromptInput: null,
     taskPromptError: null,
+    fileSearchQuery: null,
     workspaceBrowser: null,
     terminal: createDefaultTerminalViewState(),
     centerZoomed: false,
@@ -268,6 +271,32 @@ export function restoreShellState(
   };
 }
 
+export function reduceFileSearchKey(state: ControlShellState, key: string, options: ReduceMainKeyOptions): MainKeyResult {
+  if (key === "ESCAPE") {
+    return result({ state: { ...state, fileSearchQuery: null }, changed: true });
+  }
+
+  if (key === "BACKSPACE" || key === "DELETE") {
+    const q = state.fileSearchQuery ?? "";
+    return result({ state: { ...state, fileSearchQuery: q.slice(0, -1) }, changed: true });
+  }
+
+  if (key === "UP" || key === "k" || key === "DOWN" || key === "j") {
+    return moveSelection(state, key === "UP" || key === "k" ? -1 : 1, options);
+  }
+
+  if (key === "ENTER") {
+    return reduceMainKey({ ...state, fileSearchQuery: null }, key, options);
+  }
+
+  if (key.length === 1 && key >= " ") {
+    const q = (state.fileSearchQuery ?? "") + key;
+    return result({ state: { ...state, fileSearchQuery: q }, changed: true });
+  }
+
+  return result({ state });
+}
+
 export function reduceMainKey(state: ControlShellState, key: string, options: ReduceMainKeyOptions = { leftItemIds: [] }): MainKeyResult {
   if (state.inputMode === "terminal") {
     if (isTerminalDetachKey(key)) {
@@ -279,6 +308,14 @@ export function reduceMainKey(state: ControlShellState, key: string, options: Re
     }
 
     return result({ state });
+  }
+
+  if (state.fileSearchQuery !== null) {
+    return reduceFileSearchKey(state, key, options);
+  }
+
+  if (key === "/" && state.focusedRegion === "inspector" && state.inspectionMode === "files") {
+    return result({ state: { ...state, fileSearchQuery: "" }, changed: true });
   }
 
   if (key === "q" || key === "Q") {
