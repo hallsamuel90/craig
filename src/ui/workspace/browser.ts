@@ -24,7 +24,16 @@ export async function loadWorkspaceBrowser(rootPath: string): Promise<WorkspaceB
     return left.name.localeCompare(right.name);
   });
 
-  return { cwd: rootPath, entries, selectedIndex: 0, error: null };
+  return { cwd: rootPath, entries, selectedIndex: 0, query: null, error: null };
+}
+
+export function getWorkspaceBrowserVisibleEntries(browser: WorkspaceBrowserState): WorkspaceBrowserEntry[] {
+  if (!browser.query) {
+    return browser.entries;
+  }
+
+  const q = browser.query.toLowerCase();
+  return browser.entries.filter((entry) => entry.name.toLowerCase().includes(q));
 }
 
 export async function openUrl(url: string): Promise<void> {

@@ -176,7 +176,9 @@ export function buildShellData(state: ControlShellState, model: WorkspaceShellMo
     terminal: state.terminal,
     footerText:
       state.workspaceBrowser !== null
-        ? `BROWSE WORKSPACE ${state.workspaceBrowser.cwd}   ↑↓ move   → open   ← up   Enter add repo   Esc cancel`
+        ? state.workspaceBrowser.query !== null
+          ? `BROWSE WORKSPACE ${state.workspaceBrowser.cwd}   Search: ${state.workspaceBrowser.query}   ↑↓ move   Enter select   Esc clear search`
+          : `BROWSE WORKSPACE ${state.workspaceBrowser.cwd}   ↑↓ move   → open   ← up   / search   Enter add repo   Esc cancel`
         : state.taskPromptInput !== null
         ? `NEW TASK ${selectedRepo ? `[${selectedRepo.name}]` : "[no repo]"} · ${configService.runners.getDisplayName(state.selectedRunner)}   Ctrl+R switch runner   Enter create   Esc cancel   ›   ${state.taskPromptInput}${state.taskPromptError ? `   ✗ ${state.taskPromptError}` : ""}`
         : state.inputMode === "terminal"
@@ -201,7 +203,9 @@ export function buildShellData(state: ControlShellState, model: WorkspaceShellMo
             ? "↑↓ targets   Wheel/PgUp/PgDn scroll   o open PR   R refresh checks   X close task   ←/→ mode   Esc pause   ? help"
             : "Wheel/PgUp/PgDn scroll   o open PR   R refresh checks   X close task   ←/→ mode   Esc pause   ? help"
           : state.inspectionMode === "files"
-          ? "↑↓ navigate   Enter open file   ←/→ mode   Esc pause   ? help"
+          ? state.fileSearchQuery !== null
+            ? `Search: ${state.fileSearchQuery}   ↑↓ navigate   Enter open   Esc cancel search`
+            : "↑↓ navigate   / search   Enter open file   ←/→ mode   Esc pause   ? help"
           : "↑↓ navigate   ←/→ mode   Esc pause   ? help",
     topRail: {
       workspacePath: path.relative(process.env.HOME ?? "", model.workspaceRoot).length > 0
@@ -405,18 +409,23 @@ function buildCenterTranscript(
   workspace: WorkspaceRecord | null = null,
 ): ShellCenterLine[] {
   if (browser) {
+    const visibleEntries = browser.query
+      ? browser.entries.filter((e) => e.name.toLowerCase().includes(browser.query!.toLowerCase()))
+      : browser.entries;
     const entryLines =
-      browser.entries.length === 0
-        ? ["No directories or git repos here."]
-        : browser.entries.map((entry, index) => {
+      visibleEntries.length === 0
+        ? ["No matching directories or git repos."]
+        : visibleEntries.map((entry, index) => {
             const marker = index === browser.selectedIndex ? "▸" : " ";
             const suffix = entry.kind === "repo" ? " [git repo]" : "/";
             return `${marker} ${entry.name}${suffix}`;
           });
 
+    const queryLine = browser.query !== null ? `Search: ${browser.query}█` : "";
     return textLines([
       "Browse for a workspace to register.",
       browser.cwd,
+      ...(queryLine ? [queryLine] : []),
       "",
       ...entryLines,
       "",
@@ -1352,9 +1361,16 @@ function buildFileInspectionRows(state: ControlShellState, inspection: TaskLocal
   }
 
   const changedPaths = new Map(inspection.diffRows.map((row) => [row.path, row.status]));
-  const visibleRows = getVisibleFileTreeRows(inspection.fileRows, state.collapsedFileTreePaths);
+  const treeRows = getVisibleFileTreeRows(inspection.fileRows, state.collapsedFileTreePaths);
+  const query = state.fileSearchQuery;
+  const visibleRows = query
+    ? treeRows.filter((row) => row.path.toLowerCase().includes(query.toLowerCase()))
+    : treeRows;
+  const searchHeader: ShellInspectionRow[] = query !== null
+    ? [{ id: "file-search", text: `Search: ${query}█`, muted: false }]
+    : [];
   const selectedTreePath = state.selectedFileTreePath ?? inspection.selectedFilePath;
-  return visibleRows.map((row) => {
+  return [...searchHeader, ...visibleRows.map((row) => {
     const gitStatus = row.kind === "file" ? changedPaths.get(row.path) : undefined;
     const color = gitStatus === "A" ? "9ece6a"
       : gitStatus === "M" ? "e0af68"
@@ -1380,7 +1396,7 @@ function buildFileInspectionRows(state: ControlShellState, inspection: TaskLocal
       focused: row.path === selectedTreePath && state.focusedRegion === "inspector",
       segments,
     };
-  });
+  })];
 }
 
 export function getVisibleFileTreeRows(rows: TaskLocalInspection["fileRows"], collapsedPaths: string[]): TaskLocalInspection["fileRows"] {

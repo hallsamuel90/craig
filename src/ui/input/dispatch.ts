@@ -5,7 +5,7 @@ import { writeTask } from "../../domain/task/index.js";
 import { errorService } from "../../domain/error/index.js";
 import { getViewport } from "../layout.js";
 import { getPtySize, getRequiredPtyTabId } from "../pty/session.js";
-import { openUrl } from "../workspace/browser.js";
+import { getWorkspaceBrowserVisibleEntries, openUrl } from "../workspace/browser.js";
 import { getSelectedTask } from "../shell/sync.js";
 import { getTaskPrimaryPr } from "../../domain/task/index.js";
 import {
@@ -244,6 +244,14 @@ function handleWorkspaceBrowserKey(ctx: AppContext, key: string): void {
   }
 
   if (key === "ESCAPE") {
+    if (browser.query !== null) {
+      ctx.state = {
+        mode: "main",
+        shell: syncShell(ctx, { ...ctx.state.shell, workspaceBrowser: { ...browser, query: null, selectedIndex: 0 } }),
+      };
+      ctx.render();
+      return;
+    }
     ctx.state = {
       mode: "main",
       shell: syncShell(ctx, { ...ctx.state.shell, workspaceBrowser: null, actionMessage: null }),
@@ -251,6 +259,37 @@ function handleWorkspaceBrowserKey(ctx: AppContext, key: string): void {
     ctx.render();
     return;
   }
+
+  if (key === "/") {
+    ctx.state = {
+      mode: "main",
+      shell: syncShell(ctx, { ...ctx.state.shell, workspaceBrowser: { ...browser, query: "", selectedIndex: 0 } }),
+    };
+    ctx.render();
+    return;
+  }
+
+  if (browser.query !== null && (key === "BACKSPACE" || key === "DELETE")) {
+    const q = browser.query.slice(0, -1);
+    ctx.state = {
+      mode: "main",
+      shell: syncShell(ctx, { ...ctx.state.shell, workspaceBrowser: { ...browser, query: q, selectedIndex: 0 } }),
+    };
+    ctx.render();
+    return;
+  }
+
+  if (browser.query !== null && key.length === 1 && key >= " ") {
+    const q = browser.query + key;
+    ctx.state = {
+      mode: "main",
+      shell: syncShell(ctx, { ...ctx.state.shell, workspaceBrowser: { ...browser, query: q, selectedIndex: 0 } }),
+    };
+    ctx.render();
+    return;
+  }
+
+  const visibleEntries = getWorkspaceBrowserVisibleEntries(browser);
 
   if (key === "UP" || key === "k") {
     ctx.state = {
@@ -271,7 +310,7 @@ function handleWorkspaceBrowserKey(ctx: AppContext, key: string): void {
         ...ctx.state.shell,
         workspaceBrowser: {
           ...browser,
-          selectedIndex: Math.min(Math.max(0, browser.entries.length - 1), browser.selectedIndex + 1),
+          selectedIndex: Math.min(Math.max(0, visibleEntries.length - 1), browser.selectedIndex + 1),
           error: null,
         },
       }),
@@ -293,7 +332,7 @@ function handleWorkspaceBrowserKey(ctx: AppContext, key: string): void {
   }
 
   if (key === "RIGHT" || key === "l" || isEnterKey(key)) {
-    const selectedEntry = browser.entries[browser.selectedIndex] ?? null;
+    const selectedEntry = visibleEntries[browser.selectedIndex] ?? null;
     if (!selectedEntry) {
       return;
     }
@@ -618,7 +657,7 @@ export function onKey(ctx: AppContext, name: unknown): void {
             ctx,
             syncShell(ctx, {
               ...result.state,
-              workspaceBrowser: { cwd: ctx.workspaceRoot, entries: [], selectedIndex: 0, error: message },
+              workspaceBrowser: { cwd: ctx.workspaceRoot, entries: [], selectedIndex: 0, query: null, error: message },
             }),
             message,
           ),
