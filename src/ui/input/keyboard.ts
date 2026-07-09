@@ -35,9 +35,25 @@ export function getTerminalScrollLinesForRawInput(raw: string): number {
 }
 
 export function mapRawTerminalInputToKey(raw: string): string | null {
-  if (raw === "[13;2u") return "SHIFT_ENTER";
+  if (SHIFT_ENTER_RAW_INPUTS.includes(raw)) return "SHIFT_ENTER";
   return null;
 }
+
+export function isRawTerminalInputPrefix(raw: string): boolean {
+  return SHIFT_ENTER_RAW_INPUTS.some((input) => input.startsWith(raw));
+}
+
+export function terminalKeyToRawSequencePart(key: string): string | null {
+  if (key === "ESCAPE") return "";
+  return key.length === 1 ? key : null;
+}
+
+const SHIFT_ENTER_RAW_INPUTS = [
+  "[13;2u",
+  "[13;2~",
+  "[27;2;13~",
+  "[27;2;10~",
+];
 
 export function shouldSuppressRawTerminalInput(
   suppressTerminalEnterOnAttach: boolean,

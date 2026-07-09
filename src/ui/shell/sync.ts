@@ -175,6 +175,33 @@ export async function refreshInspection(ctx: AppContext, shell: ControlShellStat
   }
 }
 
+export function scheduleLeftNavInspectionRefresh(ctx: AppContext, shell: ControlShellState): void {
+  ctx.pendingLeftNavInspectionShell = shell;
+
+  if (ctx.leftNavInspectionTimer) {
+    return;
+  }
+
+  ctx.leftNavInspectionTimer = setTimeout(() => {
+    ctx.leftNavInspectionTimer = null;
+    const shellToRefresh = ctx.pendingLeftNavInspectionShell;
+    ctx.pendingLeftNavInspectionShell = null;
+
+    if (!shellToRefresh || ctx.state.mode !== "main" || ctx.state.shell !== shellToRefresh) {
+      return;
+    }
+
+    void refreshInspection(ctx, shellToRefresh).catch((error: unknown) => {
+      const message = reportRecoverableError(ctx, "refresh inspection", error, "Failed to refresh inspection.");
+      ctx.state = {
+        mode: "main",
+        shell: applyErrorToast(ctx, syncShell(ctx, { ...ctx.state.shell, actionMessage: message }), message),
+      };
+      ctx.render();
+    });
+  }, 120);
+}
+
 
 export function scheduleInspectionViewportScroll(ctx: AppContext, lines: number): void {
   if (lines === 0) {

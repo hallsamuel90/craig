@@ -11,6 +11,7 @@ import {
 import { getViewport } from "../layout.js";
 import { getPtySize } from "./session.js";
 import { getSelectedTask, withTerminalView, syncShell, applyErrorToast, reportRecoverableError, reloadModel, buildActionContext, persistShellState, resolveTerminalViewTabId } from "../shell/sync.js";
+import { getLeftItemIds } from "../shell/loader.js";
 import { updateTerminalViewState, markTerminalAttachFailed, type ControlShellState } from "../state.js";
 import { isAgentTabId } from "../input/keyboard.js";
 import type { AppContext } from "../app-context.js";
@@ -159,12 +160,18 @@ export async function closePtyTabFromShell(ctx: AppContext, shell: ControlShellS
 
 export async function closeTaskFromShell(ctx: AppContext, shell: ControlShellState): Promise<ControlShellState> {
   const syncedShell = syncShell(ctx, shell);
+  const previousLeftItemIds = getLeftItemIds(ctx.model);
+  const closedIndex = previousLeftItemIds.indexOf(syncedShell.selectedLeftItemId ?? "");
   const { closedTabIds, nextShell } = await closeTaskAction(syncedShell, buildActionContext(ctx));
   for (const tabId of closedTabIds) {
     ctx.ptyRuntime.disposeSession(tabId);
   }
   await reloadModel(ctx);
-  return syncShell(ctx, { ...syncedShell, ...nextShell });
+  return syncShell(ctx, {
+    ...syncedShell,
+    ...nextShell,
+    selectedLeftItemId: resolveLeftItemAfterClose(previousLeftItemIds, getLeftItemIds(ctx.model), closedIndex),
+  });
 }
 
 export async function removeWorkspaceFromShell(ctx: AppContext, shell: ControlShellState): Promise<ControlShellState> {
@@ -200,3 +207,17 @@ export function scheduleTerminalViewportScroll(ctx: AppContext, lines: number): 
   }, 16);
 }
 
+function resolveLeftItemAfterClose(previousLeftItemIds: string[], nextLeftItemIds: string[], closedIndex: number): string | null {
+  if (nextLeftItemIds.length === 0) {
+    return null;
+  }
+
+  for (let index = closedIndex - 1; index >= 0; index -= 1) {
+    const itemId = previousLeftItemIds[index];
+    if (itemId && nextLeftItemIds.includes(itemId)) {
+      return itemId;
+    }
+  }
+
+  return nextLeftItemIds[Math.min(Math.max(0, closedIndex), nextLeftItemIds.length - 1)] ?? null;
+}

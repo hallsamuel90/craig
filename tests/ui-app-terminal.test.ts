@@ -65,6 +65,25 @@ describe("terminal app PTY attach flow", () => {
     await expect(app).resolves.toBe(0);
   });
 
+  test("starts from an empty .craig directory by initializing runtime state", async () => {
+    const root = await mkdtemp(join(tmpdir(), "craig-ui-empty-"));
+    tempRoots.push(root);
+    await mkdir(join(root, ".craig"), { recursive: true });
+    const terminal = new FakeTerminal();
+    const ptyRuntime = new FakePtyRuntime();
+    const uiStateFile = join(root, ".craig", "runtime", "ui-state.json");
+    const app = startTerminalApp({ terminal, ptyRuntime, uiStateFile, workspaceRoot: root });
+    await vi.waitFor(() => expect(terminal.hasKeyListener()).toBe(true));
+
+    terminal.emitKey("\r");
+    await vi.waitFor(() => expect(stripAnsi(terminal.frames.at(-1) ?? "")).toContain("No workspaces registered."));
+    terminal.emitKey("q");
+
+    await expect(app).resolves.toBe(0);
+    await expect(readFile(join(root, ".craig", "index.json"), "utf8")).resolves.toContain('"version": 2');
+    expect(ptyRuntime.ensureSession).not.toHaveBeenCalled();
+  });
+
   test.each(["ENTER", "CTRL_M", "RETURN"])(
     "%s on the focused terminal center pane attaches and forwards later keys to the PTY",
     async (enterKey) => {
@@ -629,7 +648,12 @@ describe("terminal app PTY attach flow", () => {
     await expect(app).resolves.toBe(0);
   });
 
-  test("terminal mode maps Ghostty shift+enter CSI-u input to a PTY line feed", async () => {
+  test.each([
+    ["Ghostty CSI-u", "\u001B[13;2u"],
+    ["tilde CSI", "\u001B[13;2~"],
+    ["modifyOtherKeys carriage return", "\u001B[27;2;13~"],
+    ["modifyOtherKeys line feed", "\u001B[27;2;10~"],
+  ])("terminal mode maps %s shift+enter input to a PTY line feed", async (_label, rawInput) => {
     const root = await mkdtemp(join(tmpdir(), "craig-ui-app-"));
     tempRoots.push(root);
     const paths = await setupWorkspace(root);
@@ -641,13 +665,80 @@ describe("terminal app PTY attach flow", () => {
     terminal.emitKey("\r"); // boot start
     terminal.emitKey("ENTER");
     await vi.waitFor(() => expect(ptyRuntime.ensureSession).toHaveBeenCalled());
-    terminal.emitUnknown("\u001B[13;2u");
+    terminal.emitUnknown(rawInput);
+    terminal.emitKey("\u001D");
+    terminal.emitKey("q");
+
+    await expect(app).resolves.toBe(0);
+    expect(ptyRuntime.writeKey).toHaveBeenCalledWith("SHIFT_ENTER");
+    expect(ptyRuntime.write).not.toHaveBeenCalledWith(rawInput);
+  });
+
+  test("terminal mode maps shift+enter split across key events to a PTY line feed", async () => {
+    const root = await mkdtemp(join(tmpdir(), "craig-ui-app-"));
+    tempRoots.push(root);
+    const paths = await setupWorkspace(root);
+    const terminal = new FakeTerminal();
+    const ptyRuntime = new FakePtyRuntime();
+    const app = startTerminalApp({ terminal, ptyRuntime, uiStateFile: paths.uiStateFile, workspaceRoot: root });
+    await vi.waitFor(() => expect(terminal.hasKeyListener()).toBe(true));
+
+    terminal.emitKey("\r"); // boot start
+    terminal.emitKey("ENTER");
+    await vi.waitFor(() => expect(ptyRuntime.ensureSession).toHaveBeenCalled());
+    for (const key of ["ESCAPE", "[", "1", "3", ";", "2", "u"]) {
+      terminal.emitKey(key);
+    }
     terminal.emitKey("\u001D");
     terminal.emitKey("q");
 
     await expect(app).resolves.toBe(0);
     expect(ptyRuntime.writeKey).toHaveBeenCalledWith("SHIFT_ENTER");
     expect(ptyRuntime.write).not.toHaveBeenCalledWith("\u001B[13;2u");
+  });
+
+  test("terminal mode maps shift+enter delivered as a key payload to a PTY line feed", async () => {
+    const root = await mkdtemp(join(tmpdir(), "craig-ui-app-"));
+    tempRoots.push(root);
+    const paths = await setupWorkspace(root);
+    const terminal = new FakeTerminal();
+    const ptyRuntime = new FakePtyRuntime();
+    const app = startTerminalApp({ terminal, ptyRuntime, uiStateFile: paths.uiStateFile, workspaceRoot: root });
+    await vi.waitFor(() => expect(terminal.hasKeyListener()).toBe(true));
+
+    terminal.emitKey("\r"); // boot start
+    terminal.emitKey("ENTER");
+    await vi.waitFor(() => expect(ptyRuntime.ensureSession).toHaveBeenCalled());
+    terminal.emitKey("\u001B[13;2u");
+    terminal.emitKey("\u001D");
+    terminal.emitKey("q");
+
+    await expect(app).resolves.toBe(0);
+    expect(ptyRuntime.writeKey).toHaveBeenCalledWith("SHIFT_ENTER");
+    expect(ptyRuntime.writeKey).not.toHaveBeenCalledWith("\u001B[13;2u");
+  });
+
+  test("terminal mode maps shift+enter split across key and raw input events to a PTY line feed", async () => {
+    const root = await mkdtemp(join(tmpdir(), "craig-ui-app-"));
+    tempRoots.push(root);
+    const paths = await setupWorkspace(root);
+    const terminal = new FakeTerminal();
+    const ptyRuntime = new FakePtyRuntime();
+    const app = startTerminalApp({ terminal, ptyRuntime, uiStateFile: paths.uiStateFile, workspaceRoot: root });
+    await vi.waitFor(() => expect(terminal.hasKeyListener()).toBe(true));
+
+    terminal.emitKey("\r"); // boot start
+    terminal.emitKey("ENTER");
+    await vi.waitFor(() => expect(ptyRuntime.ensureSession).toHaveBeenCalled());
+    terminal.emitKey("ESCAPE");
+    terminal.emitUnknown("[13;2u");
+    terminal.emitKey("\u001D");
+    terminal.emitKey("q");
+
+    await expect(app).resolves.toBe(0);
+    expect(ptyRuntime.writeKey).toHaveBeenCalledWith("SHIFT_ENTER");
+    expect(ptyRuntime.write).not.toHaveBeenCalledWith("\u001B");
+    expect(ptyRuntime.write).not.toHaveBeenCalledWith("[13;2u");
   });
 
   test("mouse wheel in terminal mode scrolls the PTY viewport instead of writing to the PTY", async () => {
@@ -2155,6 +2246,53 @@ describe("terminal app PTY attach flow", () => {
 
     await expect(app).resolves.toBe(0);
     expect(ptyRuntime.ensureSession).not.toHaveBeenCalled();
+  });
+
+  test("closing a lower left task row selects the row above instead of the workspace header", async () => {
+    const root = await mkdtemp(join(tmpdir(), "craig-ui-app-"));
+    tempRoots.push(root);
+    const paths = await setupWorkspace(root);
+    const secondTask = await writeTaskRecord(root, {
+      id: "task_20260430_03",
+      title: "second task",
+      repoId: "repo_a",
+      workspaceId: "workspace_repo_a",
+      worktreePath: join(root, "worktrees", "repo_a", "task_20260430_03"),
+    });
+    await mkdir(secondTask.worktreePath, { recursive: true });
+    const index = JSON.parse(await readFile(paths.indexFile, "utf8")) as { taskIds: string[] };
+    await writeFile(paths.indexFile, JSON.stringify({ ...index, taskIds: ["task_20260430_02", "task_20260430_03"] }, null, 2), "utf8");
+    await writeFile(
+      paths.uiStateFile,
+      JSON.stringify({
+        version: 1,
+        selectedRepoId: "repo_a",
+        selectedWorkspaceId: "workspace_repo_a",
+        selectedTaskId: "task_20260430_03",
+        selectedPtyTabId: "task_20260430_03:agent",
+        selectedLeftItemId: "task:task_20260430_03",
+        inputMode: "control",
+        focusedRegion: "tasks",
+        activeTab: "task_20260430_03:agent",
+        selectedActionId: "commit",
+        updatedAt: "2026-05-04T00:00:00.000Z",
+      }),
+    );
+    const terminal = new FakeTerminal();
+    const ptyRuntime = new FakePtyRuntime();
+    const app = startTerminalApp({ terminal, ptyRuntime, uiStateFile: paths.uiStateFile, workspaceRoot: root });
+    await vi.waitFor(() => expect(terminal.hasKeyListener()).toBe(true));
+
+    terminal.emitKey("\r"); // boot start
+    await vi.waitFor(() => expect(stripAnsi(terminal.frames.at(-1) ?? "")).toContain("▸ second task"));
+    terminal.emitKey("X");
+    await vi.waitFor(() => expect(stripAnsi(terminal.frames.at(-1) ?? "")).toContain("Archived task task_20260430_03"));
+    const frame = stripAnsi(terminal.frames.at(-1) ?? "");
+    expect(frame).toContain("▸ test task");
+    expect(frame).not.toContain("▸ second task");
+    terminal.emitKey("q");
+
+    await expect(app).resolves.toBe(0);
   });
 
   test("left-pane attach keeps the selected terminal tab when the agent tab is missing", async () => {

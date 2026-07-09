@@ -65,6 +65,9 @@ export type AppContext = {
   lastTerminalKey: { key: string; at: number } | null;
   pendingScrollLines: number;
   pendingInspectionScrollLines: number;
+  leftNavInspectionTimer: ReturnType<typeof setTimeout> | null;
+  pendingLeftNavInspectionShell: ControlShellState | null;
+  pendingTerminalKeySequence: { raw: string; timer: ReturnType<typeof setTimeout> } | null;
   scrollRenderTimer: ReturnType<typeof setTimeout> | null;
   inspectionScrollRenderTimer: ReturnType<typeof setTimeout> | null;
   ptyRenderTimer: ReturnType<typeof setTimeout> | null;
