@@ -27,8 +27,10 @@ import {
   getTerminalScrollLinesForKey,
   getTerminalScrollLinesForMouseEvent,
   getTerminalScrollLinesForRawInput,
+  isRawTerminalInputPrefix,
   mapRawTerminalInputToKey,
   shouldSuppressRawTerminalInput,
+  terminalKeyToRawSequencePart,
 } from "./keyboard.js";
 import {
   createInteractiveTask,
@@ -45,6 +47,7 @@ import {
   getShellKeyOptions,
   refreshInspection,
   reloadModel,
+  scheduleLeftNavInspectionRefresh,
   scheduleInspectionViewportScroll,
   buildActionContext,
 } from "../shell/sync.js";
@@ -604,6 +607,17 @@ export function onKey(ctx: AppContext, name: unknown): void {
         ctx.suppressTerminalEnterOnAttach = false;
       }
 
+      const mappedRawKey = mapRawTerminalInputToKey(key);
+      if (mappedRawKey) {
+        ctx.lastTerminalKey = { key: mappedRawKey, at: Date.now() };
+        ctx.ptyRuntime.writeKey(mappedRawKey);
+        return;
+      }
+
+      if (handleTerminalKeySequence(ctx, key)) {
+        return;
+      }
+
       ctx.lastTerminalKey = shouldTrackTerminalKey(key) ? { key, at: Date.now() } : null;
 
       const scrollLines = getTerminalScrollLinesForKey(key, ctx.state.shell.terminal.scrolledBack ?? false);
@@ -780,6 +794,10 @@ export function onKey(ctx: AppContext, name: unknown): void {
       ctx.state = { mode: "main", shell: syncShell(ctx, result.state) };
       persistShellState(ctx, ctx.state.shell);
       ctx.render();
+      if (ctx.state.shell.focusedRegion === "tasks") {
+        scheduleLeftNavInspectionRefresh(ctx, ctx.state.shell);
+        return;
+      }
       void refreshInspection(ctx, ctx.state.shell).catch((error: unknown) => {
         const message = reportRecoverableError(ctx, "refresh inspection", error, "Failed to refresh inspection.");
         ctx.state = {
@@ -947,6 +965,26 @@ export function onUnknown(ctx: AppContext, input: unknown): void {
     return;
   }
 
+  if (ctx.pendingTerminalKeySequence) {
+    const combinedRaw = `${ctx.pendingTerminalKeySequence.raw}${raw}`;
+    const mappedKey = mapRawTerminalInputToKey(combinedRaw);
+    if (mappedKey) {
+      clearPendingTerminalKeySequence(ctx);
+      ctx.suppressTerminalEnterOnAttach = false;
+      ctx.lastTerminalKey = { key: mappedKey, at: Date.now() };
+      ctx.ptyRuntime.writeKey(mappedKey);
+      return;
+    }
+
+    if (isRawTerminalInputPrefix(combinedRaw)) {
+      ctx.pendingTerminalKeySequence.raw = combinedRaw;
+      schedulePendingTerminalKeySequenceFlush(ctx);
+      return;
+    }
+
+    flushPendingTerminalKeySequence(ctx);
+  }
+
   if (raw.includes("")) {
     ctx.ptyRuntime.detach();
     ctx.suppressTerminalEnterOnAttach = false;
@@ -984,6 +1022,70 @@ export function onUnknown(ctx: AppContext, input: unknown): void {
   }
 
   ctx.ptyRuntime.write(raw);
+}
+
+function handleTerminalKeySequence(ctx: AppContext, key: string): boolean {
+  if (ctx.pendingTerminalKeySequence) {
+    const raw = terminalKeyToRawSequencePart(key);
+    if (raw !== null) {
+      const nextRaw = `${ctx.pendingTerminalKeySequence.raw}${raw}`;
+      const mappedKey = mapRawTerminalInputToKey(nextRaw);
+      if (mappedKey) {
+        clearPendingTerminalKeySequence(ctx);
+        ctx.lastTerminalKey = { key: mappedKey, at: Date.now() };
+        ctx.ptyRuntime.writeKey(mappedKey);
+        return true;
+      }
+
+      if (isRawTerminalInputPrefix(nextRaw)) {
+        ctx.pendingTerminalKeySequence.raw = nextRaw;
+        schedulePendingTerminalKeySequenceFlush(ctx);
+        return true;
+      }
+    }
+
+    flushPendingTerminalKeySequence(ctx);
+    return false;
+  }
+
+  if (key !== "ESCAPE") {
+    return false;
+  }
+
+  ctx.pendingTerminalKeySequence = {
+    raw: "",
+    timer: setTimeout(() => flushPendingTerminalKeySequence(ctx), 30),
+  };
+  return true;
+}
+
+function schedulePendingTerminalKeySequenceFlush(ctx: AppContext): void {
+  if (!ctx.pendingTerminalKeySequence) {
+    return;
+  }
+
+  clearTimeout(ctx.pendingTerminalKeySequence.timer);
+  ctx.pendingTerminalKeySequence.timer = setTimeout(() => flushPendingTerminalKeySequence(ctx), 30);
+}
+
+function flushPendingTerminalKeySequence(ctx: AppContext): void {
+  if (!ctx.pendingTerminalKeySequence) {
+    return;
+  }
+
+  const pending = ctx.pendingTerminalKeySequence;
+  ctx.pendingTerminalKeySequence = null;
+  clearTimeout(pending.timer);
+  ctx.ptyRuntime.write(pending.raw);
+}
+
+function clearPendingTerminalKeySequence(ctx: AppContext): void {
+  if (!ctx.pendingTerminalKeySequence) {
+    return;
+  }
+
+  clearTimeout(ctx.pendingTerminalKeySequence.timer);
+  ctx.pendingTerminalKeySequence = null;
 }
 
 export function onMouse(ctx: AppContext, name: unknown): void {

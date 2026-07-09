@@ -684,9 +684,9 @@ function padTerminalSegmentsToWidth(segments: TerminalRowSegment[], width: numbe
     return segments;
   }
 
-  const trailingStyle = segments.at(-1)?.style;
-  if (trailingStyle?.bg) {
-    return [...segments, { text: " ".repeat(width - visibleWidth), style: trailingStyle }];
+  const trailingBackgroundStyle = [...segments].reverse().find((segment) => segment.style?.bg)?.style;
+  if (trailingBackgroundStyle?.bg) {
+    return [...segments, { text: " ".repeat(width - visibleWidth), style: trailingBackgroundStyle }];
   }
 
   return [...segments, { text: " ".repeat(width - visibleWidth) }];

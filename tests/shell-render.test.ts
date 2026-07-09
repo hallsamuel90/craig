@@ -948,15 +948,17 @@ describe("terminal shell renderer", () => {
         activeTab: "agent",
         terminal: {
           status: "running",
-          rows: [{ segments: [{ text: "> prompt", style: { fg: "e5e5e5", bg: "2a2a2a" } }] }],
+          rows: [{ segments: [{ text: "> prompt", style: { fg: "e5e5e5", bg: "2a2a2a" } }, { text: " " }] }],
           error: null,
         },
       }),
       { color: true },
     );
 
+    const promptLine = frame.split("\n").find((line) => line.includes("> prompt"));
     expect(frame).toContain("> prompt");
-    expect(frame).toContain("48;2;42;42;42");
+    expect(promptLine).toBeDefined();
+    expect(promptLine!).toContain("48;2;42;42;42m ");
   });
 
   test("renders PTY rows with a small horizontal gutter", () => {

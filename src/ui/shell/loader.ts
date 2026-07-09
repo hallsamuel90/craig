@@ -1,6 +1,6 @@
 import type { RunnerType } from "../../domain/config/index.js";
 import { taskService } from "../../domain/task/index.js";
-import { listWorkspaceRecords, workspaceService } from "../../domain/workspace/index.js";
+import { workspaceService } from "../../domain/workspace/index.js";
 import { getCraigPaths } from "../../state/craig-paths.js";
 import type { TaskRecord } from "../../domain/task/index.js";
 import { loadTaskLocalInspection } from "./task-local-inspection.js";
@@ -14,7 +14,11 @@ export async function loadWorkspaceShellModel(
   enabledRunnerIds?: RunnerType[],
 ): Promise<WorkspaceShellModel> {
   const paths = getCraigPaths(workspaceRoot);
-  const [repos, workspaces, taskResult] = await Promise.all([workspaceService.repos.listRegisteredRepos(paths).then((r) => r.repos), listWorkspaceRecords(paths), taskService.listTasks(paths)]);
+  const [repoResult, workspaceResult] = await Promise.all([
+    workspaceService.repos.listRegisteredRepos(paths),
+    workspaceService.listWorkspaces(paths, { archived: false }),
+  ]);
+  const taskResult = await taskService.listTasks(paths);
   const selectedTask = resolveSelectedTaskForInspection(taskResult.tasks, shell);
   const selection = shell
     ? {
@@ -25,8 +29,8 @@ export async function loadWorkspaceShellModel(
   const inspection = selectedTask ? await loadTaskLocalInspection(selectedTask, selection) : null;
   return {
     workspaceRoot,
-    workspaces: workspaces.filter((workspace) => workspace.status === "active"),
-    repos,
+    workspaces: workspaceResult.workspaces,
+    repos: repoResult.repos,
     tasks: taskResult.tasks,
     inspection,
     ...(enabledRunnerIds ? { enabledRunnerIds } : {}),

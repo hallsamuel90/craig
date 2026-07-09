@@ -86,6 +86,9 @@ export async function startTerminalApp(options: TerminalAppOptions = {}): Promis
       lastTerminalKey: null,
       pendingScrollLines: 0,
       pendingInspectionScrollLines: 0,
+      leftNavInspectionTimer: null,
+      pendingLeftNavInspectionShell: null,
+      pendingTerminalKeySequence: null,
       scrollRenderTimer: null,
       inspectionScrollRenderTimer: null,
       ptyRenderTimer: null,
@@ -198,6 +201,8 @@ export async function startTerminalApp(options: TerminalAppOptions = {}): Promis
       activeTerminal.removeListener("mouse", boundOnMouse);
       if (ctx.scrollRenderTimer) { clearTimeout(ctx.scrollRenderTimer); ctx.scrollRenderTimer = null; }
       if (ctx.inspectionScrollRenderTimer) { clearTimeout(ctx.inspectionScrollRenderTimer); ctx.inspectionScrollRenderTimer = null; }
+      if (ctx.leftNavInspectionTimer) { clearTimeout(ctx.leftNavInspectionTimer); ctx.leftNavInspectionTimer = null; }
+      if (ctx.pendingTerminalKeySequence) { clearTimeout(ctx.pendingTerminalKeySequence.timer); ctx.pendingTerminalKeySequence = null; }
       if (ctx.ptyRenderTimer) { clearTimeout(ctx.ptyRenderTimer); ctx.ptyRenderTimer = null; }
       if (ctx.footerToastTimer) { clearTimeout(ctx.footerToastTimer); ctx.footerToastTimer = null; }
       if (ctx.focusFlashTimer) { clearTimeout(ctx.focusFlashTimer); ctx.focusFlashTimer = null; }
