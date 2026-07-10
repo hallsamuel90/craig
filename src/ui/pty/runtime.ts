@@ -3,6 +3,7 @@ import type * as NodePty from "node-pty";
 import type { Terminal } from "@xterm/headless";
 
 import type { TerminalStatus, TerminalViewState } from "../state.js";
+import type { TerminalScreenRow } from "../terminal-emulator.js";
 import {
   createTerminalEmulator,
   renderTerminalScreenRows,
@@ -42,6 +43,9 @@ interface PtySession {
   error: string | null;
   disposables: NodePty.IDisposable[];
   scrollbackLines: number;
+  rows: TerminalScreenRow[];
+  renderedScrollbackLines: number | null;
+  screenDirty: boolean;
 }
 
 const require = createRequire(import.meta.url);
@@ -185,7 +189,7 @@ export class PtyRuntime {
 
     return {
       status: session.status,
-      rows: renderTerminalScreenRows(session.terminal, session.scrollbackLines),
+      rows: getRenderedRows(session),
       error: session.error,
       scrolledBack: session.scrollbackLines > 0,
     };
@@ -213,12 +217,16 @@ export class PtyRuntime {
       error: null,
       disposables: [],
       scrollbackLines: 0,
+      rows: [],
+      renderedScrollbackLines: null,
+      screenDirty: true,
     };
 
     session.disposables.push(
       pty.onData((chunk) => {
         respondToTerminalQueries(pty, chunk);
         void writeTerminalEmulator(session.terminal, chunk).then(() => {
+          session.screenDirty = true;
           this.onUpdate?.(session.tabId);
         });
       }),
@@ -227,6 +235,7 @@ export class PtyRuntime {
       pty.onExit((event) => {
         session.status = "exited";
         void writeTerminalEmulator(session.terminal, `\r\n[process exited ${event.exitCode}]`).then(() => {
+          session.screenDirty = true;
           this.onUpdate?.(session.tabId);
         });
       }),
@@ -261,6 +270,17 @@ export function mapKeyToPtyInput(key: string): string | null {
 function resizeSession(session: PtySession, size: PtySize): void {
   resizePtySafely(session.pty, size);
   resizeTerminalEmulator(session.terminal, size);
+  session.screenDirty = true;
+}
+
+function getRenderedRows(session: PtySession): TerminalScreenRow[] {
+  if (session.screenDirty || session.renderedScrollbackLines !== session.scrollbackLines) {
+    session.rows = renderTerminalScreenRows(session.terminal, session.scrollbackLines);
+    session.renderedScrollbackLines = session.scrollbackLines;
+    session.screenDirty = false;
+  }
+
+  return session.rows;
 }
 
 function disposeSession(session: PtySession): void {

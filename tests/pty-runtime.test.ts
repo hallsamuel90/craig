@@ -71,6 +71,23 @@ describe("PTY runtime", () => {
     expect(updated.rows[0]?.segments[0]?.text).toContain("ok");
   });
 
+  test("reuses a terminal screen snapshot until PTY output changes it", async () => {
+    const fakePty = createFakePty();
+    const runtime = new PtyRuntime({
+      workspaceRoot: "/tmp/craig",
+      shell: "/bin/zsh",
+      env: { TERM: "xterm-256color" },
+      spawn: vi.fn(() => fakePty),
+    });
+
+    runtime.ensureSession("task_20260430_02", "task_20260430_02:terminal", { columns: 80, rows: 24 });
+    const initialRows = runtime.getViewState("task_20260430_02:terminal").rows;
+    expect(runtime.getViewState("task_20260430_02:terminal").rows).toBe(initialRows);
+
+    fakePty.emitData("updated\r\n");
+    await vi.waitFor(() => expect(runtime.getViewState("task_20260430_02:terminal").rows).not.toBe(initialRows));
+  });
+
   test("answers core terminal capability probes so runner CLIs can finish bootstrapping", () => {
     const fakePty = createFakePty();
     const runtime = new PtyRuntime({
