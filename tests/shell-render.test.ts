@@ -487,6 +487,82 @@ describe("terminal shell renderer", () => {
     expect(colorFrame).toContain("\u001B[38;2;224;175;104;48;2;10;10;10m●");
   });
 
+  test("renders the newest active PR and preserves previous terminal PR history", () => {
+    const task = buildTaskRecord("/tmp/craig", {
+      id: "task_20260430_02",
+      repoId: "repo_bug_fixes",
+      workspaceId: "workspace_bug_fixes",
+      prs: [
+        {
+          provider: "github",
+          owner: null,
+          repo: null,
+          number: 17,
+          url: "https://github.com/example/repo/pull/17",
+          title: null,
+          status: "merged",
+          draft: false,
+          baseBranch: "main",
+          headBranch: "craig/task_20260430_02",
+          mergeable: false,
+          mergeStateStatus: "UNKNOWN",
+          reviewDecision: null,
+          requiredChecks: [],
+          comments: [],
+          createdAt: null,
+          updatedAt: null,
+          mergedAt: "2026-05-06T00:00:00.000Z",
+          lastSyncedAt: "2026-05-06T00:00:00.000Z",
+          lastSyncedHeadSha: "oldsha",
+        },
+        {
+          provider: "github",
+          owner: null,
+          repo: null,
+          number: 42,
+          url: "https://github.com/example/repo/pull/42",
+          title: null,
+          status: "open",
+          draft: false,
+          baseBranch: "main",
+          headBranch: "agent/follow-up",
+          mergeable: true,
+          mergeStateStatus: "CLEAN",
+          reviewDecision: null,
+          requiredChecks: [],
+          comments: [],
+          createdAt: null,
+          updatedAt: null,
+          mergedAt: null,
+          lastSyncedAt: "2026-05-06T01:00:00.000Z",
+          lastSyncedHeadSha: "newsha",
+        },
+      ],
+    });
+    const data = buildShellData(
+      {
+        ...createInitialShellState(null),
+        selectedRepoId: "repo_bug_fixes",
+        selectedTaskId: task.id,
+        selectedLeftItemId: `task:${task.id}`,
+        focusedRegion: "inspector",
+        inspectionMode: "review",
+      },
+      {
+        workspaceRoot: "/tmp/craig",
+        repos: [{ id: "repo_bug_fixes", name: "bug-fixes", rootPath: "/tmp/craig", defaultBranch: "main", createdAt: "", updatedAt: "" }],
+        tasks: [task],
+        inspection: null,
+      },
+    );
+
+    const frame = renderMainShellFrame(MIN_VIEWPORT, data, { color: false });
+
+    expect(frame).toContain("#42");
+    expect(frame).toContain("main → agent/follow-up");
+    expect(frame).toContain("+ 1 previous PR");
+  });
+
   test("renders review guidance for failed and unknown checks", () => {
     const baseTask = buildTaskRecord("/tmp/craig", {
       id: "task_20260430_02",

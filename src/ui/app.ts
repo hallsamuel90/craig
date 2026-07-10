@@ -57,11 +57,12 @@ export async function startTerminalApp(options: TerminalAppOptions = {}): Promis
   let model = await loadWorkspaceShellModel(workspaceRoot, undefined, enabledRunnerIds);
   const initialShell = restoreShellState(createInitialShellState(runtimeState, config), model);
   model = await loadWorkspaceShellModel(workspaceRoot, initialShell, enabledRunnerIds);
+  const modelRef = { current: model };
   let handlePtyUpdate: () => void = () => undefined;
   const ptyOptions: PtyRuntimeOptions = {
     workspaceRoot,
     onUpdate: () => handlePtyUpdate(),
-    resolveSessionSpec: (_taskId, tabId) => resolvePtySessionSpec(model, tabId, workspaceRoot),
+    resolveSessionSpec: (_taskId, tabId) => resolvePtySessionSpec(modelRef.current, tabId, workspaceRoot),
   };
   const initialPtyRuntime: PtyRuntimePort =
     options.ptyRuntime ??
@@ -78,7 +79,12 @@ export async function startTerminalApp(options: TerminalAppOptions = {}): Promis
         optionsMessage: null,
         shell: restoreShellState(initialShell, model),
       },
-      model,
+      get model() {
+        return modelRef.current;
+      },
+      set model(nextModel) {
+        modelRef.current = nextModel;
+      },
       config,
       enabledRunnerIds,
       creatingTask: false,

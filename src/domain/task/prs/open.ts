@@ -7,9 +7,11 @@ import {
   refreshPullRequestState,
   writePrStatusArtifact,
   persistPullRequestView,
+  getPullRequestDiscoveryBranches,
 } from "./refresh.js";
 import {
   ensureGhAuthenticated,
+  discoverPrView,
   fetchPullRequestViewsBatch,
   getGitHubRepositoryLocator,
   type GitHubRepositoryLocator,
@@ -116,6 +118,7 @@ export const discoverOrRefreshPullRequests = async (
           worktreePath: target.worktreePath,
           selector: target.pullRequest.number ? String(target.pullRequest.number) : target.branch,
           mode: target.pullRequest.number ? "number" : "head",
+          fallbackSelectors: [],
         };
         await enqueueBatchItem(batchGroups, item).catch(async () => {
           try {
@@ -133,12 +136,14 @@ export const discoverOrRefreshPullRequests = async (
 
     const taskPrimaryPr = getTaskPrimaryPr(task);
     const pollByNumber = taskPrimaryPr?.number && !isPrTerminal(taskPrimaryPr);
+    const discoveryBranches = pollByNumber ? [] : await getPullRequestDiscoveryBranches(task);
     const item: PullRequestBatchItem = {
       id: task.id,
       task,
       worktreePath: task.worktreePath,
-      selector: pollByNumber ? String(taskPrimaryPr!.number) : task.branch,
+      selector: pollByNumber ? String(taskPrimaryPr!.number) : discoveryBranches[0] ?? task.branch,
       mode: pollByNumber ? "number" : "head",
+      fallbackSelectors: pollByNumber ? [] : discoveryBranches.slice(1),
     };
     await enqueueBatchItem(batchGroups, item).catch(async () => {
       try {
@@ -160,7 +165,8 @@ export const discoverOrRefreshPullRequests = async (
       for (const item of group.items) {
         const result = ensurePollResult(results, item.task);
         const batchResult = byId.get(item.id);
-        if (!batchResult?.found || !batchResult.view) {
+        const view = batchResult?.view ?? await fetchFirstFallbackPullRequestView(group.worktreePath, item);
+        if (!view) {
           recordDisposition(result, "not_found", null, null);
           continue;
         }
@@ -168,18 +174,18 @@ export const discoverOrRefreshPullRequests = async (
         if (item.targetRepoId) {
           const raw = await readRawTask(paths, item.task.id);
           const latestTask = validateTaskRecord(raw, `${paths.tasksDir}/${item.task.id}.json`);
-          await persistTargetPullRequestView(paths, latestTask, item.targetRepoId, batchResult.view);
+          await persistTargetPullRequestView(paths, latestTask, item.targetRepoId, view);
         } else {
           const raw = await readRawTask(paths, item.task.id);
           const latestTask = validateTaskRecord(raw, `${paths.tasksDir}/${item.task.id}.json`);
-          await persistPullRequestView(paths, latestTask, batchResult.view, getTaskPrimaryPr(latestTask));
+          await persistPullRequestView(paths, latestTask, view, item.mode === "number" ? getTaskPrimaryPr(latestTask) : null);
         }
 
         recordDisposition(
           result,
           item.mode === "number" ? "synced" : "discovered",
-          batchResult.view.number,
-          batchResult.view.url,
+          view.number,
+          view.url,
         );
       }
     } catch {
@@ -294,6 +300,7 @@ interface PullRequestBatchItem {
   targetRepoId?: string;
   worktreePath: string;
   selector: string;
+  fallbackSelectors: string[];
   mode: "number" | "head";
 }
 
@@ -302,6 +309,24 @@ interface PullRequestBatchGroup {
   repository: GitHubRepositoryLocator;
   items: PullRequestBatchItem[];
 }
+
+const fetchFirstFallbackPullRequestView = async (
+  worktreePath: string,
+  item: PullRequestBatchItem,
+): Promise<Awaited<ReturnType<typeof discoverPrView>>> => {
+  if (item.mode !== "head") {
+    return null;
+  }
+
+  for (const selector of item.fallbackSelectors) {
+    const view = await discoverPrView(selector, worktreePath);
+    if (view) {
+      return view;
+    }
+  }
+
+  return null;
+};
 
 const enqueueBatchItem = async (
   groups: Map<string, PullRequestBatchGroup>,

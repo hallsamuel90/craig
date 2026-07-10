@@ -165,6 +165,78 @@ describe("Craig terminal mode E2E", () => {
     }
   }, 15000);
 
+  test("creating a new task starts Codex in the new task worktree", async () => {
+    const repoRoot = process.cwd();
+    const workspaceRoot = await mkdtemp(join(tmpdir(), "craig-terminal-e2e-create-")).then((value) => realpath(value));
+    await createCraigState(workspaceRoot, []);
+    const sourceRepo = join(workspaceRoot, "repo-a");
+    await mkdir(sourceRepo, { recursive: true });
+    await createGitRepo(sourceRepo);
+    await writeFile(join(sourceRepo, "README.md"), "# repo-a\n", "utf8");
+    await runCommand("git", ["add", "README.md"], { cwd: sourceRepo });
+    await runCommand("git", ["commit", "-m", "init"], { cwd: sourceRepo });
+    await writeRepoRecord(
+      workspaceRoot,
+      {
+        id: "repo_a",
+        name: "repo-a",
+        rootPath: sourceRepo,
+        defaultBranch: "main",
+        createdAt: "2026-05-04T00:00:00.000Z",
+        updatedAt: "2026-05-04T00:00:00.000Z",
+      },
+      {
+        id: "workspace_repo_a",
+        primaryRepoId: "repo_a",
+        branch: "main",
+        status: "active",
+        linkedRepoIds: [],
+        archivedAt: null,
+        createdAt: "2026-05-04T00:00:00.000Z",
+        updatedAt: "2026-05-04T00:00:00.000Z",
+      },
+    );
+    const codexStubDir = await createCodexHarnessStub(workspaceRoot);
+    await writeRepoUiState(workspaceRoot);
+    const output = new PtyOutputBuffer();
+
+    const child = spawn(resolveTestTsxBin(repoRoot), [resolve(repoRoot, "src/cli.ts")], {
+      cwd: workspaceRoot,
+      cols: 120,
+      rows: 36,
+      env: {
+        ...process.env,
+        PATH: `${codexStubDir}:${process.env.PATH ?? ""}`,
+        SHELL: process.env.SHELL ?? "/bin/zsh",
+        TERM: "xterm-256color",
+      },
+    });
+
+    child.onData((chunk) => output.append(chunk));
+
+    try {
+      await output.waitFor("> Start");
+      child.write("\r");
+      await output.waitFor("+ New Task");
+      child.write("n");
+      await output.waitFor("NEW TASK");
+      child.write("create e2e task");
+      child.write("\r");
+      await output.waitFor("codex_stub_started");
+      await output.waitForLatestFrame("codex_stub_bottom_bar");
+      const frame = output.latestFrame();
+      expect(frame).toContain("TERMINAL   ↑↓/PgUp/PgDn scroll");
+      expect(frame).toContain("codex_stub_started");
+      expect(frame).toContain("codex_stub_task_dir:task_");
+      expect(frame).toContain("codex_stub_prompt:");
+      expect(frame).not.toContain("[process exited");
+    } finally {
+      child.kill();
+      await requestDaemonShutdown(getCraigPaths(workspaceRoot));
+      await rm(workspaceRoot, { recursive: true, force: true });
+    }
+  }, 20000);
+
   test.each([
     ["cursor", "cursor-agent"],
     ["claude", "claude"],
@@ -446,6 +518,26 @@ async function writeAgentUiState(workspaceRoot: string): Promise<void> {
       selectedWorkspaceId: "workspace_repo_a",
       selectedTaskId: "task_20260430_02",
       selectedPtyTabId: "task_20260430_02:agent",
+      inputMode: "control",
+      focusedRegion: "center",
+      activeTab: "agent",
+      selectedActionId: "commit",
+      updatedAt: "2026-05-04T00:00:00.000Z",
+    }),
+  );
+}
+
+async function writeRepoUiState(workspaceRoot: string): Promise<void> {
+  const runtimeDir = join(workspaceRoot, ".craig", "runtime");
+  await mkdir(runtimeDir, { recursive: true });
+  await writeFile(
+    join(runtimeDir, "ui-state.json"),
+    JSON.stringify({
+      version: 1,
+      selectedRepoId: "repo_a",
+      selectedWorkspaceId: "workspace_repo_a",
+      selectedTaskId: null,
+      selectedPtyTabId: null,
       inputMode: "control",
       focusedRegion: "center",
       activeTab: "agent",

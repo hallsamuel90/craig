@@ -24,6 +24,8 @@ const originalEnv = {
   CRAIG_TEST_GH_PR_NUMBER: process.env.CRAIG_TEST_GH_PR_NUMBER,
   CRAIG_TEST_GH_PR_URL: process.env.CRAIG_TEST_GH_PR_URL,
   CRAIG_TEST_GH_GRAPHQL_FILE: process.env.CRAIG_TEST_GH_GRAPHQL_FILE,
+  CRAIG_TEST_GH_EXPECT_SELECTOR: process.env.CRAIG_TEST_GH_EXPECT_SELECTOR,
+  CRAIG_TEST_GH_EXPECT_GRAPHQL_SELECTOR: process.env.CRAIG_TEST_GH_EXPECT_GRAPHQL_SELECTOR,
   CRAIG_GH_RATE_LIMIT_RETRY_BASE_MS: process.env.CRAIG_GH_RATE_LIMIT_RETRY_BASE_MS,
   CRAIG_TEST_GH_VIEW_FILE: process.env.CRAIG_TEST_GH_VIEW_FILE,
   CRAIG_TEST_TMUX_STATE_FILE: process.env.CRAIG_TEST_TMUX_STATE_FILE,
@@ -36,10 +38,20 @@ afterEach(async () => {
   process.env.CRAIG_TEST_GH_PR_NUMBER = originalEnv.CRAIG_TEST_GH_PR_NUMBER;
   process.env.CRAIG_TEST_GH_PR_URL = originalEnv.CRAIG_TEST_GH_PR_URL;
   process.env.CRAIG_TEST_GH_GRAPHQL_FILE = originalEnv.CRAIG_TEST_GH_GRAPHQL_FILE;
+  restoreOptionalEnv("CRAIG_TEST_GH_EXPECT_SELECTOR", originalEnv.CRAIG_TEST_GH_EXPECT_SELECTOR);
+  restoreOptionalEnv("CRAIG_TEST_GH_EXPECT_GRAPHQL_SELECTOR", originalEnv.CRAIG_TEST_GH_EXPECT_GRAPHQL_SELECTOR);
   process.env.CRAIG_GH_RATE_LIMIT_RETRY_BASE_MS = originalEnv.CRAIG_GH_RATE_LIMIT_RETRY_BASE_MS;
   process.env.CRAIG_TEST_GH_VIEW_FILE = originalEnv.CRAIG_TEST_GH_VIEW_FILE;
   process.env.CRAIG_TEST_TMUX_STATE_FILE = originalEnv.CRAIG_TEST_TMUX_STATE_FILE;
 });
+
+function restoreOptionalEnv(name: string, value: string | undefined): void {
+  if (value === undefined) {
+    delete process.env[name];
+  } else {
+    process.env[name] = value;
+  }
+}
 
 describe("task lifecycle services", () => {
   test("runChecks fails clearly when no checks are configured", async () => {
@@ -891,6 +903,152 @@ describe("task lifecycle services", () => {
     expect(task.prs[0]?.status).toBe("merged");
     expect(task.prs[1]?.number).toBe(22);
     expect(task.prs[1]?.status).toBe("open");
+  });
+
+  test("refreshTrackedPullRequest discovers a new PR from the current worktree branch", async () => {
+    const repoRoot = await createRepoRoot("craig-pr-current-branch-");
+    tempRoots.push(repoRoot);
+    const { paths, worktreePath, stubDir } = await createTrackedTaskRepo(repoRoot);
+    process.env.PATH = `${stubDir}:${originalPath}`;
+    await runCommand("git", ["switch", "-c", "agent/follow-up"], { cwd: worktreePath });
+
+    const viewFile = path.join(repoRoot, "gh-view.json");
+    await writeFile(
+      viewFile,
+      JSON.stringify({
+        number: 42,
+        url: "https://github.com/example/repo/pull/42",
+        baseRefName: "main",
+        headRefName: "agent/follow-up",
+        headRefOid: "followupsha",
+        state: "OPEN",
+        mergeable: "MERGEABLE",
+        mergeStateStatus: "CLEAN",
+        statusCheckRollup: [],
+      }),
+      "utf8",
+    );
+    process.env.CRAIG_TEST_GH_VIEW_FILE = viewFile;
+    process.env.CRAIG_TEST_GH_EXPECT_SELECTOR = "agent/follow-up";
+
+    await writeTaskRecord(paths.repoRoot, {
+      id: "task_1",
+      status: "merged",
+      branch: "craig/task_1",
+      worktreePath,
+      prs: [{
+        provider: "github",
+        owner: null,
+        repo: null,
+        number: 21,
+        url: "https://github.com/example/repo/pull/21",
+        title: null,
+        status: "merged",
+        draft: false,
+        baseBranch: "main",
+        headBranch: "craig/task_1",
+        mergeable: false,
+        mergeStateStatus: "UNKNOWN",
+        requiredChecks: [],
+        createdAt: null,
+        updatedAt: null,
+        mergedAt: null,
+        lastSyncedAt: "2026-04-21T00:00:00.000Z",
+        lastSyncedHeadSha: "oldsha456",
+      }],
+    });
+
+    const { taskService: ts } = await import("../src/domain/task/index.js");
+    await ts.prs.refresh(paths, "task_1");
+    const task = await readTask(paths, "task_1");
+
+    expect(task.prs).toHaveLength(2);
+    expect(task.prs[0]?.number).toBe(21);
+    expect(task.prs[0]?.status).toBe("merged");
+    expect(task.prs[1]?.number).toBe(42);
+    expect(task.prs[1]?.status).toBe("open");
+    expect(task.prs[1]?.headBranch).toBe("agent/follow-up");
+  });
+
+  test("background polling discovers a new PR from the current worktree branch", async () => {
+    const repoRoot = await createRepoRoot("craig-pr-poll-current-branch-");
+    tempRoots.push(repoRoot);
+    const { paths, worktreePath, stubDir } = await createTrackedTaskRepo(repoRoot);
+    process.env.PATH = `${stubDir}:${originalPath}`;
+    await runCommand("git", ["remote", "set-url", "origin", "https://github.com/example/repo.git"], { cwd: worktreePath });
+    await runCommand("git", ["switch", "-c", "agent/polled-follow-up"], { cwd: worktreePath });
+
+    const graphqlFile = path.join(repoRoot, "gh-graphql.json");
+    await writeFile(
+      graphqlFile,
+      JSON.stringify({
+        data: {
+          repository: {
+            item0: {
+              nodes: [{
+                number: 43,
+                url: "https://github.com/example/repo/pull/43",
+                baseRefName: "main",
+                headRefName: "agent/polled-follow-up",
+                headRefOid: "polledsha",
+                state: "OPEN",
+                isDraft: false,
+                title: "Follow-up",
+                createdAt: null,
+                updatedAt: null,
+                mergedAt: null,
+                mergeable: "MERGEABLE",
+                mergeStateStatus: "CLEAN",
+                reviewDecision: null,
+                statusCheckRollup: { contexts: { nodes: [] } },
+                commits: { nodes: [] },
+                comments: { nodes: [] },
+              }],
+            },
+          },
+        },
+      }),
+      "utf8",
+    );
+    process.env.CRAIG_TEST_GH_GRAPHQL_FILE = graphqlFile;
+    process.env.CRAIG_TEST_GH_EXPECT_GRAPHQL_SELECTOR = "agent/polled-follow-up";
+
+    const originalTask = await writeTaskRecord(paths.repoRoot, {
+      id: "task_1",
+      status: "merged",
+      branch: "craig/task_1",
+      worktreePath,
+      prs: [{
+        provider: "github",
+        owner: null,
+        repo: null,
+        number: 21,
+        url: "https://github.com/example/repo/pull/21",
+        title: null,
+        status: "merged",
+        draft: false,
+        baseBranch: "main",
+        headBranch: "craig/task_1",
+        mergeable: false,
+        mergeStateStatus: "UNKNOWN",
+        requiredChecks: [],
+        createdAt: null,
+        updatedAt: null,
+        mergedAt: null,
+        lastSyncedAt: "2026-04-21T00:00:00.000Z",
+        lastSyncedHeadSha: "oldsha456",
+      }],
+    });
+
+    await discoverOrRefreshPullRequests(paths, [originalTask]);
+    const task = await readTask(paths, "task_1");
+
+    expect(task.prs).toHaveLength(2);
+    expect(task.prs[0]?.number).toBe(21);
+    expect(task.prs[0]?.status).toBe("merged");
+    expect(task.prs[1]?.number).toBe(43);
+    expect(task.prs[1]?.status).toBe("open");
+    expect(task.prs[1]?.headBranch).toBe("agent/polled-follow-up");
   });
 
   test("refreshPullRequestChecks discovers a new PR when current primary is closed", async () => {

@@ -5,6 +5,7 @@ import type { TaskPR, TaskRecord } from "../types.js";
 import type { CraigPaths } from "../../../state/craig-paths.js";
 import { atomicWriteJson } from "../../../shared/atomic-write.js";
 import { readRawTask, writeTask } from "../adapters/task-store.js";
+import { getCurrentBranch } from "../adapters/git.js";
 import { validateTaskRecord } from "../tasks/validate.js";
 import { fetchPrView, discoverPrView } from "../adapters/github.js";
 import type { GhPrView } from "../adapters/github.js";
@@ -64,13 +65,22 @@ export const discoverPullRequestState = async (
   paths: CraigPaths,
   task: TaskRecord,
 ): Promise<{ discovered: boolean; task: TaskRecord }> => {
-  const payload = await discoverPrView(task.branch, task.worktreePath);
+  for (const branch of await getPullRequestDiscoveryBranches(task)) {
+    const payload = await discoverPrView(branch, task.worktreePath);
 
-  if (!payload) {
-    return { discovered: false, task };
+    if (!payload) {
+      continue;
+    }
+
+    const persistedTask = await persistPullRequestView(paths, task, payload, null);
+
+    return { discovered: true, task: persistedTask };
   }
 
-  const persistedTask = await persistPullRequestView(paths, task, payload, null);
+  return { discovered: false, task };
+};
 
-  return { discovered: true, task: persistedTask };
+export const getPullRequestDiscoveryBranches = async (task: TaskRecord): Promise<string[]> => {
+  const currentBranch = await getCurrentBranch(task.worktreePath).catch(() => null);
+  return [...new Set([currentBranch, task.branch].filter((branch): branch is string => Boolean(branch)))];
 };
