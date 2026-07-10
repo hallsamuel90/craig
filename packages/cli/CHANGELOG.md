@@ -1,5 +1,11 @@
 # craig-cli
 
+## 0.7.10
+
+### Patch Changes
+
+- acbf00c: Improve TUI responsiveness while switching tasks and processing terminal output.
+
 ## 0.7.9
 
 ### Patch Changes
