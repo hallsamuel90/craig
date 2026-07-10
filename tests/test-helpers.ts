@@ -394,6 +394,10 @@ if [ "$1" = "pr" ] && [ "$2" = "create" ]; then
   exit 0
 fi
 if [ "$1" = "pr" ] && [ "$2" = "view" ]; then
+  if [ -n "\${CRAIG_TEST_GH_EXPECT_SELECTOR:-}" ] && [ "\${3:-}" != "$CRAIG_TEST_GH_EXPECT_SELECTOR" ]; then
+    echo "unexpected PR selector: \${3:-}" >&2
+    exit 1
+  fi
   if [ "$mode" = "no-pr" ] && [ ! -f "$created_marker" ]; then
     echo "no pull requests found" >&2
     exit 1
@@ -408,6 +412,18 @@ EOF
   exit 0
 fi
 if [ "$1" = "api" ] && [ "$2" = "graphql" ]; then
+  if [ -n "\${CRAIG_TEST_GH_EXPECT_GRAPHQL_SELECTOR:-}" ]; then
+    found=0
+    for arg in "$@"; do
+      case "$arg" in
+        *"headRefName: \\"\${CRAIG_TEST_GH_EXPECT_GRAPHQL_SELECTOR}\\""*) found=1 ;;
+      esac
+    done
+    if [ "$found" = "0" ]; then
+      echo "expected GraphQL selector $CRAIG_TEST_GH_EXPECT_GRAPHQL_SELECTOR" >&2
+      exit 1
+    fi
+  fi
   attempts=0
   if [ -f "$graphql_attempts_file" ]; then
     attempts="$(cat "$graphql_attempts_file")"

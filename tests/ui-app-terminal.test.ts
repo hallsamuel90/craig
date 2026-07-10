@@ -856,6 +856,8 @@ describe("terminal app PTY attach flow", () => {
     }
     terminal.emitKey("ENTER");
     await vi.waitFor(() => expect(ptyRuntime.ensureSession).toHaveBeenCalled());
+    await vi.waitFor(() => expect(stripAnsi(terminal.frames.at(-1) ?? "")).toContain("engaged"));
+    expect(stripAnsi(terminal.frames.at(-1) ?? "")).toContain("Ctrl+] return to control");
     terminal.emitKey("\u001D");
     terminal.emitKey("q");
 
@@ -882,6 +884,8 @@ describe("terminal app PTY attach flow", () => {
     terminal.emitKey("["); // focus left pane
     terminal.emitKey("ENTER");
     await vi.waitFor(() => expect(ptyRuntime.ensureSession).toHaveBeenCalled());
+    await vi.waitFor(() => expect(stripAnsi(terminal.frames.at(-1) ?? "")).toContain("engaged"));
+    expect(stripAnsi(terminal.frames.at(-1) ?? "")).toContain("Ctrl+] return to control");
     terminal.emitKey("\u001D");
     terminal.emitKey("q");
 

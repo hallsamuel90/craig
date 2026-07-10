@@ -99,6 +99,17 @@ export const getHeadCommit = async (worktreePath: string): Promise<{ sha: string
   return { sha, message };
 };
 
+export const getCurrentBranch = async (worktreePath: string): Promise<string | null> => {
+  const result = await runCommandAllowingFailure("git", ["branch", "--show-current"], { cwd: worktreePath });
+
+  if (result.exitCode !== 0) {
+    return null;
+  }
+
+  const branch = result.stdout.trim();
+  return branch.length > 0 ? branch : null;
+};
+
 export const isWorktreeClean = async (worktreePath: string): Promise<boolean> => {
   return !(await hasUncommittedDiff(worktreePath));
 };
