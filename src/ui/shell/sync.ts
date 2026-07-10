@@ -114,7 +114,10 @@ export function getShellKeyOptions(ctx: AppContext, shell: ControlShellState) {
   const selectedTask = getSelectedTask(ctx.model.tasks, shell);
   const inspection = ctx.model.inspection;
   const selectedInspection = inspection && inspection.taskId === selectedTask?.id ? inspection : null;
-  const fileTreeRows = getVisibleFileTreeRows(selectedInspection?.fileRows ?? [], shell.collapsedFileTreePaths);
+  const needsInspectionNavigation = shell.focusedRegion === "inspector" || shell.activeTab === "inspection";
+  const fileTreeRows = needsInspectionNavigation
+    ? getVisibleFileTreeRows(selectedInspection?.fileRows ?? [], shell.collapsedFileTreePaths)
+    : [];
   return {
     leftItemIds: getLeftItemIds(ctx.model),
     centerTabIds: buildCenterTabIds(selectedTask, shell),

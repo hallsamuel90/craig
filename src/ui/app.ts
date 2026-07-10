@@ -128,12 +128,11 @@ export async function startTerminalApp(options: TerminalAppOptions = {}): Promis
         return;
       }
 
-      ctx.state = { mode: "main", shell: withTerminalView(ctx, ctx.state.shell) };
-
       if (!ctx.ptyRenderTimer) {
         ctx.ptyRenderTimer = setTimeout(() => {
           ctx.ptyRenderTimer = null;
           if (ctx.state.mode === "main") {
+            ctx.state = { mode: "main", shell: withTerminalView(ctx, ctx.state.shell) };
             ctx.render();
           }
         }, 50);
