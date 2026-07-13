@@ -70,6 +70,7 @@ export async function startTerminalApp(options: TerminalAppOptions = {}): Promis
 
   return new Promise<number>((resolve) => {
     const activeTerminal = options.terminal ?? terminal;
+    let lastRenderedFrame: string | null = null;
 
     const ctx: AppContext = {
       state: {
@@ -189,8 +190,10 @@ export async function startTerminalApp(options: TerminalAppOptions = {}): Promis
         activeTerminal.moveTo(1, 1);
         activeTerminal.eraseDisplayBelow();
         ctx.pendingClear = false;
+        lastRenderedFrame = null;
       }
-      activeTerminal.noFormat(positionFrameRows(frame));
+      activeTerminal.noFormat(positionFrameRows(frame, lastRenderedFrame));
+      lastRenderedFrame = frame;
       activeTerminal.hideCursor(true);
     };
 
