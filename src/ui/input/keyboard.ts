@@ -73,9 +73,11 @@ export function inputToString(value: unknown): string {
   return "";
 }
 
-export function positionFrameRows(frame: string): string {
+export function positionFrameRows(frame: string, previousFrame: string | null = null): string {
+  const previousRows = previousFrame?.split("\n") ?? [];
+
   return frame
     .split("\n")
-    .map((line, index) => `[${index + 1};1H${line}`)
+    .map((line, index) => previousRows[index] === line ? "" : `[${index + 1};1H${line}`)
     .join("");
 }

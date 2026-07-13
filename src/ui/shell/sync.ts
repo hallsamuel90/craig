@@ -12,6 +12,8 @@ import type { ActionContext } from "../actions/index.js";
 import { persistPtyTabSelection } from "../actions/index.js";
 import type { AppContext } from "../app-context.js";
 
+const LEFT_NAV_INSPECTION_DEBOUNCE_MS = 250;
+
 export function getSelectedTask(tasks: TaskRecord[], shell: ControlShellState): TaskRecord | null {
   return tasks.find((task) => task.id === shell.selectedTaskId) ?? null;
 }
@@ -202,7 +204,7 @@ export function scheduleLeftNavInspectionRefresh(ctx: AppContext, shell: Control
       };
       ctx.render();
     });
-  }, 120);
+  }, LEFT_NAV_INSPECTION_DEBOUNCE_MS);
 }
 
 
