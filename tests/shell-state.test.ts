@@ -1,7 +1,8 @@
 import { describe, expect, test } from "vitest";
 
 import type { CraigUiRuntime } from "../src/state/ui-runtime.js";
-import { createInitialShellState, reduceFileSearchKey, reduceMainKey, restoreShellState, toPersistedUiState } from "../src/ui/state.js";
+import { createInitialShellState, restoreShellState, toPersistedUiState } from "../src/ui/state.js";
+import { reduceFileSearchKey, reduceMainKey } from "../src/ui/input/reducer.js";
 import { buildTaskRecord } from "./test-helpers.js";
 
 const LEFT_ITEM_IDS = [

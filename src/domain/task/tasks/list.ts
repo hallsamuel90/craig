@@ -1,4 +1,4 @@
-import type { CommandListResult } from "../../../commands/types.js";
+import type { CommandListResult } from "../types.js";
 import type { TaskRecord } from "../types.js";
 import type { CraigPaths } from "../../../state/craig-paths.js";
 import { readCraigIndex } from "../../../domain/workspace/index.js";

@@ -27,6 +27,19 @@ export type {
   SessionSnapshot,
   SessionAttachState,
   SessionRecord,
+  TaskInspection,
+  CommandCreateTaskResult,
+  CommandListResult,
+  CommandAttachTaskResult,
+  CommandAddTaskLinkResult,
+  CommandListTaskLinksResult,
+  CommandShowTaskResult,
+  CommandLogsResult,
+  CommandDiffResult,
+  CommandFocusResult,
+  CommandOpenResult,
+  CommandChecksResult,
+  CommandCommitResult,
 } from "./types.js";
 
 // re-export validators for external test use

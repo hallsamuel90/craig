@@ -1,7 +1,7 @@
 import { mkdir } from "node:fs/promises";
 import path from "node:path";
 
-import type { CommandChecksResult } from "../../../commands/types.js";
+import type { CommandChecksResult } from "../types.js";
 import type { TaskCheckResult } from "../types.js";
 import type { CraigPaths } from "../../../state/craig-paths.js";
 import { atomicWriteJson } from "../../../shared/atomic-write.js";

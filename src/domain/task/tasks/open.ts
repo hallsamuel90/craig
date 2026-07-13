@@ -1,6 +1,6 @@
 import { spawn } from "node:child_process";
 
-import type { CommandOpenResult } from "../../../commands/types.js";
+import type { CommandOpenResult } from "../types.js";
 import type { CraigPaths } from "../../../state/craig-paths.js";
 import { configService } from "../../config/index.js";
 import { assertTaskWorktreeExists, getTask } from "./inspect.js";

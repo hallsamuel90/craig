@@ -8,13 +8,8 @@ import { getPtySize, getRequiredPtyTabId } from "../pty/session.js";
 import { getWorkspaceBrowserVisibleEntries, openUrl } from "../workspace/browser.js";
 import { getSelectedTask } from "../shell/sync.js";
 import { getTaskPrimaryPr } from "../../domain/task/index.js";
-import {
-  isEnterKey,
-  isPrintableKey,
-  getNextRunner,
-  reduceMainKey,
-  updateTerminalViewState,
-} from "../state.js";
+import { isEnterKey, isPrintableKey, getNextRunner, updateTerminalViewState } from "../state.js";
+import { reduceMainKey } from "./reducer.js";
 import {
   reduceOptionsMenuKey,
   reduceRunnerOptionsKey,

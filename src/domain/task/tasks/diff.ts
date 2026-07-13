@@ -1,4 +1,4 @@
-import type { CommandDiffResult } from "../../../commands/types.js";
+import type { CommandDiffResult } from "../types.js";
 import type { CraigPaths } from "../../../state/craig-paths.js";
 import { runCommand, runCommandAllowingFailure } from "../../../shared/exec.js";
 import { assertTaskWorktreeExists, getTask } from "./inspect.js";

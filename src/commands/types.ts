@@ -1,5 +1,28 @@
-import type { SessionRecord, TaskRecord, RunnerType } from "../domain/task/index.js";
-import type { RepoRecord, WorkspaceRecord } from "../domain/workspace/index.js";
+import type { RunnerType } from "../domain/task/index.js";
+import type {
+  CommandCreateTaskResult,
+  CommandListResult,
+  CommandAttachTaskResult,
+  CommandAddTaskLinkResult,
+  CommandListTaskLinksResult,
+  CommandShowTaskResult,
+  CommandLogsResult,
+  CommandDiffResult,
+  CommandFocusResult,
+  CommandOpenResult,
+  CommandChecksResult,
+  CommandCommitResult,
+} from "../domain/task/index.js";
+import type {
+  CommandCreateWorkspaceResult,
+  CommandCreateRepoResult,
+  CommandListReposResult,
+  CommandRemoveRepoResult,
+  CommandListWorkspacesResult,
+  CommandArchiveWorkspaceResult,
+  CommandRestoreWorkspaceResult,
+  CommandRemoveWorkspaceResult,
+} from "../domain/workspace/index.js";
 
 export type AppCommand =
   | { kind: "addWorkspace"; path: string }
@@ -33,70 +56,6 @@ export type AppCommand =
   | { kind: "help" }
   | { kind: "exit" };
 
-export interface CommandCreateTaskResult {
-  kind: "createTask";
-  taskId: string;
-  repoId: string;
-  workspaceId: string;
-  sessionId: string;
-  status: string;
-  branch: string;
-  worktreePath: string;
-  runner: string;
-}
-
-export interface CommandCreateWorkspaceResult {
-  kind: "createWorkspace";
-  workspace: WorkspaceRecord;
-  repos: RepoRecord[];
-  created: boolean;
-}
-
-export interface CommandCreateRepoResult {
-  kind: "createRepo";
-  repo: RepoRecord;
-  workspaceId: string;
-  created: boolean;
-}
-
-export interface CommandListReposResult {
-  kind: "listRepos";
-  repos: RepoRecord[];
-}
-
-export interface CommandRemoveRepoResult {
-  kind: "removeRepo";
-  repoId: string;
-  rootPath: string;
-}
-
-export interface CommandListWorkspacesResult {
-  kind: "listWorkspaces";
-  workspaces: WorkspaceRecord[];
-  archivedOnly: boolean;
-}
-
-export interface CommandArchiveWorkspaceResult {
-  kind: "archiveWorkspace";
-  workspaceId: string;
-  status: "archived";
-  branch: string;
-}
-
-export interface CommandRestoreWorkspaceResult {
-  kind: "restoreWorkspace";
-  workspaceId: string;
-  status: "active";
-  branch: string;
-  primaryRepoId: string | null;
-}
-
-export interface CommandRemoveWorkspaceResult {
-  kind: "removeWorkspace";
-  workspaceId: string;
-  rootPath: string;
-}
-
 export interface CommandHelpResult {
   kind: "help";
   text: string;
@@ -106,92 +65,28 @@ export interface CommandExitResult {
   kind: "exit";
 }
 
-export interface CommandListResult {
-  kind: "listTasks";
-  tasks: TaskRecord[];
-  missingTaskIds: string[];
-  repoId: string | null;
-}
-
-export interface CommandAttachTaskResult {
-  kind: "attachTask";
-  taskId: string;
-  sessionId: string;
-  disposition: "attached";
-}
-
-export interface CommandAddTaskLinkResult {
-  kind: "addTaskLink";
-  taskId: string;
-  repoId: string;
-  linkedRepoIds: string[];
-}
-
-export interface CommandListTaskLinksResult {
-  kind: "listTaskLinks";
-  taskId: string;
-  repos: RepoRecord[];
-}
-
-export interface TaskInspection {
-  worktreeExists: boolean;
-  logExists: boolean;
-  recentFailureReason: string | null;
-  runnerCommandText: string;
-  checksSummary: string;
-  lastCommitSummary: string;
-  prSummary: string;
-  cleanupSummary: string;
-}
-
-export interface CommandShowTaskResult {
-  kind: "showTask";
-  task: TaskRecord;
-  inspection: TaskInspection;
-  session: SessionRecord | null;
-}
-
-export interface CommandLogsResult {
-  kind: "streamTaskLogs";
-  taskId: string;
-  logPath: string;
-}
-
-export interface CommandDiffResult {
-  kind: "showTaskDiff";
-  taskId: string;
-  diffText: string;
-  isEmpty: boolean;
-}
-
-export interface CommandFocusResult {
-  kind: "focusTask";
-  taskId: string;
-  tmuxTarget: string;
-}
-
-export interface CommandOpenResult {
-  kind: "openTask";
-  taskId: string;
-  worktreePath: string;
-  launched: boolean;
-  command: string[] | null;
-}
-
-export interface CommandChecksResult {
-  kind: "runChecks";
-  taskId: string;
-  status: "passed" | "failed";
-  commands: string[];
-}
-
-export interface CommandCommitResult {
-  kind: "commitTask";
-  taskId: string;
-  status: string;
-  commitSha: string;
-  message: string;
-}
+export type {
+  CommandCreateTaskResult,
+  CommandListResult,
+  CommandAttachTaskResult,
+  CommandAddTaskLinkResult,
+  CommandListTaskLinksResult,
+  CommandShowTaskResult,
+  CommandLogsResult,
+  CommandDiffResult,
+  CommandFocusResult,
+  CommandOpenResult,
+  CommandChecksResult,
+  CommandCommitResult,
+  CommandCreateWorkspaceResult,
+  CommandCreateRepoResult,
+  CommandListReposResult,
+  CommandRemoveRepoResult,
+  CommandListWorkspacesResult,
+  CommandArchiveWorkspaceResult,
+  CommandRestoreWorkspaceResult,
+  CommandRemoveWorkspaceResult,
+};
 
 export type CommandResult =
   | CommandCreateWorkspaceResult

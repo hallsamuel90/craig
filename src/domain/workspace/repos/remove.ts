@@ -1,5 +1,6 @@
 import type { CraigPaths } from "../../../state/craig-paths.js";
-import type { CommandListResult, CommandRemoveRepoResult } from "../../../commands/types.js";
+import type { CommandRemoveRepoResult } from "../types.js";
+import type { CommandListResult } from "../../task/types.js";
 import { readCraigIndex, writeCraigIndex } from "../adapters/index-store.js";
 import { deleteRepo, readRepo } from "../adapters/repo-store.js";
 import { listWorkspaceRecords } from "../adapters/workspace-store.js";

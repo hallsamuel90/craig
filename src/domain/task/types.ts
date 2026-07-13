@@ -1,4 +1,5 @@
 import type { RunnerType } from "../config/index.js";
+import type { RepoRecord } from "../workspace/index.js";
 
 export type TaskType = "repo" | "project";
 export type TaskStatus =
@@ -176,6 +177,105 @@ export interface TaskRecord {
   lastFailureReason?: string | null;
   createdAt: string;
   updatedAt: string;
+}
+
+export interface TaskInspection {
+  worktreeExists: boolean;
+  logExists: boolean;
+  recentFailureReason: string | null;
+  runnerCommandText: string;
+  checksSummary: string;
+  lastCommitSummary: string;
+  prSummary: string;
+  cleanupSummary: string;
+}
+
+export interface CommandCreateTaskResult {
+  kind: "createTask";
+  taskId: string;
+  repoId: string;
+  workspaceId: string;
+  sessionId: string;
+  status: string;
+  branch: string;
+  worktreePath: string;
+  runner: string;
+}
+
+export interface CommandListResult {
+  kind: "listTasks";
+  tasks: TaskRecord[];
+  missingTaskIds: string[];
+  repoId: string | null;
+}
+
+export interface CommandAttachTaskResult {
+  kind: "attachTask";
+  taskId: string;
+  sessionId: string;
+  disposition: "attached";
+}
+
+export interface CommandAddTaskLinkResult {
+  kind: "addTaskLink";
+  taskId: string;
+  repoId: string;
+  linkedRepoIds: string[];
+}
+
+export interface CommandListTaskLinksResult {
+  kind: "listTaskLinks";
+  taskId: string;
+  repos: RepoRecord[];
+}
+
+export interface CommandShowTaskResult {
+  kind: "showTask";
+  task: TaskRecord;
+  inspection: TaskInspection;
+  session: SessionRecord | null;
+}
+
+export interface CommandLogsResult {
+  kind: "streamTaskLogs";
+  taskId: string;
+  logPath: string;
+}
+
+export interface CommandDiffResult {
+  kind: "showTaskDiff";
+  taskId: string;
+  diffText: string;
+  isEmpty: boolean;
+}
+
+export interface CommandFocusResult {
+  kind: "focusTask";
+  taskId: string;
+  tmuxTarget: string;
+}
+
+export interface CommandOpenResult {
+  kind: "openTask";
+  taskId: string;
+  worktreePath: string;
+  launched: boolean;
+  command: string[] | null;
+}
+
+export interface CommandChecksResult {
+  kind: "runChecks";
+  taskId: string;
+  status: "passed" | "failed";
+  commands: string[];
+}
+
+export interface CommandCommitResult {
+  kind: "commitTask";
+  taskId: string;
+  status: string;
+  commitSha: string;
+  message: string;
 }
 
 export type SessionSubstrate = "tmux";

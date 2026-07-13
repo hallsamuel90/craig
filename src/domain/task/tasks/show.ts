@@ -1,4 +1,4 @@
-import type { CommandShowTaskResult } from "../../../commands/types.js";
+import type { CommandShowTaskResult } from "../types.js";
 import type { CraigPaths } from "../../../state/craig-paths.js";
 import { readSession } from "../adapters/session.js";
 import { buildTaskInspection, getTask } from "./inspect.js";

@@ -1,5 +1,5 @@
 import type { CraigPaths } from "../../../state/craig-paths.js";
-import type { CommandRestoreWorkspaceResult } from "../../../commands/types.js";
+import type { CommandRestoreWorkspaceResult } from "../types.js";
 import { readWorkspace, writeWorkspace } from "../adapters/workspace-store.js";
 
 export const restoreWorkspace = async (paths: CraigPaths, workspaceId: string): Promise<CommandRestoreWorkspaceResult> => {

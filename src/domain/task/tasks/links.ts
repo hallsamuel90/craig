@@ -1,4 +1,4 @@
-import type { CommandAddTaskLinkResult, CommandListTaskLinksResult } from "../../../commands/types.js";
+import type { CommandAddTaskLinkResult, CommandListTaskLinksResult } from "../types.js";
 import type { CraigPaths } from "../../../state/craig-paths.js";
 import { readRepo } from "../../../domain/workspace/index.js";
 import { writeTask } from "../adapters/task-store.js";

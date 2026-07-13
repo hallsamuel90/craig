@@ -25,6 +25,58 @@ export interface WorkspaceRecord {
   updatedAt: string;
 }
 
+export interface CommandCreateWorkspaceResult {
+  kind: "createWorkspace";
+  workspace: WorkspaceRecord;
+  repos: RepoRecord[];
+  created: boolean;
+}
+
+export interface CommandCreateRepoResult {
+  kind: "createRepo";
+  repo: RepoRecord;
+  workspaceId: string;
+  created: boolean;
+}
+
+export interface CommandListReposResult {
+  kind: "listRepos";
+  repos: RepoRecord[];
+}
+
+export interface CommandRemoveRepoResult {
+  kind: "removeRepo";
+  repoId: string;
+  rootPath: string;
+}
+
+export interface CommandListWorkspacesResult {
+  kind: "listWorkspaces";
+  workspaces: WorkspaceRecord[];
+  archivedOnly: boolean;
+}
+
+export interface CommandArchiveWorkspaceResult {
+  kind: "archiveWorkspace";
+  workspaceId: string;
+  status: "archived";
+  branch: string;
+}
+
+export interface CommandRestoreWorkspaceResult {
+  kind: "restoreWorkspace";
+  workspaceId: string;
+  status: "active";
+  branch: string;
+  primaryRepoId: string | null;
+}
+
+export interface CommandRemoveWorkspaceResult {
+  kind: "removeWorkspace";
+  workspaceId: string;
+  rootPath: string;
+}
+
 export interface CraigIndex {
   version: 2;
   workspaceRoot: string;

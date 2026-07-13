@@ -1,4 +1,4 @@
-import type { CommandCommitResult } from "../../../commands/types.js";
+import type { CommandCommitResult } from "../types.js";
 import type { CraigPaths } from "../../../state/craig-paths.js";
 import { writeTask } from "../adapters/task-store.js";
 import { commitAllChanges, getHeadCommit, hasUncommittedDiff, stageAllChanges } from "../adapters/git.js";
