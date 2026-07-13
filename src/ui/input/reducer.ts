@@ -1,18 +1,15 @@
-import { RUNNER_IDS, configService } from "../../domain/config/index.js";
+import { RUNNER_IDS } from "../../domain/config/index.js";
 import type { RunnerType } from "../../domain/config/index.js";
 import type { TaskPtyTabKind } from "../../domain/task/index.js";
 import {
   INSPECTION_TAB_ID,
   ACTION_IDS,
   REVIEW_ACTION_IDS,
-  FOCUS_REGIONS,
   INSPECTION_MODE_IDS,
   isEnterKey,
   isTerminalDetachKey,
-  isLegacyPtySurface,
   isFixedCenterTab,
   isTaskLeftItemId,
-  buildCenterTabIds,
   getNextRunner,
   getPtyTabKindFromId,
   parseLeftItemId,
