@@ -1,5 +1,11 @@
 # craig-cli
 
+## 0.7.11
+
+### Patch Changes
+
+- 2c4052b: Reduce terminal repaint work while navigating the TUI.
+
 ## 0.7.10
 
 ### Patch Changes
