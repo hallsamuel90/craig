@@ -107,6 +107,8 @@ describe("PTY daemon", () => {
       await first.ensureSession("task_1", "task_1:agent", { columns: 80, rows: 24 });
       terminalPty.emitData("terminal-live\r\n");
       agentPty.emitData("agent-live\r\n");
+      await vi.waitFor(() => expect(viewText(first.getViewState("task_1:terminal"))).toContain("terminal-live"));
+      await vi.waitFor(() => expect(viewText(first.getViewState("task_1:agent"))).toContain("agent-live"));
       first.disposeAll();
 
       const second = await createDaemonPtyRuntime({
@@ -130,6 +132,45 @@ describe("PTY daemon", () => {
       if (daemon) {
         await daemon;
       }
+      await rm(root, { recursive: true, force: true });
+    }
+  }, DAEMON_TEST_TIMEOUT_MS);
+
+  test("streams coalesced updates only for the subscribed terminal view", async () => {
+    const root = await createWorkspace();
+    const paths = getCraigPaths(root);
+    const agentPty = createFakePty();
+    const terminalPty = createFakePty();
+    const spawn = vi.fn()
+      .mockReturnValueOnce(agentPty)
+      .mockReturnValueOnce(terminalPty);
+    const onUpdate = vi.fn();
+    const daemon = servePtyDaemon(paths, { shell: "/bin/zsh", env: { TERM: "xterm-256color" }, spawn });
+
+    try {
+      const client = await createDaemonPtyRuntime({
+        paths,
+        workspaceRoot: root,
+        resolveSessionSpec: () => ({ cwd: root, command: [] }),
+        onUpdate,
+      });
+      await client.ensureSession("task_1", "task_1:agent", { columns: 80, rows: 24 });
+      await client.ensureSession("task_1", "task_1:terminal", { columns: 80, rows: 24 });
+      onUpdate.mockClear();
+
+      agentPty.emitData("background-output\r\n");
+      terminalPty.emitData("first\r\n");
+      terminalPty.emitData("second\r\n");
+      terminalPty.emitData("third\r\n");
+
+      await vi.waitFor(() => expect(viewText(client.getViewState("task_1:terminal"))).toContain("third"));
+      expect(onUpdate).toHaveBeenCalledTimes(1);
+      expect(onUpdate).toHaveBeenCalledWith("task_1:terminal");
+      expect(viewText(client.getViewState("task_1:agent"))).not.toContain("background-output");
+      client.disposeAll();
+    } finally {
+      await requestDaemonShutdown(paths);
+      await daemon;
       await rm(root, { recursive: true, force: true });
     }
   }, DAEMON_TEST_TIMEOUT_MS);
