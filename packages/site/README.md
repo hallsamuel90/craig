@@ -1,6 +1,6 @@
 # craig-site
 
-The marketing site for [craig.beer](https://craig.beer), built with Astro.
+The marketing site for [craig-cli.com](https://craig-cli.com), built with Astro.
 
 ## Development
 

@@ -1,0 +1,4 @@
+User-agent: *
+Allow: /
+
+Sitemap: https://craig-cli.com/sitemap-index.xml

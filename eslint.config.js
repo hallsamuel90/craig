@@ -5,7 +5,7 @@ import parser from "@typescript-eslint/parser";
 
 export default [
   {
-    ignores: ["dist/**", "packages/*/dist/**", "node_modules/**", ".craig/**"],
+    ignores: ["dist/**", "packages/*/dist/**", "packages/site/.astro/**", "node_modules/**", ".craig/**"],
   },
   js.configs.recommended,
   {
