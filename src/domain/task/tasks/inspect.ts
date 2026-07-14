@@ -1,7 +1,7 @@
 import { access } from "node:fs/promises";
 import path from "node:path";
 
-import type { TaskInspection } from "../../../commands/types.js";
+import type { TaskInspection } from "../types.js";
 import type { TaskPR, TaskRecord } from "../types.js";
 import type { CraigPaths } from "../../../state/craig-paths.js";
 import { readRawTask } from "../adapters/task-store.js";

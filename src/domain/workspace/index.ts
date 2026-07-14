@@ -1,4 +1,17 @@
-export type { RepoRecord, WorkspaceStatus, WorkspaceRecord, CraigIndex } from "./types.js";
+export type {
+  RepoRecord,
+  WorkspaceStatus,
+  WorkspaceRecord,
+  CraigIndex,
+  CommandCreateWorkspaceResult,
+  CommandCreateRepoResult,
+  CommandListReposResult,
+  CommandRemoveRepoResult,
+  CommandListWorkspacesResult,
+  CommandArchiveWorkspaceResult,
+  CommandRestoreWorkspaceResult,
+  CommandRemoveWorkspaceResult,
+} from "./types.js";
 export { validateWorkspaceRecord, listWorkspaceRecords } from "./adapters/workspace-store.js";
 export { validateRepoRecord, readRepo } from "./adapters/repo-store.js";
 export { validateCraigIndex, readCraigIndex, writeCraigIndex } from "./adapters/index-store.js";

@@ -32,6 +32,22 @@
 - The release workflow applies Changesets, runs gates, commits version/changelog updates back to `main` with `[skip ci]`, and publishes to npm from the same merge-triggered run.
 - Release gates must include `pnpm test`, `pnpm typecheck`, `pnpm lint`, `pnpm build`, `pnpm build:npm`, `pnpm package:audit`, and `pnpm package:smoke`.
 
+## Architecture
+
+### Dependency direction
+`input/ → shell/ → domain/` — the domain layer has zero UI knowledge. Never import from a higher layer into a lower one. The one crossing exception is `domain/task/` importing `RepoRecord` from `domain/workspace/` (tasks need repo context); this is acceptable intra-domain coupling.
+
+### Result types belong in the domain
+Command result types (e.g. `CommandCreateTaskResult`, `TaskInspection`) live in the domain layer that owns them — `domain/task/types.ts` for task results, `domain/workspace/types.ts` for workspace results. The `commands/` layer imports from domain, not the other way around.
+
+### State vs. reducer separation
+- `src/ui/state.ts` owns: type definitions, constants, state initialization (`createInitialShellState`), state restoration (`restoreShellState`), and small utility predicates (`isEnterKey`, `isPrintableKey`, `isLegacyPtySurface`, etc.).
+- `src/ui/input/reducer.ts` owns: all key-reduction logic — `reduceMainKey`, `reduceFileSearchKey`, `scrollInspectionContent`, and their private helpers.
+- `src/ui/shell/loader.ts` re-exports `getLeftItemIds` from `state.ts`; do not define it again.
+
+### No duplicate navigation functions
+`getLeftItemIds` has a single definition in `src/ui/state.ts` (exported). If you need it in a shell module, import from `state.ts` and re-export — do not copy the body.
+
 ## Terminal harness
 
 - Preserve the shell launcher UX as a testable contract, not an informal behavior.

@@ -2,7 +2,7 @@ import path from "node:path";
 import { stat } from "node:fs/promises";
 
 import type { CraigPaths } from "../../../state/craig-paths.js";
-import type { CommandCreateRepoResult } from "../../../commands/types.js";
+import type { CommandCreateRepoResult } from "../types.js";
 import { addWorkspace } from "../workspaces/add.js";
 
 export const addRepo = async (paths: CraigPaths, rawPath: string): Promise<CommandCreateRepoResult> => {

@@ -2,7 +2,7 @@ import { readdir, stat } from "node:fs/promises";
 import path from "node:path";
 
 import type { CraigPaths } from "../../../state/craig-paths.js";
-import type { CommandCreateWorkspaceResult } from "../../../commands/types.js";
+import type { CommandCreateWorkspaceResult } from "../types.js";
 import { readCraigIndex, writeCraigIndex } from "../adapters/index-store.js";
 import { listRepos, writeRepo } from "../adapters/repo-store.js";
 import { listWorkspaceRecords, writeWorkspace } from "../adapters/workspace-store.js";

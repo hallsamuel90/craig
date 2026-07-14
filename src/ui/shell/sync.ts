@@ -7,7 +7,8 @@ import { loadWorkspaceShellModel, resolveShellState, resolveSelectedTaskForInspe
 import { getViewport, SHELL_LAYOUT } from "../layout.js";
 import { getReviewInspectionRowCount, getVisibleFileTreeRows } from "./data.js";
 import type { TaskRecord } from "../../domain/task/index.js";
-import { scrollInspectionContent, toPersistedUiState, updateTerminalViewState, buildCenterTabIds, type ControlShellState, type FooterToast } from "../state.js";
+import { toPersistedUiState, updateTerminalViewState, buildCenterTabIds, type ControlShellState, type FooterToast } from "../state.js";
+import { scrollInspectionContent } from "../input/reducer.js";
 import type { ActionContext } from "../actions/index.js";
 import { persistPtyTabSelection } from "../actions/index.js";
 import type { AppContext } from "../app-context.js";
