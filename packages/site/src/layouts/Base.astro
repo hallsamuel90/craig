@@ -2,12 +2,15 @@
 interface Props {
   title?: string;
   description?: string;
+  structuredData?: Record<string, unknown>;
 }
 const {
-  title = "Craig — An agnostic agent orchestrator. For the people.",
-  description = "An agnostic agent orchestrator. For the people.",
+  title = "Craig - Run AI coding agents in parallel",
+  description = "Craig is a local terminal UI for running Codex, Claude Code, and Cursor agents in parallel across isolated Git worktrees.",
+  structuredData,
 } = Astro.props;
-const canonicalURL = new URL(Astro.url.pathname, "https://craig.beer");
+const canonicalURL = new URL(Astro.url.pathname, Astro.site);
+const socialImageURL = new URL("/screenshots/agent-working.png", Astro.site);
 ---
 
 <html lang="en">
@@ -22,16 +25,22 @@ const canonicalURL = new URL(Astro.url.pathname, "https://craig.beer");
 
     <!-- Open Graph -->
     <meta property="og:type" content="website" />
+    <meta property="og:site_name" content="Craig" />
+    <meta property="og:locale" content="en_US" />
     <meta property="og:url" content={canonicalURL} />
     <meta property="og:title" content={title} />
     <meta property="og:description" content={description} />
-    <meta property="og:image" content="https://craig.beer/screenshots/agent-working.png" />
+    <meta property="og:image" content={socialImageURL} />
+    <meta property="og:image:alt" content="Craig terminal UI running an AI coding agent" />
 
     <!-- Twitter Card -->
     <meta name="twitter:card" content="summary_large_image" />
     <meta name="twitter:title" content={title} />
     <meta name="twitter:description" content={description} />
-    <meta name="twitter:image" content="https://craig.beer/screenshots/agent-working.png" />
+    <meta name="twitter:image" content={socialImageURL} />
+    <meta name="twitter:image:alt" content="Craig terminal UI running an AI coding agent" />
+
+    {structuredData && <script type="application/ld+json" set:html={JSON.stringify(structuredData)} />}
   </head>
   <body class="bg-[#0a0a0a] text-[#c0caf5] font-mono min-h-screen">
     <slot />

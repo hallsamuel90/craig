@@ -1,9 +1,27 @@
 ---
 import Base from "../layouts/Base.astro";
 import "../styles/global.css";
+
+const structuredData = {
+  "@context": "https://schema.org",
+  "@type": "SoftwareApplication",
+  name: "Craig",
+  url: "https://craig-cli.com/",
+  applicationCategory: "DeveloperApplication",
+  operatingSystem: "macOS, Linux",
+  description: "A local terminal UI for running AI coding agents in parallel across isolated Git worktrees.",
+  downloadUrl: "https://www.npmjs.com/package/craig-cli",
+  softwareRequirements: "Node.js 22 or newer",
+  license: "https://opensource.org/license/mit",
+  offers: {
+    "@type": "Offer",
+    price: "0",
+    priceCurrency: "USD",
+  },
+};
 ---
 
-<Base>
+<Base structuredData={structuredData}>
   <!-- Nav -->
   <header class="border-b border-[#292e42] px-6 py-3 flex items-center justify-between">
     <div class="flex items-center gap-2 group">
@@ -48,7 +66,8 @@ import "../styles/global.css";
 
   <!-- Hero -->
   <section class="max-w-4xl mx-auto px-6 pt-16 pb-10 text-center">
-    <pre class="block w-fit mx-auto -translate-x-[5%] text-[#9ece6a] text-[0.45rem] sm:text-[0.55rem] md:text-[0.65rem] leading-tight mb-6 select-none opacity-90">
+    <h1 class="sr-only">Craig AI coding agent orchestrator</h1>
+    <pre aria-hidden="true" class="block w-fit mx-auto -translate-x-[5%] text-[#9ece6a] text-[0.45rem] sm:text-[0.55rem] md:text-[0.65rem] leading-tight mb-6 select-none opacity-90">
   ▄████▄   ██▀███   ▄▄▄       ██▓  ▄████
   ▒██▀ ▀█  ▓██ ▒ ██▒▒████▄    ▓██▒ ██▒ ▀█▒
   ▒▓█    ▄ ▓██ ░▄█ ▒▒██  ▀█▄  ▒██▒▒██░▄▄▄░
@@ -79,8 +98,8 @@ import "../styles/global.css";
     <div class="flex justify-center mb-5">
       <p class="font-mono text-[#565f89] text-sm text-center" style="width:min(34rem,90vw)"><span id="hero-caption"></span><span id="hero-cursor">▌</span></p>
     </div>
-    <div class="rounded-xl overflow-hidden border border-[#292e42]">
-      <video autoplay loop muted playsinline class="w-full block">
+    <div class="rounded-xl overflow-hidden border border-[#292e42]" style="aspect-ratio: 1440 / 694">
+      <video autoplay loop muted playsinline width="1440" height="694" poster="/screenshots/agent-working.png" class="w-full block">
         <source src="/craig-hero.mp4?v=3" type="video/mp4" />
       </video>
     </div>
@@ -159,4 +178,3 @@ function cycle() {
 typeText(captions[0], () => setTimeout(cycle, 8000));
 
 </script>
-

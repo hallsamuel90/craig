@@ -23,7 +23,7 @@
   "bugs": {
     "url": "https://github.com/hallsamuel90/craig/issues"
   },
-  "homepage": "https://github.com/hallsamuel90/craig#readme",
+  "homepage": "https://craig-cli.com",
   "type": "module",
   "packageManager": "pnpm@10.7.1",
   "engines": {
