@@ -1,5 +1,12 @@
 # craig-cli
 
+## 0.7.12
+
+### Patch Changes
+
+- 09eb523: Move command result types into domain layer, deduplicate getLeftItemIds, and extract key reducer from state.ts into input/reducer.ts
+- ba87739: Point the published package homepage and documentation links at craig-cli.com.
+
 ## 0.7.11
 
 ### Patch Changes
