@@ -8,6 +8,19 @@ describe("validate", () => {
     expect(validate({}, FILE)).toEqual({});
   });
 
+  test("accepts known boolean feature previews", () => {
+    expect(validate({ previews: { incrementalCenterPane: true } }, FILE)).toEqual({
+      previews: { incrementalCenterPane: true },
+    });
+  });
+
+  test("rejects unknown or non-boolean feature previews", () => {
+    expect(() => validate({ previews: { futureThing: true } }, FILE)).toThrow('"previews.futureThing" is not supported');
+    expect(() => validate({ previews: { incrementalCenterPane: "yes" } }, FILE)).toThrow(
+      '"previews.incrementalCenterPane" must be a boolean',
+    );
+  });
+
   test("accepts a valid full config", () => {
     const config = {
       runners: { codex: { enabled: true, path: "/usr/bin/codex" } },

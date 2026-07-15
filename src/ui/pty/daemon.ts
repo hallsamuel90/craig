@@ -15,6 +15,8 @@ import { PtyRuntime, type PtyRuntimeOptions, type PtySessionSpec, type PtySize }
 const DAEMON_PROTOCOL_VERSION = 4;
 const VIEW_UPDATE_INTERVAL_MS = 50;
 
+export type PtyViewUpdateMode = "snapshot" | "incremental";
+
 type DaemonRequest =
   | { id: number; type: "ping" }
   | { id: number; type: "ensureSession"; taskId: string; tabId: string; size: PtySize; spec: PtySessionSpec }
@@ -26,6 +28,7 @@ type DaemonRequest =
   | { id: number; type: "resize"; size: PtySize }
   | { id: number; type: "detach" }
   | { id: number; type: "disposeSession"; tabId: string }
+  | { id: number; type: "setViewUpdateMode"; mode: PtyViewUpdateMode }
   | { id: number; type: "subscribeView"; tabId: string | null }
   | { id: number; type: "getViewState"; tabId: string | null }
   | { id: number; type: "shutdown" };
@@ -43,10 +46,13 @@ interface TerminalViewPatch {
   rows: Array<{ index: number; row: TerminalScreenRow }>;
 }
 
-type DaemonEvent = { type: "update"; tabId: string; patch: TerminalViewPatch };
+type DaemonEvent =
+  | { type: "update"; tabId: string; view: TerminalViewState }
+  | { type: "update"; tabId: string; patch: TerminalViewPatch };
 type DaemonMessage = DaemonResponse | DaemonEvent;
 
 interface ClientViewSubscription {
+  mode: PtyViewUpdateMode;
   tabId: string | null;
   view: TerminalViewState | null;
   rowKeys: string[];
@@ -61,6 +67,7 @@ interface PendingRequest {
 export interface DaemonPtyRuntimeOptions extends PtyRuntimeOptions {
   paths: CraigPaths;
   spawnDaemon?: (workspaceRoot: string) => void;
+  viewUpdateMode?: PtyViewUpdateMode;
 }
 /* eslint-enable no-unused-vars */
 
@@ -113,13 +120,16 @@ export class DaemonPtyRuntimeClient {
   private readonly pending = new Map<number, PendingRequest>();
   private readonly viewCache = new Map<string, TerminalViewState>();
   private attachedTabId: string | null = null;
+  private viewedTabId: string | null = null;
   private subscribedTabId: string | null = null;
+  private viewUpdateMode: PtyViewUpdateMode;
   private buffer = "";
   private closed = false;
   private readonly options: DaemonPtyRuntimeOptions;
 
   constructor(private readonly socket: Socket, options: DaemonPtyRuntimeOptions) {
     this.options = options;
+    this.viewUpdateMode = options.viewUpdateMode ?? "snapshot";
     socket.setEncoding("utf8");
     socket.on("data", (chunk) => this.handleData(String(chunk)));
     socket.on("error", (error) => this.rejectAll(error instanceof Error ? error : new Error(String(error))));
@@ -134,6 +144,7 @@ export class DaemonPtyRuntimeClient {
     if (response.protocolVersion !== DAEMON_PROTOCOL_VERSION) {
       throw new Error("Craig PTY daemon protocol mismatch.");
     }
+    await this.send({ type: "setViewUpdateMode", mode: this.viewUpdateMode });
   }
 
   async ensureSession(taskId: string, tabId: string, size: PtySize): Promise<TerminalViewState> {
@@ -145,7 +156,7 @@ export class DaemonPtyRuntimeClient {
       spec: this.options.resolveSessionSpec?.(taskId, tabId) ?? { cwd: this.options.workspaceRoot, command: [] },
     });
     this.attachedTabId = tabId;
-    this.subscribedTabId = tabId;
+    this.viewedTabId = tabId;
     const view = response.view ?? { status: "idle", rows: [], error: null };
     this.viewCache.set(tabId, view);
     return view;
@@ -198,6 +209,46 @@ export class DaemonPtyRuntimeClient {
     void this.send({ type: "detach" }).catch(() => undefined);
   }
 
+  setViewedTab(tabId: string | null): void {
+    if (this.closed) {
+      return;
+    }
+
+    this.viewedTabId = tabId;
+    if (this.viewUpdateMode === "incremental") {
+      this.subscribeToView(tabId);
+    }
+  }
+
+  setViewUpdateMode(mode: PtyViewUpdateMode): void {
+    if (this.closed || this.viewUpdateMode === mode) {
+      return;
+    }
+
+    this.viewUpdateMode = mode;
+    this.subscribedTabId = null;
+    const viewedTabId = this.viewedTabId;
+    void this.send({ type: "setViewUpdateMode", mode }).then((response) => {
+      if (viewedTabId && response.view) {
+        this.viewCache.set(viewedTabId, response.view);
+      }
+      if (this.viewUpdateMode === mode && this.viewedTabId === viewedTabId) {
+        this.options.onUpdate?.(viewedTabId ?? "");
+      }
+      if (mode === "incremental" && this.viewUpdateMode === mode) {
+        if (this.viewedTabId === viewedTabId && this.subscribedTabId === null) {
+          this.subscribedTabId = viewedTabId;
+        } else if (this.viewedTabId !== viewedTabId) {
+          this.subscribeToView(this.viewedTabId);
+        }
+      }
+    }).catch(() => {
+      if (this.viewUpdateMode === mode) {
+        this.subscribedTabId = null;
+      }
+    });
+  }
+
   disposeSession(tabId: string): void {
     this.viewCache.delete(tabId);
     if (this.attachedTabId === tabId) {
@@ -218,11 +269,9 @@ export class DaemonPtyRuntimeClient {
 
   getViewState(tabId: string | null): TerminalViewState {
     if (!tabId) {
-      this.subscribeToView(null);
       return { status: "idle", rows: [], error: null, scrolledBack: false };
     }
 
-    this.subscribeToView(tabId);
     return this.viewCache.get(tabId) ?? { status: "idle", rows: [], error: null, scrolledBack: false };
   }
 
@@ -290,6 +339,12 @@ export class DaemonPtyRuntimeClient {
     }
 
     if (message.type === "update") {
+      if ("view" in message) {
+        this.viewCache.set(message.tabId, message.view);
+        this.options.onUpdate?.(message.tabId);
+        return;
+      }
+
       const current = this.viewCache.get(message.tabId) ?? { status: "idle" as const, rows: [], error: null, scrolledBack: false };
       const rows = current.rows.slice(0, message.patch.rowCount);
       for (const changed of message.patch.rows) {
@@ -301,14 +356,14 @@ export class DaemonPtyRuntimeClient {
         error: message.patch.error,
         scrolledBack: message.patch.scrolledBack,
       });
-      if (this.subscribedTabId === message.tabId) {
+      if (this.viewUpdateMode === "incremental" && this.viewedTabId === message.tabId) {
         this.options.onUpdate?.(message.tabId);
       }
     }
   }
 
   private subscribeToView(tabId: string | null): void {
-    if (this.closed || this.subscribedTabId === tabId) {
+    if (this.closed || this.viewUpdateMode !== "incremental" || this.subscribedTabId === tabId) {
       return;
     }
 
@@ -317,10 +372,14 @@ export class DaemonPtyRuntimeClient {
       if (tabId && response.view) {
         this.viewCache.set(tabId, response.view);
       }
-      if (this.subscribedTabId === tabId) {
+      if (this.viewUpdateMode === "incremental" && this.viewedTabId === tabId && this.subscribedTabId === tabId) {
         this.options.onUpdate?.(tabId ?? "");
       }
-    }).catch(() => undefined);
+    }).catch(() => {
+      if (this.subscribedTabId === tabId) {
+        this.subscribedTabId = null;
+      }
+    });
   }
 
   private rejectAll(error: Error): void {
@@ -343,14 +402,14 @@ class PtyDaemonServer {
     this.runtime = new PtyRuntime({
       ...options,
       workspaceRoot: paths.workspaceRoot,
-      onUpdate: (tabId) => this.scheduleBroadcastUpdate(tabId),
+      onUpdate: (tabId) => this.handleRuntimeUpdate(tabId),
     });
   }
 
   handleConnection(socket: Socket): void {
     let buffer = "";
     this.clients.add(socket);
-    this.subscriptions.set(socket, { tabId: null, view: null, rowKeys: [] });
+    this.subscriptions.set(socket, { mode: "snapshot", tabId: null, view: null, rowKeys: [] });
     socket.setEncoding("utf8");
     socket.on("data", (chunk) => {
       buffer += String(chunk);
@@ -445,6 +504,8 @@ class PtyDaemonServer {
           this.attachedTabId = null;
         }
         return null;
+      case "setViewUpdateMode":
+        return this.setViewUpdateMode(socket, request.mode);
       case "subscribeView":
         return this.subscribe(socket, request.tabId, this.runtime.getViewState(request.tabId));
       case "pruneStale": {
@@ -470,12 +531,38 @@ class PtyDaemonServer {
   }
 
   private subscribe(socket: Socket, tabId: string | null, view: TerminalViewState): TerminalViewState {
+    const mode = this.subscriptions.get(socket)?.mode ?? "snapshot";
     this.subscriptions.set(socket, {
+      mode,
       tabId,
       view,
       rowKeys: view.rows.map(rowKey),
     });
     return view;
+  }
+
+  private setViewUpdateMode(socket: Socket, mode: PtyViewUpdateMode): TerminalViewState {
+    const current = this.subscriptions.get(socket);
+    const tabId = current?.tabId ?? null;
+    const view = this.runtime.getViewState(tabId);
+    this.subscriptions.set(socket, {
+      mode,
+      tabId,
+      view,
+      rowKeys: view.rows.map(rowKey),
+    });
+    return view;
+  }
+
+  private handleRuntimeUpdate(tabId: string): void {
+    const view = this.runtime.getViewState(tabId);
+    for (const client of this.clients) {
+      const subscription = this.subscriptions.get(client);
+      if (subscription?.mode === "snapshot") {
+        writeMessage(client, { type: "update", tabId, view });
+      }
+    }
+    this.scheduleBroadcastUpdate(tabId);
   }
 
   private scheduleBroadcastUpdate(tabId: string): void {
@@ -491,7 +578,7 @@ class PtyDaemonServer {
 
   private hasViewSubscriber(tabId: string): boolean {
     for (const subscription of this.subscriptions.values()) {
-      if (subscription.tabId === tabId) {
+      if (subscription.mode === "incremental" && subscription.tabId === tabId) {
         return true;
       }
     }
@@ -502,7 +589,7 @@ class PtyDaemonServer {
     const view = this.runtime.getViewState(tabId);
     for (const client of this.clients) {
       const subscription = this.subscriptions.get(client);
-      if (!subscription || subscription.tabId !== tabId) {
+      if (!subscription || subscription.mode !== "incremental" || subscription.tabId !== tabId) {
         continue;
       }
 

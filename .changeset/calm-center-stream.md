@@ -2,4 +2,4 @@
 "craig-cli": patch
 ---
 
-Stream coalesced terminal row updates only for the center pane currently viewed by each TUI client.
+Add workspace-local Feature Previews and make incremental center-pane terminal updates an opt-in experimental setting.

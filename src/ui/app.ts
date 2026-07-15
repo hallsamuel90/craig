@@ -17,12 +17,20 @@ import {
   renderOptionsOverlayFrame,
   renderPauseOverlayFrame,
 } from "./render.js";
-import { buildRunnersSubmenuItems, getRunnersSubmenuMessage, OPTIONS_MENU_ITEMS, type RunnerOptionsState } from "./options.js";
+import {
+  buildPreviewSubmenuItems,
+  buildRunnersSubmenuItems,
+  getPreviewSubmenuMessage,
+  getRunnersSubmenuMessage,
+  OPTIONS_MENU_ITEMS,
+  type PreviewOptionsState,
+  type RunnerOptionsState,
+} from "./options.js";
 import { createInitialShellState, restoreShellState } from "./state.js";
 import { getViewport } from "./layout.js";
 import { buildShellData } from "./shell/data.js";
 import type { AppContext, AppState, TerminalRuntime, PtyRuntimePort, TerminalEventListener } from "./app-context.js";
-import { syncShell, withTerminalView, restoreTerminalScreen } from "./shell/sync.js";
+import { resolveTerminalViewTabId, syncShell, withTerminalView, restoreTerminalScreen } from "./shell/sync.js";
 import { hydrateOpenPtyTabs, syncInputCapture } from "./pty/manager.js";
 import { pollPullRequests } from "./workspace/pr-polling.js";
 import { onKey, onUnknown, onMouse } from "./input/dispatch.js";
@@ -42,6 +50,10 @@ const terminal = terminalKit.terminal;
 
 function getRunnerOptionsState(state: Extract<AppState, { mode: "overlay" }>): RunnerOptionsState {
   return state.runnerOptions ?? { menuIndex: state.menuIndex, message: state.optionsMessage };
+}
+
+function getPreviewOptionsState(state: Extract<AppState, { mode: "overlay" }>): PreviewOptionsState {
+  return state.previewOptions ?? { menuIndex: state.menuIndex, message: state.optionsMessage };
 }
 
 export async function startTerminalApp(options: TerminalAppOptions = {}): Promise<number> {
@@ -66,7 +78,11 @@ export async function startTerminalApp(options: TerminalAppOptions = {}): Promis
   };
   const initialPtyRuntime: PtyRuntimePort =
     options.ptyRuntime ??
-    (await createDaemonPtyRuntime({ ...ptyOptions, paths }));
+    (await createDaemonPtyRuntime({
+      ...ptyOptions,
+      paths,
+      viewUpdateMode: configService.previews.isEnabled(config, "incrementalCenterPane") ? "incremental" : "snapshot",
+    }));
 
   return new Promise<number>((resolve) => {
     const activeTerminal = options.terminal ?? terminal;
@@ -142,6 +158,9 @@ export async function startTerminalApp(options: TerminalAppOptions = {}): Promis
 
     ctx.render = () => {
       syncInputCapture(ctx);
+      ctx.ptyRuntime.setViewedTab?.(
+        ctx.state.mode === "main" ? resolveTerminalViewTabId(ctx, ctx.state.shell) : null,
+      );
       const viewport = getViewport(activeTerminal.width, activeTerminal.height);
       const frame =
         ctx.state.mode === "main"
@@ -179,6 +198,13 @@ export async function startTerminalApp(options: TerminalAppOptions = {}): Promis
                       optionsMessage: getRunnersSubmenuMessage(getRunnerOptionsState(ctx.state)),
                       optionsSubtitle: "Runners",
                     })
+                  : ctx.state.variant === "previews"
+                    ? renderOptionsOverlayFrame(viewport, {
+                        menuIndex: getPreviewOptionsState(ctx.state).menuIndex,
+                        optionsMenuItems: buildPreviewSubmenuItems(ctx.config),
+                        optionsMessage: getPreviewSubmenuMessage(getPreviewOptionsState(ctx.state)),
+                        optionsSubtitle: "Feature Previews - Experimental",
+                      })
                   : ctx.state.variant === "error-log"
                     ? renderErrorLogOverlayFrame(viewport, {
                         errorLogPath: ctx.state.errorLog?.path ?? paths.errorLogFile,

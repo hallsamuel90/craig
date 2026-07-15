@@ -1680,6 +1680,7 @@ describe("terminal app PTY attach flow", () => {
     terminal.emitKey("DOWN"); // Options
     terminal.emitKey("ENTER");
     await vi.waitFor(() => expect(stripAnsi(terminal.frames.at(-1) ?? "")).toContain("Error Log"));
+    terminal.emitKey("DOWN"); // Feature Previews
     terminal.emitKey("DOWN"); // Error Log
     terminal.emitKey("ENTER");
     await vi.waitFor(() => {
@@ -2466,6 +2467,42 @@ describe("terminal app PTY attach flow", () => {
     await expect(app).resolves.toBe(0);
   });
 
+  test("feature previews are clearly experimental, persist locally, and apply immediately", async () => {
+    const root = await mkdtemp(join(tmpdir(), "craig-ui-app-previews-"));
+    tempRoots.push(root);
+    const paths = await setupWorkspace(root);
+    const terminal = new FakeTerminal();
+    const ptyRuntime = new FakePtyRuntime();
+    const app = startTerminalApp({ terminal, ptyRuntime, uiStateFile: paths.uiStateFile, workspaceRoot: root });
+    await vi.waitFor(() => expect(terminal.hasKeyListener()).toBe(true));
+
+    terminal.emitKey("DOWN"); // Options
+    terminal.emitKey("ENTER");
+    terminal.emitKey("DOWN"); // Feature Previews
+    terminal.emitKey("ENTER");
+    await vi.waitFor(() => {
+      const frame = stripAnsi(terminal.frames.at(-1) ?? "");
+      expect(frame).toContain("Feature Previews - Experimental");
+      expect(frame).toContain("[ ] Incremental center pane");
+      expect(frame).toContain("may change or be removed");
+    });
+
+    terminal.emitKey("ENTER");
+    await vi.waitFor(async () => expect((await configService.load(paths)).previews?.incrementalCenterPane).toBe(true));
+    expect(ptyRuntime.setViewUpdateMode).toHaveBeenCalledWith("incremental");
+    await vi.waitFor(() => expect(stripAnsi(terminal.frames.at(-1) ?? "")).toContain("[x] Incremental center pane"));
+
+    terminal.emitKey("ENTER");
+    await vi.waitFor(async () => expect((await configService.load(paths)).previews?.incrementalCenterPane).toBe(false));
+    expect(ptyRuntime.setViewUpdateMode).toHaveBeenLastCalledWith("snapshot");
+
+    terminal.emitKey("ESCAPE");
+    terminal.emitKey("ESCAPE");
+    terminal.emitKey("DOWN");
+    terminal.emitKey("ENTER");
+    await expect(app).resolves.toBe(0);
+  });
+
   test("missing selected runner binary leaves a durable failed task", async () => {
     const root = await mkdtemp(join(tmpdir(), "craig-ui-app-missing-runner-"));
     tempRoots.push(root);
@@ -2702,6 +2739,8 @@ class FakePtyRuntime implements PtyRuntimePort {
   detach = vi.fn();
   disposeSession = vi.fn();
   disposeAll = vi.fn();
+  setViewedTab = vi.fn();
+  setViewUpdateMode = vi.fn();
 
   getViewState(tabId: string | null): TerminalViewState {
     if (tabId && (this.hydratedTabIds.has(tabId) || this.ensureSession.mock.calls.some(([, attachedTabId]) => attachedTabId === tabId))) {

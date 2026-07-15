@@ -58,10 +58,11 @@ describe("terminal shell renderer", () => {
     const frame = renderOptionsOverlayFrame(MIN_VIEWPORT, {
       color: false,
       optionsMenuItems: OPTIONS_MENU_ITEMS,
-      menuIndex: 1,
+      menuIndex: 2,
     });
 
     expect(frame).toContain("  Runners");
+    expect(frame).toContain("  Feature Previews");
     expect(frame).toContain("> Error Log");
     expect(frame).toContain("  Help");
   });

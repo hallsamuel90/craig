@@ -1,5 +1,5 @@
-import { configService, RUNNER_IDS } from "../domain/config/index.js";
-import type { CraigConfig, RunnerType } from "../domain/config/index.js";
+import { configService, PREVIEW_FEATURE_IDS, RUNNER_IDS } from "../domain/config/index.js";
+import type { CraigConfig, PreviewFeatureId, RunnerType } from "../domain/config/index.js";
 
 export interface RunnerOptionsPathEdit {
   runner: RunnerType;
@@ -12,6 +12,11 @@ export interface RunnerOptionsState {
   pathEdit?: RunnerOptionsPathEdit;
 }
 
+export interface PreviewOptionsState {
+  menuIndex: number;
+  message: string | null;
+}
+
 export type RunnerOptionsKeyResult =
   | { kind: "back"; state: RunnerOptionsState }
   | { kind: "noop"; state: RunnerOptionsState }
@@ -22,12 +27,23 @@ export type RunnerOptionsKeyResult =
 export type OptionsMenuKeyResult =
   | { kind: "back" }
   | { kind: "runners" }
+  | { kind: "previews" }
   | { kind: "error-log" }
   | { kind: "help" }
   | { kind: "noop"; menuIndex: number }
   | { kind: "render"; menuIndex: number };
 
-export const OPTIONS_MENU_ITEMS = ["Runners", "Error Log", "Help"];
+export type PreviewOptionsKeyResult =
+  | { kind: "back"; state: PreviewOptionsState }
+  | { kind: "noop"; state: PreviewOptionsState }
+  | { kind: "render"; state: PreviewOptionsState }
+  | { kind: "save-enabled"; feature: PreviewFeatureId; enabled: boolean; state: PreviewOptionsState };
+
+export const OPTIONS_MENU_ITEMS = ["Runners", "Feature Previews", "Error Log", "Help"];
+
+const PREVIEW_LABELS: Record<PreviewFeatureId, string> = {
+  incrementalCenterPane: "Incremental center pane",
+};
 
 export function buildRunnersSubmenuItems(config: CraigConfig, state: RunnerOptionsState): string[] {
   return RUNNER_IDS.map((runner) => {
@@ -56,6 +72,17 @@ export function getRunnersSubmenuMessage(state: RunnerOptionsState): string | nu
   return "Enter toggles. E edits the executable path.";
 }
 
+export function buildPreviewSubmenuItems(config: CraigConfig): string[] {
+  return PREVIEW_FEATURE_IDS.map((feature) => {
+    const enabled = configService.previews.isEnabled(config, feature);
+    return `${enabled ? "[x]" : "[ ]"} ${PREVIEW_LABELS[feature]}`;
+  });
+}
+
+export function getPreviewSubmenuMessage(state: PreviewOptionsState): string {
+  return state.message ?? "Experimental features may change or be removed. Enter toggles.";
+}
+
 export function reduceOptionsMenuKey(menuIndex: number, key: string): OptionsMenuKeyResult {
   if (key === "UP" || key === "k") {
     return { kind: "render", menuIndex: Math.max(0, menuIndex - 1) };
@@ -78,10 +105,51 @@ export function reduceOptionsMenuKey(menuIndex: number, key: string): OptionsMen
   }
 
   if (menuIndex === 1) {
+    return { kind: "previews" };
+  }
+
+  if (menuIndex === 2) {
     return { kind: "error-log" };
   }
 
   return { kind: "help" };
+}
+
+export function reducePreviewOptionsKey(
+  state: PreviewOptionsState,
+  config: CraigConfig,
+  key: string,
+): PreviewOptionsKeyResult {
+  if (key === "UP" || key === "k") {
+    return { kind: "render", state: { ...state, menuIndex: Math.max(0, state.menuIndex - 1), message: null } };
+  }
+
+  if (key === "DOWN" || key === "j") {
+    return {
+      kind: "render",
+      state: { ...state, menuIndex: Math.min(PREVIEW_FEATURE_IDS.length - 1, state.menuIndex + 1), message: null },
+    };
+  }
+
+  if (key === "ESCAPE") {
+    return { kind: "back", state };
+  }
+
+  if (!isEnterKey(key)) {
+    return { kind: "noop", state };
+  }
+
+  const feature = PREVIEW_FEATURE_IDS[state.menuIndex] ?? PREVIEW_FEATURE_IDS[0];
+  const enabled = !configService.previews.isEnabled(config, feature);
+  return {
+    kind: "save-enabled",
+    feature,
+    enabled,
+    state: {
+      ...state,
+      message: `${PREVIEW_LABELS[feature]} ${enabled ? "enabled" : "disabled"}.`,
+    },
+  };
 }
 
 export function reduceRunnerOptionsKey(
