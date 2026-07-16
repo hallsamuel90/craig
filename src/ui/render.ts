@@ -111,6 +111,7 @@ const HELP_LINES = [
 ];
 
 const OPTIONS_MENU = ["Help"];
+const OVERLAY_BODY_ROWS = 5;
 
 export function renderOptionsOverlayFrame(viewport: Viewport, options: RenderOptions = {}): string {
   return renderOverlayFrame(viewport, {
@@ -118,7 +119,6 @@ export function renderOptionsOverlayFrame(viewport: Viewport, options: RenderOpt
     menuItems: options.optionsMenuItems ?? OPTIONS_MENU,
     menuIndex: options.menuIndex ?? 0,
     optionsMessage: options.optionsMessage ?? null,
-    minimumBodyRows: 5,
     color: options.color ?? true,
   });
 }
@@ -264,7 +264,6 @@ function renderOverlayFrame(
     menuItems: string[];
     menuIndex: number;
     optionsMessage: string | null;
-    minimumBodyRows?: number;
     color: boolean;
     versionText?: string | null;
     updateText?: string | null;
@@ -276,7 +275,7 @@ function renderOverlayFrame(
   const menu = input.menuItems.map((item, index) => `${index === input.menuIndex ? ">" : " "} ${item.padEnd(maxMenuLen)}`);
   const messageLines = input.optionsMessage ? ["", input.optionsMessage] : [];
   const body = [...menu, ...messageLines];
-  while (body.length < (input.minimumBodyRows ?? 0)) {
+  while (body.length < OVERLAY_BODY_ROWS) {
     body.push("");
   }
   const content = [...logo, "", input.subtitle, "", ...body];

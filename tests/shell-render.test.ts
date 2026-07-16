@@ -67,7 +67,11 @@ describe("terminal shell renderer", () => {
     expect(frame).toContain("  Help");
   });
 
-  test("keeps option overlays vertically anchored when entering feature previews", () => {
+  test("keeps overlays vertically anchored from boot through feature previews", () => {
+    const bootFrame = renderBootOverlayFrame(MIN_VIEWPORT, {
+      color: false,
+      menuIndex: 1,
+    });
     const optionsFrame = renderOptionsOverlayFrame(MIN_VIEWPORT, {
       color: false,
       optionsMenuItems: OPTIONS_MENU_ITEMS,
@@ -80,11 +84,18 @@ describe("terminal shell renderer", () => {
       optionsSubtitle: "Feature Previews - Experimental",
       menuIndex: 0,
     });
+    const bootLines = bootFrame.split("\n");
     const optionsLines = optionsFrame.split("\n");
     const previewLines = previewsFrame.split("\n");
 
+    expect(bootLines.findIndex((line) => line.includes("crAIg is that you?"))).toBe(
+      optionsLines.findIndex((line) => line.includes("Configuration")),
+    );
     expect(optionsLines.findIndex((line) => line.includes("Configuration"))).toBe(
       previewLines.findIndex((line) => line.includes("Feature Previews - Experimental")),
+    );
+    expect(bootLines.findIndex((line) => line.includes("Start"))).toBe(
+      optionsLines.findIndex((line) => line.includes("Runners")),
     );
     expect(optionsLines.findIndex((line) => line.includes("Runners"))).toBe(
       previewLines.findIndex((line) => line.includes("Incremental center pane")),
