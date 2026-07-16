@@ -271,8 +271,7 @@ function renderOverlayFrame(
 ): string {
   const lines = new Array<string>(viewport.height).fill(fillSurface(" ".repeat(viewport.width), input.color, PALETTE.overlay));
   const logo = getBannerArtLines();
-  const maxMenuLen = Math.max(...input.menuItems.map((s) => s.length));
-  const menu = input.menuItems.map((item, index) => `${index === input.menuIndex ? ">" : " "} ${item.padEnd(maxMenuLen)}`);
+  const menu = input.menuItems.map((item, index) => `${index === input.menuIndex ? ">" : " "} ${item}`);
   const messageLines = input.optionsMessage ? ["", input.optionsMessage] : [];
   const body = [...menu, ...messageLines];
   while (body.length < OVERLAY_BODY_ROWS) {
