@@ -3,11 +3,11 @@ import type { CraigUiRuntime } from "../state/ui-runtime.js";
 import type { CraigPaths } from "../state/craig-paths.js";
 import type { CraigErrorLogSnapshot } from "../domain/error/index.js";
 import type { WorkspaceShellModel } from "./shell/data.js";
-import type { RunnerOptionsState } from "./options.js";
+import type { PreviewOptionsState, RunnerOptionsState } from "./options.js";
 import type { PtySize } from "./pty/runtime.js";
 import type { ControlShellState } from "./state.js";
 
-type OverlayVariant = "boot" | "pause" | "help" | "options" | "runners" | "error-log";
+type OverlayVariant = "boot" | "pause" | "help" | "options" | "runners" | "previews" | "error-log";
 
 export type AppState =
   | {
@@ -19,6 +19,7 @@ export type AppState =
       parentVariant?: "boot" | "pause";
       viaOptions?: boolean;
       runnerOptions?: RunnerOptionsState;
+      previewOptions?: PreviewOptionsState;
       errorLog?: CraigErrorLogSnapshot;
     }
   | { mode: "main"; shell: ControlShellState };
@@ -51,6 +52,8 @@ export interface PtyRuntimePort {
   disposeSession(...args: [string]): void;
   disposeAll(): void;
   getViewState(...args: [string | null]): ControlShellState["terminal"];
+  setViewedTab?(...args: [string | null]): void;
+  setViewUpdateMode?(...args: ["snapshot" | "incremental"]): void;
 }
 /* eslint-enable no-unused-vars */
 

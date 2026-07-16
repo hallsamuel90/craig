@@ -170,9 +170,14 @@ Optional workspace-local config at `.craig/config.json`:
   "github": {
     "mergeMethod": "squash",
     "watchIntervalSeconds": 5
+  },
+  "previews": {
+    "incrementalCenterPane": false
   }
 }
 ```
+
+Feature previews are experimental, workspace-local, and off by default. They can also be toggled from Options > Feature Previews in the TUI.
 
 ## Contributing
 

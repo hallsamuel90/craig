@@ -12,7 +12,9 @@ import { isEnterKey, isPrintableKey, getNextRunner, updateTerminalViewState } fr
 import { reduceMainKey } from "./reducer.js";
 import {
   reduceOptionsMenuKey,
+  reducePreviewOptionsKey,
   reduceRunnerOptionsKey,
+  type PreviewOptionsState,
   type RunnerOptionsState,
 } from "../options.js";
 import {
@@ -30,6 +32,7 @@ import {
 import {
   createInteractiveTask,
   InteractiveTaskStartupError,
+  savePreviewEnabled,
   saveRunnerEnabled,
   saveRunnerPath,
 } from "../actions/index.js";
@@ -63,6 +66,11 @@ import type { AppContext } from "../app-context.js";
 function getRunnerOptionsState(ctx: AppContext): RunnerOptionsState {
   const state = ctx.state as Extract<typeof ctx.state, { mode: "overlay" }>;
   return state.runnerOptions ?? { menuIndex: state.menuIndex, message: state.optionsMessage };
+}
+
+function getPreviewOptionsState(ctx: AppContext): PreviewOptionsState {
+  const state = ctx.state as Extract<typeof ctx.state, { mode: "overlay" }>;
+  return state.previewOptions ?? { menuIndex: state.menuIndex, message: state.optionsMessage };
 }
 
 async function submitTaskPrompt(ctx: AppContext): Promise<void> {
@@ -434,6 +442,21 @@ function handleOptionsMenuKey(ctx: AppContext, key: string): void {
     return;
   }
 
+  if (result.kind === "previews") {
+    const parentVariant = ctx.state.parentVariant;
+    ctx.state = {
+      mode: "overlay",
+      variant: "previews",
+      menuIndex: 0,
+      optionsMessage: null,
+      shell: ctx.state.shell,
+      ...(parentVariant !== undefined ? { parentVariant } : {}),
+    };
+    ctx.pendingClear = true;
+    ctx.render();
+    return;
+  }
+
   if (result.kind === "error-log") {
     const parentVariant = ctx.state.parentVariant;
     void openErrorLogOverlay(ctx, parentVariant);
@@ -536,6 +559,61 @@ function handleRunnersKey(ctx: AppContext, key: string): void {
         ...ctx.state,
         shell: applyErrorToast(ctx, syncShell(ctx, ctx.state.shell), message),
         runnerOptions: { ...getRunnerOptionsState(ctx), message },
+      };
+      ctx.render();
+    });
+}
+
+function handlePreviewsKey(ctx: AppContext, key: string): void {
+  if (ctx.state.mode !== "overlay" || ctx.state.variant !== "previews") {
+    return;
+  }
+
+  const result = reducePreviewOptionsKey(getPreviewOptionsState(ctx), ctx.config, key);
+  if (result.kind === "noop") {
+    return;
+  }
+
+  if (result.kind === "back") {
+    const parentVariant = ctx.state.parentVariant;
+    ctx.state = {
+      mode: "overlay",
+      variant: "options",
+      menuIndex: 1,
+      optionsMessage: null,
+      shell: ctx.state.shell,
+      ...(parentVariant !== undefined ? { parentVariant } : {}),
+    };
+    ctx.pendingClear = true;
+    ctx.render();
+    return;
+  }
+
+  if (result.kind === "render") {
+    ctx.state = { ...ctx.state, previewOptions: result.state };
+    ctx.render();
+    return;
+  }
+
+  void savePreviewEnabled(result.feature, result.enabled, buildActionContext(ctx))
+    .then((nextConfig) => {
+      if (ctx.state.mode !== "overlay" || ctx.state.variant !== "previews") {
+        return;
+      }
+      ctx.config = nextConfig;
+      ctx.ptyRuntime.setViewUpdateMode?.(result.enabled ? "incremental" : "snapshot");
+      ctx.state = { ...ctx.state, previewOptions: result.state };
+      ctx.render();
+    })
+    .catch((error: unknown) => {
+      if (ctx.state.mode !== "overlay" || ctx.state.variant !== "previews") {
+        return;
+      }
+      const message = reportRecoverableError(ctx, "save feature preview", error, "Failed to save feature preview.");
+      ctx.state = {
+        ...ctx.state,
+        shell: applyErrorToast(ctx, syncShell(ctx, ctx.state.shell), message),
+        previewOptions: { ...getPreviewOptionsState(ctx), message },
       };
       ctx.render();
     });
@@ -818,7 +896,7 @@ export function onKey(ctx: AppContext, name: unknown): void {
       ctx.state = {
         mode: "overlay",
         variant: "options",
-        menuIndex: 2,
+        menuIndex: 3,
         optionsMessage: null,
         shell: ctx.state.shell,
         parentVariant: ctx.state.parentVariant,
@@ -849,13 +927,18 @@ export function onKey(ctx: AppContext, name: unknown): void {
     return;
   }
 
+  if (ctx.state.variant === "previews") {
+    handlePreviewsKey(ctx, key);
+    return;
+  }
+
   if (ctx.state.variant === "error-log") {
     if (key === "ESCAPE" || isEnterKey(key)) {
       const parentVariant = ctx.state.parentVariant;
       ctx.state = {
         mode: "overlay",
         variant: "options",
-        menuIndex: 1,
+        menuIndex: 2,
         optionsMessage: null,
         shell: ctx.state.shell,
         ...(parentVariant !== undefined ? { parentVariant } : {}),

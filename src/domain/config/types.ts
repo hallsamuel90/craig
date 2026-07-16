@@ -1,4 +1,5 @@
 export type RunnerType = "codex" | "cursor" | "claude";
+export type PreviewFeatureId = "incrementalCenterPane";
 
 export interface RunnerConfig {
   enabled?: boolean;
@@ -20,6 +21,9 @@ export interface CraigConfig {
   github?: {
     mergeMethod?: "merge" | "rebase" | "squash";
     watchIntervalSeconds?: number;
+  };
+  previews?: {
+    incrementalCenterPane?: boolean;
   };
 }
 

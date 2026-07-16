@@ -10,6 +10,12 @@ import { createInitialShellState } from "../src/ui/state.js";
 import { buildShellData } from "../src/ui/shell/data.js";
 import { buildTaskRecord } from "./test-helpers.js";
 
+function contentCenter(line: string): number {
+  const first = line.search(/\S/);
+  const last = line.search(/\s*$/) - 1;
+  return (first + last) / 2;
+}
+
 describe("terminal shell renderer", () => {
   test("renders the boot overlay with the CRAIG logo and menu", () => {
     const frame = renderBootOverlayFrame(MIN_VIEWPORT, { color: false, menuIndex: 0 });
@@ -58,12 +64,56 @@ describe("terminal shell renderer", () => {
     const frame = renderOptionsOverlayFrame(MIN_VIEWPORT, {
       color: false,
       optionsMenuItems: OPTIONS_MENU_ITEMS,
-      menuIndex: 1,
+      menuIndex: 2,
     });
 
     expect(frame).toContain("  Runners");
+    expect(frame).toContain("  Feature Previews");
     expect(frame).toContain("> Error Log");
     expect(frame).toContain("  Help");
+  });
+
+  test("keeps overlays vertically anchored from boot through feature previews", () => {
+    const bootFrame = renderBootOverlayFrame(MIN_VIEWPORT, {
+      color: false,
+      menuIndex: 0,
+    });
+    const optionsFrame = renderOptionsOverlayFrame(MIN_VIEWPORT, {
+      color: false,
+      optionsMenuItems: OPTIONS_MENU_ITEMS,
+      menuIndex: 0,
+    });
+    const previewsFrame = renderOptionsOverlayFrame(MIN_VIEWPORT, {
+      color: false,
+      optionsMenuItems: ["[ ] Incremental center pane"],
+      optionsMessage: "Experimental features may change or be removed. Enter toggles.",
+      optionsSubtitle: "Feature Previews - Experimental",
+      menuIndex: 0,
+    });
+    const bootLines = bootFrame.split("\n");
+    const optionsLines = optionsFrame.split("\n");
+    const previewLines = previewsFrame.split("\n");
+
+    expect(bootLines.findIndex((line) => line.includes("crAIg is that you?"))).toBe(
+      optionsLines.findIndex((line) => line.includes("Configuration")),
+    );
+    expect(optionsLines.findIndex((line) => line.includes("Configuration"))).toBe(
+      previewLines.findIndex((line) => line.includes("Feature Previews - Experimental")),
+    );
+    expect(bootLines.findIndex((line) => line.includes("Start"))).toBe(
+      optionsLines.findIndex((line) => line.includes("Runners")),
+    );
+    expect(optionsLines.findIndex((line) => line.includes("Runners"))).toBe(
+      previewLines.findIndex((line) => line.includes("Incremental center pane")),
+    );
+    expect(contentCenter(bootLines.find((line) => line.includes("> Start")) ?? "")).toBeCloseTo(
+      contentCenter(optionsLines.find((line) => line.includes("> Runners")) ?? ""),
+      0,
+    );
+    expect(contentCenter(optionsLines.find((line) => line.includes("> Runners")) ?? "")).toBeCloseTo(
+      contentCenter(previewLines.find((line) => line.includes("> [ ] Incremental center pane")) ?? ""),
+      0,
+    );
   });
 
   test("renders the three-column mock workspace shell", () => {

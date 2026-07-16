@@ -111,6 +111,7 @@ const HELP_LINES = [
 ];
 
 const OPTIONS_MENU = ["Help"];
+const OVERLAY_BODY_ROWS = 5;
 
 export function renderOptionsOverlayFrame(viewport: Viewport, options: RenderOptions = {}): string {
   return renderOverlayFrame(viewport, {
@@ -270,10 +271,13 @@ function renderOverlayFrame(
 ): string {
   const lines = new Array<string>(viewport.height).fill(fillSurface(" ".repeat(viewport.width), input.color, PALETTE.overlay));
   const logo = getBannerArtLines();
-  const maxMenuLen = Math.max(...input.menuItems.map((s) => s.length));
-  const menu = input.menuItems.map((item, index) => `${index === input.menuIndex ? ">" : " "} ${item.padEnd(maxMenuLen)}`);
+  const menu = input.menuItems.map((item, index) => `${index === input.menuIndex ? ">" : " "} ${item}`);
   const messageLines = input.optionsMessage ? ["", input.optionsMessage] : [];
-  const content = [...logo, "", input.subtitle, "", ...menu, ...messageLines];
+  const body = [...menu, ...messageLines];
+  while (body.length < OVERLAY_BODY_ROWS) {
+    body.push("");
+  }
+  const content = [...logo, "", input.subtitle, "", ...body];
   const startLine = Math.max(1, Math.floor((viewport.height - content.length) / 2));
 
   for (let index = 0; index < content.length; index += 1) {

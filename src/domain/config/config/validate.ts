@@ -1,4 +1,5 @@
 import { RUNNER_IDS } from "../runners/runner-ids.js";
+import { PREVIEW_FEATURE_IDS } from "../previews/preview-ids.js";
 import type { CraigConfig } from "../types.js";
 
 export const validate = (value: unknown, filePath: string): CraigConfig => {
@@ -85,6 +86,23 @@ export const validate = (value: unknown, filePath: string): CraigConfig => {
       throw new Error(
         `Craig config at ${filePath} is invalid. "github.watchIntervalSeconds" must be a positive integer.`,
       );
+    }
+  }
+
+  if (candidate.previews !== undefined) {
+    if (typeof candidate.previews !== "object" || candidate.previews === null || Array.isArray(candidate.previews)) {
+      throw new Error(`Craig config at ${filePath} is invalid. "previews" must be an object.`);
+    }
+
+    for (const [feature, enabled] of Object.entries(candidate.previews)) {
+      if (!(PREVIEW_FEATURE_IDS as readonly string[]).includes(feature)) {
+        throw new Error(
+          `Craig config at ${filePath} is invalid. "previews.${feature}" is not supported. Expected one of: ${PREVIEW_FEATURE_IDS.join(", ")}.`,
+        );
+      }
+      if (typeof enabled !== "boolean") {
+        throw new Error(`Craig config at ${filePath} is invalid. "previews.${feature}" must be a boolean.`);
+      }
     }
   }
 
