@@ -118,6 +118,7 @@ export function renderOptionsOverlayFrame(viewport: Viewport, options: RenderOpt
     menuItems: options.optionsMenuItems ?? OPTIONS_MENU,
     menuIndex: options.menuIndex ?? 0,
     optionsMessage: options.optionsMessage ?? null,
+    minimumBodyRows: 5,
     color: options.color ?? true,
   });
 }
@@ -263,6 +264,7 @@ function renderOverlayFrame(
     menuItems: string[];
     menuIndex: number;
     optionsMessage: string | null;
+    minimumBodyRows?: number;
     color: boolean;
     versionText?: string | null;
     updateText?: string | null;
@@ -273,7 +275,11 @@ function renderOverlayFrame(
   const maxMenuLen = Math.max(...input.menuItems.map((s) => s.length));
   const menu = input.menuItems.map((item, index) => `${index === input.menuIndex ? ">" : " "} ${item.padEnd(maxMenuLen)}`);
   const messageLines = input.optionsMessage ? ["", input.optionsMessage] : [];
-  const content = [...logo, "", input.subtitle, "", ...menu, ...messageLines];
+  const body = [...menu, ...messageLines];
+  while (body.length < (input.minimumBodyRows ?? 0)) {
+    body.push("");
+  }
+  const content = [...logo, "", input.subtitle, "", ...body];
   const startLine = Math.max(1, Math.floor((viewport.height - content.length) / 2));
 
   for (let index = 0; index < content.length; index += 1) {

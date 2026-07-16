@@ -67,6 +67,30 @@ describe("terminal shell renderer", () => {
     expect(frame).toContain("  Help");
   });
 
+  test("keeps option overlays vertically anchored when entering feature previews", () => {
+    const optionsFrame = renderOptionsOverlayFrame(MIN_VIEWPORT, {
+      color: false,
+      optionsMenuItems: OPTIONS_MENU_ITEMS,
+      menuIndex: 1,
+    });
+    const previewsFrame = renderOptionsOverlayFrame(MIN_VIEWPORT, {
+      color: false,
+      optionsMenuItems: ["[ ] Incremental center pane"],
+      optionsMessage: "Experimental features may change or be removed. Enter toggles.",
+      optionsSubtitle: "Feature Previews - Experimental",
+      menuIndex: 0,
+    });
+    const optionsLines = optionsFrame.split("\n");
+    const previewLines = previewsFrame.split("\n");
+
+    expect(optionsLines.findIndex((line) => line.includes("Configuration"))).toBe(
+      previewLines.findIndex((line) => line.includes("Feature Previews - Experimental")),
+    );
+    expect(optionsLines.findIndex((line) => line.includes("Runners"))).toBe(
+      previewLines.findIndex((line) => line.includes("Incremental center pane")),
+    );
+  });
+
   test("renders the three-column mock workspace shell", () => {
     const frame = renderMainShellFrame(MIN_VIEWPORT, getMockShellData(), { color: false });
 
