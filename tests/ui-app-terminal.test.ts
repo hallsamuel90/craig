@@ -1380,7 +1380,7 @@ describe("terminal app PTY attach flow", () => {
 
     terminal.emitKey("\r"); // boot start
     await vi.waitFor(() => expect(ptyRuntime.hydrateSessions).toHaveBeenCalled());
-    await vi.waitFor(() => expect(stripAnsi(terminal.frames.at(-1) ?? "")).toContain("CHANGES  FILES"));
+    await vi.waitFor(() => expect(stripAnsi(terminal.frames.at(-1) ?? "")).toContain("FILES  REVIEW"));
     terminal.emitKey("[");
     terminal.emitKey("[");
     terminal.emitKey("[");
@@ -1434,7 +1434,7 @@ describe("terminal app PTY attach flow", () => {
     expect(ptyRuntime.ensureSession).not.toHaveBeenCalled();
   });
 
-  test("switching to diff refreshes task changes made after startup", async () => {
+  test("switching to review refreshes task changes made after startup", async () => {
     const root = await mkdtemp(join(tmpdir(), "craig-ui-app-"));
     tempRoots.push(root);
     const paths = await setupWorkspace(root);
@@ -1446,13 +1446,22 @@ describe("terminal app PTY attach flow", () => {
 
     await writeFile(join(task.worktreePath, "README.md"), "changed after craig started\n", "utf8");
     terminal.emitKey("\r"); // boot start
+    await vi.waitFor(() => expect(stripAnsi(terminal.frames.at(-1) ?? "")).toContain("FILES  REVIEW"));
     terminal.emitKey("[");
     terminal.emitKey("[");
     terminal.emitKey("[");
     terminal.emitKey("TAB"); // center
     terminal.emitKey("TAB"); // inspector
-    terminal.emitKey("LEFT"); // changes
-    await vi.waitFor(() => expect(stripAnsi(terminal.frames.at(-1) ?? "")).toContain("changed"));
+    const reviewFrameStart = terminal.frames.length;
+    terminal.emitKey("RIGHT"); // review with changes
+    await vi.waitFor(() => {
+      const frame = stripAnsi(terminal.frames.slice(reviewFrameStart).join("\n"));
+      expect(frame).toContain("CHANGES");
+      expect(frame).toContain("README.md");
+    });
+    const diffFrameStart = terminal.frames.length;
+    terminal.emitKey("ENTER"); // open the selected change
+    await vi.waitFor(() => expect(stripAnsi(terminal.frames.slice(diffFrameStart).join("\n"))).toContain("changed"));
     terminal.emitKey("q");
 
     await expect(app).resolves.toBe(0);

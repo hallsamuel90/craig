@@ -200,8 +200,8 @@ export function buildShellData(state: ControlShellState, model: WorkspaceShellMo
             : `+ new tab   a ${configService.runners.getDisplayName(state.centerTabRunner ?? (selectedTask?.runner ?? state.selectedRunner))}   r runner   t terminal   x close   Enter attach   Esc pause   ? help`
           : state.inspectionMode === "review"
           ? isProjectTask
-            ? "↑↓ targets   Wheel/PgUp/PgDn scroll   o open PR   R refresh checks   X close task   ←/→ mode   Esc pause   ? help"
-            : "Wheel/PgUp/PgDn scroll   o open PR   R refresh checks   X close task   ←/→ mode   Esc pause   ? help"
+            ? "↑↓ targets   Enter open change   Wheel/PgUp/PgDn scroll   o open PR   R refresh checks   X close task   ←/→ mode   Esc pause   ? help"
+            : "↑↓ changes   Enter open change   Wheel/PgUp/PgDn scroll   o open PR   R refresh checks   X close task   ←/→ mode   Esc pause   ? help"
           : state.inspectionMode === "files"
           ? state.fileSearchQuery !== null
             ? `Search: ${state.fileSearchQuery}   ↑↓ navigate   Enter open   Esc cancel search`
@@ -863,9 +863,18 @@ function buildInspectionSection(
     : selectedTarget?.pullRequest ?? (task ? getTaskPrimaryPr(task) : null);
   const modeRows = [renderInspectionModeRow(state, effectivePr), { id: "mode-spacer", text: "", muted: true }];
   if (state.inspectionMode === "review") {
+    const reviewRows = buildReviewInspectionRows(state, task);
+    const changeRows = buildDiffInspectionRows(state, inspection);
+    const combinedRows = applyReviewScrollAnchor([
+      { id: "review-pr-header", text: "PULL REQUEST", muted: true },
+      ...reviewRows,
+      { id: "review-changes-spacer", text: "", muted: true },
+      { id: "review-changes-header", text: "CHANGES", muted: true },
+      ...changeRows,
+    ], state);
     return {
       title: "",
-      rows: [...modeRows, ...buildReviewInspectionRows(state, task)],
+      rows: [...modeRows, ...combinedRows],
     };
   }
 
@@ -885,7 +894,6 @@ function buildInspectionSection(
 function renderInspectionModeRow(state: ControlShellState, pr: PrBadgeDetail | null): ShellInspectionRow {
   const mode = state.inspectionMode;
   const modes = [
-    { label: "CHANGES", active: mode === "diff" },
     { label: "FILES", active: mode === "files" },
     { label: "REVIEW", active: mode === "review" },
   ];
@@ -1064,7 +1072,7 @@ function buildReviewInspectionRows(
   if (prHistoryCount > 0) {
     rows.push({ id: "pr-history", text: `+ ${prHistoryCount} previous PR${prHistoryCount !== 1 ? "s" : ""}`, muted: true });
   }
-  return applyReviewScrollAnchor(rows, state);
+  return rows;
 }
 
 const TARGET_ROW_WIDTH = 32;
@@ -1127,8 +1135,12 @@ function buildProjectReviewInspectionRows(
   return rows;
 }
 
-export function getReviewInspectionRowCount(state: ControlShellState, task: TaskRecord | null): number {
-  return buildReviewInspectionRows(state, task).length;
+export function getReviewInspectionRowCount(
+  state: ControlShellState,
+  task: TaskRecord | null,
+  inspection: TaskLocalInspection | null = null,
+): number {
+  return 3 + buildReviewInspectionRows(state, task).length + buildDiffInspectionRows(state, inspection).length;
 }
 
 interface PrDetail {

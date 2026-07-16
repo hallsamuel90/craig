@@ -14,7 +14,7 @@ export const CENTER_TAB_IDS = [...LEGACY_PTY_SURFACE_IDS, ...FIXED_CENTER_TAB_ID
 export const ACTION_IDS = ["commit", "push", "refresh-checks", "close-task"] as const;
 export const REVIEW_ACTION_IDS = ["refresh-checks", "close-task"] as const;
 export const INSPECTOR_SECTION_IDS = ["task", "checks", "pr", "setup-run", "actions", "next-action"] as const;
-export const INSPECTION_MODE_IDS = ["diff", "files", "review"] as const;
+export const INSPECTION_MODE_IDS = ["files", "review"] as const;
 
 export type InputMode = "control" | "terminal";
 export type FocusRegion = (typeof FOCUS_REGIONS)[number];
@@ -160,7 +160,7 @@ export function createInitialShellState(runtime: CraigUiRuntime | null, config: 
     activeTab: legacyInspectionKind ? INSPECTION_TAB_ID : optionalString(runtime?.activeTab) ?? "agent",
     preferredPtyTabKind: getValidPtyTabKind(runtime?.preferredPtyTabKind),
     inspectorSection: getValidValue(runtime?.inspectorSection, INSPECTOR_SECTION_IDS, "task"),
-    inspectionMode: getValidInspectionMode(runtime?.inspectionMode, legacyInspectionKind === "diff" ? "diff" : "files"),
+    inspectionMode: getValidInspectionMode(runtime?.inspectionMode, legacyInspectionKind === "diff" ? "review" : "files"),
     openInspectionKind,
     selectedFileTreePath: optionalString(runtime?.selectedFileTreePath),
     selectedFilePath: optionalString(runtime?.selectedFilePath),
@@ -372,7 +372,7 @@ function getValidFocusRegion(value: string | null | undefined): FocusRegion {
 }
 
 function getValidInspectionMode(value: string | null | undefined, fallback: InspectionMode): InspectionMode {
-  if (value === "checks" || value === "actions" || value === "review") {
+  if (value === "checks" || value === "actions" || value === "diff" || value === "review") {
     return "review";
   }
 
@@ -611,4 +611,3 @@ export function getNewTaskWorkspaceId(value: LeftNavItemId | null): string | nul
   if (!isNewTaskWorkspaceLeftItemId(value)) return null;
   return (value as string).slice("new-task-workspace:".length);
 }
-

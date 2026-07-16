@@ -133,7 +133,7 @@ export function getShellKeyOptions(ctx: AppContext, shell: ControlShellState) {
     diffPathRanges: [],
     fileLineCount: selectedInspection?.selectedFile.lines.length ?? 0,
     diffLineCount: selectedInspection?.selectedDiff.lines.length ?? 0,
-    reviewRowCount: getReviewInspectionRowCount(shell, selectedTask),
+    reviewRowCount: getReviewInspectionRowCount(shell, selectedTask, selectedInspection),
     pageRows: Math.max(5, getViewport(ctx.activeTerminal.width, ctx.activeTerminal.height).height - SHELL_LAYOUT.topRailHeight - 9),
     enabledRunnerIds: ctx.enabledRunnerIds,
     projectTargetIds: selectedTask?.repoTargets?.map((t) => t.repoId) ?? [],
@@ -157,9 +157,13 @@ export async function refreshInspection(ctx: AppContext, shell: ControlShellStat
   const refreshId = ++ctx.inspectionRefreshSequence;
   const selectedTask = resolveSelectedTaskForInspection(ctx.model.tasks, shell);
   const prevInspection = ctx.model.inspection;
+  const shouldReloadChangeIndex =
+    shell.focusedRegion === "inspector" &&
+    shell.inspectionMode === "review" &&
+    shell.openInspectionKind !== "diff";
 
   let nextModel;
-  if (selectedTask && prevInspection?.taskId === selectedTask.id) {
+  if (selectedTask && prevInspection?.taskId === selectedTask.id && !shouldReloadChangeIndex) {
     const selection = { selectedFilePath: shell.selectedFilePath, selectedDiffPath: shell.selectedDiffPath };
     const nextInspection = await reloadSelectedContent(selectedTask, prevInspection, selection);
     if (refreshId !== ctx.inspectionRefreshSequence) {

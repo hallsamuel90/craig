@@ -336,21 +336,23 @@ export function reduceMainKey(state: ControlShellState, key: string, options: Re
       });
     }
 
-    if (state.focusedRegion === "inspector" && state.selectedTaskId && state.inspectionMode === "diff") {
-      return result({
-        state: {
-          ...state,
-          activeTab: INSPECTION_TAB_ID,
-          openInspectionKind: "diff",
-          diffScrollOffset: 0,
-          actionMessage: null,
-        },
-        changed: true,
-        refreshInspection: true,
-      });
-    }
-
     if (state.focusedRegion === "inspector" && state.inspectionMode === "review") {
+      const selectedDiffPath = state.selectedDiffPath ?? options.diffPathIds?.[0] ?? null;
+      if (selectedDiffPath) {
+        return result({
+          state: {
+            ...state,
+            selectedDiffPath,
+            activeTab: INSPECTION_TAB_ID,
+            openInspectionKind: "diff",
+            diffScrollOffset: 0,
+            actionMessage: null,
+          },
+          changed: true,
+          refreshInspection: true,
+        });
+      }
+
       if (state.selectedActionId === "close-task" && !options.projectTargetIds?.length) {
         return result({
           state: {
@@ -421,11 +423,6 @@ export function scrollInspectionContent(state: ControlShellState, delta: number,
       return moveFileTreeSelection(state, delta, options);
     }
 
-    if (state.inspectionMode === "diff") {
-      const next = updateDynamicValue(state, "selectedDiffPath", options.diffPathIds ?? [], delta, true);
-      return next.changed ? { ...next, state: { ...next.state, diffScrollOffset: 0 } } : next;
-    }
-
     if (state.inspectionMode === "review") {
       return updateScrollOffset(state, "reviewScrollOffset", delta, options.reviewRowCount ?? 100, options.pageRows);
     }
@@ -489,27 +486,23 @@ function moveSelection(state: ControlShellState, direction: -1 | 1, options: Red
       return moveFileTreeSelection(state, direction, options);
     }
 
-    if (state.inspectionMode === "diff") {
-      const next = updateDynamicValue(state, "selectedDiffPath", options.diffPathIds ?? [], direction, true);
-      return next.changed
-        ? {
-            ...next,
-            state: {
-              ...next.state,
-              activeTab: INSPECTION_TAB_ID,
-              openInspectionKind: "diff",
-              diffScrollOffset: 0,
-            },
-            refreshInspection: true,
-          }
-        : next;
-    }
-
     if (options.projectTargetIds?.length) {
       const next = updateDynamicValue(state, "selectedProjectTargetId", options.projectTargetIds, direction);
       return next.changed ? { ...next, state: { ...next.state, reviewScrollOffset: 0, selectedActionId: "refresh-checks" } } : next;
     }
-    return updateIndexedValue(state, "selectedActionId", REVIEW_ACTION_IDS, direction);
+    const next = updateDynamicValue(state, "selectedDiffPath", options.diffPathIds ?? [], direction, true);
+    return next.changed
+      ? {
+          ...next,
+          state: {
+            ...next.state,
+            activeTab: INSPECTION_TAB_ID,
+            openInspectionKind: "diff",
+            diffScrollOffset: 0,
+          },
+          refreshInspection: true,
+        }
+      : updateIndexedValue(state, "selectedActionId", REVIEW_ACTION_IDS, direction);
   }
 
   return updateIndexedValue(state, "selectedActionId", ACTION_IDS, direction);
@@ -606,8 +599,8 @@ function setInspectionMode(state: ControlShellState, mode: InspectionMode): Main
     return result({ state });
   }
 
-  const openInspectionKind = mode === "diff" ? "diff" : mode === "files" ? "file" : state.openInspectionKind;
-  const activeTab = mode === "diff" || mode === "files" ? INSPECTION_TAB_ID : state.activeTab;
+  const openInspectionKind = mode === "files" ? "file" : state.openInspectionKind;
+  const activeTab = mode === "files" ? INSPECTION_TAB_ID : state.activeTab;
 
   return result({
     state: {
@@ -616,7 +609,6 @@ function setInspectionMode(state: ControlShellState, mode: InspectionMode): Main
       activeTab,
       openInspectionKind,
       fileScrollOffset: mode === "files" ? 0 : state.fileScrollOffset,
-      diffScrollOffset: mode === "diff" ? 0 : state.diffScrollOffset,
       reviewScrollOffset: mode === "review" ? 0 : state.reviewScrollOffset,
       actionMessage: null,
     },

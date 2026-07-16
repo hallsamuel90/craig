@@ -385,7 +385,7 @@ describe("terminal shell renderer", () => {
     expect(frame).toContain("\u001B[38;2;59;66;97;48;2;10;10;10m  1");
   });
 
-  test("renders diff tab with grouped changed files and selected patch", () => {
+  test("renders review with grouped changed files and selected patch", () => {
     const task = buildTaskRecord("/tmp/craig", {
       id: "task_20260430_02",
       repoId: "repo_bug_fixes",
@@ -398,7 +398,7 @@ describe("terminal shell renderer", () => {
         selectedTaskId: task.id,
         selectedLeftItemId: `task:${task.id}`,
         activeTab: "inspection",
-        inspectionMode: "diff",
+        inspectionMode: "review",
         openInspectionKind: "diff",
         focusedRegion: "inspector",
         selectedDiffPath: "src/app.ts",
@@ -412,8 +412,7 @@ describe("terminal shell renderer", () => {
     );
 
     const frame = renderMainShellFrame(MIN_VIEWPORT, data, { color: false });
-
-    expect(frame).toContain("CHANGES  FILES");
+    expect(frame).toContain("FILES  REVIEW");
     expect(frame).toContain("STAGED");
     expect(frame).toContain("UNSTAGED");
     expect(frame).toContain("  1 │ export const app = false;");
@@ -437,7 +436,7 @@ describe("terminal shell renderer", () => {
         selectedTaskId: task.id,
         selectedLeftItemId: `task:${task.id}`,
         activeTab: "inspection",
-        inspectionMode: "diff",
+        inspectionMode: "review",
         openInspectionKind: "diff",
         selectedDiffPath: "src/app.ts",
       },
@@ -512,8 +511,9 @@ describe("terminal shell renderer", () => {
     );
 
     const frame = renderMainShellFrame(MIN_VIEWPORT, data, { color: false });
+    const reviewRows = data.rightInspection?.rows ?? [];
 
-    expect(frame).toContain("CHANGES  FILES  REVIEW");
+    expect(frame).toContain("FILES  REVIEW");
     expect(frame).toContain("REVIEW   ●");
     expect(frame).toContain("#17");
     expect(frame).toContain("\u001B]8;;https://github.com/example/repo/pull/17\u001B\\  Open in GitHub ↗\u001B]8;;\u001B\\");
@@ -532,6 +532,9 @@ describe("terminal shell renderer", () => {
     expect(frame).not.toContain("Next:");
     expect(frame).not.toContain("create pr");
     expect(frame).not.toContain("merge pr");
+    expect(reviewRows.findIndex((row) => row.id === "review-pr-header")).toBeLessThan(
+      reviewRows.findIndex((row) => row.id === "review-changes-header"),
+    );
 
     const colorFrame = renderMainShellFrame(MIN_VIEWPORT, data, { color: true });
     expect(colorFrame).toContain("\u001B[38;2;224;175;104;48;2;10;10;10m●");
@@ -898,7 +901,7 @@ describe("terminal shell renderer", () => {
 
     expect(frame).toContain("CRAIG  |");
     expect(frame).toContain("WORKSPACES");
-    expect(frame).toContain("CHANGES  FILES  REVIEW");
+    expect(frame).toContain("FILES  REVIEW");
     expect(frame).toContain("craig/task_20260430_02");
   });
 
@@ -1273,7 +1276,7 @@ describe("terminal shell renderer", () => {
     const taskRow = data.leftTree.find((row) => row.taskId === "task_proj_01");
     const modeRow = data.rightInspection?.rows.find((row) => row.id === "inspection-mode");
 
-    expect(frame).toContain("CHANGES  FILES  REVIEW");
+    expect(frame).toContain("FILES  REVIEW");
     expect(frame).toContain("alpha");
     expect(frame).toContain("beta");
     expect(frame).toContain("#12");
