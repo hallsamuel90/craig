@@ -28,7 +28,7 @@
 
 Craig is a full-screen TUI that lets you run multiple AI agents across multiple repos at the same time — each in its own isolated git worktree, each with a live PTY, all from one terminal. Spin up Claude, Codex, and Cursor simultaneously. Watch them cook. Inspect diffs and review state while the agent handles repo actions from its PTY.
 
-it's like a game, except the PRs are real.
+It’s like a game, except the PRs are real.
 
 ## Install
 
