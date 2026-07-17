@@ -123,7 +123,7 @@ describe("terminal shell control state", () => {
       focusedRegion: "center",
       activeTab: "terminal",
       inspectorSection: "next-action",
-      inspectionMode: "diff",
+      inspectionMode: "review",
       openInspectionKind: "diff",
       selectedFilePath: "src/app.ts",
       selectedDiffPath: "src/app.ts",
@@ -149,7 +149,7 @@ describe("terminal shell control state", () => {
       selectedLeftItemId: "task:task_a_2",
       activeTab: "task_a_2:terminal",
       inspectorSection: "next-action",
-      inspectionMode: "diff",
+      inspectionMode: "review",
       openInspectionKind: "diff",
       selectedFilePath: "README.md",
       selectedDiffPath: "README.md",
@@ -487,7 +487,7 @@ describe("terminal shell control state", () => {
     });
   });
 
-  test("moves file and diff selections while inspector is focused", () => {
+  test("moves file and review change selections while inspector is focused", () => {
     const files = {
       ...seededState(),
       focusedRegion: "inspector" as const,
@@ -498,7 +498,7 @@ describe("terminal shell control state", () => {
     const diff = {
       ...seededState(),
       focusedRegion: "inspector" as const,
-      inspectionMode: "diff" as const,
+      inspectionMode: "review" as const,
       selectedDiffPath: "README.md",
     };
     const nextDiff = reduceMainKey(diff, "DOWN", KEY_OPTIONS);
@@ -545,20 +545,18 @@ describe("terminal shell control state", () => {
       focusedRegion: "inspector" as const,
       inspectionMode: "files" as const,
     };
-    const diff = reduceMainKey(inspector, "LEFT", KEY_OPTIONS);
-    const files = reduceMainKey(diff.state, "RIGHT", KEY_OPTIONS);
+    const review = reduceMainKey(inspector, "RIGHT", KEY_OPTIONS);
+    const files = reduceMainKey(review.state, "LEFT", KEY_OPTIONS);
 
-    expect(diff.state.inspectionMode).toBe("diff");
-    expect(diff.state.activeTab).toBe("inspection");
-    expect(diff.state.openInspectionKind).toBe("diff");
-    expect(diff.refreshInspection).toBe(true);
+    expect(review.state.inspectionMode).toBe("review");
+    expect(review.refreshInspection).toBe(true);
     expect(files.state.inspectionMode).toBe("files");
     expect(files.state.activeTab).toBe("inspection");
     expect(files.state.openInspectionKind).toBe("file");
     expect(files.refreshInspection).toBe(true);
   });
 
-  test("switching from an opened file to changes replaces the center with a diff", () => {
+  test("switching from an opened file to review keeps the current center content", () => {
     const fileOpen = {
       ...seededState(),
       focusedRegion: "inspector" as const,
@@ -571,16 +569,15 @@ describe("terminal shell control state", () => {
       diffScrollOffset: 8,
     };
 
-    const diff = reduceMainKey(fileOpen, "LEFT", KEY_OPTIONS);
+    const review = reduceMainKey(fileOpen, "RIGHT", KEY_OPTIONS);
 
-    expect(diff.state.inspectionMode).toBe("diff");
-    expect(diff.state.activeTab).toBe("inspection");
-    expect(diff.state.openInspectionKind).toBe("diff");
-    expect(diff.state.fileScrollOffset).toBe(12);
-    expect(diff.state.diffScrollOffset).toBe(0);
+    expect(review.state.inspectionMode).toBe("review");
+    expect(review.state.activeTab).toBe("inspection");
+    expect(review.state.openInspectionKind).toBe("file");
+    expect(review.state.fileScrollOffset).toBe(12);
   });
 
-  test("right-panel inspection modes include review next to changes and files", () => {
+  test("right-panel inspection modes cycle between files and review", () => {
     const files = {
       ...seededState(),
       focusedRegion: "inspector" as const,
@@ -622,9 +619,9 @@ describe("terminal shell control state", () => {
       focusedRegion: "inspector" as const,
       inspectionMode: "files" as const,
     };
-    const diff = {
+    const review = {
       ...files,
-      inspectionMode: "diff" as const,
+      inspectionMode: "review" as const,
     };
 
     expect(reduceMainKey(files, "ENTER", KEY_OPTIONS)).toMatchObject({
@@ -633,7 +630,7 @@ describe("terminal shell control state", () => {
       refreshInspection: true,
       changed: true,
     });
-    expect(reduceMainKey(diff, "ENTER", KEY_OPTIONS)).toMatchObject({
+    expect(reduceMainKey(review, "ENTER", KEY_OPTIONS)).toMatchObject({
       state: { activeTab: "inspection", openInspectionKind: "diff" },
       attachTerminal: false,
       refreshInspection: true,
@@ -641,7 +638,7 @@ describe("terminal shell control state", () => {
     });
   });
 
-  test("enter and R on review sync PR state without attaching a PTY", () => {
+  test("enter opens a review change and R syncs PR state without attaching a PTY", () => {
     const review = {
       ...seededState(),
       focusedRegion: "inspector" as const,
@@ -654,8 +651,8 @@ describe("terminal shell control state", () => {
 
     expect(reduceMainKey(review, "ENTER", KEY_OPTIONS)).toMatchObject({
       attachTerminal: false,
-      refreshPullRequestChecks: true,
-      state: { selectedActionId: "refresh-checks" },
+      refreshInspection: true,
+      state: { activeTab: "inspection", openInspectionKind: "diff", selectedDiffPath: "README.md" },
       changed: true,
     });
     expect(reduceMainKey(review, "R", KEY_OPTIONS)).toMatchObject({
@@ -664,7 +661,7 @@ describe("terminal shell control state", () => {
       state: { selectedActionId: "refresh-checks" },
       changed: true,
     });
-    expect(reduceMainKey(refreshSelected, "ENTER", KEY_OPTIONS)).toMatchObject({
+    expect(reduceMainKey(refreshSelected, "ENTER", { ...KEY_OPTIONS, diffPathIds: [] })).toMatchObject({
       attachTerminal: false,
       refreshPullRequestChecks: true,
       changed: true,
@@ -694,8 +691,8 @@ describe("terminal shell control state", () => {
       selectedActionId: "refresh-checks" as const,
     };
 
-    const close = reduceMainKey(review, "DOWN", KEY_OPTIONS);
-    const sync = reduceMainKey(close.state, "UP", KEY_OPTIONS);
+    const close = reduceMainKey(review, "DOWN", { ...KEY_OPTIONS, diffPathIds: [] });
+    const sync = reduceMainKey(close.state, "UP", { ...KEY_OPTIONS, diffPathIds: [] });
 
     expect(close.state.selectedActionId).toBe("close-task");
     expect(sync.state.selectedActionId).toBe("refresh-checks");
@@ -764,7 +761,7 @@ describe("terminal shell control state", () => {
     const diff = {
       ...seededState(),
       focusedRegion: "inspector" as const,
-      inspectionMode: "diff" as const,
+      inspectionMode: "review" as const,
       selectedDiffPath: "README.md",
     };
 
@@ -774,7 +771,7 @@ describe("terminal shell control state", () => {
       fileTreeFileIds: ["README.md", "src/app.ts", "tests/app.test.ts"],
       fileTreeDirectoryIds: ["src", "tests"],
     });
-    const nextDiff = reduceMainKey(diff, "PAGE_DOWN", {
+    const nextDiff = reduceMainKey(diff, "DOWN", {
       ...KEY_OPTIONS,
       diffPathIds: ["README.md", "src/app.ts", "tests/app.test.ts", "package.json"],
       pageRows: 2,
@@ -785,7 +782,7 @@ describe("terminal shell control state", () => {
     expect(nextFile.state.selectedFilePath).toBe("README.md");
     expect(nextFile.refreshInspection).toBe(false);
     expect(nextDiff.changed).toBe(true);
-    expect(nextDiff.state.selectedDiffPath).toBe("tests/app.test.ts");
+    expect(nextDiff.state.selectedDiffPath).toBe("src/app.ts");
     expect(nextDiff.refreshInspection).toBe(true);
   });
 
@@ -873,7 +870,7 @@ describe("terminal shell control state", () => {
     const diff = {
       ...seededState(),
       focusedRegion: "inspector" as const,
-      inspectionMode: "diff" as const,
+      inspectionMode: "review" as const,
       selectedDiffPath: "README.md",
       diffScrollOffset: 20,
     };
@@ -1083,7 +1080,7 @@ describe("terminal shell control state", () => {
       focusedRegion: "actions" as const,
       activeTab: "task_20260430_02:agent" as const,
       inspectorSection: "actions" as const,
-      inspectionMode: "diff" as const,
+      inspectionMode: "review" as const,
       openInspectionKind: "diff" as const,
       selectedActionId: "close-task" as const,
       actionMessage: "transient",
@@ -1100,7 +1097,7 @@ describe("terminal shell control state", () => {
       activeTab: "task_20260430_02:agent",
       preferredPtyTabKind: "agent",
       inspectorSection: "actions",
-      inspectionMode: "diff",
+      inspectionMode: "review",
       openInspectionKind: "diff",
       selectedActionId: "close-task",
     });
@@ -1127,8 +1124,8 @@ describe("file search in inspection panel", () => {
     const centerState = { ...filesState(), focusedRegion: "center" as const };
     expect(reduceMainKey(centerState, "/", KEY_OPTIONS).state.fileSearchQuery).toBeNull();
 
-    const diffState = { ...filesState(), inspectionMode: "diff" as const };
-    expect(reduceMainKey(diffState, "/", KEY_OPTIONS).state.fileSearchQuery).toBeNull();
+    const reviewState = { ...filesState(), inspectionMode: "review" as const };
+    expect(reduceMainKey(reviewState, "/", KEY_OPTIONS).state.fileSearchQuery).toBeNull();
   });
 
   test("typing appends characters to query", () => {
