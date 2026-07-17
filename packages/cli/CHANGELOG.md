@@ -1,5 +1,15 @@
 # craig-cli
 
+## 0.8.0
+
+### Minor Changes
+
+- 97cb0fb: Combine local changes with pull request information in the Review inspector and remove the separate Changes tab.
+
+### Patch Changes
+
+- 538accd: Add workspace-local Feature Previews and make incremental center-pane terminal updates an opt-in experimental setting.
+
 ## 0.7.12
 
 ### Patch Changes
