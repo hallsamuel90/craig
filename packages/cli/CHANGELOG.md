@@ -1,5 +1,11 @@
 # craig-cli
 
+## 0.8.1
+
+### Patch Changes
+
+- 4428ee8: Repaint only changed center-pane rows during terminal output when the incremental center pane preview is enabled.
+
 ## 0.8.0
 
 ### Minor Changes
