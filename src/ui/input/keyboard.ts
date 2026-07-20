@@ -81,3 +81,14 @@ export function positionFrameRows(frame: string, previousFrame: string | null = 
     .map((line, index) => previousRows[index] === line ? "" : `[${index + 1};1H${line}`)
     .join("");
 }
+
+export function positionRegionRows(
+  rows: string[],
+  previousRows: string[] | null,
+  startRow: number,
+  startColumn: number,
+): string {
+  return rows
+    .map((line, index) => previousRows?.[index] === line ? "" : `\u001B[${startRow + index};${startColumn}H${line}`)
+    .join("");
+}

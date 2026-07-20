@@ -13,7 +13,7 @@ import {
   renderBootOverlayFrame,
   renderErrorLogOverlayFrame,
   renderHelpOverlayFrame,
-  renderMainShellFrame,
+  renderMainShellPresentation,
   renderOptionsOverlayFrame,
   renderPauseOverlayFrame,
 } from "./render.js";
@@ -28,7 +28,9 @@ import {
 } from "./options.js";
 import { createInitialShellState, restoreShellState } from "./state.js";
 import { getViewport } from "./layout.js";
-import { buildShellData } from "./shell/data.js";
+import { buildShellData, type ShellData } from "./shell/data.js";
+import type { RenderedRegion } from "./render.js";
+import { buildCenterPaneUpdate } from "./center-pane-render.js";
 import type { AppContext, AppState, TerminalRuntime, PtyRuntimePort, TerminalEventListener } from "./app-context.js";
 import { resolveTerminalViewTabId, syncShell, withTerminalView, restoreTerminalScreen } from "./shell/sync.js";
 import { hydrateOpenPtyTabs, syncInputCapture } from "./pty/manager.js";
@@ -87,6 +89,8 @@ export async function startTerminalApp(options: TerminalAppOptions = {}): Promis
   return new Promise<number>((resolve) => {
     const activeTerminal = options.terminal ?? terminal;
     let lastRenderedFrame: string | null = null;
+    let lastRenderedCenter: RenderedRegion | null = null;
+    let lastShellData: ShellData | null = null;
 
     const ctx: AppContext = {
       state: {
@@ -149,68 +153,99 @@ export async function startTerminalApp(options: TerminalAppOptions = {}): Promis
         ctx.ptyRenderTimer = setTimeout(() => {
           ctx.ptyRenderTimer = null;
           if (ctx.state.mode === "main") {
-            ctx.state = { mode: "main", shell: withTerminalView(ctx, ctx.state.shell) };
-            ctx.render();
+            const shell = withTerminalView(ctx, ctx.state.shell);
+            ctx.state = { mode: "main", shell };
+            const incrementalCenterEnabled = configService.previews.isEnabled(ctx.config, "incrementalCenterPane");
+            if (!incrementalCenterEnabled || !lastShellData || !lastRenderedCenter) {
+              ctx.render();
+              return;
+            }
+
+            const viewport = getViewport(activeTerminal.width, activeTerminal.height);
+            const nextShellData = { ...lastShellData, terminal: shell.terminal };
+            const centerUpdate = buildCenterPaneUpdate(
+              viewport,
+              nextShellData,
+              lastRenderedCenter,
+              shell.centerZoomed,
+            );
+            if (!centerUpdate) {
+              ctx.render();
+              return;
+            }
+
+            if (centerUpdate.output.length > 0) {
+              activeTerminal.noFormat(centerUpdate.output);
+            }
+            lastShellData = nextShellData;
+            lastRenderedCenter = centerUpdate.region;
+            activeTerminal.hideCursor(true);
           }
-        }, 50);
+        }, configService.previews.isEnabled(ctx.config, "incrementalCenterPane") ? 0 : 50);
       }
     };
 
     ctx.render = () => {
       syncInputCapture(ctx);
+      const renderState = ctx.state;
       ctx.ptyRuntime.setViewedTab?.(
-        ctx.state.mode === "main" ? resolveTerminalViewTabId(ctx, ctx.state.shell) : null,
+        renderState.mode === "main" ? resolveTerminalViewTabId(ctx, renderState.shell) : null,
       );
       const viewport = getViewport(activeTerminal.width, activeTerminal.height);
-      const frame =
-        ctx.state.mode === "main"
-          ? renderMainShellFrame(
-              viewport,
-              buildShellData(syncShell(ctx, ctx.state.shell), ctx.model),
-              {
-                centerOnly: ctx.state.shell.centerZoomed,
-                focusFlashActive: ctx.focusFlashUntil !== null && Date.now() < ctx.focusFlashUntil,
-              },
-            )
-          : ctx.state.variant === "boot"
-            ? renderBootOverlayFrame(viewport, {
-                menuIndex: ctx.state.menuIndex,
-                optionsMessage: ctx.state.optionsMessage,
+      let frame: string;
+
+      if (renderState.mode === "main") {
+        const mainShellData = buildShellData(syncShell(ctx, renderState.shell), ctx.model);
+        const mainPresentation = renderMainShellPresentation(viewport, mainShellData, {
+            centerOnly: renderState.shell.centerZoomed,
+            focusFlashActive: ctx.focusFlashUntil !== null && Date.now() < ctx.focusFlashUntil,
+        });
+        frame = mainPresentation.frame;
+        lastShellData = mainShellData;
+        lastRenderedCenter = mainPresentation.center;
+      } else {
+        frame = renderState.variant === "boot"
+          ? renderBootOverlayFrame(viewport, {
+              menuIndex: renderState.menuIndex,
+              optionsMessage: renderState.optionsMessage,
+              versionText: ctx.versionText,
+              updateText: ctx.updateText,
+            })
+          : renderState.variant === "pause"
+            ? renderPauseOverlayFrame(viewport, {
+                menuIndex: renderState.menuIndex,
+                optionsMessage: renderState.optionsMessage,
                 versionText: ctx.versionText,
                 updateText: ctx.updateText,
               })
-            : ctx.state.variant === "pause"
-              ? renderPauseOverlayFrame(viewport, {
-                  menuIndex: ctx.state.menuIndex,
-                  optionsMessage: ctx.state.optionsMessage,
-                  versionText: ctx.versionText,
-                  updateText: ctx.updateText,
+            : renderState.variant === "options"
+              ? renderOptionsOverlayFrame(viewport, {
+                  menuIndex: renderState.menuIndex,
+                  optionsMenuItems: OPTIONS_MENU_ITEMS,
                 })
-              : ctx.state.variant === "options"
+              : renderState.variant === "runners"
                 ? renderOptionsOverlayFrame(viewport, {
-                    menuIndex: ctx.state.menuIndex,
-                    optionsMenuItems: OPTIONS_MENU_ITEMS,
+                    menuIndex: getRunnerOptionsState(renderState).menuIndex,
+                    optionsMenuItems: buildRunnersSubmenuItems(ctx.config, getRunnerOptionsState(renderState)),
+                    optionsMessage: getRunnersSubmenuMessage(getRunnerOptionsState(renderState)),
+                    optionsSubtitle: "Runners",
                   })
-                : ctx.state.variant === "runners"
+                : renderState.variant === "previews"
                   ? renderOptionsOverlayFrame(viewport, {
-                      menuIndex: getRunnerOptionsState(ctx.state).menuIndex,
-                      optionsMenuItems: buildRunnersSubmenuItems(ctx.config, getRunnerOptionsState(ctx.state)),
-                      optionsMessage: getRunnersSubmenuMessage(getRunnerOptionsState(ctx.state)),
-                      optionsSubtitle: "Runners",
+                      menuIndex: getPreviewOptionsState(renderState).menuIndex,
+                      optionsMenuItems: buildPreviewSubmenuItems(ctx.config),
+                      optionsMessage: getPreviewSubmenuMessage(getPreviewOptionsState(renderState)),
+                      optionsSubtitle: "Feature Previews - Experimental",
                     })
-                  : ctx.state.variant === "previews"
-                    ? renderOptionsOverlayFrame(viewport, {
-                        menuIndex: getPreviewOptionsState(ctx.state).menuIndex,
-                        optionsMenuItems: buildPreviewSubmenuItems(ctx.config),
-                        optionsMessage: getPreviewSubmenuMessage(getPreviewOptionsState(ctx.state)),
-                        optionsSubtitle: "Feature Previews - Experimental",
-                      })
-                  : ctx.state.variant === "error-log"
-                    ? renderErrorLogOverlayFrame(viewport, {
-                        errorLogPath: ctx.state.errorLog?.path ?? paths.errorLogFile,
-                        errorLogLines: ctx.state.errorLog?.lines ?? [],
-                      })
-                    : renderHelpOverlayFrame(viewport);
+                : renderState.variant === "error-log"
+                  ? renderErrorLogOverlayFrame(viewport, {
+                      errorLogPath: renderState.errorLog?.path ?? paths.errorLogFile,
+                      errorLogLines: renderState.errorLog?.lines ?? [],
+                    })
+                  : renderHelpOverlayFrame(viewport);
+        lastShellData = null;
+        lastRenderedCenter = null;
+      }
 
       if (ctx.pendingClear) {
         activeTerminal.moveTo(1, 1);
