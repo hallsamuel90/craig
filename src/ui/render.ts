@@ -26,6 +26,18 @@ export interface RenderOptions {
   focusFlashActive?: boolean;
 }
 
+export interface RenderedRegion {
+  row: number;
+  column: number;
+  width: number;
+  rows: string[];
+}
+
+export interface MainShellPresentation {
+  frame: string;
+  center: RenderedRegion;
+}
+
 interface PaletteColor {
   bg?: string;
   fg?: string;
@@ -194,12 +206,18 @@ export function renderMainShellFrame(
   data: ShellData,
   options: Pick<RenderOptions, "color" | "centerOnly" | "focusFlashActive"> = {},
 ): string {
+  return renderMainShellPresentation(viewport, data, options).frame;
+}
+
+export function renderMainShellPresentation(
+  viewport: Viewport,
+  data: ShellData,
+  options: Pick<RenderOptions, "color" | "centerOnly" | "focusFlashActive"> = {},
+): MainShellPresentation {
   const color = options.color ?? true;
   const leftWidth = SHELL_LAYOUT.leftWidth;
   const rightWidth = SHELL_LAYOUT.rightWidth;
-  const dividerWidth = SHELL_LAYOUT.dividerWidth;
   const centerOnly = options.centerOnly ?? false;
-  const centerWidth = centerOnly ? viewport.width : viewport.width - leftWidth - rightWidth - dividerWidth * 2;
   const bodyHeight = viewport.height - SHELL_LAYOUT.topRailHeight - 1;
   const flashActive = options.focusFlashActive ?? false;
   const flashPalette = { bg: PALETTE.divider.bg, fg: "9ece6a" };
@@ -210,7 +228,7 @@ export function renderMainShellFrame(
   const railTop = fillSurface(pad(railText, viewport.width), color, PALETTE.rail);
 
   const leftLines = toLeftLines(data, leftWidth - LEFT_PANEL_INSET - LEFT_PANEL_GUTTER, bodyHeight, color);
-  const centerLines = toCenterLines(data, centerWidth, bodyHeight, color);
+  const centerRegion = renderCenterPaneRegion(viewport, data, { color, centerOnly });
   const rightLines = toRightLines(data, rightWidth, bodyHeight, color);
 
   const ptyAttached = data.inputMode === "terminal";
@@ -219,13 +237,13 @@ export function renderMainShellFrame(
 
   for (let index = 0; index < bodyHeight; index += 1) {
     if (centerOnly) {
-      body.push(renderSurfaceSegment(centerLines[index] ?? emptyLine(), centerWidth, color, "center"));
+      body.push(centerRegion.rows[index] ?? "");
       continue;
     }
 
     const left = renderSurfaceSegment(leftLines[index] ?? emptyLine(), leftWidth, color, "left");
     const leftDivider = fillSurface("│", color, leftDividerPalette);
-    const center = renderSurfaceSegment(centerLines[index] ?? emptyLine(), centerWidth, color, "center");
+    const center = centerRegion.rows[index] ?? "";
     const divider = fillSurface("│", color, rightDividerPalette);
     const right = renderSurfaceSegment(rightLines[index] ?? emptyLine(), rightWidth, color, "right");
     body.push(`${left}${leftDivider}${center}${divider}${right}`);
@@ -233,7 +251,31 @@ export function renderMainShellFrame(
 
   const footerPalette = ptyAttached || data.modalInput ? PALETTE.panelBg : PALETTE.panelMuted;
   const footerLine = renderFooterLine(data.footerText, data.footerToast, viewport.width, color, footerPalette);
-  return [railTop, ...body, footerLine].join("\n");
+  return {
+    frame: [railTop, ...body, footerLine].join("\n"),
+    center: centerRegion,
+  };
+}
+
+export function renderCenterPaneRegion(
+  viewport: Viewport,
+  data: ShellData,
+  options: Pick<RenderOptions, "color" | "centerOnly"> = {},
+): RenderedRegion {
+  const color = options.color ?? true;
+  const centerOnly = options.centerOnly ?? false;
+  const width = centerOnly
+    ? viewport.width
+    : viewport.width - SHELL_LAYOUT.leftWidth - SHELL_LAYOUT.rightWidth - SHELL_LAYOUT.dividerWidth * 2;
+  const height = viewport.height - SHELL_LAYOUT.topRailHeight - 1;
+  const lines = toCenterLines(data, width, height, color);
+
+  return {
+    row: SHELL_LAYOUT.topRailHeight + 1,
+    column: centerOnly ? 1 : SHELL_LAYOUT.leftWidth + SHELL_LAYOUT.dividerWidth + 1,
+    width,
+    rows: lines.map((line) => renderSurfaceSegment(line, width, color, "center")),
+  };
 }
 
 function renderFooterLine(footerText: string, footerToast: FooterToast | null, width: number, color: boolean, palette: PaletteColor): string {

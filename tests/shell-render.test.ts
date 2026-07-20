@@ -5,7 +5,7 @@ import type { ProjectTaskRepoTarget } from "../src/domain/task/index.js";
 import { getMockShellData } from "../src/ui/mock-data.js";
 import { MIN_VIEWPORT } from "../src/ui/layout.js";
 import { OPTIONS_MENU_ITEMS } from "../src/ui/options.js";
-import { renderBootOverlayFrame, renderErrorLogOverlayFrame, renderMainShellFrame, renderOptionsOverlayFrame, renderPauseOverlayFrame } from "../src/ui/render.js";
+import { renderBootOverlayFrame, renderErrorLogOverlayFrame, renderMainShellFrame, renderMainShellPresentation, renderOptionsOverlayFrame, renderPauseOverlayFrame } from "../src/ui/render.js";
 import { createInitialShellState } from "../src/ui/state.js";
 import { buildShellData } from "../src/ui/shell/data.js";
 import { buildTaskRecord } from "./test-helpers.js";
@@ -139,6 +139,30 @@ describe("terminal shell renderer", () => {
     expect(frame).toContain("Press Enter on the AGENT");
     expect(frame).toContain("─────");
     expect(frame).not.toContain("│WORKSPACES");
+  });
+
+  test("renders the center pane as the same independently positioned region used by the full frame", () => {
+    const data = getMockShellData();
+    const presentation = renderMainShellPresentation(MIN_VIEWPORT, data, { color: false });
+    const frameRows = presentation.frame.split("\n");
+    const region = presentation.center;
+
+    expect(region).toMatchObject({ row: 2, column: 44, width: 40 });
+    for (let index = 0; index < region.rows.length; index += 1) {
+      expect(frameRows[region.row - 1 + index]?.slice(region.column - 1, region.column - 1 + region.width)).toBe(
+        region.rows[index],
+      );
+    }
+  });
+
+  test("expands the independent center region to the full viewport when zoomed", () => {
+    const data = getMockShellData();
+    const presentation = renderMainShellPresentation(MIN_VIEWPORT, data, { color: false, centerOnly: true });
+    const frameRows = presentation.frame.split("\n");
+    const region = presentation.center;
+
+    expect(region).toMatchObject({ row: 2, column: 1, width: MIN_VIEWPORT.width });
+    expect(region.rows).toEqual(frameRows.slice(1, -1));
   });
 
   test("keeps the center tab rule scoped to the active tab in control mode", () => {

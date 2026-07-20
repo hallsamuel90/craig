@@ -87,7 +87,7 @@ describe("Craig terminal mode E2E", () => {
     }
   }, 15000);
 
-  test("attaching the selected agent task starts Codex in that task worktree", async () => {
+  test("incremental center preview starts Codex in the selected task worktree", async () => {
     const repoRoot = process.cwd();
     const workspaceRoot = await mkdtemp(join(tmpdir(), "craig-terminal-e2e-")).then((value) => realpath(value));
     await createCraigState(workspaceRoot, ["task_20260430_02"]);
@@ -129,6 +129,11 @@ describe("Craig terminal mode E2E", () => {
     });
     const codexStubDir = await createCodexHarnessStub(workspaceRoot);
     await writeAgentUiState(workspaceRoot);
+    await writeFile(
+      getCraigPaths(workspaceRoot).configFile,
+      JSON.stringify({ previews: { incrementalCenterPane: true } }),
+      "utf8",
+    );
     const output = new PtyOutputBuffer();
 
     const child = spawn(resolveTestTsxBin(repoRoot), [resolve(repoRoot, "src/cli.ts")], {
