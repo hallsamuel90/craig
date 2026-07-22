@@ -23,13 +23,17 @@ export interface PtySessionSpec {
   env?: Record<string, string | undefined>;
 }
 
+export type PtyViewInvalidation =
+  | { tabId: string; kind: "full" }
+  | { tabId: string; kind: "rows"; rowIndices: number[] };
+
 /* eslint-disable no-unused-vars */
 export interface PtyRuntimeOptions {
   workspaceRoot: string;
   shell?: string;
   env?: Record<string, string | undefined>;
   spawn?: typeof NodePty.spawn;
-  onUpdate?: (tabId: string) => void;
+  onUpdate?: (invalidation: PtyViewInvalidation) => void;
   resolveSessionSpec?: (taskId: string, tabId: string) => PtySessionSpec;
 }
 /* eslint-enable no-unused-vars */
@@ -227,7 +231,7 @@ export class PtyRuntime {
         respondToTerminalQueries(pty, chunk);
         void writeTerminalEmulator(session.terminal, chunk).then(() => {
           session.screenDirty = true;
-          this.onUpdate?.(session.tabId);
+          this.onUpdate?.({ tabId: session.tabId, kind: "full" });
         });
       }),
     );
@@ -236,7 +240,7 @@ export class PtyRuntime {
         session.status = "exited";
         void writeTerminalEmulator(session.terminal, `\r\n[process exited ${event.exitCode}]`).then(() => {
           session.screenDirty = true;
-          this.onUpdate?.(session.tabId);
+          this.onUpdate?.({ tabId: session.tabId, kind: "full" });
         });
       }),
     );

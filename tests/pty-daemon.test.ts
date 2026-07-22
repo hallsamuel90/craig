@@ -157,6 +157,12 @@ describe("PTY daemon", () => {
       });
       await client.ensureSession("task_1", "task_1:agent", { columns: 80, rows: 24 });
       await client.ensureSession("task_1", "task_1:terminal", { columns: 80, rows: 24 });
+
+      client.resize({ columns: 78, rows: 22 });
+      await vi.waitFor(() => expect(onUpdate).toHaveBeenCalledWith({ tabId: "task_1:terminal", kind: "full" }));
+      onUpdate.mockClear();
+      client.scrollViewport(-1);
+      await vi.waitFor(() => expect(onUpdate).toHaveBeenCalledWith({ tabId: "task_1:terminal", kind: "full" }));
       onUpdate.mockClear();
 
       agentPty.emitData("background-output\r\n");
@@ -166,12 +172,22 @@ describe("PTY daemon", () => {
 
       await vi.waitFor(() => expect(viewText(client.getViewState("task_1:terminal"))).toContain("third"));
       expect(onUpdate).toHaveBeenCalledTimes(1);
-      expect(onUpdate).toHaveBeenCalledWith("task_1:terminal");
+      expect(onUpdate).toHaveBeenCalledWith(expect.objectContaining({
+        tabId: "task_1:terminal",
+        kind: "rows",
+        rowIndices: expect.any(Array),
+      }));
+      expect(onUpdate.mock.calls[0]?.[0].rowIndices.length).toBeGreaterThan(0);
       expect(viewText(client.getViewState("task_1:agent"))).not.toContain("background-output");
 
       client.setViewedTab("task_1:agent");
       await vi.waitFor(() => expect(viewText(client.getViewState("task_1:agent"))).toContain("background-output"));
-      expect(onUpdate).toHaveBeenLastCalledWith("task_1:agent");
+      expect(onUpdate).toHaveBeenLastCalledWith({ tabId: "task_1:agent", kind: "full" });
+
+      onUpdate.mockClear();
+      agentPty.emitExit(7);
+      await vi.waitFor(() => expect(client.getViewState("task_1:agent").status).toBe("exited"));
+      expect(onUpdate).toHaveBeenCalledWith({ tabId: "task_1:agent", kind: "full" });
       client.disposeAll();
     } finally {
       await requestDaemonShutdown(paths);
@@ -205,7 +221,7 @@ describe("PTY daemon", () => {
       agentPty.emitData("legacy-background-output\r\n");
 
       await vi.waitFor(() => expect(viewText(client.getViewState("task_1:agent"))).toContain("legacy-background-output"));
-      expect(onUpdate).toHaveBeenCalledWith("task_1:agent");
+      expect(onUpdate).toHaveBeenCalledWith({ tabId: "task_1:agent", kind: "full" });
       client.disposeAll();
     } finally {
       await requestDaemonShutdown(paths);
@@ -393,6 +409,55 @@ describe("PTY daemon", () => {
       if (daemon) {
         await daemon;
       }
+      await rm(root, { recursive: true, force: true });
+    }
+  }, DAEMON_TEST_TIMEOUT_MS);
+
+  test("keeps a protocol v4 daemon running because its view patches are compatible", async () => {
+    const root = await createWorkspace();
+    const endpoint = getDaemonEndpointForTest(root);
+    let shutdownRequested = false;
+    const legacyServer = createServer((socket) => {
+      let buffer = "";
+      socket.setEncoding("utf8");
+      socket.on("data", (chunk) => {
+        buffer += String(chunk);
+        let newlineIndex = buffer.indexOf("\n");
+        while (newlineIndex !== -1) {
+          const request = JSON.parse(buffer.slice(0, newlineIndex)) as { id: number; type: string };
+          buffer = buffer.slice(newlineIndex + 1);
+          shutdownRequested ||= request.type === "shutdown";
+          socket.write(`${JSON.stringify({
+            id: request.id,
+            ok: true,
+            ...(request.type === "ping" ? { protocolVersion: 4 } : {}),
+          })}\n`);
+          newlineIndex = buffer.indexOf("\n");
+        }
+      });
+    });
+    await new Promise<void>((resolve, reject) => {
+      legacyServer.once("error", reject);
+      legacyServer.listen(endpoint.socketPath, resolve);
+    });
+    const spawnDaemon = vi.fn();
+    let client: Awaited<ReturnType<typeof createDaemonPtyRuntime>> | null = null;
+
+    try {
+      client = await createDaemonPtyRuntime({
+        paths: getCraigPaths(root),
+        workspaceRoot: root,
+        resolveSessionSpec: () => ({ cwd: root, command: [] }),
+        spawnDaemon,
+        viewUpdateMode: "incremental",
+      });
+
+      expect(spawnDaemon).not.toHaveBeenCalled();
+      expect(shutdownRequested).toBe(false);
+    } finally {
+      client?.disposeAll();
+      await new Promise<void>((resolve) => legacyServer.close(() => resolve()));
+      await rm(endpoint.socketPath, { force: true });
       await rm(root, { recursive: true, force: true });
     }
   }, DAEMON_TEST_TIMEOUT_MS);

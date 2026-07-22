@@ -38,6 +38,19 @@ export interface MainShellPresentation {
   center: RenderedRegion;
 }
 
+export interface RenderedRegionRowPatch {
+  index: number;
+  row: string;
+}
+
+export interface RenderedRegionPatch {
+  row: number;
+  column: number;
+  width: number;
+  rowCount: number;
+  rows: RenderedRegionRowPatch[];
+}
+
 interface PaletteColor {
   bg?: string;
   fg?: string;
@@ -263,18 +276,54 @@ export function renderCenterPaneRegion(
   options: Pick<RenderOptions, "color" | "centerOnly"> = {},
 ): RenderedRegion {
   const color = options.color ?? true;
-  const centerOnly = options.centerOnly ?? false;
-  const width = centerOnly
-    ? viewport.width
-    : viewport.width - SHELL_LAYOUT.leftWidth - SHELL_LAYOUT.rightWidth - SHELL_LAYOUT.dividerWidth * 2;
-  const height = viewport.height - SHELL_LAYOUT.topRailHeight - 1;
-  const lines = toCenterLines(data, width, height, color);
+  const geometry = getCenterPaneGeometry(viewport, options.centerOnly ?? false);
+  const lines = toCenterLines(data, geometry.width, geometry.rowCount, color);
 
+  return {
+    row: geometry.row,
+    column: geometry.column,
+    width: geometry.width,
+    rows: lines.map((line) => renderSurfaceSegment(line, geometry.width, color, "center")),
+  };
+}
+
+export function renderCenterPaneTerminalRowPatch(
+  viewport: Viewport,
+  data: ShellData,
+  terminalRowIndices: readonly number[],
+  options: Pick<RenderOptions, "color" | "centerOnly"> = {},
+): RenderedRegionPatch | null {
+  const activeTabId = data.tabs.find((tab) => tab.active)?.id ?? "";
+  if (!isPtyTab(activeTabId) || data.centerHeader.tabLabel === "BROWSER" || data.terminal.error || data.terminal.rows.length === 0) {
+    return null;
+  }
+
+  if (terminalRowIndices.some((index) => index < 0 || index >= data.terminal.rows.length)) {
+    return null;
+  }
+
+  const color = options.color ?? true;
+  const geometry = getCenterPaneGeometry(viewport, options.centerOnly ?? false);
+  const terminalBodyRow = toCenterHeaderLines(data, geometry.width, color).length;
+  const rows = [...new Set(terminalRowIndices)]
+    .map((terminalIndex) => ({ terminalIndex, index: terminalBodyRow + terminalIndex }))
+    .filter(({ index }) => index < geometry.rowCount)
+    .map(({ terminalIndex, index }) => ({
+      index,
+      row: renderSurfaceSegment(renderTerminalRow(data.terminal.rows[terminalIndex]!), geometry.width, color, "center"),
+    }));
+
+  return { ...geometry, rows };
+}
+
+function getCenterPaneGeometry(viewport: Viewport, centerOnly: boolean): Omit<RenderedRegionPatch, "rows"> {
   return {
     row: SHELL_LAYOUT.topRailHeight + 1,
     column: centerOnly ? 1 : SHELL_LAYOUT.leftWidth + SHELL_LAYOUT.dividerWidth + 1,
-    width,
-    rows: lines.map((line) => renderSurfaceSegment(line, width, color, "center")),
+    width: centerOnly
+      ? viewport.width
+      : viewport.width - SHELL_LAYOUT.leftWidth - SHELL_LAYOUT.rightWidth - SHELL_LAYOUT.dividerWidth * 2,
+    rowCount: viewport.height - SHELL_LAYOUT.topRailHeight - 1,
   };
 }
 
@@ -369,6 +418,15 @@ function toLeftLines(data: ShellData, width: number, height: number, color: bool
 }
 
 function toCenterLines(data: ShellData, width: number, height: number, color: boolean): SurfaceLine[] {
+  const activeTabId = data.tabs.find((tab) => tab.active)?.id ?? "agent";
+  const body = data.centerHeader.tabLabel === "BROWSER" || !isPtyTab(activeTabId)
+    ? data.centerTranscript.map((line) => ({ ...line }))
+    : renderTerminalSurface(data);
+
+  return fitLines([...toCenterHeaderLines(data, width, color), ...body], height);
+}
+
+function toCenterHeaderLines(data: ShellData, width: number, color: boolean): SurfaceLine[] {
   const contentWidth = width - 2; // renderSurfaceSegment prepends a 2-char inset
   const activeTab = data.tabs.find((tab) => tab.active)?.label ?? "AGENT";
   const tabOffset = data.inputMode === "terminal" ? 0 : findTabOffset(data.tabs);
@@ -380,10 +438,6 @@ function toCenterLines(data: ShellData, width: number, height: number, color: bo
     data.centerHeader.repo,
   ].join(" · ");
 
-  const activeTabId = data.tabs.find((tab) => tab.active)?.id ?? "agent";
-  const body = data.centerHeader.tabLabel === "BROWSER" || !isPtyTab(activeTabId)
-    ? data.centerTranscript.map((line) => ({ ...line }))
-    : renderTerminalSurface(data);
   const tabLineText = renderTabLine(data.tabs, color, data.focusedRegion === "center");
   const ENGAGED_LABEL = " engaged ";
   const ENGAGED_TOTAL_WIDTH = ENGAGED_LABEL.length + 2; // label + dot + trailing space
@@ -396,15 +450,12 @@ function toCenterLines(data: ShellData, width: number, height: number, color: bo
   const tabLine: SurfaceLine = {
     text: data.inputMode === "terminal" ? `${tabLineText}${tabLinePadding}${ptyIndicator}` : tabLineText,
   };
-  const lines: SurfaceLine[] = [
+  return [
     tabLine,
     { text: underline, tone: "muted" },
     { text: header },
     emptyLine(),
-    ...body,
   ];
-
-  return fitLines(lines, height);
 }
 
 function renderTerminalSurface(data: ShellData): SurfaceLine[] {
@@ -426,11 +477,15 @@ function renderTerminalSurface(data: ShellData): SurfaceLine[] {
     ];
   }
 
-  return data.terminal.rows.map((row) => ({
+  return data.terminal.rows.map(renderTerminalRow);
+}
+
+function renderTerminalRow(row: ShellData["terminal"]["rows"][number]): SurfaceLine {
+  return {
     text: segmentsToPlainText(row.segments),
     segments: row.segments,
     fullBleed: true,
-  }));
+  };
 }
 
 function toRightLines(data: ShellData, width: number, height: number, color: boolean): SurfaceLine[] {

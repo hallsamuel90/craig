@@ -33,4 +33,46 @@ describe("incremental center pane rendering", () => {
     expect(buildCenterPaneUpdate({ ...MIN_VIEWPORT, width: 140 }, data, previous, false)).toBeNull();
     expect(buildCenterPaneUpdate(MIN_VIEWPORT, data, previous, true)).toBeNull();
   });
+
+  test("renders only the dirty terminal rows when geometry is stable", () => {
+    const initial = getMockShellData({
+      terminal: {
+        status: "running",
+        rows: ["first", "second", "third"].map((text) => ({ segments: [{ text }] })),
+        error: null,
+      },
+    });
+    const previous = renderCenterPaneRegion(MIN_VIEWPORT, initial);
+    const next = {
+      ...initial,
+      terminal: {
+        ...initial.terminal,
+        rows: initial.terminal.rows.map((row, index) => index === 1
+          ? { segments: [{ text: "second changed" }] }
+          : row),
+      },
+    };
+
+    const update = buildCenterPaneUpdate(MIN_VIEWPORT, next, previous, false, [1]);
+
+    expect(update).not.toBeNull();
+    expect(update?.output).toContain("second changed");
+    expect(update?.output).not.toContain("first");
+    expect(update?.output).not.toContain("third");
+    const cursorPattern = new RegExp(`${String.fromCharCode(27)}\\[\\d+;(\\d+)H`, "g");
+    expect([...update!.output.matchAll(cursorPattern)].map((match) => match[1])).toEqual(["44"]);
+    expect(update?.region.rows[4]).toBe(previous.rows[4]);
+    expect(update?.region.rows[6]).toBe(previous.rows[6]);
+    expect(update?.region).toEqual(renderCenterPaneRegion(MIN_VIEWPORT, next));
+  });
+
+  test("falls back when a dirty row update cannot preserve center geometry", () => {
+    const data = getMockShellData({
+      terminal: { status: "running", rows: [{ segments: [{ text: "output" }] }], error: null },
+    });
+    const previous = renderCenterPaneRegion(MIN_VIEWPORT, data);
+
+    expect(buildCenterPaneUpdate({ ...MIN_VIEWPORT, width: 140 }, data, previous, false, [0])).toBeNull();
+    expect(buildCenterPaneUpdate(MIN_VIEWPORT, data, previous, false, [1])).toBeNull();
+  });
 });
