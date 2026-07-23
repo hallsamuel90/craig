@@ -10,27 +10,28 @@ import { getSelectedTask } from "../shell/sync.js";
 import type { ControlShellState } from "../state.js";
 import type { AppContext } from "../app-context.js";
 
-export async function pollPullRequests(ctx: AppContext): Promise<void> {
-  if (ctx.prPollInFlight || ctx.state.mode !== "main") {
+export async function pollPullRequests(ctx: AppContext, signal?: AbortSignal): Promise<void> {
+  if (signal?.aborted || ctx.state.mode !== "main") {
     return;
   }
 
-  ctx.prPollInFlight = true;
   try {
     await pollPullRequestsAction(ctx.model.tasks, buildActionContext(ctx));
+    if (signal?.aborted) return;
     ctx.lastBackgroundPrPollError = null;
     if (ctx.state.mode !== "main") return;
-    ctx.model = await loadWorkspaceShellModel(ctx.workspaceRoot, ctx.state.shell, ctx.enabledRunnerIds);
+    const model = await loadWorkspaceShellModel(ctx.workspaceRoot, ctx.state.shell, ctx.enabledRunnerIds);
+    if (signal?.aborted) return;
+    ctx.model = model;
     ctx.state = { mode: "main", shell: syncShell(ctx, ctx.state.shell) };
     ctx.render();
   } catch (error) {
+    if (signal?.aborted) return;
     const message = error instanceof Error ? error.message : "Background PR discovery failed.";
     if (message !== ctx.lastBackgroundPrPollError) {
       ctx.lastBackgroundPrPollError = message;
       void logBackgroundError("background PR polling", error, buildActionContext(ctx));
     }
-  } finally {
-    ctx.prPollInFlight = false;
   }
 }
 
