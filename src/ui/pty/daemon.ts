@@ -10,10 +10,16 @@ import type { CraigPaths } from "../../state/craig-paths.js";
 import { resolveExecutablePath } from "../../shared/command-path.js";
 import type { TerminalViewState } from "../state.js";
 import type { TerminalScreenRow } from "../terminal-emulator.js";
-import { PtyRuntime, type PtyRuntimeOptions, type PtySessionSpec, type PtySize } from "./runtime.js";
+import {
+  PtyRuntime,
+  type PtyRuntimeOptions,
+  type PtySessionSpec,
+  type PtySize,
+} from "./runtime.js";
 
-const DAEMON_PROTOCOL_VERSION = 4;
-const VIEW_UPDATE_INTERVAL_MS = 50;
+const DAEMON_PROTOCOL_VERSION = 5;
+const COMPATIBLE_DAEMON_PROTOCOL_VERSIONS = new Set([4, DAEMON_PROTOCOL_VERSION]);
+const INCREMENTAL_VIEW_UPDATE_INTERVAL_MS = 16;
 
 export type PtyViewUpdateMode = "snapshot" | "incremental";
 
@@ -141,7 +147,7 @@ export class DaemonPtyRuntimeClient {
 
   async ready(): Promise<void> {
     const response = await this.send({ type: "ping" });
-    if (response.protocolVersion !== DAEMON_PROTOCOL_VERSION) {
+    if (!isCompatibleDaemonProtocol(response.protocolVersion)) {
       throw new Error("Craig PTY daemon protocol mismatch.");
     }
     await this.send({ type: "setViewUpdateMode", mode: this.viewUpdateMode });
@@ -189,17 +195,21 @@ export class DaemonPtyRuntimeClient {
   }
 
   scrollViewport(lines: number): void {
+    const tabId = this.attachedTabId;
     void this.send({ type: "scrollViewport", lines }).then((response) => {
-      if (this.attachedTabId && response.view) {
-        this.viewCache.set(this.attachedTabId, response.view);
+      if (tabId && response.view) {
+        this.viewCache.set(tabId, response.view);
+        this.notifyFullUpdate(tabId);
       }
     }).catch(() => undefined);
   }
 
   resize(size: PtySize): void {
+    const tabId = this.attachedTabId;
     void this.send({ type: "resize", size }).then((response) => {
-      if (this.attachedTabId && response.view) {
-        this.viewCache.set(this.attachedTabId, response.view);
+      if (tabId && response.view) {
+        this.viewCache.set(tabId, response.view);
+        this.notifyFullUpdate(tabId);
       }
     }).catch(() => undefined);
   }
@@ -233,7 +243,7 @@ export class DaemonPtyRuntimeClient {
         this.viewCache.set(viewedTabId, response.view);
       }
       if (this.viewUpdateMode === mode && this.viewedTabId === viewedTabId) {
-        this.options.onUpdate?.(viewedTabId ?? "");
+        this.notifyFullUpdate(viewedTabId);
       }
       if (mode === "incremental" && this.viewUpdateMode === mode) {
         if (this.viewedTabId === viewedTabId && this.subscribedTabId === null) {
@@ -341,11 +351,12 @@ export class DaemonPtyRuntimeClient {
     if (message.type === "update") {
       if ("view" in message) {
         this.viewCache.set(message.tabId, message.view);
-        this.options.onUpdate?.(message.tabId);
+        this.notifyFullUpdate(message.tabId);
         return;
       }
 
       const current = this.viewCache.get(message.tabId) ?? { status: "idle" as const, rows: [], error: null, scrolledBack: false };
+      const metadataChanged = hasPatchMetadataChanged(current, message.patch);
       const rows = current.rows.slice(0, message.patch.rowCount);
       for (const changed of message.patch.rows) {
         rows[changed.index] = changed.row;
@@ -357,7 +368,9 @@ export class DaemonPtyRuntimeClient {
         scrolledBack: message.patch.scrolledBack,
       });
       if (this.viewUpdateMode === "incremental" && this.viewedTabId === message.tabId) {
-        this.options.onUpdate?.(message.tabId);
+        this.options.onUpdate?.(metadataChanged
+          ? { tabId: message.tabId, kind: "full" }
+          : { tabId: message.tabId, kind: "rows", rowIndices: message.patch.rows.map((row) => row.index) });
       }
     }
   }
@@ -373,7 +386,7 @@ export class DaemonPtyRuntimeClient {
         this.viewCache.set(tabId, response.view);
       }
       if (this.viewUpdateMode === "incremental" && this.viewedTabId === tabId && this.subscribedTabId === tabId) {
-        this.options.onUpdate?.(tabId ?? "");
+        this.notifyFullUpdate(tabId);
       }
     }).catch(() => {
       if (this.subscribedTabId === tabId) {
@@ -387,6 +400,12 @@ export class DaemonPtyRuntimeClient {
       pending.reject(error);
     }
     this.pending.clear();
+  }
+
+  private notifyFullUpdate(tabId: string | null): void {
+    if (tabId) {
+      this.options.onUpdate?.({ tabId, kind: "full" });
+    }
   }
 }
 
@@ -402,7 +421,7 @@ class PtyDaemonServer {
     this.runtime = new PtyRuntime({
       ...options,
       workspaceRoot: paths.workspaceRoot,
-      onUpdate: (tabId) => this.handleRuntimeUpdate(tabId),
+      onUpdate: (invalidation) => this.handleRuntimeUpdate(invalidation.tabId),
     });
   }
 
@@ -555,10 +574,11 @@ class PtyDaemonServer {
   }
 
   private handleRuntimeUpdate(tabId: string): void {
-    const view = this.runtime.getViewState(tabId);
+    let view: TerminalViewState | null = null;
     for (const client of this.clients) {
       const subscription = this.subscriptions.get(client);
       if (subscription?.mode === "snapshot") {
+        view ??= this.runtime.getViewState(tabId);
         writeMessage(client, { type: "update", tabId, view });
       }
     }
@@ -573,7 +593,7 @@ class PtyDaemonServer {
     this.updateTimers.set(tabId, setTimeout(() => {
       this.updateTimers.delete(tabId);
       this.broadcastUpdate(tabId);
-    }, VIEW_UPDATE_INTERVAL_MS));
+    }, INCREMENTAL_VIEW_UPDATE_INTERVAL_MS));
   }
 
   private hasViewSubscriber(tabId: string): boolean {
@@ -628,6 +648,16 @@ function hasViewMetadataChanged(previous: TerminalViewState | null, view: Termin
     previous.error !== view.error ||
     (previous.scrolledBack ?? false) !== (view.scrolledBack ?? false) ||
     previous.rows.length !== view.rows.length;
+}
+
+function hasPatchMetadataChanged(
+  previous: TerminalViewState,
+  patch: Pick<TerminalViewPatch, "status" | "error" | "scrolledBack" | "rowCount">,
+): boolean {
+  return previous.status !== patch.status ||
+    previous.error !== patch.error ||
+    (previous.scrolledBack ?? false) !== patch.scrolledBack ||
+    previous.rows.length !== patch.rowCount;
 }
 
 function rowKey(row: TerminalScreenRow): string {
@@ -694,7 +724,11 @@ async function ensureDaemonRunning(
 
 async function canConnectCompatible(socketPath: string): Promise<boolean> {
   const response = await requestDaemonPing(socketPath).catch(() => null);
-  return response?.ok === true && response.protocolVersion === DAEMON_PROTOCOL_VERSION;
+  return response?.ok === true && isCompatibleDaemonProtocol(response.protocolVersion);
+}
+
+function isCompatibleDaemonProtocol(version: number | undefined): boolean {
+  return version !== undefined && COMPATIBLE_DAEMON_PROTOCOL_VERSIONS.has(version);
 }
 
 async function waitForCompatibleDaemon(socketPath: string, timeoutMs: number): Promise<boolean> {

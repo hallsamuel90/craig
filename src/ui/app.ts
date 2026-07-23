@@ -7,7 +7,7 @@ import { getCraigPaths } from "../state/craig-paths.js";
 import { loadWorkspaceShellModel } from "./shell/loader.js";
 import { resolvePtySessionSpec, getPtySize } from "./pty/session.js";
 import { positionFrameRows } from "./input/keyboard.js";
-import type { PtyRuntimeOptions } from "./pty/runtime.js";
+import type { PtyRuntimeOptions, PtyViewInvalidation } from "./pty/runtime.js";
 import { createDaemonPtyRuntime } from "./pty/daemon.js";
 import {
   renderBootOverlayFrame,
@@ -58,6 +58,26 @@ function getPreviewOptionsState(state: Extract<AppState, { mode: "overlay" }>): 
   return state.previewOptions ?? { menuIndex: state.menuIndex, message: state.optionsMessage };
 }
 
+function mergePtyInvalidations(
+  current: PtyViewInvalidation | null,
+  next: PtyViewInvalidation,
+): PtyViewInvalidation {
+  if (!current) {
+    return next;
+  }
+  if (current.tabId !== next.tabId) {
+    return { tabId: next.tabId, kind: "full" };
+  }
+  if (current.kind === "full" || next.kind === "full") {
+    return { tabId: next.tabId, kind: "full" };
+  }
+  return {
+    tabId: next.tabId,
+    kind: "rows",
+    rowIndices: [...new Set([...current.rowIndices, ...next.rowIndices])],
+  };
+}
+
 export async function startTerminalApp(options: TerminalAppOptions = {}): Promise<number> {
   if (!process.stdin.isTTY || !process.stdout.isTTY) {
     throw new Error("Craig terminal shell requires a TTY.");
@@ -72,10 +92,10 @@ export async function startTerminalApp(options: TerminalAppOptions = {}): Promis
   const initialShell = restoreShellState(createInitialShellState(runtimeState, config), model);
   model = await loadWorkspaceShellModel(workspaceRoot, initialShell, enabledRunnerIds);
   const modelRef = { current: model };
-  let handlePtyUpdate: () => void = () => undefined;
+  let handlePtyUpdate: NonNullable<PtyRuntimeOptions["onUpdate"]> = () => undefined;
   const ptyOptions: PtyRuntimeOptions = {
     workspaceRoot,
-    onUpdate: () => handlePtyUpdate(),
+    onUpdate: (invalidation) => handlePtyUpdate(invalidation),
     resolveSessionSpec: (_taskId, tabId) => resolvePtySessionSpec(modelRef.current, tabId, workspaceRoot),
   };
   const initialPtyRuntime: PtyRuntimePort =
@@ -91,6 +111,7 @@ export async function startTerminalApp(options: TerminalAppOptions = {}): Promis
     let lastRenderedFrame: string | null = null;
     let lastRenderedCenter: RenderedRegion | null = null;
     let lastShellData: ShellData | null = null;
+    let pendingPtyInvalidation: PtyViewInvalidation | null = null;
 
     const ctx: AppContext = {
       state: {
@@ -144,14 +165,18 @@ export async function startTerminalApp(options: TerminalAppOptions = {}): Promis
       exit: (code: number) => resolve(code),
     };
 
-    handlePtyUpdate = () => {
+    handlePtyUpdate = (invalidation) => {
       if (ctx.state.mode !== "main") {
         return;
       }
 
+      pendingPtyInvalidation = mergePtyInvalidations(pendingPtyInvalidation, invalidation);
+
       if (!ctx.ptyRenderTimer) {
         ctx.ptyRenderTimer = setTimeout(() => {
           ctx.ptyRenderTimer = null;
+          const pendingInvalidation = pendingPtyInvalidation;
+          pendingPtyInvalidation = null;
           if (ctx.state.mode === "main") {
             const shell = withTerminalView(ctx, ctx.state.shell);
             ctx.state = { mode: "main", shell };
@@ -168,6 +193,7 @@ export async function startTerminalApp(options: TerminalAppOptions = {}): Promis
               nextShellData,
               lastRenderedCenter,
               shell.centerZoomed,
+              pendingInvalidation?.kind === "rows" ? pendingInvalidation.rowIndices : null,
             );
             if (!centerUpdate) {
               ctx.render();
