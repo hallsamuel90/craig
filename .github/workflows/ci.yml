@@ -56,6 +56,9 @@ jobs:
       - name: Build
         run: pnpm build
 
+      - name: Build site
+        run: pnpm --filter craig-site build
+
       - name: Build npm package
         run: pnpm build:npm
 
