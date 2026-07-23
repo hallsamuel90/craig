@@ -32,10 +32,18 @@ import { buildShellData, type ShellData } from "./shell/data.js";
 import type { RenderedRegion } from "./render.js";
 import { buildCenterPaneUpdate } from "./center-pane-render.js";
 import type { AppContext, AppState, TerminalRuntime, PtyRuntimePort, TerminalEventListener } from "./app-context.js";
-import { resolveTerminalViewTabId, syncShell, withTerminalView, restoreTerminalScreen } from "./shell/sync.js";
+import {
+  buildActionContext,
+  resolveTerminalViewTabId,
+  syncShell,
+  withTerminalView,
+  restoreTerminalScreen,
+} from "./shell/sync.js";
 import { hydrateOpenPtyTabs, syncInputCapture } from "./pty/manager.js";
 import { pollPullRequests } from "./workspace/pr-polling.js";
 import { onKey, onUnknown, onMouse } from "./input/dispatch.js";
+import { Heartbeat } from "./heartbeat.js";
+import { logBackgroundError } from "./actions/index.js";
 
 export type { TerminalRuntime, PtyRuntimePort, TerminalEventListener };
 
@@ -112,7 +120,6 @@ export async function startTerminalApp(options: TerminalAppOptions = {}): Promis
     let lastRenderedCenter: RenderedRegion | null = null;
     let lastShellData: ShellData | null = null;
     let pendingPtyInvalidation: PtyViewInvalidation | null = null;
-
     const ctx: AppContext = {
       state: {
         mode: "overlay",
@@ -143,8 +150,6 @@ export async function startTerminalApp(options: TerminalAppOptions = {}): Promis
       footerToastTimer: null,
       focusFlashUntil: null,
       focusFlashTimer: null,
-      prPollTimer: null,
-      prPollInFlight: false,
       lastBackgroundPrPollError: null,
       versionText: `Craig v${configService.version.getCurrent()}`,
       updateText: null,
@@ -164,6 +169,9 @@ export async function startTerminalApp(options: TerminalAppOptions = {}): Promis
       render: () => undefined,
       exit: (code: number) => resolve(code),
     };
+    const heartbeat = new Heartbeat({
+      onError: (jobId, error) => logBackgroundError(`heartbeat job "${jobId}"`, error, buildActionContext(ctx)),
+    });
 
     handlePtyUpdate = (invalidation) => {
       if (ctx.state.mode !== "main") {
@@ -301,7 +309,7 @@ export async function startTerminalApp(options: TerminalAppOptions = {}): Promis
       if (ctx.ptyRenderTimer) { clearTimeout(ctx.ptyRenderTimer); ctx.ptyRenderTimer = null; }
       if (ctx.footerToastTimer) { clearTimeout(ctx.footerToastTimer); ctx.footerToastTimer = null; }
       if (ctx.focusFlashTimer) { clearTimeout(ctx.focusFlashTimer); ctx.focusFlashTimer = null; }
-      if (ctx.prPollTimer) { clearInterval(ctx.prPollTimer); ctx.prPollTimer = null; }
+      heartbeat.stop();
       ctx.ptyRuntime.disposeAll();
       activeTerminal.grabInput(false);
       activeTerminal.hideCursor(false);
@@ -340,9 +348,12 @@ export async function startTerminalApp(options: TerminalAppOptions = {}): Promis
     activeTerminal.on("key", boundOnKey);
     activeTerminal.on("unknown", boundOnUnknown);
     activeTerminal.on("mouse", boundOnMouse);
-    ctx.prPollTimer = setInterval(() => {
-      void pollPullRequests(ctx);
-    }, (ctx.config.github?.watchIntervalSeconds ?? 5) * 1000);
+    heartbeat.register({
+      id: "github.pull-requests",
+      intervalMs: (ctx.config.github?.watchIntervalSeconds ?? 5) * 1_000,
+      run: (signal) => pollPullRequests(ctx, signal),
+    });
+    heartbeat.start();
     void configService.version.checkForUpdate().then((result) => {
       if (result.updateAvailable && result.latest) {
         ctx.updateText = `Update available: v${result.latest}`;

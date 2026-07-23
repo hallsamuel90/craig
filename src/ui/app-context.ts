@@ -77,8 +77,6 @@ export type AppContext = {
   footerToastTimer: ReturnType<typeof setTimeout> | null;
   focusFlashUntil: number | null;
   focusFlashTimer: ReturnType<typeof setTimeout> | null;
-  prPollTimer: ReturnType<typeof setInterval> | null;
-  prPollInFlight: boolean;
   lastBackgroundPrPollError: string | null;
   versionText: string | null;
   updateText: string | null;
