@@ -1,5 +1,11 @@
 # craig-cli
 
+## 0.8.3
+
+### Patch Changes
+
+- 5e3bf17: Centralize recurring background work behind a heartbeat scheduler and migrate pull request polling to it.
+
 ## 0.8.2
 
 ### Patch Changes
