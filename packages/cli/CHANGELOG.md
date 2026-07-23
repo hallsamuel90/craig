@@ -1,5 +1,11 @@
 # craig-cli
 
+## 0.8.2
+
+### Patch Changes
+
+- 0fe3667: Reduce incremental center-pane latency and repaint only terminal rows that changed.
+
 ## 0.8.1
 
 ### Patch Changes
