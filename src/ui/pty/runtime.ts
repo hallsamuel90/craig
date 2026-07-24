@@ -11,6 +11,7 @@ import {
   writeTerminalEmulator,
 } from "../terminal-emulator.js";
 import { requireExecutablePath, withDefaultCommandPath } from "../../shared/command-path.js";
+import type { PtyActivitySnapshot } from "../agent-activity.js";
 
 export interface PtySize {
   columns: number;
@@ -34,6 +35,8 @@ export interface PtyRuntimeOptions {
   env?: Record<string, string | undefined>;
   spawn?: typeof NodePty.spawn;
   onUpdate?: (invalidation: PtyViewInvalidation) => void;
+  onActivity?: (snapshot: PtyActivitySnapshot) => void;
+  onActivityRemoved?: (tabId: string) => void;
   resolveSessionSpec?: (taskId: string, tabId: string) => PtySessionSpec;
 }
 /* eslint-enable no-unused-vars */
@@ -50,6 +53,8 @@ interface PtySession {
   rows: TerminalScreenRow[];
   renderedScrollbackLines: number | null;
   screenDirty: boolean;
+  lastActivityAt: number;
+  exitCode: number | null;
 }
 
 const require = createRequire(import.meta.url);
@@ -81,10 +86,13 @@ const SPECIAL_KEY_INPUT: Record<string, string> = {
 
 export class PtyRuntime {
   private readonly sessions = new Map<string, PtySession>();
+  private readonly activitySnapshots = new Map<string, PtyActivitySnapshot>();
   private readonly shell: string;
   private readonly env: Record<string, string | undefined>;
   private readonly spawn: typeof NodePty.spawn | undefined;
   private readonly onUpdate: PtyRuntimeOptions["onUpdate"];
+  private readonly onActivity: PtyRuntimeOptions["onActivity"];
+  private readonly onActivityRemoved: PtyRuntimeOptions["onActivityRemoved"];
   private readonly resolveSessionSpec: NonNullable<PtyRuntimeOptions["resolveSessionSpec"]>;
   private attachedTabId: string | null = null;
 
@@ -93,6 +101,8 @@ export class PtyRuntime {
     this.env = options.env ?? process.env;
     this.spawn = options.spawn;
     this.onUpdate = options.onUpdate;
+    this.onActivity = options.onActivity;
+    this.onActivityRemoved = options.onActivityRemoved;
     this.resolveSessionSpec = options.resolveSessionSpec ?? (() => ({ cwd: options.workspaceRoot, command: [] }));
   }
 
@@ -111,8 +121,22 @@ export class PtyRuntime {
       }
     }
 
-    const session = this.createSession(taskId, tabId, size, specOverride);
+    let session: PtySession;
+    try {
+      session = this.createSession(taskId, tabId, size, specOverride);
+    } catch (error) {
+      this.recordActivity({
+        taskId,
+        tabId,
+        sessionState: "failed",
+        lastActivityAt: Date.now(),
+        exitCode: null,
+        error: error instanceof Error ? error.message : String(error),
+      });
+      throw error;
+    }
     this.sessions.set(tabId, session);
+    this.notifyActivity(session);
     this.attachedTabId = tabId;
     return this.getViewState(tabId);
   }
@@ -124,6 +148,9 @@ export class PtyRuntime {
     }
 
     session.pty.write(input);
+    if (input.includes("\r") || input.includes("\n")) {
+      this.touchActivity(session);
+    }
   }
 
   writeKey(key: string): void {
@@ -158,14 +185,17 @@ export class PtyRuntime {
     return [...this.sessions.keys()];
   }
 
+  getActivitySnapshots(): PtyActivitySnapshot[] {
+    return [...this.activitySnapshots.values()];
+  }
+
   disposeSession(tabId: string): void {
     const session = this.sessions.get(tabId);
-    if (!session) {
-      return;
+    if (session) {
+      disposeSession(session);
+      this.sessions.delete(tabId);
     }
-
-    disposeSession(session);
-    this.sessions.delete(tabId);
+    this.removeActivity(tabId);
     if (this.attachedTabId === tabId) {
       this.attachedTabId = null;
     }
@@ -177,6 +207,10 @@ export class PtyRuntime {
     }
 
     this.sessions.clear();
+    for (const tabId of this.activitySnapshots.keys()) {
+      this.onActivityRemoved?.(tabId);
+    }
+    this.activitySnapshots.clear();
     this.attachedTabId = null;
   }
 
@@ -224,10 +258,13 @@ export class PtyRuntime {
       rows: [],
       renderedScrollbackLines: null,
       screenDirty: true,
+      lastActivityAt: Date.now(),
+      exitCode: null,
     };
 
     session.disposables.push(
       pty.onData((chunk) => {
+        this.touchActivity(session);
         respondToTerminalQueries(pty, chunk);
         void writeTerminalEmulator(session.terminal, chunk).then(() => {
           session.screenDirty = true;
@@ -238,6 +275,9 @@ export class PtyRuntime {
     session.disposables.push(
       pty.onExit((event) => {
         session.status = "exited";
+        session.exitCode = event.exitCode;
+        session.lastActivityAt = Date.now();
+        this.notifyActivity(session);
         void writeTerminalEmulator(session.terminal, `\r\n[process exited ${event.exitCode}]`).then(() => {
           session.screenDirty = true;
           this.onUpdate?.({ tabId: session.tabId, kind: "full" });
@@ -250,6 +290,38 @@ export class PtyRuntime {
 
   private getAttachedSession(): PtySession | null {
     return this.attachedTabId ? this.sessions.get(this.attachedTabId) ?? null : null;
+  }
+
+  private touchActivity(session: PtySession): void {
+    session.lastActivityAt = Date.now();
+    this.notifyActivity(session);
+  }
+
+  private notifyActivity(session: PtySession): void {
+    this.recordActivity(this.buildActivitySnapshot(session));
+  }
+
+  private recordActivity(snapshot: PtyActivitySnapshot): void {
+    this.activitySnapshots.set(snapshot.tabId, snapshot);
+    this.onActivity?.(snapshot);
+  }
+
+  private removeActivity(tabId: string): void {
+    if (!this.activitySnapshots.delete(tabId)) {
+      return;
+    }
+    this.onActivityRemoved?.(tabId);
+  }
+
+  private buildActivitySnapshot(session: PtySession): PtyActivitySnapshot {
+    return {
+      taskId: session.taskId,
+      tabId: session.tabId,
+      sessionState: session.status === "failed" ? "failed" : session.status === "exited" ? "exited" : "running",
+      lastActivityAt: session.lastActivityAt,
+      exitCode: session.exitCode,
+      error: session.error,
+    };
   }
 }
 

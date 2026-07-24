@@ -6,7 +6,7 @@ import { configService } from "../domain/config/index.js";
 import { getCraigPaths } from "../state/craig-paths.js";
 import { loadWorkspaceShellModel } from "./shell/loader.js";
 import { resolvePtySessionSpec, getPtySize } from "./pty/session.js";
-import { positionFrameRows } from "./input/keyboard.js";
+import { isAgentTabId, positionFrameRows } from "./input/keyboard.js";
 import type { PtyRuntimeOptions, PtyViewInvalidation } from "./pty/runtime.js";
 import { createDaemonPtyRuntime } from "./pty/daemon.js";
 import {
@@ -44,6 +44,13 @@ import { pollPullRequests } from "./workspace/pr-polling.js";
 import { onKey, onUnknown, onMouse } from "./input/dispatch.js";
 import { Heartbeat } from "./heartbeat.js";
 import { logBackgroundError } from "./actions/index.js";
+import {
+  AGENT_ACTIVITY_ANIMATION_FRAMES,
+  getAgentTabActivity,
+  hasWorkingAgentActivity,
+  type AgentActivityState,
+  type PtyActivitySnapshot,
+} from "./agent-activity.js";
 
 export type { TerminalRuntime, PtyRuntimePort, TerminalEventListener };
 
@@ -101,9 +108,13 @@ export async function startTerminalApp(options: TerminalAppOptions = {}): Promis
   model = await loadWorkspaceShellModel(workspaceRoot, initialShell, enabledRunnerIds);
   const modelRef = { current: model };
   let handlePtyUpdate: NonNullable<PtyRuntimeOptions["onUpdate"]> = () => undefined;
+  let handlePtyActivity: NonNullable<PtyRuntimeOptions["onActivity"]> = () => undefined;
+  let handlePtyActivityRemoved: NonNullable<PtyRuntimeOptions["onActivityRemoved"]> = () => undefined;
   const ptyOptions: PtyRuntimeOptions = {
     workspaceRoot,
     onUpdate: (invalidation) => handlePtyUpdate(invalidation),
+    onActivity: (snapshot) => handlePtyActivity(snapshot),
+    onActivityRemoved: (tabId) => handlePtyActivityRemoved(tabId),
     resolveSessionSpec: (_taskId, tabId) => resolvePtySessionSpec(modelRef.current, tabId, workspaceRoot),
   };
   const initialPtyRuntime: PtyRuntimePort =
@@ -120,6 +131,9 @@ export async function startTerminalApp(options: TerminalAppOptions = {}): Promis
     let lastRenderedCenter: RenderedRegion | null = null;
     let lastShellData: ShellData | null = null;
     let pendingPtyInvalidation: PtyViewInvalidation | null = null;
+    let agentActivityAnimationFrame = 0;
+    let hadWorkingAgentActivity = false;
+    const renderedAgentActivityByTabId = new Map<string, AgentActivityState>();
     const ctx: AppContext = {
       state: {
         mode: "overlay",
@@ -170,6 +184,7 @@ export async function startTerminalApp(options: TerminalAppOptions = {}): Promis
       exit: (code: number) => resolve(code),
     };
     const heartbeat = new Heartbeat({
+      resolutionMs: 250,
       onError: (jobId, error) => logBackgroundError(`heartbeat job "${jobId}"`, error, buildActionContext(ctx)),
     });
 
@@ -219,6 +234,28 @@ export async function startTerminalApp(options: TerminalAppOptions = {}): Promis
       }
     };
 
+    handlePtyActivity = (snapshot: PtyActivitySnapshot) => {
+      if (
+        ctx.state.mode === "main" &&
+        configService.previews.isEnabled(ctx.config, "agentActivityIndicators") &&
+        isAgentTabId(snapshot.tabId) &&
+        renderedAgentActivityByTabId.get(snapshot.tabId) !== getAgentTabActivity(snapshot.tabId, [snapshot], Date.now())
+      ) {
+        ctx.render();
+      }
+    };
+
+    handlePtyActivityRemoved = (tabId: string) => {
+      if (
+        ctx.state.mode === "main" &&
+        configService.previews.isEnabled(ctx.config, "agentActivityIndicators") &&
+        isAgentTabId(tabId) &&
+        renderedAgentActivityByTabId.get(tabId) !== "idle"
+      ) {
+        ctx.render();
+      }
+    };
+
     ctx.render = () => {
       syncInputCapture(ctx);
       const renderState = ctx.state;
@@ -229,7 +266,24 @@ export async function startTerminalApp(options: TerminalAppOptions = {}): Promis
       let frame: string;
 
       if (renderState.mode === "main") {
-        const mainShellData = buildShellData(syncShell(ctx, renderState.shell), ctx.model);
+        const activityEnabled = configService.previews.isEnabled(ctx.config, "agentActivityIndicators");
+        const snapshots = activityEnabled ? ctx.ptyRuntime.getActivitySnapshots?.() ?? [] : [];
+        const now = Date.now();
+        const mainShellData = buildShellData(
+          syncShell(ctx, renderState.shell),
+          ctx.model,
+          activityEnabled ? { snapshots, now, animationFrame: agentActivityAnimationFrame } : undefined,
+        );
+        renderedAgentActivityByTabId.clear();
+        if (activityEnabled) {
+          for (const task of ctx.model.tasks) {
+            for (const tab of task.ptyTabs) {
+              if (tab.kind === "agent") {
+                renderedAgentActivityByTabId.set(tab.id, getAgentTabActivity(tab.id, snapshots, now));
+              }
+            }
+          }
+        }
         const mainPresentation = renderMainShellPresentation(viewport, mainShellData, {
             centerOnly: renderState.shell.centerZoomed,
             focusFlashActive: ctx.focusFlashUntil !== null && Date.now() < ctx.focusFlashUntil,
@@ -352,6 +406,30 @@ export async function startTerminalApp(options: TerminalAppOptions = {}): Promis
       id: "github.pull-requests",
       intervalMs: (ctx.config.github?.watchIntervalSeconds ?? 5) * 1_000,
       run: (signal) => pollPullRequests(ctx, signal),
+    });
+    heartbeat.register({
+      id: "agent.activity-indicators",
+      intervalMs: 500,
+      run: () => {
+        if (!configService.previews.isEnabled(ctx.config, "agentActivityIndicators")) {
+          agentActivityAnimationFrame = 0;
+          hadWorkingAgentActivity = false;
+          return;
+        }
+        const now = Date.now();
+        const working = hasWorkingAgentActivity(
+          ctx.model.tasks,
+          ctx.ptyRuntime.getActivitySnapshots?.() ?? [],
+          now,
+        );
+        if (working || hadWorkingAgentActivity) {
+          agentActivityAnimationFrame = (agentActivityAnimationFrame + 1) % AGENT_ACTIVITY_ANIMATION_FRAMES;
+          if (ctx.state.mode === "main") {
+            ctx.render();
+          }
+        }
+        hadWorkingAgentActivity = working;
+      },
     });
     heartbeat.start();
     void configService.version.checkForUpdate().then((result) => {

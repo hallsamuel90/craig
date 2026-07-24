@@ -71,6 +71,64 @@ describe("PTY runtime", () => {
     expect(updated.rows[0]?.segments[0]?.text).toContain("ok");
   });
 
+  test("observes submitted input, output, and process exits as session activity", () => {
+    const fakePty = createFakePty();
+    const onActivity = vi.fn();
+    const runtime = new PtyRuntime({
+      workspaceRoot: "/tmp/craig",
+      shell: "/bin/zsh",
+      env: { TERM: "xterm-256color" },
+      spawn: vi.fn(() => fakePty),
+      onActivity,
+    });
+
+    runtime.ensureSession("task_1", "task_1:agent", { columns: 80, rows: 24 });
+    expect(onActivity).toHaveBeenLastCalledWith(expect.objectContaining({
+      taskId: "task_1",
+      tabId: "task_1:agent",
+      sessionState: "running",
+    }));
+    onActivity.mockClear();
+
+    runtime.writeKey("a");
+    expect(onActivity).not.toHaveBeenCalled();
+    runtime.writeKey("ENTER");
+    expect(onActivity).toHaveBeenLastCalledWith(expect.objectContaining({ sessionState: "running" }));
+
+    fakePty.emitData("working");
+    expect(onActivity).toHaveBeenLastCalledWith(expect.objectContaining({ sessionState: "running" }));
+
+    fakePty.emitExit(7);
+    expect(onActivity).toHaveBeenLastCalledWith(expect.objectContaining({
+      sessionState: "exited",
+      exitCode: 7,
+    }));
+  });
+
+  test("retains spawn failures as activity until the tab is disposed", () => {
+    const onActivity = vi.fn();
+    const onActivityRemoved = vi.fn();
+    const runtime = new PtyRuntime({
+      workspaceRoot: "/tmp/craig",
+      shell: "/bin/zsh",
+      spawn: vi.fn(() => {
+        throw new Error("agent executable missing");
+      }),
+      onActivity,
+      onActivityRemoved,
+    });
+
+    expect(() => runtime.ensureSession("task_1", "task_1:agent", { columns: 80, rows: 24 }))
+      .toThrow("agent executable missing");
+    expect(runtime.getActivitySnapshots()).toEqual([
+      expect.objectContaining({ tabId: "task_1:agent", sessionState: "failed" }),
+    ]);
+
+    runtime.disposeSession("task_1:agent");
+    expect(runtime.getActivitySnapshots()).toEqual([]);
+    expect(onActivityRemoved).toHaveBeenCalledWith("task_1:agent");
+  });
+
   test("reuses a terminal screen snapshot until PTY output changes it", async () => {
     const fakePty = createFakePty();
     const runtime = new PtyRuntime({

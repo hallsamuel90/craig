@@ -22,6 +22,12 @@ import { configService } from "../../domain/config/index.js";
 import type { RunnerType } from "../../domain/config/index.js";
 import { INSPECTION_TAB_ID, isTaskLeftItemId } from "../state.js";
 import type { TerminalCellStyle, TerminalRowSegment } from "../terminal-emulator.js";
+import {
+  getTaskAgentActivity,
+  getTaskAgentTabActivity,
+  type AgentActivityPresentation,
+  type AgentActivityState,
+} from "../agent-activity.js";
 import type {
   CenterTabId,
   ControlShellState,
@@ -51,6 +57,8 @@ export interface ShellTreeRow {
   status?: string;
   muted?: boolean;
   prBadge?: TerminalRowSegment[];
+  activity?: AgentActivityState;
+  activityAnimationFrame?: number;
 }
 
 export interface ShellRunnerRow {
@@ -65,6 +73,8 @@ export interface ShellTab {
   label: string;
   active?: boolean;
   focused?: boolean;
+  activity?: AgentActivityState;
+  activityAnimationFrame?: number;
 }
 
 export interface ShellContextRow {
@@ -148,7 +158,11 @@ const SYNTAX_COLORS = {
   diffHunk:   "565f89",
 } as const;
 
-export function buildShellData(state: ControlShellState, model: WorkspaceShellModel): ShellData {
+export function buildShellData(
+  state: ControlShellState,
+  model: WorkspaceShellModel,
+  activity?: AgentActivityPresentation,
+): ShellData {
   const selectedWorkspace = resolveSelectedWorkspace(model, state);
   const selectedRepo = model.repos.find((repo) => repo.id === state.selectedRepoId) ?? model.repos[0] ?? null;
   const workspaceTasks = selectedWorkspace ? model.tasks.filter((task) => task.workspaceId === selectedWorkspace.id) : model.tasks;
@@ -161,7 +175,7 @@ export function buildShellData(state: ControlShellState, model: WorkspaceShellMo
   const isProjectTask = selectedTask?.type === "project";
   const runnerCounts = countRunners(model.tasks);
   const activeTabId = resolveDisplayActiveTab(state, selectedTask);
-  const tabs = buildCenterTabs(state, selectedTask, activeTabId);
+  const tabs = buildCenterTabs(state, selectedTask, activeTabId, activity);
   const activeTab = tabs.find((tab) => tab.id === activeTabId) ?? tabs[0] ?? { id: "agent", label: "CODEX" };
   const selectedInspection = model.inspection?.taskId === selectedTask?.id ? model.inspection : null;
   const repoLabel = selectedRepo?.name ?? "no repo";
@@ -213,7 +227,7 @@ export function buildShellData(state: ControlShellState, model: WorkspaceShellMo
         : model.workspaceRoot,
       agent: agentLabel,
     },
-    leftTree: buildLeftTree(state, model),
+    leftTree: buildLeftTree(state, model, activity),
     runners: (model.enabledRunnerIds ?? ["codex", "cursor", "claude"]).map((runner) => renderRunnerRow(runner, runnerCounts[runner])),
     centerHeader: {
       tabLabel: state.workspaceBrowser ? "BROWSER" : activeTab.label,
@@ -228,11 +242,15 @@ export function buildShellData(state: ControlShellState, model: WorkspaceShellMo
   };
 }
 
-function buildLeftTree(state: ControlShellState, model: WorkspaceShellModel): ShellTreeRow[] {
+function buildLeftTree(
+  state: ControlShellState,
+  model: WorkspaceShellModel,
+  activity: AgentActivityPresentation | undefined,
+): ShellTreeRow[] {
   const rows: ShellTreeRow[] = [{ text: "WORKSPACES", muted: true, panelHeader: true, focused: state.focusedRegion === "tasks" }];
 
   if (!model.workspaces) {
-    return buildLegacyRepoLeftTree(rows, state, model.repos, model.tasks);
+    return buildLegacyRepoLeftTree(rows, state, model.repos, model.tasks, activity);
   }
 
   const workspaces = model.workspaces;
@@ -256,15 +274,20 @@ function buildLeftTree(state: ControlShellState, model: WorkspaceShellModel): Sh
       } else {
         for (const task of repoTasks) {
           const selected = state.selectedLeftItemId === `task:${task.id}`;
-          const prefix = selected ? "▸" : "•";
           const displayTitle = task.title.length > 28 ? `${task.title.slice(0, 25)}…` : task.title;
           const row: ShellTreeRow = {
             id: `task:${task.id}`,
             taskId: task.id,
-            text: `${prefix} ${displayTitle}`,
+            text: activity ? displayTitle : `${selected ? "▸" : "•"} ${displayTitle}`,
             indent: 2,
             selected,
             focused: selected && state.focusedRegion === "tasks",
+            ...(activity
+              ? {
+                  activity: getTaskAgentActivity(task, activity.snapshots, activity.now),
+                  activityAnimationFrame: activity.animationFrame,
+                }
+              : {}),
           };
           const prBadge = buildTaskPrBadgeSegments(task);
           if (prBadge) {
@@ -323,7 +346,13 @@ function buildLeftTree(state: ControlShellState, model: WorkspaceShellModel): Sh
   return rows;
 }
 
-function buildLegacyRepoLeftTree(rows: ShellTreeRow[], state: ControlShellState, repos: RepoRecord[], tasks: TaskRecord[]): ShellTreeRow[] {
+function buildLegacyRepoLeftTree(
+  rows: ShellTreeRow[],
+  state: ControlShellState,
+  repos: RepoRecord[],
+  tasks: TaskRecord[],
+  activity: AgentActivityPresentation | undefined,
+): ShellTreeRow[] {
   if (repos.length === 0) {
     rows.push({ text: "No repos registered.", indent: 2, muted: true });
   } else {
@@ -342,15 +371,20 @@ function buildLegacyRepoLeftTree(rows: ShellTreeRow[], state: ControlShellState,
       } else {
         for (const task of repoTasks) {
           const selected = state.selectedLeftItemId === `task:${task.id}`;
-          const prefix = selected ? "▸" : "•";
           const displayTitle = task.title.length > 28 ? `${task.title.slice(0, 25)}…` : task.title;
           const legacyRow: ShellTreeRow = {
             id: `task:${task.id}`,
             taskId: task.id,
-            text: `${prefix} ${displayTitle}`,
+            text: activity ? displayTitle : `${selected ? "▸" : "•"} ${displayTitle}`,
             indent: 2,
             selected,
             focused: selected && state.focusedRegion === "tasks",
+            ...(activity
+              ? {
+                  activity: getTaskAgentActivity(task, activity.snapshots, activity.now),
+                  activityAnimationFrame: activity.animationFrame,
+                }
+              : {}),
           };
           const prBadge = buildTaskPrBadgeSegments(task);
           if (prBadge) {
@@ -488,11 +522,22 @@ function buildCenterTranscript(
   return textLines(["No center tab selected.", "", "Choose a task PTY tab or open an inspection item from the right panel."]);
 }
 
-function buildCenterTabs(state: ControlShellState, task: TaskRecord | null, activeTabId: string): ShellTab[] {
+function buildCenterTabs(
+  state: ControlShellState,
+  task: TaskRecord | null,
+  activeTabId: string,
+  activity: AgentActivityPresentation | undefined,
+): ShellTab[] {
   const ptyTabs =
     task?.ptyTabs.map((tab) => ({
       id: tab.id,
       label: formatPtyTabLabel(tab),
+      ...(tab.kind === "agent" && activity && task
+        ? {
+            activity: getTaskAgentTabActivity(task, tab.id, activity.snapshots, activity.now),
+            activityAnimationFrame: activity.animationFrame,
+          }
+        : {}),
     })) ?? [];
 
   if (!task) {

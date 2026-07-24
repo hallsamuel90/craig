@@ -9,8 +9,8 @@ describe("validate", () => {
   });
 
   test("accepts known boolean feature previews", () => {
-    expect(validate({ previews: { incrementalCenterPane: true } }, FILE)).toEqual({
-      previews: { incrementalCenterPane: true },
+    expect(validate({ previews: { incrementalCenterPane: true, agentActivityIndicators: true } }, FILE)).toEqual({
+      previews: { incrementalCenterPane: true, agentActivityIndicators: true },
     });
   });
 
@@ -18,6 +18,9 @@ describe("validate", () => {
     expect(() => validate({ previews: { futureThing: true } }, FILE)).toThrow('"previews.futureThing" is not supported');
     expect(() => validate({ previews: { incrementalCenterPane: "yes" } }, FILE)).toThrow(
       '"previews.incrementalCenterPane" must be a boolean',
+    );
+    expect(() => validate({ previews: { agentActivityIndicators: "yes" } }, FILE)).toThrow(
+      '"previews.agentActivityIndicators" must be a boolean',
     );
   });
 

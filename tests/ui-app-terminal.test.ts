@@ -6,6 +6,7 @@ import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 
 import { startTerminalApp, type PtyRuntimePort, type TerminalRuntime } from "../src/ui/app.js";
 import type { TerminalViewState } from "../src/ui/state.js";
+import type { PtyActivitySnapshot } from "../src/ui/agent-activity.js";
 import { listRepos } from "../src/domain/workspace/adapters/repo-store.js";
 import { runCommand, runCommandAllowingFailure } from "../src/shared/exec.js";
 import { readTask, writeTask } from "../src/domain/task/index.js";
@@ -61,7 +62,39 @@ describe("terminal app PTY attach flow", () => {
 
     terminal.emitKey("\r");
     await vi.waitFor(() => expect(stripAnsi(terminal.frames.at(-1) ?? "")).toContain("CRAIG"));
+    expect(stripAnsi(terminal.frames.at(-1) ?? "")).toContain("▸ test task");
+    expect(stripAnsi(terminal.frames.at(-1) ?? "")).not.toContain("▸ ● test task");
     terminal.emitKey("q");
+    await expect(app).resolves.toBe(0);
+  });
+
+  test("animates working agent dots from the shared heartbeat", async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    const root = await mkdtemp(join(tmpdir(), "craig-ui-app-"));
+    tempRoots.push(root);
+    const paths = await setupWorkspace(root);
+    await configService.save(paths, { previews: { agentActivityIndicators: true } });
+    const terminal = new FakeTerminal();
+    const ptyRuntime = new FakePtyRuntime({
+      activitySnapshots: [{
+        taskId: "task_20260430_02",
+        tabId: "task_20260430_02:agent",
+        sessionState: "running",
+        lastActivityAt: Date.now(),
+        exitCode: null,
+        error: null,
+      }],
+    });
+    const app = startTerminalApp({ terminal, ptyRuntime, uiStateFile: paths.uiStateFile, workspaceRoot: root });
+    await vi.waitFor(() => expect(terminal.hasKeyListener()).toBe(true));
+
+    terminal.emitKey("\r");
+    await vi.waitFor(() => expect(terminal.frames.join("")).toContain("38;2;61;89;161"));
+    const frameCount = terminal.frames.length;
+    await vi.advanceTimersByTimeAsync(600);
+    await vi.waitFor(() => expect(terminal.frames.slice(frameCount).join("")).toContain("38;2;122;162;247"));
+    terminal.emitKey("q");
+
     await expect(app).resolves.toBe(0);
   });
 
@@ -2497,6 +2530,7 @@ describe("terminal app PTY attach flow", () => {
       const frame = stripAnsi(terminal.frames.at(-1) ?? "");
       expect(frame).toContain("Feature Previews - Experimental");
       expect(frame).toContain("[ ] Incremental center pane");
+      expect(frame).toContain("[ ] Agent activity indicators");
       expect(frame).toContain("may change or be removed");
     });
 
@@ -2508,6 +2542,13 @@ describe("terminal app PTY attach flow", () => {
     terminal.emitKey("ENTER");
     await vi.waitFor(async () => expect((await configService.load(paths)).previews?.incrementalCenterPane).toBe(false));
     expect(ptyRuntime.setViewUpdateMode).toHaveBeenLastCalledWith("snapshot");
+    const viewModeCallCount = ptyRuntime.setViewUpdateMode.mock.calls.length;
+
+    terminal.emitKey("DOWN");
+    terminal.emitKey("ENTER");
+    await vi.waitFor(async () => expect((await configService.load(paths)).previews?.agentActivityIndicators).toBe(true));
+    await vi.waitFor(() => expect(stripAnsi(terminal.frames.at(-1) ?? "")).toContain("[x] Agent activity indicators"));
+    expect(ptyRuntime.setViewUpdateMode).toHaveBeenCalledTimes(viewModeCallCount);
 
     terminal.emitKey("ESCAPE");
     terminal.emitKey("ESCAPE");
@@ -2530,6 +2571,7 @@ describe("terminal app PTY attach flow", () => {
           cursor: { enabled: false },
           claude: { enabled: true },
         },
+        previews: { agentActivityIndicators: true },
       }),
       "utf8",
     );
@@ -2554,7 +2596,8 @@ describe("terminal app PTY attach flow", () => {
       const tasks = await taskService.listTasks(paths);
       expect(tasks.tasks.some((task) => task.runner === "claude" && task.runnerSession.lastKnownState === "failed")).toBe(true);
     });
-    await vi.waitFor(() => expect(stripAnsi(terminal.frames.at(-1) ?? "")).toContain("▸ missing claude"));
+    await vi.waitFor(() => expect(stripAnsi(terminal.frames.at(-1) ?? "")).toContain("▸ ● missing claude"));
+    expect(terminal.frames.join("")).toContain("38;2;247;118;142");
     terminal.emitKey("q");
 
     await expect(app).resolves.toBe(0);
@@ -2727,9 +2770,11 @@ class FakePtyRuntime implements PtyRuntimePort {
   private readonly hydratedTabIds = new Set<string>();
   private readonly hydrateRows: boolean;
   private scrollbackLines = 0;
+  private readonly activitySnapshots: PtyActivitySnapshot[];
 
-  constructor(options: { hydrateRows?: boolean } = {}) {
+  constructor(options: { hydrateRows?: boolean; activitySnapshots?: PtyActivitySnapshot[] } = {}) {
     this.hydrateRows = options.hydrateRows ?? true;
+    this.activitySnapshots = options.activitySnapshots ?? [];
   }
 
   ensureSession = vi.fn((taskId: string, tabId: string): TerminalViewState => this.getRunningView(taskId, tabId));
@@ -2766,6 +2811,10 @@ class FakePtyRuntime implements PtyRuntimePort {
       error: null,
       scrolledBack: false,
     };
+  }
+
+  getActivitySnapshots(): PtyActivitySnapshot[] {
+    return this.activitySnapshots;
   }
 
   private getRunningView(taskId: string, tabId: string): TerminalViewState {

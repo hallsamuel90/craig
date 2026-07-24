@@ -10,6 +10,7 @@ import type { CraigPaths } from "../../state/craig-paths.js";
 import { resolveExecutablePath } from "../../shared/command-path.js";
 import type { TerminalViewState } from "../state.js";
 import type { TerminalScreenRow } from "../terminal-emulator.js";
+import type { PtyActivitySnapshot } from "../agent-activity.js";
 import {
   PtyRuntime,
   type PtyRuntimeOptions,
@@ -17,9 +18,10 @@ import {
   type PtySize,
 } from "./runtime.js";
 
-const DAEMON_PROTOCOL_VERSION = 5;
-const COMPATIBLE_DAEMON_PROTOCOL_VERSIONS = new Set([4, DAEMON_PROTOCOL_VERSION]);
+const DAEMON_PROTOCOL_VERSION = 6;
+const COMPATIBLE_DAEMON_PROTOCOL_VERSIONS = new Set([DAEMON_PROTOCOL_VERSION]);
 const INCREMENTAL_VIEW_UPDATE_INTERVAL_MS = 16;
+const ACTIVITY_UPDATE_INTERVAL_MS = 250;
 
 export type PtyViewUpdateMode = "snapshot" | "incremental";
 
@@ -37,10 +39,11 @@ type DaemonRequest =
   | { id: number; type: "setViewUpdateMode"; mode: PtyViewUpdateMode }
   | { id: number; type: "subscribeView"; tabId: string | null }
   | { id: number; type: "getViewState"; tabId: string | null }
+  | { id: number; type: "getActivitySnapshots" }
   | { id: number; type: "shutdown" };
 
 type DaemonResponse =
-  | { id: number; ok: true; protocolVersion?: number; view?: TerminalViewState }
+  | { id: number; ok: true; protocolVersion?: number; view?: TerminalViewState; activities?: PtyActivitySnapshot[] }
   | { id: number; ok: false; error: string };
 type DaemonOkResponse = Extract<DaemonResponse, { ok: true }>;
 
@@ -54,7 +57,9 @@ interface TerminalViewPatch {
 
 type DaemonEvent =
   | { type: "update"; tabId: string; view: TerminalViewState }
-  | { type: "update"; tabId: string; patch: TerminalViewPatch };
+  | { type: "update"; tabId: string; patch: TerminalViewPatch }
+  | { type: "activity"; snapshot: PtyActivitySnapshot }
+  | { type: "activityRemoved"; tabId: string };
 type DaemonMessage = DaemonResponse | DaemonEvent;
 
 interface ClientViewSubscription {
@@ -125,6 +130,9 @@ export class DaemonPtyRuntimeClient {
   private nextRequestId = 1;
   private readonly pending = new Map<number, PendingRequest>();
   private readonly viewCache = new Map<string, TerminalViewState>();
+  private readonly activityCache = new Map<string, PtyActivitySnapshot>();
+  private readonly activityRevisionByTabId = new Map<string, number>();
+  private activityRevision = 0;
   private attachedTabId: string | null = null;
   private viewedTabId: string | null = null;
   private subscribedTabId: string | null = null;
@@ -140,8 +148,12 @@ export class DaemonPtyRuntimeClient {
     socket.on("data", (chunk) => this.handleData(String(chunk)));
     socket.on("error", (error) => this.rejectAll(error instanceof Error ? error : new Error(String(error))));
     socket.on("close", () => {
+      if (this.closed) {
+        return;
+      }
       this.closed = true;
       this.rejectAll(new Error("Craig PTY daemon connection closed."));
+      this.failRunningActivities("Craig PTY daemon connection closed.");
     });
   }
 
@@ -151,6 +163,9 @@ export class DaemonPtyRuntimeClient {
       throw new Error("Craig PTY daemon protocol mismatch.");
     }
     await this.send({ type: "setViewUpdateMode", mode: this.viewUpdateMode });
+    const activityRevision = this.activityRevision;
+    const activityResponse = await this.send({ type: "getActivitySnapshots" });
+    this.replaceActivityCache(activityResponse.activities ?? [], activityRevision);
   }
 
   async ensureSession(taskId: string, tabId: string, size: PtySize): Promise<TerminalViewState> {
@@ -180,6 +195,9 @@ export class DaemonPtyRuntimeClient {
         this.viewCache.set(tabId, { status: "failed", rows: [], error: message });
       }
     }
+    const activityRevision = this.activityRevision;
+    const activityResponse = await this.send({ type: "getActivitySnapshots" });
+    this.replaceActivityCache(activityResponse.activities ?? [], activityRevision);
   }
 
   async pruneStale(keepTabIds: string[]): Promise<void> {
@@ -261,6 +279,7 @@ export class DaemonPtyRuntimeClient {
 
   disposeSession(tabId: string): void {
     this.viewCache.delete(tabId);
+    this.removeCachedActivity(tabId);
     if (this.attachedTabId === tabId) {
       this.attachedTabId = null;
     }
@@ -283,6 +302,10 @@ export class DaemonPtyRuntimeClient {
     }
 
     return this.viewCache.get(tabId) ?? { status: "idle", rows: [], error: null, scrolledBack: false };
+  }
+
+  getActivitySnapshots(): PtyActivitySnapshot[] {
+    return [...this.activityCache.values()];
   }
 
   async requestShutdown(): Promise<void> {
@@ -373,6 +396,13 @@ export class DaemonPtyRuntimeClient {
           : { tabId: message.tabId, kind: "rows", rowIndices: message.patch.rows.map((row) => row.index) });
       }
     }
+    if (message.type === "activity") {
+      this.recordCachedActivity(message.snapshot);
+      this.options.onActivity?.(message.snapshot);
+    }
+    if (message.type === "activityRemoved") {
+      this.removeCachedActivity(message.tabId);
+    }
   }
 
   private subscribeToView(tabId: string | null): void {
@@ -407,6 +437,55 @@ export class DaemonPtyRuntimeClient {
       this.options.onUpdate?.({ tabId, kind: "full" });
     }
   }
+
+  private replaceActivityCache(snapshots: PtyActivitySnapshot[], baselineRevision: number): void {
+    const newerActivity = new Map<string, PtyActivitySnapshot | null>();
+    for (const [tabId, revision] of this.activityRevisionByTabId) {
+      if (revision > baselineRevision) {
+        newerActivity.set(tabId, this.activityCache.get(tabId) ?? null);
+      }
+    }
+    this.activityCache.clear();
+    for (const snapshot of snapshots) {
+      this.activityCache.set(snapshot.tabId, snapshot);
+    }
+    for (const [tabId, snapshot] of newerActivity) {
+      if (snapshot) {
+        this.activityCache.set(tabId, snapshot);
+      } else {
+        this.activityCache.delete(tabId);
+      }
+    }
+  }
+
+  private recordCachedActivity(snapshot: PtyActivitySnapshot): void {
+    this.activityRevision += 1;
+    this.activityRevisionByTabId.set(snapshot.tabId, this.activityRevision);
+    this.activityCache.set(snapshot.tabId, snapshot);
+  }
+
+  private removeCachedActivity(tabId: string): void {
+    this.activityRevision += 1;
+    this.activityRevisionByTabId.set(tabId, this.activityRevision);
+    this.activityCache.delete(tabId);
+    this.options.onActivityRemoved?.(tabId);
+  }
+
+  private failRunningActivities(message: string): void {
+    for (const snapshot of this.activityCache.values()) {
+      if (snapshot.sessionState !== "running") {
+        continue;
+      }
+      const failed: PtyActivitySnapshot = {
+        ...snapshot,
+        sessionState: "failed",
+        lastActivityAt: Date.now(),
+        error: message,
+      };
+      this.recordCachedActivity(failed);
+      this.options.onActivity?.(failed);
+    }
+  }
 }
 
 class PtyDaemonServer {
@@ -414,6 +493,8 @@ class PtyDaemonServer {
   private readonly clients = new Set<Socket>();
   private readonly subscriptions = new Map<Socket, ClientViewSubscription>();
   private readonly updateTimers = new Map<string, ReturnType<typeof setTimeout>>();
+  private readonly activityTimers = new Map<string, ReturnType<typeof setTimeout>>();
+  private readonly pendingActivities = new Map<string, PtyActivitySnapshot>();
   private readonly runtime: PtyRuntime;
   private attachedTabId: string | null = null;
 
@@ -422,6 +503,8 @@ class PtyDaemonServer {
       ...options,
       workspaceRoot: paths.workspaceRoot,
       onUpdate: (invalidation) => this.handleRuntimeUpdate(invalidation.tabId),
+      onActivity: (snapshot) => this.handleActivityUpdate(snapshot),
+      onActivityRemoved: (tabId) => this.handleActivityRemoved(tabId),
     });
   }
 
@@ -454,6 +537,11 @@ class PtyDaemonServer {
       clearTimeout(timer);
     }
     this.updateTimers.clear();
+    for (const timer of this.activityTimers.values()) {
+      clearTimeout(timer);
+    }
+    this.activityTimers.clear();
+    this.pendingActivities.clear();
     this.runtime.disposeAll();
   }
 
@@ -484,6 +572,7 @@ class PtyDaemonServer {
         id: request.id,
         ok: true,
         ...(request.type === "ping" ? { protocolVersion: DAEMON_PROTOCOL_VERSION } : {}),
+        ...(request.type === "getActivitySnapshots" ? { activities: this.runtime.getActivitySnapshots() } : {}),
         ...(view ? { view } : {}),
       });
     } catch (error) {
@@ -529,7 +618,11 @@ class PtyDaemonServer {
         return this.subscribe(socket, request.tabId, this.runtime.getViewState(request.tabId));
       case "pruneStale": {
         const keep = new Set(request.keepTabIds);
-        for (const tabId of this.runtime.sessionTabIds()) {
+        const knownTabIds = new Set([
+          ...this.runtime.sessionTabIds(),
+          ...this.runtime.getActivitySnapshots().map((snapshot) => snapshot.tabId),
+        ]);
+        for (const tabId of knownTabIds) {
           if (!keep.has(tabId)) {
             this.runtime.disposeSession(tabId);
             if (this.attachedTabId === tabId) {
@@ -541,6 +634,8 @@ class PtyDaemonServer {
       }
       case "getViewState":
         return this.runtime.getViewState(request.tabId);
+      case "getActivitySnapshots":
+        return null;
       case "shutdown":
         setTimeout(() => this.onShutdown?.(), 0);
         return null;
@@ -583,6 +678,49 @@ class PtyDaemonServer {
       }
     }
     this.scheduleBroadcastUpdate(tabId);
+  }
+
+  private handleActivityUpdate(snapshot: PtyActivitySnapshot): void {
+    this.pendingActivities.set(snapshot.tabId, snapshot);
+    if (snapshot.sessionState !== "running") {
+      const timer = this.activityTimers.get(snapshot.tabId);
+      if (timer) {
+        clearTimeout(timer);
+        this.activityTimers.delete(snapshot.tabId);
+      }
+      this.broadcastActivity(snapshot.tabId);
+      return;
+    }
+    if (this.activityTimers.has(snapshot.tabId)) {
+      return;
+    }
+    this.activityTimers.set(snapshot.tabId, setTimeout(() => {
+      this.activityTimers.delete(snapshot.tabId);
+      this.broadcastActivity(snapshot.tabId);
+    }, ACTIVITY_UPDATE_INTERVAL_MS));
+  }
+
+  private handleActivityRemoved(tabId: string): void {
+    const timer = this.activityTimers.get(tabId);
+    if (timer) {
+      clearTimeout(timer);
+      this.activityTimers.delete(tabId);
+    }
+    this.pendingActivities.delete(tabId);
+    for (const client of this.clients) {
+      writeMessage(client, { type: "activityRemoved", tabId });
+    }
+  }
+
+  private broadcastActivity(tabId: string): void {
+    const snapshot = this.pendingActivities.get(tabId);
+    if (!snapshot) {
+      return;
+    }
+    this.pendingActivities.delete(tabId);
+    for (const client of this.clients) {
+      writeMessage(client, { type: "activity", snapshot });
+    }
   }
 
   private scheduleBroadcastUpdate(tabId: string): void {

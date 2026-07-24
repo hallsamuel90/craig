@@ -7,9 +7,14 @@ describe("feature preview config", () => {
     const config = { github: { mergeMethod: "squash" as const } };
 
     expect(isEnabled(config, "incrementalCenterPane")).toBe(false);
+    expect(isEnabled(config, "agentActivityIndicators")).toBe(false);
     expect(setEnabled(config, "incrementalCenterPane", true)).toEqual({
       github: { mergeMethod: "squash" },
       previews: { incrementalCenterPane: true },
+    });
+    expect(setEnabled(config, "agentActivityIndicators", true)).toEqual({
+      github: { mergeMethod: "squash" },
+      previews: { agentActivityIndicators: true },
     });
   });
 });
