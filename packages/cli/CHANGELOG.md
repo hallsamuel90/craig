@@ -1,5 +1,11 @@
 # craig-cli
 
+## 0.8.4
+
+### Patch Changes
+
+- 7be307a: Refresh transitive dependencies to resolve known security vulnerabilities.
+
 ## 0.8.3
 
 ### Patch Changes
