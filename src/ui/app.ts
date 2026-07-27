@@ -54,6 +54,9 @@ import {
 
 export type { TerminalRuntime, PtyRuntimePort, TerminalEventListener };
 
+const DEFAULT_HEARTBEAT_RESOLUTION_MS = 1_000;
+const AGENT_ACTIVITY_HEARTBEAT_RESOLUTION_MS = 250;
+
 export interface TerminalAppOptions {
   uiStateFile?: string;
   workspaceRoot?: string;
@@ -123,6 +126,7 @@ export async function startTerminalApp(options: TerminalAppOptions = {}): Promis
       ...ptyOptions,
       paths,
       viewUpdateMode: configService.previews.isEnabled(config, "incrementalCenterPane") ? "incremental" : "snapshot",
+      activityEnabled: configService.previews.isEnabled(config, "agentActivityIndicators"),
     }));
 
   return new Promise<number>((resolve) => {
@@ -134,7 +138,14 @@ export async function startTerminalApp(options: TerminalAppOptions = {}): Promis
     let agentActivityAnimationFrame = 0;
     let hadWorkingAgentActivity = false;
     const renderedAgentActivityByTabId = new Map<string, AgentActivityState>();
-    const ctx: AppContext = {
+    let ctx!: AppContext;
+    const heartbeat = new Heartbeat({
+      resolutionMs: configService.previews.isEnabled(config, "agentActivityIndicators")
+        ? AGENT_ACTIVITY_HEARTBEAT_RESOLUTION_MS
+        : DEFAULT_HEARTBEAT_RESOLUTION_MS,
+      onError: (jobId, error) => logBackgroundError(`heartbeat job "${jobId}"`, error, buildActionContext(ctx)),
+    });
+    ctx = {
       state: {
         mode: "overlay",
         variant: "boot",
@@ -182,11 +193,14 @@ export async function startTerminalApp(options: TerminalAppOptions = {}): Promis
       resolve,
       render: () => undefined,
       exit: (code: number) => resolve(code),
+      setAgentActivityEnabled: (enabled) => {
+        heartbeat.setResolutionMs(enabled
+          ? AGENT_ACTIVITY_HEARTBEAT_RESOLUTION_MS
+          : DEFAULT_HEARTBEAT_RESOLUTION_MS);
+        ctx.ptyRuntime.setActivityEnabled?.(enabled);
+      },
     };
-    const heartbeat = new Heartbeat({
-      resolutionMs: 250,
-      onError: (jobId, error) => logBackgroundError(`heartbeat job "${jobId}"`, error, buildActionContext(ctx)),
-    });
+    ctx.setAgentActivityEnabled(configService.previews.isEnabled(config, "agentActivityIndicators"));
 
     handlePtyUpdate = (invalidation) => {
       if (ctx.state.mode !== "main") {

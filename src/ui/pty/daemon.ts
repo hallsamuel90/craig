@@ -37,6 +37,7 @@ type DaemonRequest =
   | { id: number; type: "detach" }
   | { id: number; type: "disposeSession"; tabId: string }
   | { id: number; type: "setViewUpdateMode"; mode: PtyViewUpdateMode }
+  | { id: number; type: "setActivityEnabled"; enabled: boolean }
   | { id: number; type: "subscribeView"; tabId: string | null }
   | { id: number; type: "getViewState"; tabId: string | null }
   | { id: number; type: "getActivitySnapshots" }
@@ -64,6 +65,7 @@ type DaemonMessage = DaemonResponse | DaemonEvent;
 
 interface ClientViewSubscription {
   mode: PtyViewUpdateMode;
+  activityEnabled: boolean;
   tabId: string | null;
   view: TerminalViewState | null;
   rowKeys: string[];
@@ -79,6 +81,7 @@ export interface DaemonPtyRuntimeOptions extends PtyRuntimeOptions {
   paths: CraigPaths;
   spawnDaemon?: (workspaceRoot: string) => void;
   viewUpdateMode?: PtyViewUpdateMode;
+  activityEnabled?: boolean;
 }
 /* eslint-enable no-unused-vars */
 
@@ -137,6 +140,7 @@ export class DaemonPtyRuntimeClient {
   private viewedTabId: string | null = null;
   private subscribedTabId: string | null = null;
   private viewUpdateMode: PtyViewUpdateMode;
+  private activityEnabled: boolean;
   private buffer = "";
   private closed = false;
   private readonly options: DaemonPtyRuntimeOptions;
@@ -144,6 +148,7 @@ export class DaemonPtyRuntimeClient {
   constructor(private readonly socket: Socket, options: DaemonPtyRuntimeOptions) {
     this.options = options;
     this.viewUpdateMode = options.viewUpdateMode ?? "snapshot";
+    this.activityEnabled = options.activityEnabled ?? false;
     socket.setEncoding("utf8");
     socket.on("data", (chunk) => this.handleData(String(chunk)));
     socket.on("error", (error) => this.rejectAll(error instanceof Error ? error : new Error(String(error))));
@@ -163,9 +168,10 @@ export class DaemonPtyRuntimeClient {
       throw new Error("Craig PTY daemon protocol mismatch.");
     }
     await this.send({ type: "setViewUpdateMode", mode: this.viewUpdateMode });
-    const activityRevision = this.activityRevision;
-    const activityResponse = await this.send({ type: "getActivitySnapshots" });
-    this.replaceActivityCache(activityResponse.activities ?? [], activityRevision);
+    await this.send({ type: "setActivityEnabled", enabled: this.activityEnabled });
+    if (this.activityEnabled) {
+      await this.refreshActivitySnapshots();
+    }
   }
 
   async ensureSession(taskId: string, tabId: string, size: PtySize): Promise<TerminalViewState> {
@@ -195,9 +201,9 @@ export class DaemonPtyRuntimeClient {
         this.viewCache.set(tabId, { status: "failed", rows: [], error: message });
       }
     }
-    const activityRevision = this.activityRevision;
-    const activityResponse = await this.send({ type: "getActivitySnapshots" });
-    this.replaceActivityCache(activityResponse.activities ?? [], activityRevision);
+    if (this.activityEnabled) {
+      await this.refreshActivitySnapshots();
+    }
   }
 
   async pruneStale(keepTabIds: string[]): Promise<void> {
@@ -275,6 +281,23 @@ export class DaemonPtyRuntimeClient {
         this.subscribedTabId = null;
       }
     });
+  }
+
+  setActivityEnabled(enabled: boolean): void {
+    if (this.closed || this.activityEnabled === enabled) {
+      return;
+    }
+    this.activityEnabled = enabled;
+    if (!enabled) {
+      for (const tabId of [...this.activityCache.keys()]) {
+        this.removeCachedActivity(tabId);
+      }
+      void this.send({ type: "setActivityEnabled", enabled }).catch(() => undefined);
+      return;
+    }
+    void this.send({ type: "setActivityEnabled", enabled })
+      .then(() => this.refreshActivitySnapshots(true))
+      .catch(() => undefined);
   }
 
   disposeSession(tabId: string): void {
@@ -458,6 +481,17 @@ export class DaemonPtyRuntimeClient {
     }
   }
 
+  private async refreshActivitySnapshots(notify = false): Promise<void> {
+    const activityRevision = this.activityRevision;
+    const activityResponse = await this.send({ type: "getActivitySnapshots" });
+    this.replaceActivityCache(activityResponse.activities ?? [], activityRevision);
+    if (notify) {
+      for (const snapshot of this.activityCache.values()) {
+        this.options.onActivity?.(snapshot);
+      }
+    }
+  }
+
   private recordCachedActivity(snapshot: PtyActivitySnapshot): void {
     this.activityRevision += 1;
     this.activityRevisionByTabId.set(snapshot.tabId, this.activityRevision);
@@ -502,6 +536,7 @@ class PtyDaemonServer {
     this.runtime = new PtyRuntime({
       ...options,
       workspaceRoot: paths.workspaceRoot,
+      activityEnabled: false,
       onUpdate: (invalidation) => this.handleRuntimeUpdate(invalidation.tabId),
       onActivity: (snapshot) => this.handleActivityUpdate(snapshot),
       onActivityRemoved: (tabId) => this.handleActivityRemoved(tabId),
@@ -511,7 +546,13 @@ class PtyDaemonServer {
   handleConnection(socket: Socket): void {
     let buffer = "";
     this.clients.add(socket);
-    this.subscriptions.set(socket, { mode: "snapshot", tabId: null, view: null, rowKeys: [] });
+    this.subscriptions.set(socket, {
+      mode: "snapshot",
+      activityEnabled: false,
+      tabId: null,
+      view: null,
+      rowKeys: [],
+    });
     socket.setEncoding("utf8");
     socket.on("data", (chunk) => {
       buffer += String(chunk);
@@ -527,6 +568,10 @@ class PtyDaemonServer {
     const removeClient = () => {
       this.clients.delete(socket);
       this.subscriptions.delete(socket);
+      if (!this.hasActivitySubscribers()) {
+        this.runtime.setActivityEnabled(false);
+        this.clearPendingActivityBroadcasts();
+      }
     };
     socket.on("close", removeClient);
     socket.on("error", removeClient);
@@ -551,6 +596,7 @@ class PtyDaemonServer {
     }
     this.clients.clear();
     this.subscriptions.clear();
+    this.runtime.setActivityEnabled(false);
   }
 
   private async handleLine(socket: Socket, line: string): Promise<void> {
@@ -614,6 +660,9 @@ class PtyDaemonServer {
         return null;
       case "setViewUpdateMode":
         return this.setViewUpdateMode(socket, request.mode);
+      case "setActivityEnabled":
+        this.setActivityEnabled(socket, request.enabled);
+        return null;
       case "subscribeView":
         return this.subscribe(socket, request.tabId, this.runtime.getViewState(request.tabId));
       case "pruneStale": {
@@ -645,9 +694,11 @@ class PtyDaemonServer {
   }
 
   private subscribe(socket: Socket, tabId: string | null, view: TerminalViewState): TerminalViewState {
-    const mode = this.subscriptions.get(socket)?.mode ?? "snapshot";
+    const current = this.subscriptions.get(socket);
+    const mode = current?.mode ?? "snapshot";
     this.subscriptions.set(socket, {
       mode,
+      activityEnabled: current?.activityEnabled ?? false,
       tabId,
       view,
       rowKeys: view.rows.map(rowKey),
@@ -661,11 +712,25 @@ class PtyDaemonServer {
     const view = this.runtime.getViewState(tabId);
     this.subscriptions.set(socket, {
       mode,
+      activityEnabled: current?.activityEnabled ?? false,
       tabId,
       view,
       rowKeys: view.rows.map(rowKey),
     });
     return view;
+  }
+
+  private setActivityEnabled(socket: Socket, enabled: boolean): void {
+    const current = this.subscriptions.get(socket);
+    if (!current) {
+      return;
+    }
+    this.subscriptions.set(socket, { ...current, activityEnabled: enabled });
+    const hasActivitySubscribers = this.hasActivitySubscribers();
+    this.runtime.setActivityEnabled(hasActivitySubscribers);
+    if (!hasActivitySubscribers) {
+      this.clearPendingActivityBroadcasts();
+    }
   }
 
   private handleRuntimeUpdate(tabId: string): void {
@@ -681,6 +746,9 @@ class PtyDaemonServer {
   }
 
   private handleActivityUpdate(snapshot: PtyActivitySnapshot): void {
+    if (!this.hasActivitySubscribers()) {
+      return;
+    }
     this.pendingActivities.set(snapshot.tabId, snapshot);
     if (snapshot.sessionState !== "running") {
       const timer = this.activityTimers.get(snapshot.tabId);
@@ -707,8 +775,10 @@ class PtyDaemonServer {
       this.activityTimers.delete(tabId);
     }
     this.pendingActivities.delete(tabId);
-    for (const client of this.clients) {
-      writeMessage(client, { type: "activityRemoved", tabId });
+    for (const [client, subscription] of this.subscriptions) {
+      if (subscription.activityEnabled) {
+        writeMessage(client, { type: "activityRemoved", tabId });
+      }
     }
   }
 
@@ -718,9 +788,23 @@ class PtyDaemonServer {
       return;
     }
     this.pendingActivities.delete(tabId);
-    for (const client of this.clients) {
-      writeMessage(client, { type: "activity", snapshot });
+    for (const [client, subscription] of this.subscriptions) {
+      if (subscription.activityEnabled) {
+        writeMessage(client, { type: "activity", snapshot });
+      }
     }
+  }
+
+  private hasActivitySubscribers(): boolean {
+    return [...this.subscriptions.values()].some((subscription) => subscription.activityEnabled);
+  }
+
+  private clearPendingActivityBroadcasts(): void {
+    for (const timer of this.activityTimers.values()) {
+      clearTimeout(timer);
+    }
+    this.activityTimers.clear();
+    this.pendingActivities.clear();
   }
 
   private scheduleBroadcastUpdate(tabId: string): void {

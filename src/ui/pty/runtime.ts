@@ -37,6 +37,7 @@ export interface PtyRuntimeOptions {
   onUpdate?: (invalidation: PtyViewInvalidation) => void;
   onActivity?: (snapshot: PtyActivitySnapshot) => void;
   onActivityRemoved?: (tabId: string) => void;
+  activityEnabled?: boolean;
   resolveSessionSpec?: (taskId: string, tabId: string) => PtySessionSpec;
 }
 /* eslint-enable no-unused-vars */
@@ -93,6 +94,7 @@ export class PtyRuntime {
   private readonly onUpdate: PtyRuntimeOptions["onUpdate"];
   private readonly onActivity: PtyRuntimeOptions["onActivity"];
   private readonly onActivityRemoved: PtyRuntimeOptions["onActivityRemoved"];
+  private activityEnabled: boolean;
   private readonly resolveSessionSpec: NonNullable<PtyRuntimeOptions["resolveSessionSpec"]>;
   private attachedTabId: string | null = null;
 
@@ -103,6 +105,7 @@ export class PtyRuntime {
     this.onUpdate = options.onUpdate;
     this.onActivity = options.onActivity;
     this.onActivityRemoved = options.onActivityRemoved;
+    this.activityEnabled = options.activityEnabled ?? true;
     this.resolveSessionSpec = options.resolveSessionSpec ?? (() => ({ cwd: options.workspaceRoot, command: [] }));
   }
 
@@ -187,6 +190,19 @@ export class PtyRuntime {
 
   getActivitySnapshots(): PtyActivitySnapshot[] {
     return [...this.activitySnapshots.values()];
+  }
+
+  setActivityEnabled(enabled: boolean): void {
+    if (this.activityEnabled === enabled) {
+      return;
+    }
+    this.activityEnabled = enabled;
+    if (!enabled) {
+      return;
+    }
+    for (const session of this.sessions.values()) {
+      this.notifyActivity(session);
+    }
   }
 
   disposeSession(tabId: string): void {
@@ -294,14 +310,22 @@ export class PtyRuntime {
 
   private touchActivity(session: PtySession): void {
     session.lastActivityAt = Date.now();
-    this.notifyActivity(session);
+    if (this.activityEnabled) {
+      this.notifyActivity(session);
+    }
   }
 
   private notifyActivity(session: PtySession): void {
+    if (!this.activityEnabled) {
+      return;
+    }
     this.recordActivity(this.buildActivitySnapshot(session));
   }
 
   private recordActivity(snapshot: PtyActivitySnapshot): void {
+    if (!this.activityEnabled) {
+      return;
+    }
     this.activitySnapshots.set(snapshot.tabId, snapshot);
     this.onActivity?.(snapshot);
   }

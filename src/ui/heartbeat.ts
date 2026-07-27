@@ -21,7 +21,7 @@ const DEFAULT_RESOLUTION_MS = 1_000;
 
 export class Heartbeat {
   private readonly jobs = new Map<string, ScheduledHeartbeatJob>();
-  private readonly resolutionMs: number;
+  private resolutionMs: number;
   private readonly now: () => number;
   private readonly onError: HeartbeatOptions["onError"];
   private timer: ReturnType<typeof setInterval> | null = null;
@@ -69,6 +69,18 @@ export class Heartbeat {
     }
     for (const job of this.jobs.values()) {
       job.nextRunAt = null;
+    }
+  }
+
+  setResolutionMs(resolutionMs: number): void {
+    const nextResolutionMs = requirePositiveInterval(resolutionMs, "Heartbeat resolution");
+    if (nextResolutionMs === this.resolutionMs) {
+      return;
+    }
+    this.resolutionMs = nextResolutionMs;
+    if (this.timer) {
+      clearInterval(this.timer);
+      this.timer = setInterval(() => this.tick(), this.resolutionMs);
     }
   }
 

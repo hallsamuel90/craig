@@ -63,6 +63,7 @@ describe("PTY daemon", () => {
       const client = await createDaemonPtyRuntime({
         paths,
         workspaceRoot: root,
+        activityEnabled: true,
         resolveSessionSpec: () => ({ cwd: root, command: [] }),
       });
       await client.ensureSession("task_1", "task_1:terminal", { columns: 80, rows: 24 });
@@ -150,6 +151,7 @@ describe("PTY daemon", () => {
       const first = await createDaemonPtyRuntime({
         paths,
         workspaceRoot: root,
+        activityEnabled: true,
         resolveSessionSpec: () => ({ cwd: root, command: [] }),
         onActivity,
         viewUpdateMode: "incremental",
@@ -170,6 +172,7 @@ describe("PTY daemon", () => {
       const second = await createDaemonPtyRuntime({
         paths,
         workspaceRoot: root,
+        activityEnabled: true,
         resolveSessionSpec: () => ({ cwd: root, command: [] }),
         viewUpdateMode: "incremental",
       });
@@ -207,6 +210,7 @@ describe("PTY daemon", () => {
       const first = await createDaemonPtyRuntime({
         paths,
         workspaceRoot: root,
+        activityEnabled: true,
         resolveSessionSpec: () => ({ cwd: root, command: [] }),
       });
       await expect(first.ensureSession("task_1", "task_1:agent", { columns: 80, rows: 24 }))
@@ -219,6 +223,7 @@ describe("PTY daemon", () => {
       const second = await createDaemonPtyRuntime({
         paths,
         workspaceRoot: root,
+        activityEnabled: true,
         resolveSessionSpec: () => ({ cwd: root, command: [] }),
       });
       expect(second.getActivitySnapshots()).toEqual([
@@ -227,6 +232,50 @@ describe("PTY daemon", () => {
       await second.pruneStale([]);
       await vi.waitFor(() => expect(second.getActivitySnapshots()).toEqual([]));
       second.disposeAll();
+    } finally {
+      await requestDaemonShutdown(paths);
+      await daemon;
+      await rm(root, { recursive: true, force: true });
+    }
+  }, DAEMON_TEST_TIMEOUT_MS);
+
+  test("does not stream activity until a client enables the preview subscription", async () => {
+    const root = await createWorkspace();
+    const paths = getCraigPaths(root);
+    const agentPty = createFakePty();
+    const onActivity = vi.fn();
+    const daemon = servePtyDaemon(paths, {
+      shell: "/bin/zsh",
+      env: { TERM: "xterm-256color" },
+      spawn: vi.fn(() => agentPty),
+    });
+
+    try {
+      const client = await createDaemonPtyRuntime({
+        paths,
+        workspaceRoot: root,
+        resolveSessionSpec: () => ({ cwd: root, command: [] }),
+        onActivity,
+      });
+      await client.ensureSession("task_1", "task_1:agent", { columns: 80, rows: 24 });
+      agentPty.emitData("preview-disabled\r\n");
+      await new Promise((resolveWait) => setTimeout(resolveWait, 350));
+      expect(client.getActivitySnapshots()).toEqual([]);
+      expect(onActivity).not.toHaveBeenCalled();
+
+      client.setActivityEnabled(true);
+      await vi.waitFor(() => expect(client.getActivitySnapshots()).toEqual([
+        expect.objectContaining({ tabId: "task_1:agent", sessionState: "running" }),
+      ]));
+
+      client.setActivityEnabled(false);
+      expect(client.getActivitySnapshots()).toEqual([]);
+      onActivity.mockClear();
+      agentPty.emitData("preview-disabled-again\r\n");
+      await new Promise((resolveWait) => setTimeout(resolveWait, 350));
+      expect(client.getActivitySnapshots()).toEqual([]);
+      expect(onActivity).not.toHaveBeenCalled();
+      client.disposeAll();
     } finally {
       await requestDaemonShutdown(paths);
       await daemon;
@@ -572,6 +621,7 @@ describe("PTY daemon", () => {
       client = await createDaemonPtyRuntime({
         paths: getCraigPaths(root),
         workspaceRoot: root,
+        activityEnabled: true,
         resolveSessionSpec: () => ({ cwd: root, command: [] }),
         spawnDaemon,
         viewUpdateMode: "incremental",

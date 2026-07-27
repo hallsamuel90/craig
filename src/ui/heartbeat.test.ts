@@ -43,6 +43,23 @@ describe("Heartbeat", () => {
     heartbeat.stop();
   });
 
+  test("changes scheduler resolution without resetting registered job deadlines", async () => {
+    vi.useFakeTimers();
+    const run = vi.fn();
+    const heartbeat = new Heartbeat({ resolutionMs: 1_000, onError: vi.fn() });
+    heartbeat.register({ id: "animation", intervalMs: 500, run });
+
+    heartbeat.start();
+    await vi.advanceTimersByTimeAsync(500);
+    expect(run).not.toHaveBeenCalled();
+
+    heartbeat.setResolutionMs(100);
+    await vi.advanceTimersByTimeAsync(100);
+    expect(run).toHaveBeenCalledTimes(1);
+    expect(() => heartbeat.setResolutionMs(0)).toThrow("must be a positive number");
+    heartbeat.stop();
+  });
+
   test("isolates job failures and reports them", async () => {
     vi.useFakeTimers();
     const onError = vi.fn();

@@ -2549,6 +2549,7 @@ describe("terminal app PTY attach flow", () => {
     await vi.waitFor(async () => expect((await configService.load(paths)).previews?.agentActivityIndicators).toBe(true));
     await vi.waitFor(() => expect(stripAnsi(terminal.frames.at(-1) ?? "")).toContain("[x] Agent activity indicators"));
     expect(ptyRuntime.setViewUpdateMode).toHaveBeenCalledTimes(viewModeCallCount);
+    expect(ptyRuntime.setActivityEnabled).toHaveBeenLastCalledWith(true);
 
     terminal.emitKey("ESCAPE");
     terminal.emitKey("ESCAPE");
@@ -2799,6 +2800,7 @@ class FakePtyRuntime implements PtyRuntimePort {
   disposeAll = vi.fn();
   setViewedTab = vi.fn();
   setViewUpdateMode = vi.fn();
+  setActivityEnabled = vi.fn();
 
   getViewState(tabId: string | null): TerminalViewState {
     if (tabId && (this.hydratedTabIds.has(tabId) || this.ensureSession.mock.calls.some(([, attachedTabId]) => attachedTabId === tabId))) {

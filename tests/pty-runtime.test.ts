@@ -129,6 +129,37 @@ describe("PTY runtime", () => {
     expect(onActivityRemoved).toHaveBeenCalledWith("task_1:agent");
   });
 
+  test("does not emit or update activity while observation is disabled", () => {
+    const fakePty = createFakePty();
+    const onActivity = vi.fn();
+    const onActivityRemoved = vi.fn();
+    const runtime = new PtyRuntime({
+      workspaceRoot: "/tmp/craig",
+      shell: "/bin/zsh",
+      spawn: vi.fn(() => fakePty),
+      activityEnabled: false,
+      onActivity,
+      onActivityRemoved,
+    });
+
+    runtime.ensureSession("task_1", "task_1:agent", { columns: 80, rows: 24 });
+    fakePty.emitData("preview disabled");
+    expect(runtime.getActivitySnapshots()).toEqual([]);
+    expect(onActivity).not.toHaveBeenCalled();
+
+    runtime.setActivityEnabled(true);
+    expect(runtime.getActivitySnapshots()).toEqual([
+      expect.objectContaining({ tabId: "task_1:agent", sessionState: "running" }),
+    ]);
+    expect(onActivity).toHaveBeenCalledTimes(1);
+
+    runtime.setActivityEnabled(false);
+    const retainedSnapshot = runtime.getActivitySnapshots()[0];
+    fakePty.emitData("disabled again");
+    expect(runtime.getActivitySnapshots()[0]).toEqual(retainedSnapshot);
+    expect(onActivityRemoved).not.toHaveBeenCalled();
+  });
+
   test("reuses a terminal screen snapshot until PTY output changes it", async () => {
     const fakePty = createFakePty();
     const runtime = new PtyRuntime({

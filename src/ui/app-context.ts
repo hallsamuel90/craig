@@ -56,6 +56,7 @@ export interface PtyRuntimePort {
   getActivitySnapshots?(): PtyActivitySnapshot[];
   setViewedTab?(...args: [string | null]): void;
   setViewUpdateMode?(...args: ["snapshot" | "incremental"]): void;
+  setActivityEnabled?(...args: [boolean]): void;
 }
 /* eslint-enable no-unused-vars */
 
@@ -99,5 +100,6 @@ export type AppContext = {
   resolve: (_: number) => void;
   render: () => void;
   exit: (_: number) => void;
+  setAgentActivityEnabled: (_: boolean) => void;
   /* eslint-enable no-unused-vars */
 };
