@@ -280,6 +280,48 @@ describe("terminal shell renderer", () => {
     expect(frame).toContain("claude");
   });
 
+  test("renders per-agent activity dots and task rollups with synchronized working animation", () => {
+    const task = buildTaskRecord("/tmp/craig", {
+      id: "task_activity",
+      title: "observe agents",
+      repoId: "repo_activity",
+      workspaceId: "workspace_activity",
+    });
+    const state = {
+      ...createInitialShellState(null),
+      selectedRepoId: task.repoId,
+      selectedTaskId: task.id,
+      selectedLeftItemId: `task:${task.id}`,
+      activeTab: task.ptyTabs[0]!.id,
+      selectedPtyTabId: task.ptyTabs[0]!.id,
+      focusedRegion: "tasks" as const,
+    };
+    const model = {
+      workspaceRoot: "/tmp/craig",
+      repos: [{ id: task.repoId, name: "activity", rootPath: "/tmp/craig", defaultBranch: "main", createdAt: "", updatedAt: "" }],
+      tasks: [task],
+      inspection: null,
+    };
+    const snapshots = [{
+      taskId: task.id,
+      tabId: task.ptyTabs[0]!.id,
+      sessionState: "running" as const,
+      lastActivityAt: 9_999,
+      exitCode: null,
+      error: null,
+    }];
+    const first = buildShellData(state, model, { snapshots, now: 10_000, animationFrame: 0 });
+    const bright = buildShellData(state, model, { snapshots, now: 10_000, animationFrame: 2 });
+
+    expect(first.leftTree.find((row) => row.taskId === task.id)?.activity).toBe("working");
+    expect(first.tabs.find((tab) => tab.id === task.ptyTabs[0]!.id)?.activity).toBe("working");
+    expect(first.tabs.find((tab) => tab.id === task.ptyTabs[1]!.id)?.activity).toBeUndefined();
+    expect(renderMainShellFrame(MIN_VIEWPORT, first, { color: false })).toContain("▸ ● observe agents");
+    expect(renderMainShellFrame(MIN_VIEWPORT, first, { color: false })).toContain("CODEX ●");
+    expect(renderMainShellFrame(MIN_VIEWPORT, first, { color: true })).toContain("38;2;61;89;161");
+    expect(renderMainShellFrame(MIN_VIEWPORT, bright, { color: true })).toContain("38;2;125;207;255");
+  });
+
   test("renders an actionable empty state when the selected repo has no tasks", () => {
     const repo = { id: "repo_bug_fixes", name: "bug-fixes", rootPath: "/tmp/craig", defaultBranch: "main", createdAt: "", updatedAt: "" };
     const data = buildShellData(

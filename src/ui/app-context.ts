@@ -6,6 +6,7 @@ import type { WorkspaceShellModel } from "./shell/data.js";
 import type { PreviewOptionsState, RunnerOptionsState } from "./options.js";
 import type { PtySize } from "./pty/runtime.js";
 import type { ControlShellState } from "./state.js";
+import type { PtyActivitySnapshot } from "./agent-activity.js";
 
 type OverlayVariant = "boot" | "pause" | "help" | "options" | "runners" | "previews" | "error-log";
 
@@ -52,8 +53,10 @@ export interface PtyRuntimePort {
   disposeSession(...args: [string]): void;
   disposeAll(): void;
   getViewState(...args: [string | null]): ControlShellState["terminal"];
+  getActivitySnapshots?(): PtyActivitySnapshot[];
   setViewedTab?(...args: [string | null]): void;
   setViewUpdateMode?(...args: ["snapshot" | "incremental"]): void;
+  setActivityEnabled?(...args: [boolean]): void;
 }
 /* eslint-enable no-unused-vars */
 
@@ -97,5 +100,6 @@ export type AppContext = {
   resolve: (_: number) => void;
   render: () => void;
   exit: (_: number) => void;
+  setAgentActivityEnabled: (_: boolean) => void;
   /* eslint-enable no-unused-vars */
 };

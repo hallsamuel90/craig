@@ -601,7 +601,12 @@ function handlePreviewsKey(ctx: AppContext, key: string): void {
         return;
       }
       ctx.config = nextConfig;
-      ctx.ptyRuntime.setViewUpdateMode?.(result.enabled ? "incremental" : "snapshot");
+      if (result.feature === "incrementalCenterPane") {
+        ctx.ptyRuntime.setViewUpdateMode?.(result.enabled ? "incremental" : "snapshot");
+      }
+      if (result.feature === "agentActivityIndicators") {
+        ctx.setAgentActivityEnabled(result.enabled);
+      }
       ctx.state = { ...ctx.state, previewOptions: result.state };
       ctx.render();
     })

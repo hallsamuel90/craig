@@ -11,6 +11,7 @@ import { SHELL_LAYOUT, type Viewport } from "./layout.js";
 import type { TerminalCellStyle, TerminalRowSegment } from "./terminal-emulator.js";
 import type { FooterToast } from "./state.js";
 import { isPtyTab } from "./state.js";
+import type { AgentActivityState } from "./agent-activity.js";
 
 export interface RenderOptions {
   color?: boolean;
@@ -94,6 +95,7 @@ const PALETTE = {
   mutedfg:             { fg: "565f89" },
   disabled:            { fg: "3b4261" },
 } as const;
+const WORKING_DOT_COLORS = ["3d59a1", "7aa2f7", "7dcfff", "7aa2f7"] as const;
 
 export function renderBootOverlayFrame(viewport: Viewport, options: RenderOptions = {}): string {
   return renderOverlayFrame(viewport, {
@@ -569,6 +571,7 @@ function renderTreeRow(row: ShellTreeRow, width: number, color: boolean): Surfac
   const accentDot = row.accentDot ? ` ${green("●", color, row.selected ? PALETTE.panelSelected : PALETTE.panelBg)}` : "";
   const badgeWidth = row.prBadge ? row.prBadge.reduce((acc, seg) => acc + stringWidth(seg.text), 0) : 0;
   const visibleWidth = width - stringWidth(status) - stringWidth(dot) - badgeWidth;
+  const activityPrefix = row.activity ? `${row.selected ? "▸" : " "} ● ` : "";
   const label = row.selected
     ? row.text
     : row.focused
@@ -576,8 +579,21 @@ function renderTreeRow(row: ShellTreeRow, width: number, color: boolean): Surfac
       : row.panelHeader
         ? accent(row.text, color, PALETTE.panelMuted)
         : row.text;
-  const base = pad(`${indent}${label}`, Math.max(0, visibleWidth));
+  const base = pad(`${indent}${activityPrefix}${label}`, Math.max(0, visibleWidth));
   const tone: SurfaceLine["tone"] = row.selected ? "selected" : row.muted ? "muted" : "default";
+
+  if (row.activity) {
+    const prefix = `${indent}${row.selected ? "▸" : " "} `;
+    const labelAndPadding = base.slice(prefix.length + 2);
+    const segments: TerminalRowSegment[] = [
+      { text: prefix },
+      activityDotSegment(row.activity, row.activityAnimationFrame ?? 0),
+      { text: ` ${labelAndPadding}${status}${accentDot}` },
+      ...(row.prBadge ?? []),
+    ];
+    const plainText = segmentsToPlainText(segments);
+    return { text: plainText, segments, tone };
+  }
 
   if (row.prBadge) {
     const segments: TerminalRowSegment[] = [{ text: `${base}${status}${accentDot}` }, ...row.prBadge];
@@ -619,15 +635,28 @@ function renderRunnersCompact(runners: ShellRunnerRow[]): SurfaceLine {
 function renderTabLine(tabs: ShellTab[], color: boolean, centerFocused: boolean): string {
   return tabs
     .map((tab) => {
-      if (tab.active) {
-        return centerFocused
+      const label = tab.active
+        ? centerFocused
           ? green(tab.label, color, PALETTE.panelBg)
-          : accent(tab.label, color, PALETTE.panelBg);
-      }
-
-      return muted(tab.label, color, PALETTE.panelBg);
+          : accent(tab.label, color, PALETTE.panelBg)
+        : muted(tab.label, color, PALETTE.panelBg);
+      const activityDot = tab.activity
+        ? renderTerminalSegment(activityDotSegment(tab.activity, tab.activityAnimationFrame ?? 0), color, PALETTE.panelBg)
+        : "";
+      return `${label}${activityDot ? ` ${activityDot}` : ""}`;
     })
     .join("   ");
+}
+
+function activityDotSegment(activity: AgentActivityState, animationFrame: number): TerminalRowSegment {
+  const fg = activity === "working"
+    ? WORKING_DOT_COLORS[animationFrame % WORKING_DOT_COLORS.length] ?? WORKING_DOT_COLORS[0]
+    : activity === "ready"
+      ? PALETTE.success.fg
+      : activity === "error"
+        ? PALETTE.error.fg
+        : PALETTE.panelMuted.fg;
+  return { text: "●", style: { fg } };
 }
 
 function renderContextRow(row: ShellContextRow, color: boolean): SurfaceLine {
@@ -837,7 +866,7 @@ function findTabOffset(tabs: ShellTab[]): number {
       return offset;
     }
 
-    offset += tab.label.length + 3;
+    offset += tab.label.length + (tab.activity ? 2 : 0) + 3;
   }
 
   return 0;
