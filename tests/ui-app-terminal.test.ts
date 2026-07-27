@@ -91,7 +91,7 @@ describe("terminal app PTY attach flow", () => {
     terminal.emitKey("\r");
     await vi.waitFor(() => expect(terminal.frames.join("")).toContain("38;2;61;89;161"));
     const frameCount = terminal.frames.length;
-    await vi.advanceTimersByTimeAsync(600);
+    await vi.advanceTimersByTimeAsync(500);
     await vi.waitFor(() => expect(terminal.frames.slice(frameCount).join("")).toContain("38;2;122;162;247"));
     terminal.emitKey("q");
 
