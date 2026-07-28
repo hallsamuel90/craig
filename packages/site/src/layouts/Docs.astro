@@ -7,13 +7,13 @@ interface Props {
 const { title, description } = Astro.props;
 
 const nav = [
-  { label: "Overview", href: "/docs" },
-  { label: "Install", href: "/docs/install" },
-  { label: "Quickstart", href: "/docs/quickstart" },
-  { label: "TUI Reference", href: "/docs/tui" },
-  { label: "Runners", href: "/docs/runners" },
-  { label: "Config", href: "/docs/config" },
-  { label: "CLI Reference", href: "/docs/cli" },
+  { label: "Overview", href: "/docs/" },
+  { label: "Install", href: "/docs/install/" },
+  { label: "Quickstart", href: "/docs/quickstart/" },
+  { label: "TUI Reference", href: "/docs/tui/" },
+  { label: "Runners", href: "/docs/runners/" },
+  { label: "Config", href: "/docs/config/" },
+  { label: "CLI Reference", href: "/docs/cli/" },
 ];
 
 const currentPath = Astro.url.pathname;
@@ -26,7 +26,7 @@ const currentPath = Astro.url.pathname;
       <div class="flex items-center gap-2 group mb-6">
         <a href="/" class="text-[#9ece6a] font-bold text-base tracking-tight hover:opacity-80 transition-opacity">craig</a>
         <a
-          href="/docs/quickstart"
+          href="/docs/quickstart/"
           class="opacity-[0.15] group-hover:opacity-90 transition-opacity duration-300 flex items-center"
           title="follow the white rabbit"
           aria-label="follow the white rabbit"

@@ -20,7 +20,7 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
 [![Node 22+](https://img.shields.io/badge/node-22%2B-brightgreen)](https://nodejs.org)
 
-[craig-cli.com](https://craig-cli.com) · [Docs](https://craig-cli.com/docs) · [Quickstart](https://craig-cli.com/docs/quickstart)
+[craig-cli.com](https://craig-cli.com) · [Docs](https://craig-cli.com/docs/) · [Quickstart](https://craig-cli.com/docs/quickstart/)
 
 </div>
 
