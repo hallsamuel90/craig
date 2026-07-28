@@ -29,8 +29,9 @@ import {
 import { createInitialShellState, restoreShellState } from "./state.js";
 import { getViewport } from "./layout.js";
 import { buildShellData, type ShellData } from "./shell/data.js";
-import type { RenderedRegion } from "./render.js";
+import type { MainShellPresentation, MainShellRegions, RenderedRegion } from "./render.js";
 import { buildCenterPaneUpdate } from "./center-pane-render.js";
+import { buildMainShellRegionUpdate, type MainShellRegionName } from "./main-shell-render.js";
 import type { AppContext, AppState, TerminalRuntime, PtyRuntimePort, TerminalEventListener } from "./app-context.js";
 import {
   buildActionContext,
@@ -133,6 +134,7 @@ export async function startTerminalApp(options: TerminalAppOptions = {}): Promis
     const activeTerminal = options.terminal ?? terminal;
     let lastRenderedFrame: string | null = null;
     let lastRenderedCenter: RenderedRegion | null = null;
+    let lastRenderedRegions: MainShellRegions | null = null;
     let lastShellData: ShellData | null = null;
     let pendingPtyInvalidation: PtyViewInvalidation | null = null;
     let agentActivityAnimationFrame = 0;
@@ -192,6 +194,7 @@ export async function startTerminalApp(options: TerminalAppOptions = {}): Promis
       ptyRuntime: initialPtyRuntime,
       resolve,
       render: () => undefined,
+      renderTaskNavigation: () => false,
       exit: (code: number) => resolve(code),
       setAgentActivityEnabled: (enabled) => {
         heartbeat.setResolutionMs(enabled
@@ -242,6 +245,10 @@ export async function startTerminalApp(options: TerminalAppOptions = {}): Promis
             }
             lastShellData = nextShellData;
             lastRenderedCenter = centerUpdate.region;
+            if (lastRenderedRegions) {
+              lastRenderedRegions = { ...lastRenderedRegions, center: centerUpdate.region };
+            }
+            lastRenderedFrame = null;
             activeTerminal.hideCursor(true);
           }
         }, configService.previews.isEnabled(ctx.config, "incrementalCenterPane") ? 0 : 50);
@@ -270,6 +277,73 @@ export async function startTerminalApp(options: TerminalAppOptions = {}): Promis
       }
     };
 
+    const buildMainPresentation = (
+      renderState: Extract<AppState, { mode: "main" }>,
+    ): { data: ShellData; presentation: MainShellPresentation } => {
+      const viewport = getViewport(activeTerminal.width, activeTerminal.height);
+      const activityEnabled = configService.previews.isEnabled(ctx.config, "agentActivityIndicators");
+      const snapshots = activityEnabled ? ctx.ptyRuntime.getActivitySnapshots?.() ?? [] : [];
+      const now = Date.now();
+      const mainShellData = buildShellData(
+        syncShell(ctx, renderState.shell),
+        ctx.model,
+        activityEnabled ? { snapshots, now, animationFrame: agentActivityAnimationFrame } : undefined,
+      );
+      renderedAgentActivityByTabId.clear();
+      if (activityEnabled) {
+        for (const task of ctx.model.tasks) {
+          for (const tab of task.ptyTabs) {
+            if (tab.kind === "agent") {
+              renderedAgentActivityByTabId.set(tab.id, getAgentTabActivity(tab.id, snapshots, now));
+            }
+          }
+        }
+      }
+      const mainPresentation = renderMainShellPresentation(viewport, mainShellData, {
+        centerOnly: renderState.shell.centerZoomed,
+        focusFlashActive: ctx.focusFlashUntil !== null && Date.now() < ctx.focusFlashUntil,
+      });
+      return { data: mainShellData, presentation: mainPresentation };
+    };
+
+    const writeMainRegions = (
+      data: ShellData,
+      presentation: MainShellPresentation,
+      names: readonly MainShellRegionName[],
+      completeFrame: boolean,
+    ): boolean => {
+      if (!lastRenderedRegions) {
+        return false;
+      }
+      const update = buildMainShellRegionUpdate(lastRenderedRegions, presentation.regions, names);
+      if (!update) {
+        return false;
+      }
+      if (update.output.length > 0) {
+        activeTerminal.noFormat(update.output);
+      }
+      lastShellData = data;
+      lastRenderedRegions = update.regions;
+      lastRenderedCenter = update.regions.center;
+      lastRenderedFrame = completeFrame ? presentation.frame : null;
+      activeTerminal.hideCursor(true);
+      return true;
+    };
+
+    ctx.renderTaskNavigation = () => {
+      if (
+        ctx.state.mode !== "main" ||
+        ctx.pendingClear ||
+        !configService.previews.isEnabled(ctx.config, "incrementalCenterPane")
+      ) {
+        return false;
+      }
+      syncInputCapture(ctx);
+      ctx.ptyRuntime.setViewedTab?.(resolveTerminalViewTabId(ctx, ctx.state.shell));
+      const { data, presentation } = buildMainPresentation(ctx.state);
+      return writeMainRegions(data, presentation, ["rail", "left", "center", "footer"], false);
+    };
+
     ctx.render = () => {
       syncInputCapture(ctx);
       const renderState = ctx.state;
@@ -278,32 +352,25 @@ export async function startTerminalApp(options: TerminalAppOptions = {}): Promis
       );
       const viewport = getViewport(activeTerminal.width, activeTerminal.height);
       let frame: string;
+      let mainPresentation: MainShellPresentation | null = null;
 
       if (renderState.mode === "main") {
-        const activityEnabled = configService.previews.isEnabled(ctx.config, "agentActivityIndicators");
-        const snapshots = activityEnabled ? ctx.ptyRuntime.getActivitySnapshots?.() ?? [] : [];
-        const now = Date.now();
-        const mainShellData = buildShellData(
-          syncShell(ctx, renderState.shell),
-          ctx.model,
-          activityEnabled ? { snapshots, now, animationFrame: agentActivityAnimationFrame } : undefined,
-        );
-        renderedAgentActivityByTabId.clear();
-        if (activityEnabled) {
-          for (const task of ctx.model.tasks) {
-            for (const tab of task.ptyTabs) {
-              if (tab.kind === "agent") {
-                renderedAgentActivityByTabId.set(tab.id, getAgentTabActivity(tab.id, snapshots, now));
-              }
-            }
-          }
-        }
-        const mainPresentation = renderMainShellPresentation(viewport, mainShellData, {
-            centerOnly: renderState.shell.centerZoomed,
-            focusFlashActive: ctx.focusFlashUntil !== null && Date.now() < ctx.focusFlashUntil,
-        });
+        const rendered = buildMainPresentation(renderState);
+        mainPresentation = rendered.presentation;
         frame = mainPresentation.frame;
-        lastShellData = mainShellData;
+        if (
+          configService.previews.isEnabled(ctx.config, "incrementalCenterPane") &&
+          !ctx.pendingClear &&
+          writeMainRegions(
+            rendered.data,
+            mainPresentation,
+            ["rail", "left", "center", "right", "footer"],
+            true,
+          )
+        ) {
+          return;
+        }
+        lastShellData = rendered.data;
         lastRenderedCenter = mainPresentation.center;
       } else {
         frame = renderState.variant === "boot"
@@ -347,6 +414,7 @@ export async function startTerminalApp(options: TerminalAppOptions = {}): Promis
                   : renderHelpOverlayFrame(viewport);
         lastShellData = null;
         lastRenderedCenter = null;
+        lastRenderedRegions = null;
       }
 
       if (ctx.pendingClear) {
@@ -357,6 +425,7 @@ export async function startTerminalApp(options: TerminalAppOptions = {}): Promis
       }
       activeTerminal.noFormat(positionFrameRows(frame, lastRenderedFrame));
       lastRenderedFrame = frame;
+      lastRenderedRegions = mainPresentation?.regions ?? null;
       activeTerminal.hideCursor(true);
     };
 

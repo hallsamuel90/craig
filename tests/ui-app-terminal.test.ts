@@ -68,6 +68,64 @@ describe("terminal app PTY attach flow", () => {
     await expect(app).resolves.toBe(0);
   });
 
+  test("switches tasks without repainting the inspector when the incremental preview is enabled", async () => {
+    const root = await mkdtemp(join(tmpdir(), "craig-ui-app-regional-nav-"));
+    tempRoots.push(root);
+    const paths = await setupWorkspace(root);
+    const secondTask = await writeTaskRecord(root, {
+      id: "task_20260430_03",
+      title: "second task",
+      repoId: "repo_a",
+      workspaceId: "workspace_repo_a",
+      worktreePath: join(root, "worktrees", "repo_a", "task_20260430_03"),
+    });
+    const index = JSON.parse(await readFile(paths.indexFile, "utf8")) as { taskIds: string[] };
+    await writeFile(paths.indexFile, JSON.stringify({ ...index, taskIds: [...index.taskIds, secondTask.id] }), "utf8");
+    await writeFile(
+      paths.uiStateFile,
+      JSON.stringify({
+        version: 1,
+        selectedRepoId: "repo_a",
+        selectedWorkspaceId: "workspace_repo_a",
+        selectedTaskId: "task_20260430_02",
+        selectedPtyTabId: "task_20260430_02:terminal",
+        selectedLeftItemId: "task:task_20260430_02",
+        inputMode: "control",
+        focusedRegion: "tasks",
+        activeTab: "task_20260430_02:terminal",
+        selectedActionId: "commit",
+        updatedAt: "2026-05-04T00:00:00.000Z",
+      }),
+    );
+    await configService.save(paths, { previews: { incrementalCenterPane: true } });
+    const terminal = new FakeTerminal();
+    const ptyRuntime = new FakePtyRuntime();
+    const app = startTerminalApp({ terminal, ptyRuntime, uiStateFile: paths.uiStateFile, workspaceRoot: root });
+    await vi.waitFor(() => expect(terminal.hasKeyListener()).toBe(true));
+
+    terminal.emitKey("\r");
+    await vi.waitFor(() => expect(stripAnsi(terminal.frames.at(-1) ?? "")).toContain("CRAIG"));
+    terminal.frames.length = 0;
+
+    terminal.emitKey("DOWN");
+
+    const navigationOutput = terminal.frames.join("");
+    expect(stripAnsi(navigationOutput)).toContain("task_20260430_03");
+    expect(navigationOutput).toMatch(new RegExp(`${String.fromCharCode(27)}\\[\\d+;1H`));
+    expect(navigationOutput).toContain("\u001B[2;44H");
+    expect(navigationOutput).not.toMatch(new RegExp(`${String.fromCharCode(27)}\\[\\d+;84H`));
+
+    terminal.frames.length = 0;
+    await vi.waitFor(() => {
+      const inspectionOutput = terminal.frames.join("");
+      expect(inspectionOutput).toMatch(new RegExp(`${String.fromCharCode(27)}\\[\\d+;84H`));
+      expect(inspectionOutput).not.toMatch(new RegExp(`${String.fromCharCode(27)}\\[\\d+;44H`));
+    });
+
+    terminal.emitKey("q");
+    await expect(app).resolves.toBe(0);
+  });
+
   test("animates working agent dots from the shared heartbeat", async () => {
     vi.useFakeTimers({ shouldAdvanceTime: true });
     const root = await mkdtemp(join(tmpdir(), "craig-ui-app-"));

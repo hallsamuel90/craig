@@ -37,6 +37,15 @@ export interface RenderedRegion {
 export interface MainShellPresentation {
   frame: string;
   center: RenderedRegion;
+  regions: MainShellRegions;
+}
+
+export interface MainShellRegions {
+  rail: RenderedRegion;
+  left: RenderedRegion | null;
+  center: RenderedRegion;
+  right: RenderedRegion | null;
+  footer: RenderedRegion;
 }
 
 export interface RenderedRegionRowPatch {
@@ -247,28 +256,53 @@ export function renderMainShellPresentation(
   const rightLines = toRightLines(data, rightWidth, bodyHeight, color);
 
   const ptyAttached = data.inputMode === "terminal";
-
-  const body: string[] = [];
+  const leftRows: string[] = [];
+  const rightRows: string[] = [];
 
   for (let index = 0; index < bodyHeight; index += 1) {
-    if (centerOnly) {
-      body.push(centerRegion.rows[index] ?? "");
-      continue;
+    if (!centerOnly) {
+      const left = renderSurfaceSegment(leftLines[index] ?? emptyLine(), leftWidth, color, "left");
+      const leftDivider = fillSurface("│", color, leftDividerPalette);
+      const divider = fillSurface("│", color, rightDividerPalette);
+      const right = renderSurfaceSegment(rightLines[index] ?? emptyLine(), rightWidth, color, "right");
+      leftRows.push(`${left}${leftDivider}`);
+      rightRows.push(`${divider}${right}`);
     }
-
-    const left = renderSurfaceSegment(leftLines[index] ?? emptyLine(), leftWidth, color, "left");
-    const leftDivider = fillSurface("│", color, leftDividerPalette);
-    const center = centerRegion.rows[index] ?? "";
-    const divider = fillSurface("│", color, rightDividerPalette);
-    const right = renderSurfaceSegment(rightLines[index] ?? emptyLine(), rightWidth, color, "right");
-    body.push(`${left}${leftDivider}${center}${divider}${right}`);
   }
 
   const footerPalette = ptyAttached || data.modalInput ? PALETTE.panelBg : PALETTE.panelMuted;
   const footerLine = renderFooterLine(data.footerText, data.footerToast, viewport.width, color, footerPalette);
+  const rail: RenderedRegion = { row: 1, column: 1, width: viewport.width, rows: [railTop] };
+  const left: RenderedRegion | null = centerOnly
+    ? null
+    : {
+        row: SHELL_LAYOUT.topRailHeight + 1,
+        column: 1,
+        width: leftWidth + SHELL_LAYOUT.dividerWidth,
+        rows: leftRows,
+      };
+  const right: RenderedRegion | null = centerOnly
+    ? null
+    : {
+        row: SHELL_LAYOUT.topRailHeight + 1,
+        column: centerRegion.column + centerRegion.width,
+        width: SHELL_LAYOUT.dividerWidth + rightWidth,
+        rows: rightRows,
+      };
+  const footer: RenderedRegion = {
+    row: viewport.height,
+    column: 1,
+    width: viewport.width,
+    rows: [footerLine],
+  };
+  const body = centerOnly
+    ? centerRegion.rows
+    : centerRegion.rows.map((center, index) => `${leftRows[index] ?? ""}${center}${rightRows[index] ?? ""}`);
+
   return {
     frame: [railTop, ...body, footerLine].join("\n"),
     center: centerRegion,
+    regions: { rail, left, center: centerRegion, right, footer },
   };
 }
 
