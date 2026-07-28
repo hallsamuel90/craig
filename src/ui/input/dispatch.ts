@@ -871,7 +871,9 @@ export function onKey(ctx: AppContext, name: unknown): void {
     if (result.refreshInspection) {
       ctx.state = { mode: "main", shell: syncShell(ctx, result.state) };
       persistShellState(ctx, ctx.state.shell);
-      ctx.render();
+      if (ctx.state.shell.focusedRegion !== "tasks" || !ctx.renderTaskNavigation()) {
+        ctx.render();
+      }
       if (ctx.state.shell.focusedRegion === "tasks") {
         scheduleLeftNavInspectionRefresh(ctx, ctx.state.shell);
         return;

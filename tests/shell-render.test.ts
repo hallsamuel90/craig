@@ -148,6 +148,13 @@ describe("terminal shell renderer", () => {
     const region = presentation.center;
 
     expect(region).toMatchObject({ row: 2, column: 44, width: 40 });
+    expect(presentation.regions).toMatchObject({
+      rail: { row: 1, column: 1, width: 120 },
+      left: { row: 2, column: 1, width: 43 },
+      center: { row: 2, column: 44, width: 40 },
+      right: { row: 2, column: 84, width: 37 },
+      footer: { row: 36, column: 1, width: 120 },
+    });
     for (let index = 0; index < region.rows.length; index += 1) {
       expect(frameRows[region.row - 1 + index]?.slice(region.column - 1, region.column - 1 + region.width)).toBe(
         region.rows[index],
@@ -163,6 +170,8 @@ describe("terminal shell renderer", () => {
 
     expect(region).toMatchObject({ row: 2, column: 1, width: MIN_VIEWPORT.width });
     expect(region.rows).toEqual(frameRows.slice(1, -1));
+    expect(presentation.regions.left).toBeNull();
+    expect(presentation.regions.right).toBeNull();
   });
 
   test("keeps the center tab rule scoped to the active tab in control mode", () => {

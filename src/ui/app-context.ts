@@ -99,6 +99,7 @@ export type AppContext = {
   /* eslint-disable no-unused-vars */
   resolve: (_: number) => void;
   render: () => void;
+  renderTaskNavigation: () => boolean;
   exit: (_: number) => void;
   setAgentActivityEnabled: (_: boolean) => void;
   /* eslint-enable no-unused-vars */
