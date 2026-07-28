@@ -95,7 +95,7 @@ const PALETTE = {
   mutedfg:             { fg: "565f89" },
   disabled:            { fg: "3b4261" },
 } as const;
-const WORKING_DOT_COLORS = ["3d59a1", "7aa2f7", "7dcfff", "7aa2f7"] as const;
+const WORKING_DOT_COLORS = ["3d59a1", "506eb8", "6386d0", "7aa2f7", "6386d0", "506eb8"] as const;
 
 export function renderBootOverlayFrame(viewport: Viewport, options: RenderOptions = {}): string {
   return renderOverlayFrame(viewport, {

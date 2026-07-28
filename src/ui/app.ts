@@ -46,6 +46,7 @@ import { Heartbeat } from "./heartbeat.js";
 import { logBackgroundError } from "./actions/index.js";
 import {
   AGENT_ACTIVITY_ANIMATION_FRAMES,
+  AGENT_ACTIVITY_ANIMATION_INTERVAL_MS,
   getAgentTabActivity,
   hasWorkingAgentActivity,
   type AgentActivityState,
@@ -55,7 +56,6 @@ import {
 export type { TerminalRuntime, PtyRuntimePort, TerminalEventListener };
 
 const DEFAULT_HEARTBEAT_RESOLUTION_MS = 1_000;
-const AGENT_ACTIVITY_HEARTBEAT_RESOLUTION_MS = 250;
 
 export interface TerminalAppOptions {
   uiStateFile?: string;
@@ -141,7 +141,7 @@ export async function startTerminalApp(options: TerminalAppOptions = {}): Promis
     let ctx!: AppContext;
     const heartbeat = new Heartbeat({
       resolutionMs: configService.previews.isEnabled(config, "agentActivityIndicators")
-        ? AGENT_ACTIVITY_HEARTBEAT_RESOLUTION_MS
+        ? AGENT_ACTIVITY_ANIMATION_INTERVAL_MS
         : DEFAULT_HEARTBEAT_RESOLUTION_MS,
       onError: (jobId, error) => logBackgroundError(`heartbeat job "${jobId}"`, error, buildActionContext(ctx)),
     });
@@ -195,7 +195,7 @@ export async function startTerminalApp(options: TerminalAppOptions = {}): Promis
       exit: (code: number) => resolve(code),
       setAgentActivityEnabled: (enabled) => {
         heartbeat.setResolutionMs(enabled
-          ? AGENT_ACTIVITY_HEARTBEAT_RESOLUTION_MS
+          ? AGENT_ACTIVITY_ANIMATION_INTERVAL_MS
           : DEFAULT_HEARTBEAT_RESOLUTION_MS);
         ctx.ptyRuntime.setActivityEnabled?.(enabled);
       },
@@ -423,7 +423,7 @@ export async function startTerminalApp(options: TerminalAppOptions = {}): Promis
     });
     heartbeat.register({
       id: "agent.activity-indicators",
-      intervalMs: 500,
+      intervalMs: AGENT_ACTIVITY_ANIMATION_INTERVAL_MS,
       run: () => {
         if (!configService.previews.isEnabled(ctx.config, "agentActivityIndicators")) {
           agentActivityAnimationFrame = 0;

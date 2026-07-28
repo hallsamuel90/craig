@@ -17,7 +17,8 @@ export interface AgentActivityPresentation {
 }
 
 export const AGENT_READY_AFTER_MS = 5_000;
-export const AGENT_ACTIVITY_ANIMATION_FRAMES = 4;
+export const AGENT_ACTIVITY_ANIMATION_INTERVAL_MS = 150;
+export const AGENT_ACTIVITY_ANIMATION_FRAMES = 6;
 
 const ACTIVITY_PRIORITY: Record<AgentActivityState, number> = {
   idle: 0,

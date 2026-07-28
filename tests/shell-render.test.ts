@@ -311,7 +311,7 @@ describe("terminal shell renderer", () => {
       error: null,
     }];
     const first = buildShellData(state, model, { snapshots, now: 10_000, animationFrame: 0 });
-    const bright = buildShellData(state, model, { snapshots, now: 10_000, animationFrame: 2 });
+    const bright = buildShellData(state, model, { snapshots, now: 10_000, animationFrame: 3 });
 
     expect(first.leftTree.find((row) => row.taskId === task.id)?.activity).toBe("working");
     expect(first.tabs.find((tab) => tab.id === task.ptyTabs[0]!.id)?.activity).toBe("working");
@@ -319,7 +319,7 @@ describe("terminal shell renderer", () => {
     expect(renderMainShellFrame(MIN_VIEWPORT, first, { color: false })).toContain("▸ ● observe agents");
     expect(renderMainShellFrame(MIN_VIEWPORT, first, { color: false })).toContain("CODEX ●");
     expect(renderMainShellFrame(MIN_VIEWPORT, first, { color: true })).toContain("38;2;61;89;161");
-    expect(renderMainShellFrame(MIN_VIEWPORT, bright, { color: true })).toContain("38;2;125;207;255");
+    expect(renderMainShellFrame(MIN_VIEWPORT, bright, { color: true })).toContain("38;2;122;162;247");
   });
 
   test("renders an actionable empty state when the selected repo has no tasks", () => {
