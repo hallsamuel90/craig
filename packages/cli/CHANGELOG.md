@@ -1,5 +1,12 @@
 # craig-cli
 
+## 0.8.6
+
+### Patch Changes
+
+- 103eb89: Make the working agent activity dot breathe with a smoother, faster brightness pulse.
+- 39e19ac: Point documentation links directly at their canonical trailing-slash URLs.
+
 ## 0.8.5
 
 ### Patch Changes
