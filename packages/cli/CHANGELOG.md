@@ -1,5 +1,13 @@
 # craig-cli
 
+## 0.8.7
+
+### Patch Changes
+
+- 56c4c06: Adapt GitHub polling frequency to task and check state, and pause polling across heartbeat ticks after rate limits.
+- 93f11c4: Speed up task creation by avoiding a duplicate runner launch and a full workspace model reload before opening the new agent session.
+- bc13c7e: Reduce task navigation repainting by updating the task list and center pane independently while the inspector refreshes.
+
 ## 0.8.6
 
 ### Patch Changes
