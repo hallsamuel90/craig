@@ -121,6 +121,7 @@ async function waitForCraigBoot(craigBin, cwd, stubDir) {
     rows: 36,
     env: {
       ...process.env,
+      CI: "",
       PATH: `${stubDir}:${process.env.PATH ?? ""}`,
       SHELL: process.env.SHELL ?? "/bin/zsh",
       TERM: "xterm-256color",

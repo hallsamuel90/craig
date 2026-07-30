@@ -57,6 +57,7 @@ describe("Craig terminal mode E2E", () => {
       rows: 36,
       env: {
         ...process.env,
+        CI: "",
         SHELL: process.env.SHELL ?? "/bin/zsh",
         TERM: "xterm-256color",
       },
@@ -142,6 +143,7 @@ describe("Craig terminal mode E2E", () => {
       rows: 36,
       env: {
         ...process.env,
+        CI: "",
         PATH: `${codexStubDir}:${process.env.PATH ?? ""}`,
         SHELL: process.env.SHELL ?? "/bin/zsh",
         TERM: "xterm-256color",
@@ -211,6 +213,7 @@ describe("Craig terminal mode E2E", () => {
       rows: 36,
       env: {
         ...process.env,
+        CI: "",
         PATH: `${codexStubDir}:${process.env.PATH ?? ""}`,
         SHELL: process.env.SHELL ?? "/bin/zsh",
         TERM: "xterm-256color",
@@ -296,6 +299,7 @@ describe("Craig terminal mode E2E", () => {
       rows: 36,
       env: {
         ...process.env,
+        CI: "",
         PATH: `${stubDir}:${process.env.PATH ?? ""}`,
         SHELL: process.env.SHELL ?? "/bin/zsh",
         TERM: "xterm-256color",
@@ -369,6 +373,7 @@ describe("Craig terminal mode E2E", () => {
       rows: 36,
       env: {
         ...process.env,
+        CI: "",
         PATH: `${codexStubDir}:${process.env.PATH ?? ""}`,
         SHELL: process.env.SHELL ?? "/bin/zsh",
         TERM: "xterm-256color",
@@ -446,6 +451,7 @@ describe("Craig terminal mode E2E", () => {
         rows: 36,
         env: {
           ...process.env,
+          CI: "",
           CODEX_STUB_LAUNCH_FILE: launchFile,
           PATH: `${codexStubDir}:${process.env.PATH ?? ""}`,
           SHELL: process.env.SHELL ?? "/bin/zsh",
@@ -468,6 +474,7 @@ describe("Craig terminal mode E2E", () => {
         rows: 36,
         env: {
           ...process.env,
+          CI: "",
           CODEX_STUB_LAUNCH_FILE: launchFile,
           PATH: `${codexStubDir}:${process.env.PATH ?? ""}`,
           SHELL: process.env.SHELL ?? "/bin/zsh",
