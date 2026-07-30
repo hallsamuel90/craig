@@ -12,7 +12,6 @@ import {
 } from "./tmux.js";
 import { requireExecutablePath, withDefaultCommandPath } from "../../../shared/command-path.js";
 import { shellEscape } from "../../../shared/shell-escape.js";
-import { runCommand } from "../../../shared/exec.js";
 import type { TaskRecord } from "../types.js";
 import { sendCommandToPane } from "./tmux.js";
 
@@ -158,10 +157,7 @@ export const commandRunnerAdapter: RunnerAdapter = {
     const command = task.runnerSession.command;
     const executable = command[0]!;
     const env = withDefaultCommandPath();
-    await runCommand(requireExecutablePath(executable, { cwd: input.repoRoot, env }), ["--help"], {
-      cwd: input.repoRoot,
-      env,
-    });
+    requireExecutablePath(executable, { cwd: input.repoRoot, env });
   },
 
   async launch(task, input) {

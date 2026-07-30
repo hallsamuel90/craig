@@ -2,7 +2,6 @@ import { readTask } from "../../domain/task/index.js";
 import { errorService } from "../../domain/error/index.js";
 import { configService } from "../../domain/config/index.js";
 import type { RunnerType } from "../../domain/config/index.js";
-import { runCommand } from "../../shared/exec.js";
 import { requireExecutablePath, withDefaultCommandPath } from "../../shared/command-path.js";
 import type { TaskRecord } from "../../domain/task/index.js";
 import type { ControlShellState } from "../state.js";
@@ -31,11 +30,10 @@ export const createInteractiveTask = async (
     : await ctx.taskService.provisionTask(ctx.paths, repoId ?? "", prompt, { runner, config: ctx.config });
   try {
     const env = withDefaultCommandPath();
-    await runCommand(
-      requireExecutablePath(configService.runners.getConfiguredProfile(runner, ctx.config).executable, { cwd: provisioned.repoRoot, env }),
-      ["--help"],
-      { cwd: provisioned.repoRoot, env },
-    );
+    requireExecutablePath(configService.runners.getConfiguredProfile(runner, ctx.config).executable, {
+      cwd: provisioned.repoRoot,
+      env,
+    });
   } catch (error) {
     const message = error instanceof Error ? error.message : "Failed to start runner.";
     const failedTask = await ctx.taskService.recordStartupFailure(ctx.paths, provisioned.task.id, message);

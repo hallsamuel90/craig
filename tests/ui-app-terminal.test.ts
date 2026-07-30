@@ -9,7 +9,7 @@ import type { TerminalViewState } from "../src/ui/state.js";
 import type { PtyActivitySnapshot } from "../src/ui/agent-activity.js";
 import { listRepos } from "../src/domain/workspace/adapters/repo-store.js";
 import { runCommand, runCommandAllowingFailure } from "../src/shared/exec.js";
-import { readTask, writeTask } from "../src/domain/task/index.js";
+import { readTask, taskService, writeTask } from "../src/domain/task/index.js";
 import { configService } from "../src/domain/config/index.js";
 import { createCraigState, createGitRepo, createStubCommands, writeRepoRecord, writeTaskRecord } from "./test-helpers.js";
 
@@ -2482,6 +2482,7 @@ describe("terminal app PTY attach flow", () => {
     await vi.waitFor(() => expect(terminal.hasKeyListener()).toBe(true));
 
     terminal.emitKey("\r"); // boot start
+    const listTasksSpy = vi.spyOn(taskService, "listTasks");
     terminal.emitKey("["); // focus left pane
     terminal.emitKey("DOWN"); // + New Task
     terminal.emitKey("ENTER");
@@ -2497,6 +2498,8 @@ describe("terminal app PTY attach flow", () => {
     const createdTaskId = String(ptyRuntime.ensureSession.mock.calls[0]?.[0] ?? "");
     expect(createdTaskId).toMatch(/^task_/);
     expect(ptyRuntime.ensureSession.mock.calls[0]?.[1]).toBe(`${createdTaskId}:agent`);
+    expect(listTasksSpy).not.toHaveBeenCalled();
+    listTasksSpy.mockRestore();
     const task = await readTask(paths, createdTaskId);
     expect(task.prompt.value).toBe("fix busted task launch");
   });

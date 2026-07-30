@@ -42,6 +42,7 @@ import {
   reportRecoverableError,
   persistShellState,
   persistTaskPtySelection,
+  upsertTaskInModel,
   getShellKeyOptions,
   refreshInspection,
   reloadModel,
@@ -113,7 +114,7 @@ async function submitTaskPrompt(ctx: AppContext): Promise<void> {
       buildActionContext(ctx),
     );
     createdTask = created.task;
-    await reloadModel(ctx);
+    upsertTaskInModel(ctx, createdTask);
     const nextShell = syncShell(ctx, {
       ...ctx.state.shell,
       ...created.nextShell,
