@@ -109,6 +109,24 @@ export function formatCommandResult(result: CommandResult): string {
         `Cleanup: ${result.inspection.cleanupSummary}`,
         ...buildShowWarnings(result),
       ].join("\n");
+    case "currentTask":
+      return [
+        `${result.task.id}: ${result.task.title}`,
+        `Workspace: ${result.task.workspaceId}`,
+        `Repo: ${result.task.repoId}`,
+        `Worktree: ${result.task.worktreePath}`,
+        `Context source: ${result.context.source}`,
+        `Agent tab: ${result.context.agentTabId ?? "none"}`,
+      ].join("\n");
+    case "showContext":
+      return [
+        `Workspace: ${result.workspace.root}`,
+        `Workspace source: ${result.workspace.source}`,
+        `Initialized: ${result.workspace.initialized ? "yes" : "no"}`,
+        `Task: ${result.task?.id ?? "none"}`,
+        `Task source: ${result.task?.source ?? "none"}`,
+        `Agent tab: ${result.task?.agentTabId ?? "none"}`,
+      ].join("\n");
     case "streamTaskLogs":
       return `Streaming logs for ${result.taskId} from ${result.logPath}`;
     case "showTaskDiff":

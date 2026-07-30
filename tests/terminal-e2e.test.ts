@@ -57,6 +57,7 @@ describe("Craig terminal mode E2E", () => {
       rows: 36,
       env: {
         ...process.env,
+        CI: "",
         SHELL: process.env.SHELL ?? "/bin/zsh",
         TERM: "xterm-256color",
       },
@@ -83,7 +84,7 @@ describe("Craig terminal mode E2E", () => {
       expect(output.latestFrame()).toContain(cursorMarker);
     } finally {
       child.kill();
-      await rm(workspaceRoot, { recursive: true, force: true });
+      await cleanupTerminalWorkspace(workspaceRoot);
     }
   }, 15000);
 
@@ -142,6 +143,7 @@ describe("Craig terminal mode E2E", () => {
       rows: 36,
       env: {
         ...process.env,
+        CI: "",
         PATH: `${codexStubDir}:${process.env.PATH ?? ""}`,
         SHELL: process.env.SHELL ?? "/bin/zsh",
         TERM: "xterm-256color",
@@ -166,7 +168,7 @@ describe("Craig terminal mode E2E", () => {
       expect(frame).toContain("codex_stub_task_dir:task_20260430_02");
     } finally {
       child.kill();
-      await rm(workspaceRoot, { recursive: true, force: true });
+      await cleanupTerminalWorkspace(workspaceRoot);
     }
   }, 15000);
 
@@ -211,6 +213,7 @@ describe("Craig terminal mode E2E", () => {
       rows: 36,
       env: {
         ...process.env,
+        CI: "",
         PATH: `${codexStubDir}:${process.env.PATH ?? ""}`,
         SHELL: process.env.SHELL ?? "/bin/zsh",
         TERM: "xterm-256color",
@@ -237,8 +240,7 @@ describe("Craig terminal mode E2E", () => {
       expect(frame).not.toContain("[process exited");
     } finally {
       child.kill();
-      await requestDaemonShutdown(getCraigPaths(workspaceRoot));
-      await rm(workspaceRoot, { recursive: true, force: true });
+      await cleanupTerminalWorkspace(workspaceRoot);
     }
   }, 20000);
 
@@ -296,6 +298,7 @@ describe("Craig terminal mode E2E", () => {
       rows: 36,
       env: {
         ...process.env,
+        CI: "",
         PATH: `${stubDir}:${process.env.PATH ?? ""}`,
         SHELL: process.env.SHELL ?? "/bin/zsh",
         TERM: "xterm-256color",
@@ -315,7 +318,7 @@ describe("Craig terminal mode E2E", () => {
       expect(output.value).toContain(`${runner}_stub_task_dir_ok`);
     } finally {
       child.kill();
-      await rm(workspaceRoot, { recursive: true, force: true });
+      await cleanupTerminalWorkspace(workspaceRoot);
     }
   }, 15000);
 
@@ -369,6 +372,7 @@ describe("Craig terminal mode E2E", () => {
       rows: 36,
       env: {
         ...process.env,
+        CI: "",
         PATH: `${codexStubDir}:${process.env.PATH ?? ""}`,
         SHELL: process.env.SHELL ?? "/bin/zsh",
         TERM: "xterm-256color",
@@ -390,7 +394,7 @@ describe("Craig terminal mode E2E", () => {
       expect(frame).not.toContain("[process exited");
     } finally {
       child.kill();
-      await rm(workspaceRoot, { recursive: true, force: true });
+      await cleanupTerminalWorkspace(workspaceRoot);
     }
   }, 15000);
 
@@ -446,6 +450,7 @@ describe("Craig terminal mode E2E", () => {
         rows: 36,
         env: {
           ...process.env,
+          CI: "",
           CODEX_STUB_LAUNCH_FILE: launchFile,
           PATH: `${codexStubDir}:${process.env.PATH ?? ""}`,
           SHELL: process.env.SHELL ?? "/bin/zsh",
@@ -468,6 +473,7 @@ describe("Craig terminal mode E2E", () => {
         rows: 36,
         env: {
           ...process.env,
+          CI: "",
           CODEX_STUB_LAUNCH_FILE: launchFile,
           PATH: `${codexStubDir}:${process.env.PATH ?? ""}`,
           SHELL: process.env.SHELL ?? "/bin/zsh",
@@ -486,11 +492,20 @@ describe("Craig terminal mode E2E", () => {
       expect(launchCount.trim()).toBe("1");
       expect(secondOutput.latestFrame()).toContain("codex_stub_bottom_bar");
     } finally {
-      await requestDaemonShutdown(getCraigPaths(workspaceRoot));
-      await rm(workspaceRoot, { recursive: true, force: true });
+      await cleanupTerminalWorkspace(workspaceRoot);
     }
   }, 20000);
 });
+
+async function cleanupTerminalWorkspace(workspaceRoot: string): Promise<void> {
+  await requestDaemonShutdown(getCraigPaths(workspaceRoot));
+  await rm(workspaceRoot, {
+    recursive: true,
+    force: true,
+    maxRetries: 5,
+    retryDelay: 100,
+  });
+}
 
 async function writeInitialUiState(workspaceRoot: string): Promise<void> {
   const runtimeDir = join(workspaceRoot, ".craig", "runtime");

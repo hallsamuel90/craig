@@ -17,8 +17,17 @@ describe("cli terminal startup", () => {
     vi.stubGlobal("process", {
       ...process,
       argv: ["node", "src/cli.ts"],
+      env: {
+        ...process.env,
+        CI: undefined,
+      },
+      stdin: {
+        ...process.stdin,
+        isTTY: true,
+      },
       stdout: {
         ...process.stdout,
+        isTTY: true,
         write: stdoutWriteMock,
       },
       stderr: {

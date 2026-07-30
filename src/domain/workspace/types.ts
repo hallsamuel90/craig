@@ -87,3 +87,11 @@ export interface CraigIndex {
   createdAt: string;
   updatedAt: string;
 }
+
+export type WorkspaceContextSource = "explicit" | "environment" | "ancestor" | "git_common_dir" | "cwd";
+
+export interface ResolvedWorkspaceContext {
+  workspaceRoot: string;
+  source: WorkspaceContextSource;
+  initialized: boolean;
+}

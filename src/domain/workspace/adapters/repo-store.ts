@@ -2,6 +2,7 @@ import { readFile, readdir, rm } from "node:fs/promises";
 import path from "node:path";
 
 import type { CraigPaths } from "../../../state/craig-paths.js";
+import { CraigError } from "../../error/index.js";
 import { atomicWriteJson } from "../../../shared/atomic-write.js";
 import type { RepoRecord } from "../types.js";
 
@@ -26,8 +27,27 @@ export const validateRepoRecord = (value: unknown, filePath: string): RepoRecord
 
 export const readRepo = async (paths: CraigPaths, repoId: string): Promise<RepoRecord> => {
   const filePath = getRepoFilePath(paths, repoId);
-  const raw = await readFile(filePath, "utf8");
-  return validateRepoRecord(JSON.parse(raw) as unknown, filePath);
+  try {
+    const raw = await readFile(filePath, "utf8");
+    return validateRepoRecord(JSON.parse(raw) as unknown, filePath);
+  } catch (error) {
+    if (isFileMissingError(error)) {
+      throw new CraigError("REPO_NOT_FOUND", `Craig repo "${repoId}" was not found.`, {
+        details: { repoId },
+      });
+    }
+    if (
+      error instanceof SyntaxError ||
+      (error instanceof Error && error.message.startsWith("Craig repo record at "))
+    ) {
+      throw new CraigError(
+        "REPO_RECORD_INVALID",
+        error instanceof Error ? error.message : `Craig repo "${repoId}" is invalid.`,
+        { details: { repoId }, cause: error },
+      );
+    }
+    throw error;
+  }
 };
 
 export const writeRepo = async (paths: CraigPaths, repo: RepoRecord): Promise<void> => {
@@ -50,3 +70,9 @@ export const listRepos = async (paths: CraigPaths): Promise<RepoRecord[]> => {
 export const deleteRepo = async (paths: CraigPaths, repoId: string): Promise<void> => {
   await rm(getRepoFilePath(paths, repoId), { force: true });
 };
+
+const isFileMissingError = (error: unknown): error is { code: string } =>
+  typeof error === "object" &&
+  error !== null &&
+  "code" in error &&
+  (error as { code?: unknown }).code === "ENOENT";

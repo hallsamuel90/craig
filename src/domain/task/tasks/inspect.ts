@@ -4,6 +4,7 @@ import path from "node:path";
 import type { TaskInspection } from "../types.js";
 import type { TaskPR, TaskRecord } from "../types.js";
 import type { CraigPaths } from "../../../state/craig-paths.js";
+import { CraigError } from "../../error/index.js";
 import { readRawTask } from "../adapters/task-store.js";
 import { validateTaskRecord } from "./validate.js";
 import { getTaskPrimaryPr } from "../prs/state.js";
@@ -18,7 +19,18 @@ export const getTask = async (
     return deps.validateTaskRecord(raw, `${paths.tasksDir}/${taskId}.json`);
   } catch (error) {
     if (isFileMissingError(error)) {
-      throw new Error(`Craig task "${taskId}" was not found.`);
+      throw new CraigError(
+        "TASK_NOT_FOUND",
+        `Craig task "${taskId}" was not found.`,
+        { details: { taskId } },
+      );
+    }
+    if (isInvalidTaskRecordError(error)) {
+      throw new CraigError(
+        "TASK_RECORD_INVALID",
+        error instanceof Error ? error.message : `Craig task "${taskId}" is invalid.`,
+        { details: { taskId }, cause: error },
+      );
     }
 
     throw error;
@@ -142,3 +154,7 @@ const isFileMissingError = (error: unknown): error is { code: string } => {
     (error as { code: string }).code === "ENOENT"
   );
 };
+
+const isInvalidTaskRecordError = (error: unknown): boolean =>
+  error instanceof SyntaxError ||
+  (error instanceof Error && error.message.startsWith("Craig task record at "));

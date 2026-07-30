@@ -19,3 +19,5 @@ export { attachTask } from "./attach.js";
 export { focusTask } from "./focus.js";
 export { openTask } from "./open.js";
 export { markRunnerFailed, recordStartupFailure, markTaskStarted } from "./lifecycle.js";
+export { resolveTaskContext } from "./context.js";
+export type { ResolveTaskContextInput } from "./context.js";
