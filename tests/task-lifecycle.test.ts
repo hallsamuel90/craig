@@ -251,13 +251,12 @@ describe("task lifecycle services", () => {
     expect((await readTask(paths, "task_2")).prs[0]?.number).toBe(32);
   });
 
-  test("discoverOrRefreshPullRequests retries a rate-limited batch request", async () => {
+  test("discoverOrRefreshPullRequests surfaces a rate limit without retrying in the same cycle", async () => {
     const repoRoot = await createRepoRoot("craig-pr-batch-retry-");
     tempRoots.push(repoRoot);
     const { paths, worktreePath, stubDir } = await createTrackedTaskRepo(repoRoot);
     process.env.PATH = `${stubDir}:${originalPath}`;
     process.env.CRAIG_TEST_GH_MODE = "graphql-rate-limit-once";
-    process.env.CRAIG_GH_RATE_LIMIT_RETRY_BASE_MS = "1";
     await runCommand("git", ["remote", "set-url", "origin", "https://github.com/example/repo.git"], { cwd: worktreePath });
 
     const task = await writeTaskRecord(paths.repoRoot, {
@@ -298,11 +297,9 @@ describe("task lifecycle services", () => {
     );
     process.env.CRAIG_TEST_GH_GRAPHQL_FILE = graphqlFile;
 
-    const results = await discoverOrRefreshPullRequests(paths, [task]);
-
-    expect(results[0]?.discovered).toBe(1);
-    expect((await readTask(paths, "task_1")).prs[0]?.number).toBe(33);
-    expect(await readFile(path.join(stubDir, ".graphql-attempts"), "utf8")).toBe("2");
+    await expect(discoverOrRefreshPullRequests(paths, [task])).rejects.toThrow("API rate limit exceeded");
+    expect((await readTask(paths, "task_1")).prs[0]?.number).toBeUndefined();
+    expect(await readFile(path.join(stubDir, ".graphql-attempts"), "utf8")).toBe("1");
   });
 
   test("discoverOrRefreshPullRequest does not resurrect a closed task", async () => {

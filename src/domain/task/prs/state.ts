@@ -96,7 +96,9 @@ export const normalizePr = (view: NormalizablePrView, existing: TaskPR | null): 
     mergeStateStatus: view.mergeStateStatus,
     reviewDecision: normalizeReviewDecision(view.reviewDecision ?? null),
     requiredChecks: normalizeRequiredChecks(view.statusCheckRollup),
-    comments: normalizePullRequestComments(view.comments),
+    comments: view.comments === undefined
+      ? existing?.comments ?? []
+      : normalizePullRequestComments(view.comments),
     createdAt: view.createdAt ?? existing?.createdAt ?? null,
     updatedAt: view.updatedAt ?? existing?.updatedAt ?? null,
     mergedAt: view.mergedAt ?? existing?.mergedAt ?? null,

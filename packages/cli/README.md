@@ -179,6 +179,9 @@ Optional workspace-local config at `.craig/config.json`:
 
 Feature previews are experimental, workspace-local, and off by default. They can also be toggled from Options > Feature Previews in the TUI.
 
+`github.watchIntervalSeconds` is the minimum GitHub polling interval. Craig polls selected PRs with pending checks
+most frequently, backs stable PRs and PR discovery off automatically, and pauses after rate-limit responses.
+
 ## Contributing
 
 Craig is open source under MIT, but not a community-maintained project. Bug reports and focused questions are welcome. PRs should be discussed with the maintainer first — unsolicited PRs may be closed without review.

@@ -48,6 +48,7 @@ export { validateTaskRecord, normalizeLegacyTaskRecord } from "./tasks/validate.
 // re-export for UI layer access through the domain boundary (not the private adapter path)
 export { readTask, writeTask } from "./adapters/task-store.js";
 export { getTaskPrimaryPr } from "./prs/state.js";
+export { GitHubRateLimitError } from "./prs/errors.js";
 export { assertTaskWorktreeExists } from "./tasks/inspect.js";
 
 import {

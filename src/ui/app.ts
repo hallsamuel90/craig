@@ -42,6 +42,7 @@ import {
 } from "./shell/sync.js";
 import { hydrateOpenPtyTabs, syncInputCapture } from "./pty/manager.js";
 import { pollPullRequests } from "./workspace/pr-polling.js";
+import { GitHubPollCoordinator } from "./workspace/github-poll-coordinator.js";
 import { onKey, onUnknown, onMouse } from "./input/dispatch.js";
 import { Heartbeat } from "./heartbeat.js";
 import { logBackgroundError } from "./actions/index.js";
@@ -140,6 +141,9 @@ export async function startTerminalApp(options: TerminalAppOptions = {}): Promis
     let agentActivityAnimationFrame = 0;
     let hadWorkingAgentActivity = false;
     const renderedAgentActivityByTabId = new Map<string, AgentActivityState>();
+    const githubPollCoordinator = new GitHubPollCoordinator({
+      minimumIntervalMs: (config.github?.watchIntervalSeconds ?? 5) * 1_000,
+    });
     let ctx!: AppContext;
     const heartbeat = new Heartbeat({
       resolutionMs: configService.previews.isEnabled(config, "agentActivityIndicators")
@@ -487,8 +491,8 @@ export async function startTerminalApp(options: TerminalAppOptions = {}): Promis
     activeTerminal.on("mouse", boundOnMouse);
     heartbeat.register({
       id: "github.pull-requests",
-      intervalMs: (ctx.config.github?.watchIntervalSeconds ?? 5) * 1_000,
-      run: (signal) => pollPullRequests(ctx, signal),
+      intervalMs: 1_000,
+      run: (signal) => pollPullRequests(ctx, githubPollCoordinator, signal),
     });
     heartbeat.register({
       id: "agent.activity-indicators",
