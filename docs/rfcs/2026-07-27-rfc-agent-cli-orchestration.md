@@ -33,6 +33,7 @@ Goals:
 - deliver prompts to a specific task and agent tab through a durable, idempotent queue
 - model parent/child delegation with limits, lineage, cancellation, and audit history
 - define swarms as versioned YAML DAGs whose persisted runs survive Craig restarts
+- allow swarm authors to place intentional, durable human review checkpoints before downstream work proceeds
 - use events for normal orchestration transitions and heartbeat jobs only for reconciliation
 - keep the TUI, human CLI, and agent CLI on the same domain services
 
@@ -45,6 +46,8 @@ Goals:
 - parsing terminal text to infer structured step outputs
 - supporting cyclic graphs, unbounded recursive delegation, or unlimited fan-out
 - supporting fork-origin PR import in the first PR-import slice
+- multi-user reviewer assignment, remote approval, or organization policy enforcement
+- treating a local human checkpoint as a security sandbox against a process with unrestricted access to the same user account
 - making the PTY daemon or UI state file the durable source of truth
 - exposing an unauthenticated network API
 - preserving the current ad hoc argv parser or human output as a machine contract
@@ -60,7 +63,7 @@ The work lands as independently useful vertical slices:
 3. durable agent status, events, and waits
 4. targeted prompt dispatch
 5. bounded parent/child delegation
-6. YAML swarm validation and execution
+6. YAML swarm validation, execution, and intentional human review gates
 
 The CLI primitives are the product foundation, not a temporary wrapper around swarm implementation.
 
@@ -299,11 +302,11 @@ Initial event families:
 - `task.pr.linked`, `task.pr.unlinked`, `task.pr.refreshed`
 - `agent.state.changed`
 - `command.queued`, `command.delivered`, `command.failed`, `command.cancelled`
-- `swarm.run.*` and `swarm.step.*`
+- `swarm.run.*`, `swarm.step.*`, and `swarm.review.*`
 
 ```ts
 type CraigActor =
-  | { type: "human"; processId: number }
+  | { type: "human"; source: "cli" | "tui"; processId: number }
   | { type: "agent"; taskId: string; agentTabId: string; capabilityId: string }
   | { type: "system"; component: "orchestration-supervisor" | "heartbeat" };
 ```
@@ -427,15 +430,38 @@ steps:
     needs: [fix]
     task: "${{ steps.fix.task_id }}"
     prompt: "Run the relevant verification and report the result."
+
+  human_review:
+    needs: [verify]
+    human_review:
+      title: "Review the implementation"
+      summary: |
+        Review task ${{ steps.fix.task_id }} before follow-on work proceeds.
+      feedback_target:
+        task: "${{ steps.fix.task_id }}"
+      timeout: 24h
+
+  publish:
+    needs: [human_review]
+    task: "${{ steps.fix.task_id }}"
+    prompt: "Continue with the approved follow-on work."
 ```
 
 Version 1 rules:
 
 - The graph must be acyclic.
 - A step targets an existing task or creates one child task.
+- A step is either an agent step or a `human_review` step; the two shapes are mutually exclusive.
 - Steps use prompt delivery only; arbitrary `shell:` steps are rejected.
 - References are limited to declared inputs and completed step outputs.
 - Outputs are submitted explicitly, not scraped from terminal text.
+- A human review step becomes runnable only after all `needs` succeed.
+- Approval succeeds the review step and releases its downstream dependents.
+- Rejection fails the review step and run.
+- When `feedback_target` is declared, requesting changes keeps the gate blocked, records the review round and reason, and sends that reason through durable prompt dispatch.
+- A gate without `feedback_target` supports approve/reject only; `request-changes` returns a conflict and leaves it waiting for review.
+- The feedback target or a human explicitly resubmits the same review after revisions; resubmission never implies approval.
+- A review without its own timeout remains bounded by the required run timeout. A review timeout fails the step unless the run was cancelled first.
 - Static limits are required and validated before any task is created.
 - Unknown fields fail validation.
 
@@ -452,15 +478,33 @@ craig swarm resume <run-id> --json
 craig swarm step complete --run <run-id> --step <step-id> \
   (--output <json> | --output-file <path> | --stdin) --json
 craig swarm step fail --run <run-id> --step <step-id> --reason <text> --json
+craig swarm reviews list [--run <run-id>] [--state <state>] --json
+craig swarm review show <review-id> --json
+craig swarm review approve <review-id> [--note <text>] --json
+craig swarm review reject <review-id> --reason <text> --json
+craig swarm review request-changes <review-id> --reason <text> --json
+craig swarm review resubmit <review-id> [--summary <text>] --json
 ```
 
-The basic step state machine is:
+Agent steps use:
 
 ```text
 pending -> ready -> running -> succeeded
    |         |          |
 cancelled  cancelled   failed | timed_out | cancelled
 ```
+
+Human review steps use:
+
+```text
+pending -> ready -> waiting_for_review -> succeeded
+   |         |              |       |
+cancelled  cancelled        |       +-> failed (rejected or timed out)
+                            |
+                            +-> changes_requested -> waiting_for_review
+```
+
+`approve`, `reject`, and `request-changes` require a human actor. `resubmit` may be performed by a human or by the specifically scoped feedback-target agent capability. A run reports `waiting_for_review` when no agent work is runnable or running and at least one review gate is waiting for a human decision.
 
 Normal transitions are event-driven. The heartbeat periodically reconciles:
 
@@ -485,6 +529,7 @@ New workspace-local state:
   orchestration/
     capabilities/<capability-id>.json
     definitions/<definition-hash>.yaml
+    reviews/<review-id>.json
     runs/<run-id>.json
 ```
 
@@ -512,7 +557,7 @@ interface SwarmRun {
   schemaVersion: 1;
   id: string;
   definitionHash: string;
-  state: "pending" | "running" | "succeeded" | "failed" | "cancelled" | "timed_out";
+  state: "pending" | "running" | "waiting_for_review" | "succeeded" | "failed" | "cancelled" | "timed_out";
   inputs: Record<string, unknown>;
   limits: SwarmLimits;
   stepRuns: Record<string, SwarmStepRun>;
@@ -520,6 +565,34 @@ interface SwarmRun {
   actor: CraigActor;
   createdAt: string;
   updatedAt: string;
+}
+
+interface HumanReviewCheckpoint {
+  schemaVersion: 1;
+  id: string;
+  runId: string;
+  stepId: string;
+  state: "waiting_for_review" | "changes_requested" | "approved" | "rejected" | "timed_out" | "cancelled";
+  title: string;
+  summary: string;
+  feedbackTarget: { taskId: string; agentTabId: string | null } | null;
+  round: number;
+  requestedAt: string;
+  deadlineAt: string;
+  version: number;
+  lastDecision: HumanReviewDecision | null;
+  history: HumanReviewDecision[];
+  updatedAt: string;
+}
+
+interface HumanReviewDecision {
+  sequence: number;
+  round: number;
+  action: "approve" | "reject" | "request_changes" | "resubmit";
+  message: string | null;
+  actor: CraigActor;
+  feedbackCommandId: string | null;
+  occurredAt: string;
 }
 ```
 
@@ -537,7 +610,7 @@ Records carry a schema version. Readers migrate supported older versions in memo
 - `3.1` Add durable, target-specific prompt dispatch and command inspection/wait/cancel: `pending`
 - `4.1` Add capability-scoped parent/child delegation and tree cancellation: `pending`
 - `5.1` Add swarm YAML parsing, validation, and dry-run planning: `pending`
-- `5.2` Execute and recover a fixed DAG with explicit structured step completion: `pending`
+- `5.2` Execute and recover a fixed DAG with structured completion and intentional human review gates: `pending`
 - `5.3` Add guarded retry policies and conditional steps: `deferred`
 - `5.4` Add bounded `foreach` fan-out and dynamic delegation: `deferred`
 
@@ -629,6 +702,10 @@ Daemon protocol additions are internal, versioned transport contracts. A protoco
 - Duplicate swarm run idempotency keys return the original run.
 - Invalid YAML, unknown fields, cycles, missing references, excessive limits, and unresolved templates fail during `validate`/`plan` before mutations.
 - A swarm restart resumes from durable run and command state; it does not re-run succeeded steps.
+- A restart preserves pending human review, its deadline, review round, decision history, and blocked downstream steps.
+- Review mutations require the expected record version and use compare-after-lock semantics. The first valid write wins; stale concurrent decisions return a conflict, and approve/reject are terminal.
+- Requesting changes without a configured feedback target returns a conflict and leaves the review waiting. If a configured target becomes unavailable after the decision is persisted, the review remains `changes_requested`, records the delivery failure, and requires human intervention; it never releases downstream work.
+- A feedback target that completes revisions cannot approve the gate. It may only resubmit it for another human decision.
 - A step timeout cancels its queued command and child task according to policy, but cannot claim a PTY process stopped until runtime termination is confirmed.
 - Structured output that fails its declared schema fails the step with the validation details.
 
@@ -637,6 +714,9 @@ Daemon protocol additions are internal, versioned transport contracts. A protoco
 - All control remains local to the user account and workspace.
 - Capability files use restrictive filesystem permissions and contain opaque random values.
 - Agent capabilities default to the current task and its children; cross-task prompt injection is opt-in.
+- Agent capabilities never include human-review approve, reject, or request-changes permissions. A feedback-target capability may only read and resubmit its assigned review.
+- Human review mutations require an interactive human CLI/TUI context without an agent capability. This is a workflow boundary, not a hard security boundary against a malicious process with unrestricted access to the same OS user and workspace.
+- `--json` changes review-command output but does not waive the interactive human-context check. Non-interactive and remote approvals are out of scope.
 - Prompt size, event payload size, output size, task count, depth, concurrency, and runtime duration have hard limits.
 - Control characters are rejected or encoded by runner-specific prompt delivery.
 - YAML cannot execute shell commands, read arbitrary environment variables, or reference undeclared files.
@@ -653,6 +733,8 @@ Daemon protocol additions are internal, versioned transport contracts. A protoco
 - `craig events watch` is the canonical diagnostic stream for orchestration.
 - `craig command show` explains delivery attempts and the last safe error.
 - `craig swarm status` reports each step, dependency blockers, target task, command id, timestamps, and output-validation state.
+- Human review emits `swarm.review.requested`, `swarm.review.changes_requested`, `swarm.review.resubmitted`, `swarm.review.approved`, `swarm.review.rejected`, `swarm.review.timed_out`, and `swarm.review.cancelled` with review id, round, actor, and safe reason metadata.
+- The TUI surfaces waiting reviews as an explicit attention state with review title, run/step context, elapsed time, and available human actions; it does not disguise a review gate as agent failure or completion.
 - Heartbeat reconciliation logs job id, scanned count, repaired count, duration, and failures without logging prompt bodies.
 - Event journal corruption, cursor expiration, uncertain prompt delivery, capability denial, and orphaned runtime sessions are surfaced as explicit events and error log entries.
 
@@ -666,7 +748,7 @@ Daemon protocol additions are internal, versioned transport contracts. A protoco
 - Preview disablement stops new dispatch/run creation but does not abandon existing durable commands or runs; Craig continues status, cancellation, and safe reconciliation.
 - The daemon supervisor is introduced dormant: it performs no orchestration work until the preview is enabled or unfinished durable work already exists.
 - Each shipping sub-phase gets its own `craig-cli` Changeset and PR so value is collected independently.
-- Promotion out of preview requires no unresolved uncertain-delivery bug, restart recovery tests, capability denial tests, and successful real use across multiple tasks.
+- Promotion out of preview requires no unresolved uncertain-delivery bug, restart recovery tests, capability denial tests, human-review authorization and recovery tests, and successful real use across multiple tasks.
 
 ## Plan Mode handoff checklist and acceptance criteria
 
@@ -810,12 +892,12 @@ Daemon protocol additions are internal, versioned transport contracts. A protoco
 
 - add a direct YAML parser dependency and strict versioned schema
 - implement validate and side-effect-free plan
-- validate DAG, references, limits, templates, and unknown fields
+- validate DAG, references, limits, templates, human-review shapes, feedback targets, and unknown fields
 - persist immutable normalized definitions by content hash only when a run starts
 
 #### Verification
 
-- cover valid examples, syntax errors, unknown fields, cycles, missing dependencies, invalid references, excessive limits, and proof that plan makes no mutations
+- cover valid examples, syntax errors, unknown fields, cycles, missing dependencies, invalid references, invalid human-review/agent hybrid steps, invalid feedback targets, excessive limits, and proof that plan makes no mutations
 
 #### Tracking update
 
@@ -828,16 +910,21 @@ Daemon protocol additions are internal, versioned transport contracts. A protoco
 - persist swarm runs and fixed-DAG step state
 - schedule ready steps within limits through child creation and prompt dispatch
 - add explicit schema-validated step complete/fail
+- persist human review checkpoints and decision history, including approve, reject, request-changes, feedback delivery, and resubmit
+- expose review list/show/actions in the CLI and a TUI attention surface for waiting checkpoints
+- block downstream steps until human approval and report `waiting_for_review` at the run level when appropriate
 - implement watch, status, cancel, resume, timeouts, and heartbeat reconciliation
 
 #### Verification
 
 - cover dependency ordering, parallel limits, success/failure/cancel/timeout, output validation, restart at every transition boundary, and no replay of succeeded steps
-- run a real multi-task swarm with stub agents and then one manual Codex swarm
+- cover approve/reject/request-changes/resubmit, feedback delivery failure, human-versus-agent authorization, concurrent decisions, review timeout, restart while waiting, and downstream blocking
+- run a real multi-task swarm with stub agents and then one manual Codex swarm containing at least one human review checkpoint
 
 #### Tracking update
 
-- keep `5.2` open if terminal silence is treated as success or restart can duplicate a step
+- keep `5.2` open if terminal silence is treated as success, restart can duplicate a step, or downstream work can bypass an unapproved human checkpoint
+- keep `5.2` open if a feedback-target agent can approve/reject its own review or review history is not durable and attributable
 - leave retries, conditions, fan-out, and recursive delegation deferred unless separately approved
 
 ### Acceptance criteria
@@ -849,5 +936,6 @@ Daemon protocol additions are internal, versioned transport contracts. A protoco
 - `[2.2]` Consumers can resume a filtered event stream from a cursor without a read/subscribe race.
 - `[3.1]` A prompt can be durably and exactly targeted to another task's agent tab, inspected, waited on, and cancelled without relying on foreground selection.
 - `[4.1]` An agent can create bounded child work with durable lineage while capabilities prevent unrelated or unbounded mutations.
-- `[5.1]` A swarm YAML file can be validated and planned with zero runtime mutations.
+- `[5.1]` A swarm YAML file, including human review gates and feedback targets, can be validated and planned with zero runtime mutations.
 - `[5.2]` A bounded fixed DAG can execute, report structured outputs, cancel, and recover from restart without inferring success from terminal silence or duplicating completed work.
+- `[5.2]` A swarm can pause at a durable human review checkpoint, route requested changes back to a declared agent target, and release downstream work only after an attributable human approval.
