@@ -5,6 +5,7 @@ import {
   upsertTaskPr,
   deriveTaskStatusFromPrs,
   isMergeReady,
+  normalizePr,
   summarizeRequiredChecks,
 } from "./state.js";
 import type { TaskPR, TaskRecord } from "../types.js";
@@ -165,5 +166,31 @@ describe("summarizeRequiredChecks", () => {
       ],
     });
     expect(result).toBe("ci:success, lint:pending");
+  });
+});
+
+describe("normalizePr", () => {
+  it("preserves existing comments when a lightweight poll omits them", () => {
+    const existing = makePr({
+      comments: [{
+        author: "reviewer",
+        body: "Please tighten this.",
+        createdAt: "2026-01-01T00:00:00.000Z",
+        url: "https://github.com/owner/repo/pull/1#issuecomment-1",
+      }],
+    });
+
+    const normalized = normalizePr({
+      number: 1,
+      url: existing.url!,
+      baseRefName: "main",
+      headRefName: "craig/task_01",
+      state: "OPEN",
+      mergeable: "MERGEABLE",
+      mergeStateStatus: "CLEAN",
+      statusCheckRollup: [],
+    }, existing);
+
+    expect(normalized.comments).toEqual(existing.comments);
   });
 });

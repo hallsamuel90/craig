@@ -1,5 +1,6 @@
 import { runCommand, runCommandAllowingFailure } from "../../../shared/exec.js";
 import type { TaskRecord } from "../types.js";
+import { GitHubRateLimitError } from "../prs/errors.js";
 
 export interface GhPrView {
   number: number;
@@ -36,10 +37,6 @@ export interface GhPrBatchResult {
   found: boolean;
   view: GhPrView | null;
 }
-
-const RATE_LIMIT_RETRY_ATTEMPTS = 3;
-const RATE_LIMIT_RETRY_BASE_DELAY_MS = 1_000;
-const RATE_LIMIT_RETRY_MAX_DELAY_MS = 10_000;
 
 export const ensureGhAuthenticated = async (worktreePath: string): Promise<void> => {
   const result = await runCommandAllowingFailure("gh", ["auth", "status"], { cwd: worktreePath });
@@ -110,16 +107,24 @@ export const fetchPullRequestViewsBatch = async (
   }
 
   const query = buildBatchPrQuery(requests);
-  const result = await runGitHubApiGraphqlWithRateLimitRetry(worktreePath, [
-    "api",
-    "graphql",
-    "-f",
-    `query=${query}`,
-    "-F",
-    `owner=${repository.owner}`,
-    "-F",
-    `name=${repository.name}`,
-  ]);
+  let result;
+  try {
+    result = await runCommand("gh", [
+      "api",
+      "graphql",
+      "-f",
+      `query=${query}`,
+      "-F",
+      `owner=${repository.owner}`,
+      "-F",
+      `name=${repository.name}`,
+    ]);
+  } catch (error) {
+    if (isGitHubRateLimitFailure(error)) {
+      throw new GitHubRateLimitError(error instanceof Error ? error.message : String(error));
+    }
+    throw error;
+  }
   const payload = JSON.parse(result.stdout) as GhPrBatchResponse;
   const repositoryPayload = payload.data?.repository ?? {};
 
@@ -144,30 +149,7 @@ export const getGitHubRepositoryLocator = async (worktreePath: string): Promise<
   return parseGitHubRemoteUrl(result.stdout.trim());
 };
 
-const runGitHubApiGraphqlWithRateLimitRetry = async (
-  worktreePath: string,
-  args: string[],
-): Promise<{ stdout: string; stderr: string }> => {
-  let lastError: unknown;
-
-  for (let attempt = 0; attempt <= RATE_LIMIT_RETRY_ATTEMPTS; attempt += 1) {
-    try {
-      return await runCommand("gh", args, { cwd: worktreePath });
-    } catch (error) {
-      lastError = error;
-
-      if (attempt === RATE_LIMIT_RETRY_ATTEMPTS || !isGitHubRateLimitError(error)) {
-        throw error;
-      }
-
-      await delay(getRateLimitRetryDelayMs(attempt));
-    }
-  }
-
-  throw lastError;
-};
-
-const isGitHubRateLimitError = (error: unknown): boolean => {
+const isGitHubRateLimitFailure = (error: unknown): boolean => {
   const message = error instanceof Error ? error.message.toLowerCase() : String(error).toLowerCase();
   return (
     message.includes("rate limit") ||
@@ -176,17 +158,6 @@ const isGitHubRateLimitError = (error: unknown): boolean => {
     message.includes("api rate limit exceeded") ||
     message.includes("you have exceeded")
   );
-};
-
-const getRateLimitRetryDelayMs = (attempt: number): number => {
-  const baseDelay = Number(process.env.CRAIG_GH_RATE_LIMIT_RETRY_BASE_MS) || RATE_LIMIT_RETRY_BASE_DELAY_MS;
-  const exponentialDelay = Math.min(baseDelay * 2 ** attempt, RATE_LIMIT_RETRY_MAX_DELAY_MS);
-  const jitter = Math.floor(Math.random() * Math.max(1, Math.floor(exponentialDelay * 0.25)));
-  return exponentialDelay + jitter;
-};
-
-const delay = (ms: number): Promise<void> => {
-  return new Promise((resolve) => setTimeout(resolve, ms));
 };
 
 const buildPrViewArgs = (selector: string): string[] => {
@@ -245,17 +216,6 @@ interface GhPrBatchPullRequest {
       nodes?: unknown[];
     } | null;
   } | null;
-  commits?: {
-    nodes?: Array<{
-      commit?: {
-        statusCheckRollup?: {
-          contexts?: {
-            nodes?: unknown[];
-          } | null;
-        } | null;
-      } | null;
-    }> | null;
-  } | null;
   comments?: {
     nodes?: unknown[] | null;
   } | null;
@@ -312,31 +272,6 @@ fragment PrFields on PullRequest {
       }
     }
   }
-  commits(last: 1) {
-    nodes {
-      commit {
-        statusCheckRollup {
-          contexts(first: 100) {
-            nodes {
-              __typename
-              ... on CheckRun {
-                name
-                status
-                conclusion
-                startedAt
-                completedAt
-              }
-              ... on StatusContext {
-                context
-                state
-                createdAt
-              }
-            }
-          }
-        }
-      }
-    }
-  }
   comments(last: 4) {
     nodes {
       author {
@@ -366,9 +301,7 @@ const normalizeBatchEntry = (entry: unknown): GhPrView | null => {
   }
 
   const pullRequest = candidate as GhPrBatchPullRequest;
-  const statusCheckRollup = pullRequest.statusCheckRollup?.contexts?.nodes
-    ?? pullRequest.commits?.nodes?.[0]?.commit?.statusCheckRollup?.contexts?.nodes
-    ?? [];
+  const statusCheckRollup = pullRequest.statusCheckRollup?.contexts?.nodes ?? [];
   return {
     number: pullRequest.number,
     url: pullRequest.url,

@@ -51,7 +51,9 @@ import "../../styles/global.css";
 
     <h2>github.watchIntervalSeconds</h2>
     <p>
-      How often the TUI polls GitHub for PR and check updates. Default is 5 seconds.
+      The minimum interval for GitHub PR and check polling. Craig checks selected PRs with pending checks most
+      frequently, backs stable PRs and PR discovery off automatically, and pauses after rate-limit responses.
+      Default is 5 seconds.
     </p>
 
     <h2>previews.incrementalCenterPane</h2>

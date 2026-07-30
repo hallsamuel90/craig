@@ -16,6 +16,7 @@ import {
   getGitHubRepositoryLocator,
   type GitHubRepositoryLocator,
 } from "../adapters/github.js";
+import { GitHubRateLimitError } from "./errors.js";
 import { assertTaskWorktreeExists, getTask } from "../tasks/inspect.js";
 import { getTaskPrimaryPr, isPrTerminal, normalizeRequiredChecks } from "./state.js";
 import { refreshOrDiscoverTargetPullRequest } from "./target.js";
@@ -188,7 +189,10 @@ export const discoverOrRefreshPullRequests = async (
           view.url,
         );
       }
-    } catch {
+    } catch (error) {
+      if (error instanceof GitHubRateLimitError) {
+        throw error;
+      }
       // Background polling is best-effort; manual refresh keeps surfacing actionable errors.
     }
   }
