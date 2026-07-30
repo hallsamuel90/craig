@@ -2,6 +2,7 @@ import { readFile, readdir, rm } from "node:fs/promises";
 import path from "node:path";
 
 import type { CraigPaths } from "../../../state/craig-paths.js";
+import { CraigError } from "../../error/index.js";
 import { atomicWriteJson } from "../../../shared/atomic-write.js";
 import type { WorkspaceRecord } from "../types.js";
 
@@ -75,8 +76,27 @@ export const validateWorkspaceRecord = (value: unknown, filePath: string): Works
 
 export const readWorkspace = async (paths: CraigPaths, workspaceId: string): Promise<WorkspaceRecord> => {
   const filePath = getWorkspaceFilePath(paths, workspaceId);
-  const raw = await readFile(filePath, "utf8");
-  return validateWorkspaceRecord(JSON.parse(raw) as unknown, filePath);
+  try {
+    const raw = await readFile(filePath, "utf8");
+    return validateWorkspaceRecord(JSON.parse(raw) as unknown, filePath);
+  } catch (error) {
+    if (isFileMissingError(error)) {
+      throw new CraigError("WORKSPACE_NOT_FOUND", `Craig workspace "${workspaceId}" was not found.`, {
+        details: { workspaceId },
+      });
+    }
+    if (
+      error instanceof SyntaxError ||
+      (error instanceof Error && error.message.startsWith("Craig workspace record at "))
+    ) {
+      throw new CraigError(
+        "WORKSPACE_RECORD_INVALID",
+        error instanceof Error ? error.message : `Craig workspace "${workspaceId}" is invalid.`,
+        { details: { workspaceId }, cause: error },
+      );
+    }
+    throw error;
+  }
 };
 
 export const writeWorkspace = async (paths: CraigPaths, workspace: WorkspaceRecord): Promise<void> => {
@@ -99,3 +119,9 @@ export const listWorkspaceRecords = async (paths: CraigPaths): Promise<Workspace
 export const deleteWorkspace = async (paths: CraigPaths, workspaceId: string): Promise<void> => {
   await rm(getWorkspaceFilePath(paths, workspaceId), { force: true });
 };
+
+const isFileMissingError = (error: unknown): error is { code: string } =>
+  typeof error === "object" &&
+  error !== null &&
+  "code" in error &&
+  (error as { code?: unknown }).code === "ENOENT";

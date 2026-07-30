@@ -602,7 +602,7 @@ Records carry a schema version. Readers migrate supported older versions in memo
 
 ### Status summary
 
-- `1.1` Add machine-readable command output and deterministic workspace/task context: `pending`
+- `1.1` Add machine-readable command output and deterministic workspace/task context: `verified; regression hardening complete`
 - `1.2` Add explicit PR show/discover/link/refresh/unlink repair commands: `pending`
 - `1.3` Import an existing same-repository PR as a Craig task: `pending`
 - `2.1` Extract domain-owned agent status and expose list/status/wait: `pending`
@@ -616,7 +616,7 @@ Records carry a schema version. Readers migrate supported older versions in memo
 
 ### Verification summary
 
-- `1.1` Not yet verified.
+- `1.1` Verified by replacing ad hoc argv matching with a structured parser for order-independent global options; adding versioned JSON success/error envelopes, an authoritative error-code-to-exit-code mapping, non-interactive guards, and stable exit categories; resolving workspace context through explicit flags, environment, ancestors, and Git common-worktree discovery; resolving task and agent-tab context through explicit flags, environment, and task filesystem topology without UI selection; exposing `context show`, `task current`, and optional-context `task show`; and propagating Craig identity into task PTYs. Coverage includes every pre-existing parser command with global options before and after the command, flag separators, stdout/stderr isolation, no-input behavior, optional-context task-show execution, task/repo/workspace not-found exits, corrupt-record classification, precedence, missing/invalid/ambiguous/conflicting context, macOS canonical path aliases, project task bundles and repo targets, ambient-context isolation, and packed-artifact JSON success and failure execution. Automated verification passed with 515 tests via `pnpm test`, plus `pnpm typecheck`, `pnpm lint`, `pnpm build`, `pnpm build:npm`, `pnpm package:audit`, and `pnpm package:smoke`.
 - `1.2` Not yet verified.
 - `1.3` Not yet verified.
 - `2.1` Not yet verified.
@@ -630,7 +630,7 @@ Records carry a schema version. Readers migrate supported older versions in memo
 
 ### Next resume point
 
-Resume at `1.1`. Establish the JSON/error/exit-code contract and deterministic context resolver before adding mutations. Then implement `1.2` immediately so users and agents can repair missed PR associations without waiting for agent dispatch or swarm work.
+Resume at `1.2`. Treat the regression-hardened Phase `1.1` parser, JSON envelopes, centralized exit mapping, packed-artifact contracts, and deterministic context resolver as the stable CLI foundation for explicit PR show/discover/link/refresh/unlink repair commands. Keep repository and branch verification in task-domain services, preserve PR history, and do not make later dispatch, eventing, or swarm phases prerequisites for collecting this repair value.
 
 ### Skipped and deferred work
 

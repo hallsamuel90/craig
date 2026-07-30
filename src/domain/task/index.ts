@@ -34,6 +34,9 @@ export type {
   CommandAddTaskLinkResult,
   CommandListTaskLinksResult,
   CommandShowTaskResult,
+  TaskContextSource,
+  ResolvedTaskContext,
+  CommandCurrentTaskResult,
   CommandLogsResult,
   CommandDiffResult,
   CommandFocusResult,
@@ -83,6 +86,7 @@ import {
   markRunnerFailed,
   recordStartupFailure,
   markTaskStarted,
+  resolveTaskContext,
 } from "./tasks/index.js";
 
 import {
@@ -135,6 +139,7 @@ export const taskService = {
   markRunnerFailed,
   recordStartupFailure,
   markTaskStarted,
+  resolveContext: resolveTaskContext,
   prs: {
     refresh: refreshTrackedPullRequest,
     refreshChecks: refreshPullRequestChecks,

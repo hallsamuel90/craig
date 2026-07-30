@@ -77,6 +77,29 @@ try {
 
   const craigBin = join(projectDir, "node_modules", ".bin", "craig");
   await execFileAsync(craigBin, ["repo", "list"], { cwd: projectDir, maxBuffer: 1024 * 1024 * 10 });
+  const jsonResult = await execFileAsync(craigBin, ["--json", "repo", "list"], {
+    cwd: projectDir,
+    maxBuffer: 1024 * 1024 * 10,
+  });
+  const jsonEnvelope = JSON.parse(jsonResult.stdout);
+  if (
+    jsonEnvelope.schemaVersion !== 1 ||
+    jsonEnvelope.command !== "repo.list" ||
+    jsonEnvelope.ok !== true ||
+    jsonEnvelope.data?.kind !== "listRepos"
+  ) {
+    throw new Error(`Packed CLI returned an invalid JSON envelope: ${jsonResult.stdout}`);
+  }
+  await expectJsonFailure(
+    craigBin,
+    ["--json", "task", "show", "task_missing_for_package_smoke"],
+    projectDir,
+    {
+      exitCode: 3,
+      command: "task.show",
+      errorCode: "TASK_NOT_FOUND",
+    },
+  );
 
   const codexStubDir = join(tempRoot, "bin");
   await mkdir(codexStubDir, { recursive: true });
@@ -110,5 +133,34 @@ async function waitForCraigBoot(craigBin, cwd, stubDir) {
     await output.waitFor("> Start", 10000);
   } finally {
     child.kill();
+  }
+}
+
+async function expectJsonFailure(craigBin, args, cwd, expected) {
+  try {
+    await execFileAsync(craigBin, args, { cwd, maxBuffer: 1024 * 1024 * 10 });
+    throw new Error(`Packed CLI unexpectedly succeeded: ${args.join(" ")}`);
+  } catch (error) {
+    if (
+      !(error instanceof Error) ||
+      !("code" in error) ||
+      error.code !== expected.exitCode ||
+      !("stdout" in error) ||
+      error.stdout !== "" ||
+      !("stderr" in error) ||
+      typeof error.stderr !== "string"
+    ) {
+      throw error;
+    }
+
+    const envelope = JSON.parse(error.stderr);
+    if (
+      envelope.schemaVersion !== 1 ||
+      envelope.command !== expected.command ||
+      envelope.ok !== false ||
+      envelope.error?.code !== expected.errorCode
+    ) {
+      throw new Error(`Packed CLI returned an invalid JSON error envelope: ${error.stderr}`);
+    }
   }
 }

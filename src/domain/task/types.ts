@@ -236,6 +236,23 @@ export interface CommandShowTaskResult {
   session: SessionRecord | null;
 }
 
+export type TaskContextSource = "explicit" | "environment" | "cwd";
+
+export interface ResolvedTaskContext {
+  task: TaskRecord;
+  source: TaskContextSource;
+  agentTabId: string | null;
+}
+
+export interface CommandCurrentTaskResult {
+  kind: "currentTask";
+  task: TaskRecord;
+  context: {
+    source: TaskContextSource;
+    agentTabId: string | null;
+  };
+}
+
 export interface CommandLogsResult {
   kind: "streamTaskLogs";
   taskId: string;

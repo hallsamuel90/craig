@@ -6,6 +6,7 @@ import type {
   CommandAddTaskLinkResult,
   CommandListTaskLinksResult,
   CommandShowTaskResult,
+  CommandCurrentTaskResult,
   CommandLogsResult,
   CommandDiffResult,
   CommandFocusResult,
@@ -23,6 +24,7 @@ import type {
   CommandRestoreWorkspaceResult,
   CommandRemoveWorkspaceResult,
 } from "../domain/workspace/index.js";
+import type { CommandShowContextResult } from "../domain/context/index.js";
 
 export type AppCommand =
   | { kind: "addWorkspace"; path: string }
@@ -35,11 +37,13 @@ export type AppCommand =
   | { kind: "removeWorkspace"; workspaceId: string }
   | { kind: "createTask"; repoId?: string; workspaceId?: string; prompt: string; runner?: RunnerType }
   | { kind: "listTasks"; repoId?: string; workspaceId?: string }
+  | { kind: "currentTask" }
   | { kind: "attachTask"; taskId: string }
   | { kind: "addTaskLink"; taskId: string; repoId: string }
   | { kind: "listTaskLinks"; taskId: string }
   | { kind: "refreshInteractiveState" }
   | { kind: "showTask"; taskId: string }
+  | { kind: "showCurrentTask" }
   | { kind: "showSelectedTask" }
   | { kind: "streamTaskLogs"; taskId: string }
   | { kind: "streamSelectedTaskLogs" }
@@ -53,6 +57,7 @@ export type AppCommand =
   | { kind: "runSelectedTaskChecks" }
   | { kind: "commitTask"; taskId: string }
   | { kind: "commitSelectedTask" }
+  | { kind: "showContext" }
   | { kind: "help" }
   | { kind: "exit" };
 
@@ -72,6 +77,7 @@ export type {
   CommandAddTaskLinkResult,
   CommandListTaskLinksResult,
   CommandShowTaskResult,
+  CommandCurrentTaskResult,
   CommandLogsResult,
   CommandDiffResult,
   CommandFocusResult,
@@ -86,6 +92,7 @@ export type {
   CommandArchiveWorkspaceResult,
   CommandRestoreWorkspaceResult,
   CommandRemoveWorkspaceResult,
+  CommandShowContextResult,
 };
 
 export type CommandResult =
@@ -105,6 +112,8 @@ export type CommandResult =
   | CommandExitResult
   | CommandListResult
   | CommandShowTaskResult
+  | CommandCurrentTaskResult
+  | CommandShowContextResult
   | CommandLogsResult
   | CommandDiffResult
   | CommandFocusResult

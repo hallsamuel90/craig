@@ -1,264 +1,391 @@
 import type { AppCommand } from "./types.js";
 import { configService } from "../domain/config/index.js";
+import { CraigError } from "../domain/error/index.js";
+
+export interface CliGlobalOptions {
+  json: boolean;
+  noInput: boolean;
+  workspaceRoot?: string;
+  taskId?: string;
+}
 
 export interface ParsedArgvCommand {
   mode: "interactive" | "command";
+  options: CliGlobalOptions;
   command?: AppCommand;
+  commandName?: string;
 }
 
 export function parseArgv(argv: string[]): ParsedArgvCommand {
-  const trimmedArgv = [...argv];
+  const { commandTokens, options, help } = parseGlobalOptions(argv);
 
-  while (trimmedArgv[0] === "--") {
-    trimmedArgv.shift();
+  if (help) {
+    return commandResult({ kind: "help" }, options);
   }
 
-  if (trimmedArgv.length === 0) {
-    return { mode: "interactive" };
+  if (commandTokens.length === 0) {
+    return { mode: "interactive", options };
   }
 
-  if (trimmedArgv.length >= 3 && trimmedArgv[0] === "repo" && trimmedArgv[1] === "add") {
-    const repoPath = trimmedArgv.slice(2).join(" ").trim();
+  const [group, action, ...args] = commandTokens;
+  let command: AppCommand;
 
-    if (repoPath.length === 0) {
-      throw new Error("Repo path cannot be empty.\n\n" + getHelpText());
-    }
-
-    return { mode: "command", command: { kind: "addRepo", path: repoPath } };
-  }
-
-  if (trimmedArgv.length >= 3 && trimmedArgv[0] === "workspace" && trimmedArgv[1] === "add") {
-    const workspacePath = trimmedArgv.slice(2).join(" ").trim();
-
-    if (workspacePath.length === 0) {
-      throw new Error("Workspace path cannot be empty.\n\n" + getHelpText());
-    }
-
-    return { mode: "command", command: { kind: "addWorkspace", path: workspacePath } };
-  }
-
-  if (trimmedArgv.length === 2 && trimmedArgv[0] === "repo" && trimmedArgv[1] === "list") {
-    return { mode: "command", command: { kind: "listRepos" } };
-  }
-
-  if (trimmedArgv.length === 3 && trimmedArgv[0] === "repo" && trimmedArgv[1] === "remove") {
-    return { mode: "command", command: { kind: "removeRepo", repoId: trimmedArgv[2]!.trim() } };
-  }
-
-  if (
-    trimmedArgv.length >= 2 &&
-    trimmedArgv.length <= 3 &&
-    trimmedArgv[0] === "workspace" &&
-    trimmedArgv[1] === "list"
-  ) {
-    const archived = trimmedArgv[2] === "--archived";
-
-    if (trimmedArgv.length === 3 && !archived) {
-      throw new Error(`Unsupported command: ${trimmedArgv.join(" ")}\n\n${getHelpText()}`);
-    }
-
-    return { mode: "command", command: { kind: "listWorkspaces", archived } };
-  }
-
-  if (trimmedArgv.length === 3 && trimmedArgv[0] === "workspace" && trimmedArgv[1] === "archive") {
-    return { mode: "command", command: { kind: "archiveWorkspace", workspaceId: trimmedArgv[2]!.trim() } };
-  }
-
-  if (trimmedArgv.length === 3 && trimmedArgv[0] === "workspace" && trimmedArgv[1] === "restore") {
-    return { mode: "command", command: { kind: "restoreWorkspace", workspaceId: trimmedArgv[2]!.trim() } };
-  }
-
-  if (trimmedArgv.length === 3 && trimmedArgv[0] === "workspace" && trimmedArgv[1] === "remove") {
-    return { mode: "command", command: { kind: "removeWorkspace", workspaceId: trimmedArgv[2]!.trim() } };
-  }
-
-  if (trimmedArgv.length >= 2 && trimmedArgv[0] === "task" && trimmedArgv[1] === "new") {
-    const repoFlagIndex = trimmedArgv.indexOf("--repo");
-    const workspaceFlagIndex = trimmedArgv.indexOf("--workspace");
-    const runnerFlagIndex = trimmedArgv.indexOf("--runner");
-
-    if (repoFlagIndex === -1 && workspaceFlagIndex === -1) {
-      throw new Error("Task creation now requires '--repo <repo-id>' or '--workspace <workspace-id>'.\n\n" + getHelpText());
-    }
-
-    if (repoFlagIndex !== -1 && workspaceFlagIndex !== -1) {
-      throw new Error("Task creation accepts either '--repo' or '--workspace', not both.\n\n" + getHelpText());
-    }
-
-    const repoId = repoFlagIndex === -1 ? undefined : trimmedArgv[repoFlagIndex + 1]?.trim() ?? "";
-    const workspaceId = workspaceFlagIndex === -1 ? undefined : trimmedArgv[workspaceFlagIndex + 1]?.trim() ?? "";
-    const runner = runnerFlagIndex === -1
-      ? undefined
-      : configService.runners.parse(trimmedArgv[runnerFlagIndex + 1]?.trim() ?? "");
-    const promptParts = trimmedArgv.filter(
-      (_, index) =>
-        index > 1 &&
-        index !== repoFlagIndex &&
-        index !== repoFlagIndex + 1 &&
-        index !== workspaceFlagIndex &&
-        index !== workspaceFlagIndex + 1 &&
-        index !== runnerFlagIndex &&
-        index !== runnerFlagIndex + 1,
-    );
-    const prompt = promptParts.join(" ").trim();
-
-    if (repoId !== undefined && repoId.length === 0) {
-      throw new Error("Repo id cannot be empty.\n\n" + getHelpText());
-    }
-
-    if (workspaceId !== undefined && workspaceId.length === 0) {
-      throw new Error("Workspace id cannot be empty.\n\n" + getHelpText());
-    }
-
-    if (prompt.length === 0) {
-      throw new Error("Task prompt cannot be empty.\n\n" + getHelpText());
-    }
-
-    return {
-      mode: "command",
-      command: { kind: "createTask", ...(repoId ? { repoId } : {}), ...(workspaceId ? { workspaceId } : {}), prompt, ...(runner ? { runner } : {}) },
-    };
-  }
-
-  if (
-    trimmedArgv.length >= 2 &&
-    trimmedArgv.length <= 4 &&
-    trimmedArgv[0] === "task" &&
-    trimmedArgv[1] === "list"
-  ) {
-    if (trimmedArgv.length === 2) {
-      return { mode: "command", command: { kind: "listTasks" } };
-    }
-
-    if (trimmedArgv.length === 4 && trimmedArgv[2] === "--repo") {
-      return { mode: "command", command: { kind: "listTasks", repoId: trimmedArgv[3]!.trim() } };
-    }
-
-    throw new Error(`Unsupported command: ${trimmedArgv.join(" ")}\n\n${getHelpText()}`);
-  }
-
-  if (trimmedArgv.length === 3 && trimmedArgv[0] === "task" && trimmedArgv[1] === "attach") {
-    return { mode: "command", command: { kind: "attachTask", taskId: requireTaskId(trimmedArgv[2]!) } };
-  }
-
-  if (trimmedArgv.length === 3 && trimmedArgv[0] === "task" && trimmedArgv[1] === "show") {
-    return {
-      mode: "command",
-      command: { kind: "showTask", taskId: requireTaskId(trimmedArgv[2]!) },
-    };
-  }
-
-  if (trimmedArgv.length === 3 && trimmedArgv[0] === "task" && trimmedArgv[1] === "logs") {
-    return {
-      mode: "command",
-      command: { kind: "streamTaskLogs", taskId: requireTaskId(trimmedArgv[2]!) },
-    };
-  }
-
-  if (trimmedArgv.length === 3 && trimmedArgv[0] === "task" && trimmedArgv[1] === "diff") {
-    return {
-      mode: "command",
-      command: { kind: "showTaskDiff", taskId: requireTaskId(trimmedArgv[2]!) },
-    };
-  }
-
-  if (trimmedArgv.length === 3 && trimmedArgv[0] === "task" && trimmedArgv[1] === "focus") {
-    return {
-      mode: "command",
-      command: { kind: "focusTask", taskId: requireTaskId(trimmedArgv[2]!) },
-    };
-  }
-
-  if (trimmedArgv.length === 3 && trimmedArgv[0] === "task" && trimmedArgv[1] === "open") {
-    return {
-      mode: "command",
-      command: { kind: "openTask", taskId: requireTaskId(trimmedArgv[2]!) },
-    };
-  }
-
-  if (trimmedArgv.length === 3 && trimmedArgv[0] === "task" && trimmedArgv[1] === "check") {
-    return {
-      mode: "command",
-      command: { kind: "runChecks", taskId: requireTaskId(trimmedArgv[2]!) },
-    };
-  }
-
-  if (trimmedArgv.length === 3 && trimmedArgv[0] === "task" && trimmedArgv[1] === "commit") {
-    return {
-      mode: "command",
-      command: { kind: "commitTask", taskId: requireTaskId(trimmedArgv[2]!) },
-    };
-  }
-
-  if (trimmedArgv.length === 4 && trimmedArgv[0] === "link" && trimmedArgv[1] === "add") {
-    return {
-      mode: "command",
-      command: {
+  switch (`${group ?? ""}:${action ?? ""}`) {
+    case "context:show":
+      requireNoArgs(args, "context show");
+      command = { kind: "showContext" };
+      break;
+    case "repo:add":
+      command = { kind: "addRepo", path: requireJoinedValue(args, "Repo path") };
+      break;
+    case "repo:list":
+      requireNoArgs(args, "repo list");
+      command = { kind: "listRepos" };
+      break;
+    case "repo:remove":
+      command = { kind: "removeRepo", repoId: requireSingleValue(args, "Repo id") };
+      break;
+    case "workspace:add":
+      command = { kind: "addWorkspace", path: requireJoinedValue(args, "Workspace path") };
+      break;
+    case "workspace:list":
+      command = parseWorkspaceList(args);
+      break;
+    case "workspace:archive":
+      command = { kind: "archiveWorkspace", workspaceId: requireSingleValue(args, "Workspace id") };
+      break;
+    case "workspace:restore":
+      command = { kind: "restoreWorkspace", workspaceId: requireSingleValue(args, "Workspace id") };
+      break;
+    case "workspace:remove":
+      command = { kind: "removeWorkspace", workspaceId: requireSingleValue(args, "Workspace id") };
+      break;
+    case "task:new":
+      command = parseTaskNew(args);
+      break;
+    case "task:list":
+      command = parseTaskList(args);
+      break;
+    case "task:current":
+      requireNoArgs(args, "task current");
+      command = { kind: "currentTask" };
+      break;
+    case "task:show":
+      command = args.length === 0
+        ? { kind: "showCurrentTask" }
+        : { kind: "showTask", taskId: requireSingleValue(args, "Task id") };
+      break;
+    case "task:attach":
+      command = { kind: "attachTask", taskId: requireSingleValue(args, "Task id") };
+      break;
+    case "task:logs":
+      command = { kind: "streamTaskLogs", taskId: requireSingleValue(args, "Task id") };
+      break;
+    case "task:diff":
+      command = { kind: "showTaskDiff", taskId: requireSingleValue(args, "Task id") };
+      break;
+    case "task:focus":
+      command = { kind: "focusTask", taskId: requireSingleValue(args, "Task id") };
+      break;
+    case "task:open":
+      command = { kind: "openTask", taskId: requireSingleValue(args, "Task id") };
+      break;
+    case "task:check":
+      command = { kind: "runChecks", taskId: requireSingleValue(args, "Task id") };
+      break;
+    case "task:commit":
+      command = { kind: "commitTask", taskId: requireSingleValue(args, "Task id") };
+      break;
+    case "link:add":
+      command = {
         kind: "addTaskLink",
-        taskId: requireTaskId(trimmedArgv[2]!),
-        repoId: requireRepoId(trimmedArgv[3]!),
-      },
-    };
+        taskId: requireValueAt(args, 0, "Task id"),
+        repoId: requireValueAt(args, 1, "Repo id"),
+      };
+      requireExactLength(args, 2, "link add");
+      break;
+    case "link:list":
+      command = { kind: "listTaskLinks", taskId: requireSingleValue(args, "Task id") };
+      break;
+    default:
+      if (commandTokens.length === 1 && (group === "help" || group === "--help" || group === "-h")) {
+        command = { kind: "help" };
+        break;
+      }
+      throw usageError(`Unsupported command: ${commandTokens.join(" ")}`);
   }
 
-  if (trimmedArgv.length === 3 && trimmedArgv[0] === "link" && trimmedArgv[1] === "list") {
-    return {
-      mode: "command",
-      command: {
-        kind: "listTaskLinks",
-        taskId: requireTaskId(trimmedArgv[2]!),
-      },
-    };
-  }
+  return commandResult(command, options);
+}
 
-  throw new Error(`Unsupported command: ${trimmedArgv.join(" ")}\n\n${getHelpText()}`);
+export function hasJsonOutputFlag(argv: string[]): boolean {
+  const input = argv[0] === "--" ? argv.slice(1) : argv;
+  let parseOptions = true;
+  for (const token of input) {
+    if (token === "--") {
+      parseOptions = false;
+      continue;
+    }
+    if (parseOptions && token === "--json") {
+      return true;
+    }
+  }
+  return false;
+}
+
+export function getCommandName(command: AppCommand): string {
+  const names: Record<AppCommand["kind"], string> = {
+    addWorkspace: "workspace.add",
+    addRepo: "repo.add",
+    listRepos: "repo.list",
+    removeRepo: "repo.remove",
+    listWorkspaces: "workspace.list",
+    archiveWorkspace: "workspace.archive",
+    restoreWorkspace: "workspace.restore",
+    removeWorkspace: "workspace.remove",
+    createTask: "task.new",
+    listTasks: "task.list",
+    currentTask: "task.current",
+    showTask: "task.show",
+    showCurrentTask: "task.show",
+    attachTask: "task.attach",
+    addTaskLink: "link.add",
+    listTaskLinks: "link.list",
+    refreshInteractiveState: "interactive.refresh",
+    showSelectedTask: "task.show",
+    streamTaskLogs: "task.logs",
+    streamSelectedTaskLogs: "task.logs",
+    showTaskDiff: "task.diff",
+    showSelectedTaskDiff: "task.diff",
+    focusTask: "task.focus",
+    focusSelectedTask: "task.focus",
+    openTask: "task.open",
+    openSelectedTask: "task.open",
+    runChecks: "task.check",
+    runSelectedTaskChecks: "task.check",
+    commitTask: "task.commit",
+    commitSelectedTask: "task.commit",
+    showContext: "context.show",
+    help: "help",
+    exit: "exit",
+  };
+  return names[command.kind];
 }
 
 export function getHelpText(): string {
   return [
     "Craig commands:",
-    "  craig              Show the Craig phase 0 placeholder",
-    "  craig repo add     Register a repo in the current Craig workspace",
+    "  craig [--workspace-root <path>] [--task <id>] [--json] [--no-input] <command>",
+    "  craig context show       Show resolved workspace, task, and agent-tab context",
+    "  craig repo add <path>    Register a repo in the current Craig workspace",
     "  craig workspace add <path>  Register a repo or parent-directory workspace",
-    "  craig repo list    List registered repos",
-    "  craig repo remove  Remove a registered repo",
-    "  craig workspace list      List active workspaces",
-    "  craig workspace list --archived  List archived workspaces",
-    "  craig workspace archive   Archive a workspace",
-    "  craig workspace restore   Restore an archived workspace",
-    "  craig workspace remove    Remove an archived workspace",
-    "  craig task new --repo <repo-id> [--runner codex|cursor|claude] <prompt>  Create a new Craig repo task",
-    "  craig task new --workspace <workspace-id> [--runner codex|cursor|claude] <prompt>  Create a new Craig workspace task",
+    "  craig repo list          List registered repos",
+    "  craig repo remove <id>   Remove a registered repo",
+    "  craig workspace list [--archived]  List workspaces",
+    "  craig workspace archive <id>  Archive a workspace",
+    "  craig workspace restore <id>  Restore an archived workspace",
+    "  craig workspace remove <id>  Remove an archived workspace",
+    "  craig task new --repo <repo-id> [--runner codex|cursor|claude] <prompt>",
+    "  craig task new --workspace <workspace-id> [--runner codex|cursor|claude] <prompt>",
     "  craig task list [--repo <repo-id>]  List known Craig tasks",
-    "  craig task show    Show details for a Craig task",
-    "  craig task logs    Stream Craig-managed logs for a task",
-    "  craig task diff    Show the current worktree diff for a task",
-    "  craig task attach  Attach to a live task session",
-    "  craig task focus   Focus the tmux pane for a task",
-    "  craig task open    Open the task worktree or print its path",
-    "  craig task check   Run configured checks for a task",
-    "  craig task commit  Commit all task worktree changes",
-    "  craig link add     Add a linked repo to a task",
-    "  craig link list    List linked repos for a task",
+    "  craig task current       Show the task resolved from flags, environment, or cwd",
+    "  craig task show [<id>]   Show task details; omit id to use resolved context",
+    "  craig task logs <id>     Stream Craig-managed logs for a task",
+    "  craig task diff <id>     Show the current worktree diff for a task",
+    "  craig task attach <id>   Attach to a live task session",
+    "  craig task focus <id>    Focus the tmux pane for a task",
+    "  craig task open <id>     Open the task worktree or print its path",
+    "  craig task check <id>    Run configured checks for a task",
+    "  craig task commit <id>   Commit all task worktree changes",
+    "  craig link add <task-id> <repo-id>  Add a linked repo to a task",
+    "  craig link list <task-id>  List linked repos for a task",
   ].join("\n");
 }
 
-function requireTaskId(value: string): string {
-  const taskId = value.trim();
-
-  if (taskId.length === 0) {
-    throw new Error(`Task id cannot be empty.\n\n${getHelpText()}`);
+function parseGlobalOptions(argv: string[]): {
+  commandTokens: string[];
+  options: CliGlobalOptions;
+  help: boolean;
+} {
+  const input = [...argv];
+  if (input[0] === "--") {
+    input.shift();
   }
 
-  return taskId;
+  const commandTokens: string[] = [];
+  const options: CliGlobalOptions = { json: false, noInput: false };
+  const seen = new Set<string>();
+  let help = false;
+  let parseOptions = true;
+
+  for (let index = 0; index < input.length; index += 1) {
+    const token = input[index]!;
+    if (token === "--") {
+      parseOptions = false;
+      commandTokens.push(token);
+      continue;
+    }
+
+    if (!parseOptions || !isGlobalOption(token)) {
+      commandTokens.push(token);
+      continue;
+    }
+
+    if (seen.has(token)) {
+      throw usageError(`Global option ${token} may only be provided once.`);
+    }
+    seen.add(token);
+
+    if (token === "--json") {
+      options.json = true;
+      continue;
+    }
+    if (token === "--no-input") {
+      options.noInput = true;
+      continue;
+    }
+    if (token === "--help" || token === "-h") {
+      help = true;
+      continue;
+    }
+
+    const value = input[index + 1];
+    if (value === undefined || value === "--" || isGlobalOption(value)) {
+      throw usageError(`Global option ${token} requires a value.`);
+    }
+    index += 1;
+
+    if (token === "--workspace-root") {
+      options.workspaceRoot = requireNonEmpty(value, "Workspace root");
+    } else {
+      options.taskId = requireNonEmpty(value, "Task id");
+    }
+  }
+
+  return { commandTokens, options, help };
 }
 
-function requireRepoId(value: string): string {
-  const repoId = value.trim();
+function parseWorkspaceList(args: string[]): AppCommand {
+  if (args.length === 0) {
+    return { kind: "listWorkspaces", archived: false };
+  }
+  if (args.length === 1 && args[0] === "--archived") {
+    return { kind: "listWorkspaces", archived: true };
+  }
+  throw usageError(`Unsupported command: workspace list ${args.join(" ")}`);
+}
 
-  if (repoId.length === 0) {
-    throw new Error(`Repo id cannot be empty.\n\n${getHelpText()}`);
+function parseTaskList(args: string[]): AppCommand {
+  if (args.length === 0) {
+    return { kind: "listTasks" };
+  }
+  if (args.length === 2 && args[0] === "--repo") {
+    return { kind: "listTasks", repoId: requireNonEmpty(args[1]!, "Repo id") };
+  }
+  throw usageError(`Unsupported command: task list ${args.join(" ")}`);
+}
+
+function parseTaskNew(args: string[]): AppCommand {
+  let repoId: string | undefined;
+  let workspaceId: string | undefined;
+  let runner: ReturnType<typeof configService.runners.parse> | undefined;
+  const promptParts: string[] = [];
+  let parseOptions = true;
+
+  for (let index = 0; index < args.length; index += 1) {
+    const token = args[index]!;
+    if (token === "--") {
+      parseOptions = false;
+      continue;
+    }
+    if (!parseOptions || !["--repo", "--workspace", "--runner"].includes(token)) {
+      if (parseOptions && token.startsWith("--")) {
+        throw usageError(`Unsupported task new option: ${token}`);
+      }
+      promptParts.push(token);
+      continue;
+    }
+
+    const value = args[index + 1];
+    if (value === undefined || value === "--") {
+      throw usageError(`Task option ${token} requires a value.`);
+    }
+    index += 1;
+
+    if (token === "--repo") {
+      if (repoId !== undefined) throw usageError("Task option --repo may only be provided once.");
+      repoId = requireNonEmpty(value, "Repo id");
+    } else if (token === "--workspace") {
+      if (workspaceId !== undefined) throw usageError("Task option --workspace may only be provided once.");
+      workspaceId = requireNonEmpty(value, "Workspace id");
+    } else {
+      if (runner !== undefined) throw usageError("Task option --runner may only be provided once.");
+      try {
+        runner = configService.runners.parse(value);
+      } catch (error) {
+        throw usageError(error instanceof Error ? error.message : "Unsupported runner.");
+      }
+    }
   }
 
-  return repoId;
+  if (!repoId && !workspaceId) {
+    throw usageError("Task creation requires '--repo <repo-id>' or '--workspace <workspace-id>'.");
+  }
+  if (repoId && workspaceId) {
+    throw usageError("Task creation accepts either '--repo' or '--workspace', not both.");
+  }
+
+  const prompt = requireNonEmpty(promptParts.join(" "), "Task prompt");
+  return {
+    kind: "createTask",
+    ...(repoId ? { repoId } : {}),
+    ...(workspaceId ? { workspaceId } : {}),
+    ...(runner ? { runner } : {}),
+    prompt,
+  };
+}
+
+function commandResult(command: AppCommand, options: CliGlobalOptions): ParsedArgvCommand {
+  return { mode: "command", command, commandName: getCommandName(command), options };
+}
+
+function isGlobalOption(value: string): boolean {
+  return ["--json", "--no-input", "--workspace-root", "--task", "--help", "-h"].includes(value);
+}
+
+function requireNoArgs(args: string[], commandName: string): void {
+  requireExactLength(args, 0, commandName);
+}
+
+function requireExactLength(args: string[], length: number, commandName: string): void {
+  if (args.length !== length) {
+    throw usageError(`Command ${commandName} received an unexpected number of arguments.`);
+  }
+}
+
+function requireSingleValue(args: string[], label: string): string {
+  if (args.length !== 1) {
+    throw usageError(`${label} is required and must be provided once.`);
+  }
+  return requireNonEmpty(args[0]!, label);
+}
+
+function requireJoinedValue(args: string[], label: string): string {
+  return requireNonEmpty(args.join(" "), label);
+}
+
+function requireValueAt(args: string[], index: number, label: string): string {
+  return requireNonEmpty(args[index] ?? "", label);
+}
+
+function requireNonEmpty(value: string, label: string): string {
+  const normalized = value.trim();
+  if (normalized.length === 0) {
+    throw usageError(`${label} cannot be empty.`);
+  }
+  return normalized;
+}
+
+function usageError(message: string): CraigError {
+  return new CraigError("CLI_USAGE", `${message}\n\n${getHelpText()}`, {});
 }

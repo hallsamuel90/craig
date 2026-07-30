@@ -1,5 +1,7 @@
 import type { CommandResult, AppCommand } from "./types.js";
 import type { CraigPaths } from "../state/craig-paths.js";
+import type { ResolvedTaskContext } from "../domain/task/index.js";
+import type { ResolvedWorkspaceContext } from "../domain/workspace/index.js";
 import { getDefaultUiState, readUiState, writeUiState } from "../state/ui-state-store.js";
 import { getHelpText } from "./parse-argv.js";
 import { taskService } from "../domain/task/index.js";
@@ -8,6 +10,8 @@ import { listWorkspaceRecords, workspaceService } from "../domain/workspace/inde
 export interface CommandContext {
   paths: CraigPaths;
   selectedTaskId?: string | null;
+  workspaceContext?: ResolvedWorkspaceContext;
+  taskContext?: ResolvedTaskContext | null;
 }
 
 export async function executeCommand(
@@ -74,6 +78,17 @@ export async function executeCommand(
       return command.repoId || command.workspaceId
         ? taskService.listTasks(context.paths, { ...(command.repoId ? { repoId: command.repoId } : {}), ...(command.workspaceId ? { workspaceId: command.workspaceId } : {}) })
         : taskService.listTasks(context.paths);
+    case "currentTask": {
+      const taskContext = requireResolvedTaskContext(context);
+      return {
+        kind: "currentTask",
+        task: taskContext.task,
+        context: {
+          source: taskContext.source,
+          agentTabId: taskContext.agentTabId,
+        },
+      };
+    }
     case "attachTask":
       return taskService.attachTask(context.paths, command.taskId);
     case "addTaskLink":
@@ -84,6 +99,8 @@ export async function executeCommand(
       throw new Error("Interactive refresh should be handled by the interactive app.");
     case "showTask":
       return taskService.showTask(context.paths, command.taskId);
+    case "showCurrentTask":
+      return taskService.showTask(context.paths, requireResolvedTaskContext(context).task.id);
     case "showSelectedTask":
       return taskService.showTask(context.paths, requireSelectedTaskId(context, "show"));
     case "streamTaskLogs":
@@ -110,6 +127,24 @@ export async function executeCommand(
       return taskService.commitTask(context.paths, command.taskId);
     case "commitSelectedTask":
       return taskService.commitTask(context.paths, requireSelectedTaskId(context, "commit"));
+    case "showContext": {
+      const workspace = requireWorkspaceContext(context);
+      return {
+        kind: "showContext",
+        workspace: {
+          root: workspace.workspaceRoot,
+          source: workspace.source,
+          initialized: workspace.initialized,
+        },
+        task: context.taskContext
+          ? {
+              id: context.taskContext.task.id,
+              source: context.taskContext.source,
+              agentTabId: context.taskContext.agentTabId,
+            }
+          : null,
+      };
+    }
     case "help":
       return { kind: "help", text: getHelpText() };
     case "exit":
@@ -141,4 +176,20 @@ function requireSelectedTaskId(context: CommandContext, commandName: string): st
   }
 
   throw new Error(`No task selected. Create a task with 'task new --repo <repo-id> <prompt>' or use '${commandName} <id>'.`);
+}
+
+function requireResolvedTaskContext(context: CommandContext): ResolvedTaskContext {
+  if (context.taskContext) {
+    return context.taskContext;
+  }
+
+  throw new Error("Command requires resolved task context.");
+}
+
+function requireWorkspaceContext(context: CommandContext): ResolvedWorkspaceContext {
+  if (context.workspaceContext) {
+    return context.workspaceContext;
+  }
+
+  throw new Error("Command requires resolved workspace context.");
 }

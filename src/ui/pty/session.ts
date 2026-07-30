@@ -11,16 +11,26 @@ export function resolvePtySessionSpec(model: WorkspaceShellModel, tabId: string,
   const tab = task?.ptyTabs.find((entry) => entry.id === tabId) ?? null;
   const cwd = task?.worktreePath ?? workspaceRoot;
   const command = tab?.kind === "agent" ? resolveAgentCommand(tab) : [];
+  const taskEnvironment = task
+    ? {
+        CRAIG_WORKSPACE_ROOT: workspaceRoot,
+        CRAIG_TASK_ID: task.id,
+        ...(tab?.kind === "agent" ? { CRAIG_AGENT_TAB_ID: tab.id } : {}),
+      }
+    : {};
 
   if (task?.type === "project") {
     return {
       cwd,
       command,
-      env: { GIT_CEILING_DIRECTORIES: appendGitCeilingDirectory(process.env.GIT_CEILING_DIRECTORIES, cwd) },
+      env: {
+        ...taskEnvironment,
+        GIT_CEILING_DIRECTORIES: appendGitCeilingDirectory(process.env.GIT_CEILING_DIRECTORIES, cwd),
+      },
     };
   }
 
-  return { cwd, command };
+  return task ? { cwd, command, env: taskEnvironment } : { cwd, command };
 }
 
 function appendGitCeilingDirectory(current: string | undefined, directory: string): string {

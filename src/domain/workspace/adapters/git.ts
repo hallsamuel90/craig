@@ -43,3 +43,19 @@ export const getDefaultBranch = async (rootPath: string): Promise<string> => {
   const branch = result.stdout.trim();
   return branch.length > 0 ? branch : "HEAD";
 };
+
+export const getGitCommonWorktreeRoot = async (cwd: string): Promise<string | null> => {
+  const result = await runCommandAllowingFailure(
+    "git",
+    ["rev-parse", "--path-format=absolute", "--git-common-dir"],
+    { cwd },
+  );
+  const commonDir = result.stdout.trim();
+
+  if (result.exitCode !== 0 || commonDir.length === 0) {
+    return null;
+  }
+
+  const absoluteCommonDir = path.resolve(cwd, commonDir);
+  return path.dirname(absoluteCommonDir);
+};

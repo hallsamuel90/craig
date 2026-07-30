@@ -1,9 +1,7 @@
 #!/usr/bin/env node
 
-import { executeCommand } from "./commands/command-router.js";
-import { parseArgv } from "./commands/parse-argv.js";
 import { getCraigPaths } from "./state/craig-paths.js";
-import { formatCommandResult } from "./commands/format-result.js";
+import { runCli } from "./commands/run.js";
 import { startTerminalApp } from "./ui/app.js";
 import { requestDaemonShutdown, servePtyDaemon } from "./ui/pty/daemon.js";
 async function main(): Promise<number> {
@@ -21,34 +19,26 @@ async function main(): Promise<number> {
       await requestDaemonShutdown(paths);
       return 0;
     }
-
-    const parsed = parseArgv(process.argv.slice(2));
-    const cwd = process.cwd();
-    const paths = getCraigPaths(cwd);
-    const context = { paths };
-
-    if (parsed.mode === "interactive") {
-      return await startTerminalApp({ uiStateFile: paths.uiStateFile, workspaceRoot: paths.workspaceRoot });
-    }
-
-    if (!parsed.command) {
-      throw new Error("Command mode requires a command.");
-    }
-
-    const result = await executeCommand(parsed.command, context);
-
-    const output = formatCommandResult(result);
-
-    if (output.length > 0) {
-      process.stdout.write(`${output}\n`);
-    }
-
-    return 0;
   } catch (error) {
     const message = error instanceof Error ? error.message : "Unknown Craig error";
     process.stderr.write(`${message}\n`);
     return 1;
   }
+
+  return runCli({
+    argv: process.argv.slice(2),
+    cwd: process.cwd(),
+    env: process.env,
+    isInputTty: process.stdin.isTTY === true,
+    isOutputTty: process.stdout.isTTY === true,
+    writeStdout: (value) => process.stdout.write(value),
+    writeStderr: (value) => process.stderr.write(value),
+    runInteractive: (workspaceRoot) =>
+      startTerminalApp({
+        uiStateFile: getCraigPaths(workspaceRoot).uiStateFile,
+        workspaceRoot,
+      }),
+  });
 }
 
 const exitCode = await main();
