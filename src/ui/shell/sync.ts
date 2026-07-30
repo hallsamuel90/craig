@@ -153,6 +153,14 @@ export async function reloadModel(ctx: AppContext): Promise<void> {
   }
 }
 
+export function upsertTaskInModel(ctx: AppContext, task: TaskRecord): void {
+  ctx.model = {
+    ...ctx.model,
+    tasks: [...ctx.model.tasks.filter((entry) => entry.id !== task.id), task]
+      .sort((left, right) => left.id.localeCompare(right.id)),
+  };
+}
+
 export async function refreshInspection(ctx: AppContext, shell: ControlShellState): Promise<void> {
   const refreshId = ++ctx.inspectionRefreshSequence;
   const selectedTask = resolveSelectedTaskForInspection(ctx.model.tasks, shell);

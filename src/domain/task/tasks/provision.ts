@@ -33,17 +33,21 @@ export const provisionTask = async (
   options: { sessionId?: string | null; runner?: RunnerType; config?: CraigConfig } = {},
 ): Promise<ProvisionedTask> => {
   const repo = await readRepo(paths, repoId);
-  const workspace = await resolveWorkspaceForRepo(paths, repo.id);
-  const taskId = await allocateTaskIdForRepo(paths, repo.rootPath);
+  const [workspace, taskId] = await Promise.all([
+    resolveWorkspaceForRepo(paths, repo.id),
+    allocateTaskIdForRepo(paths, repo.rootPath),
+  ]);
   const sessionId = options.sessionId ?? null;
   const branch = `craig/${taskId}`;
   const worktreePath = path.join(paths.worktreesDir, repo.id, taskId);
   const logPath = path.join(paths.logsDir, `${taskId}.log`);
   const artifactDir = path.join(paths.artifactsDir, taskId);
 
-  await mkdir(path.dirname(worktreePath), { recursive: true });
-  await mkdir(artifactDir, { recursive: true });
-  await writeFile(logPath, "", "utf8");
+  await Promise.all([
+    mkdir(path.dirname(worktreePath), { recursive: true }),
+    mkdir(artifactDir, { recursive: true }),
+    writeFile(logPath, "", "utf8"),
+  ]);
 
   const draftTask = buildDraftTask(paths, {
     taskId,
