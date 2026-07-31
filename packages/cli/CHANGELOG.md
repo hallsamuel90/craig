@@ -1,5 +1,11 @@
 # craig-cli
 
+## 0.10.1
+
+### Patch Changes
+
+- 7ef4c75: Keep heartbeat-driven GitHub polling responsive by updating only the tasks that were polled instead of reloading and reinspecting the full workspace.
+
 ## 0.10.0
 
 ### Minor Changes
