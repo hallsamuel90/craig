@@ -91,8 +91,9 @@ export const closeTask = async (
 export const pollPullRequests = async (
   tasks: TaskRecord[],
   ctx: ActionContext,
-): Promise<void> => {
+): Promise<TaskRecord[]> => {
   await ctx.taskService.prs.discoverOrRefreshMany(ctx.paths, tasks);
+  return Promise.all(tasks.map((task) => readTask(ctx.paths, task.id)));
 };
 
 export const logBackgroundError = async (
