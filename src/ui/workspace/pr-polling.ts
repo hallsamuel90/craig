@@ -1,11 +1,10 @@
 import { taskService } from "../../domain/task/index.js";
 import { getTaskPrimaryPr } from "../../domain/task/index.js";
-import { loadWorkspaceShellModel } from "../shell/loader.js";
 import {
   pollPullRequests as pollPullRequestsAction,
   logBackgroundError,
 } from "../actions/index.js";
-import { syncShell, setSuccessToast, buildActionContext, reloadModel } from "../shell/sync.js";
+import { syncShell, setSuccessToast, buildActionContext, reloadModel, upsertTaskInModel } from "../shell/sync.js";
 import { getSelectedTask } from "../shell/sync.js";
 import type { ControlShellState } from "../state.js";
 import type { AppContext } from "../app-context.js";
@@ -27,17 +26,14 @@ export async function pollPullRequests(
   }
 
   try {
-    await pollPullRequestsAction(dueTasks, buildActionContext(ctx));
+    const updatedTasks = await pollPullRequestsAction(dueTasks, buildActionContext(ctx));
     if (signal?.aborted) return;
     ctx.lastBackgroundPrPollError = null;
     if (ctx.state.mode !== "main") return;
-    const model = await loadWorkspaceShellModel(ctx.workspaceRoot, ctx.state.shell, ctx.enabledRunnerIds);
-    if (signal?.aborted) return;
-    coordinator.recordSuccess(
-      dueTasks.map((task) => model.tasks.find((candidate) => candidate.id === task.id) ?? task),
-      getPollView(ctx),
-    );
-    ctx.model = model;
+    for (const task of updatedTasks) {
+      upsertTaskInModel(ctx, task);
+    }
+    coordinator.recordSuccess(updatedTasks, getPollView(ctx));
     ctx.state = { mode: "main", shell: syncShell(ctx, ctx.state.shell) };
     ctx.render();
   } catch (error) {

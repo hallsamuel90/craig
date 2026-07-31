@@ -1681,10 +1681,13 @@ describe("terminal app PTY attach flow", () => {
     await vi.waitFor(() => expect(terminal.hasKeyListener()).toBe(true));
 
     terminal.emitKey("\r"); // boot start
+    const listTasksSpy = vi.spyOn(taskService, "listTasks");
     await vi.waitFor(async () => {
       const updatedTask = await readTask(paths, task.id);
       expect(updatedTask.prs[0]?.number).toBe(24);
     }, { timeout: 2500 });
+    expect(listTasksSpy).not.toHaveBeenCalled();
+    listTasksSpy.mockRestore();
     expect(stripAnsi(terminal.frames.at(-1) ?? "")).not.toContain("Discovered PR");
     terminal.emitKey("q");
 
