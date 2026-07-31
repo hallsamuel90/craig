@@ -603,7 +603,7 @@ Records carry a schema version. Readers migrate supported older versions in memo
 ### Status summary
 
 - `1.1` Add machine-readable command output and deterministic workspace/task context: `verified; regression hardening complete`
-- `1.2` Add explicit PR show/discover/link/refresh/unlink repair commands: `pending`
+- `1.2` Add explicit PR show/discover/link/refresh/unlink repair commands: `implemented, review-hardened, and verified`
 - `1.3` Import an existing same-repository PR as a Craig task: `pending`
 - `2.1` Extract domain-owned agent status and expose list/status/wait: `pending`
 - `2.2` Add the durable event journal and event list/watch: `pending`
@@ -617,7 +617,7 @@ Records carry a schema version. Readers migrate supported older versions in memo
 ### Verification summary
 
 - `1.1` Verified by replacing ad hoc argv matching with a structured parser for order-independent global options; adding versioned JSON success/error envelopes, an authoritative error-code-to-exit-code mapping, non-interactive guards, and stable exit categories; resolving workspace context through explicit flags, environment, ancestors, and Git common-worktree discovery; resolving task and agent-tab context through explicit flags, environment, and task filesystem topology without UI selection; exposing `context show`, `task current`, and optional-context `task show`; and propagating Craig identity into task PTYs. Coverage includes every pre-existing parser command with global options before and after the command, flag separators, stdout/stderr isolation, no-input behavior, optional-context task-show execution, task/repo/workspace not-found exits, corrupt-record classification, precedence, missing/invalid/ambiguous/conflicting context, macOS canonical path aliases, project task bundles and repo targets, ambient-context isolation, and packed-artifact JSON success and failure execution. Automated verification passed with 515 tests via `pnpm test`, plus `pnpm typecheck`, `pnpm lint`, `pnpm build`, `pnpm build:npm`, `pnpm package:audit`, and `pnpm package:smoke`.
-- `1.2` Not yet verified.
+- `1.2` Verified by adding task-domain `show`, `discover`, `link`, `refresh`, and `unlink` association services and matching `craig task pr` commands; accepting numeric and GitHub URL selectors; resolving repo-task and explicit or URL-inferred project targets; fetching before link; rejecting repository, branch, and task-target mismatches with stable PR-specific conflict codes; preserving sequential repo-qualified PR history; keeping project target mirrors and PR status artifacts synchronized; re-deriving task status after mutations; and serializing PR, heartbeat, lifecycle, check, commit, cleanup, link, and UI task persistence through the same crash-recoverable task-scoped workspace lock. Review hardening also made unlink independent of a live local Git remote, promotes the preceding project PR when the active association is removed, and emits warnings only once at the stable JSON envelope level. Coverage includes invalid and duplicate options, global and positional task context, stable JSON envelopes and warnings, URL and numeric selectors, no-result discovery, idempotent duplicate link and unlink, offline unlink, active-PR replacement warnings and rollback, project ambiguity, repository and branch mismatch rejection, same-number PRs in different project repositories, concurrent CLI links, concurrent heartbeat/CLI and ordinary task/CLI persistence, stale-lock recovery, and exit `7` partial-result reporting when the task persists but its artifact write fails. Automated verification passed with 536 tests via `pnpm test`, plus `pnpm typecheck`, `pnpm lint`, `pnpm build`, `pnpm build:npm`, `pnpm package:audit`, and `pnpm package:smoke`. An authenticated disposable-workspace smoke against GitHub PR `hallsamuel90/craig#176` verified packed `link`, `show`, `refresh`, and numeric `unlink` JSON flows without modifying a real Craig task.
 - `1.3` Not yet verified.
 - `2.1` Not yet verified.
 - `2.2` Not yet verified.
@@ -630,7 +630,7 @@ Records carry a schema version. Readers migrate supported older versions in memo
 
 ### Next resume point
 
-Resume at `1.2`. Treat the regression-hardened Phase `1.1` parser, JSON envelopes, centralized exit mapping, packed-artifact contracts, and deterministic context resolver as the stable CLI foundation for explicit PR show/discover/link/refresh/unlink repair commands. Keep repository and branch verification in task-domain services, preserve PR history, and do not make later dispatch, eventing, or swarm phases prerequisites for collecting this repair value.
+Resume at `1.3`. Treat the verified Phase `1.1` context/JSON contracts and Phase `1.2` repo-qualified PR association service, GitHub verification rules, shared task-scoped mutation lock, offline unlink behavior, and project-target history promotion as the stable foundation for importing an existing same-repository PR as a Craig task. Reuse the verified selector and repository matching behavior, add explicit worktree ownership metadata, and keep fork-origin import deferred.
 
 ### Skipped and deferred work
 

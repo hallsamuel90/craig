@@ -26,6 +26,10 @@ export interface GitHubRepositoryLocator {
   name: string;
 }
 
+export interface GitHubPullRequestLocator extends GitHubRepositoryLocator {
+  number: number;
+}
+
 export interface GhPrBatchRequest {
   id: string;
   selector: string;
@@ -97,6 +101,22 @@ export const discoverPrView = async (branch: string, worktreePath: string): Prom
   return JSON.parse(result.stdout) as GhPrView;
 };
 
+export const discoverPrViewForCommand = async (
+  branch: string,
+  worktreePath: string,
+): Promise<GhPrView | null> => {
+  const result = await runCommandAllowingFailure("gh", buildPrViewArgs(branch), { cwd: worktreePath });
+  if (result.exitCode === 0) {
+    return JSON.parse(result.stdout) as GhPrView;
+  }
+
+  const message = result.stderr.trim() || result.stdout.trim();
+  if (isPullRequestNotFoundMessage(message)) {
+    return null;
+  }
+  throw new Error(message || `GitHub CLI failed while discovering a pull request for ${branch}.`);
+};
+
 export const fetchPullRequestViewsBatch = async (
   worktreePath: string,
   repository: GitHubRepositoryLocator,
@@ -149,6 +169,20 @@ export const getGitHubRepositoryLocator = async (worktreePath: string): Promise<
   return parseGitHubRemoteUrl(result.stdout.trim());
 };
 
+export const parseGitHubPullRequestUrl = (value: string): GitHubPullRequestLocator | null => {
+  const match = value.trim().match(
+    /^https:\/\/github\.com\/([^/]+)\/([^/]+)\/pull\/([1-9]\d*)(?:[/?#].*)?$/,
+  );
+  if (!match?.[1] || !match[2] || !match[3]) {
+    return null;
+  }
+  return {
+    owner: match[1],
+    name: match[2],
+    number: Number(match[3]),
+  };
+};
+
 const isGitHubRateLimitFailure = (error: unknown): boolean => {
   const message = error instanceof Error ? error.message.toLowerCase() : String(error).toLowerCase();
   return (
@@ -157,6 +191,14 @@ const isGitHubRateLimitFailure = (error: unknown): boolean => {
     message.includes("abuse detection") ||
     message.includes("api rate limit exceeded") ||
     message.includes("you have exceeded")
+  );
+};
+
+const isPullRequestNotFoundMessage = (message: string): boolean => {
+  const normalized = message.toLowerCase();
+  return (
+    normalized.includes("no pull requests found") ||
+    normalized.includes("could not resolve to a pullrequest")
   );
 };
 

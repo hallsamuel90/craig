@@ -1,7 +1,7 @@
 import type { CraigConfig } from "../../domain/config/index.js";
 import { configService } from "../../domain/config/index.js";
 import type { RunnerType } from "../../domain/config/index.js";
-import { readTask, writeTask } from "../../domain/task/index.js";
+import { mutateTask } from "../../domain/task/index.js";
 import type { TaskPtyTabRecord, TaskRecord } from "../../domain/task/index.js";
 import type { ActionContext } from "./context.js";
 import type { ControlShellState } from "../state.js";
@@ -22,16 +22,15 @@ export const createPtyTab = async (
   }
 
   const updatedTask = await ctx.queueTaskMutation(async () => {
-    const task = await readTask(ctx.paths, shell.selectedTaskId!);
-    const kind = requestedKind ?? resolveNewPtyTabKind(task, shell.activeTab, shell.preferredPtyTabKind);
-    const tab = createNextPtyTab(task, kind, requestedRunner ?? undefined, ctx.config);
-    const next: TaskRecord = {
-      ...task,
-      ptyTabs: [...task.ptyTabs, tab],
-      selectedPtyTabId: tab.id,
-    };
-    await writeTask(ctx.paths, next);
-    return next;
+    return mutateTask(ctx.paths, shell.selectedTaskId!, (task) => {
+      const kind = requestedKind ?? resolveNewPtyTabKind(task, shell.activeTab, shell.preferredPtyTabKind);
+      const tab = createNextPtyTab(task, kind, requestedRunner ?? undefined, ctx.config);
+      return {
+        ...task,
+        ptyTabs: [...task.ptyTabs, tab],
+        selectedPtyTabId: tab.id,
+      };
+    });
   });
 
   return {
@@ -55,21 +54,26 @@ export const closePtyTab = async (
   }
 
   const { closedTab, nextSelectedTab } = await ctx.queueTaskMutation(async () => {
-    const task = await readTask(ctx.paths, shell.selectedTaskId!);
-    const closedIndex = task.ptyTabs.findIndex((tab) => tab.id === shell.activeTab);
-    if (closedIndex === -1) {
-      throw new Error("Only PTY tabs can be closed.");
-    }
-
-    const closedTab = task.ptyTabs[closedIndex]!;
-    const remainingTabs = task.ptyTabs.filter((tab) => tab.id !== closedTab.id);
-    const nextSelectedTab = remainingTabs[Math.min(closedIndex, remainingTabs.length - 1)] ?? null;
-    await writeTask(ctx.paths, {
-      ...task,
-      ptyTabs: remainingTabs,
-      selectedPtyTabId: nextSelectedTab?.id ?? null,
+    const outcome: {
+      closedTab: TaskPtyTabRecord | null;
+      nextSelectedTab: TaskPtyTabRecord | null;
+    } = { closedTab: null, nextSelectedTab: null };
+    await mutateTask(ctx.paths, shell.selectedTaskId!, (task) => {
+      const closedIndex = task.ptyTabs.findIndex((tab) => tab.id === shell.activeTab);
+      if (closedIndex === -1) {
+        throw new Error("Only PTY tabs can be closed.");
+      }
+      outcome.closedTab = task.ptyTabs[closedIndex]!;
+      const remainingTabs = task.ptyTabs.filter((tab) => tab.id !== outcome.closedTab!.id);
+      outcome.nextSelectedTab = remainingTabs[Math.min(closedIndex, remainingTabs.length - 1)] ?? null;
+      return {
+        ...task,
+        ptyTabs: remainingTabs,
+        selectedPtyTabId: outcome.nextSelectedTab?.id ?? null,
+      };
     });
-    return { closedTab, nextSelectedTab };
+    if (!outcome.closedTab) throw new Error("Only PTY tabs can be closed.");
+    return { closedTab: outcome.closedTab, nextSelectedTab: outcome.nextSelectedTab };
   });
 
   return {
@@ -92,14 +96,12 @@ export const persistPtyTabSelection = async (
   if (!taskId) return;
 
   await ctx.queueTaskMutation(async () => {
-    const latestTask = await readTask(ctx.paths, taskId);
-    if (
+    await mutateTask(ctx.paths, taskId, (latestTask) =>
       !latestTask.ptyTabs.some((tab) => tab.id === shell.activeTab) ||
       latestTask.selectedPtyTabId === shell.activeTab
-    ) {
-      return;
-    }
-    await writeTask(ctx.paths, { ...latestTask, selectedPtyTabId: shell.activeTab });
+        ? latestTask
+        : { ...latestTask, selectedPtyTabId: shell.activeTab }
+    );
   });
 };
 
@@ -111,26 +113,27 @@ export const ensureAgentTab = async (
 
   if (agentTab) {
     await ctx.queueTaskMutation(async () => {
-      const latestTask = await readTask(ctx.paths, task.id);
-      const latestAgentTab = latestTask.ptyTabs.find((t) => t.kind === "agent") ?? null;
-      if (!latestAgentTab) return;
-      await writeTask(ctx.paths, { ...latestTask, selectedPtyTabId: latestAgentTab.id });
+      await mutateTask(ctx.paths, task.id, (latestTask) => {
+        const latestAgentTab = latestTask.ptyTabs.find((candidate) => candidate.kind === "agent") ?? null;
+        return latestAgentTab
+          ? { ...latestTask, selectedPtyTabId: latestAgentTab.id }
+          : latestTask;
+      });
     });
     return { ...task, selectedPtyTabId: agentTab.id };
   }
 
   const tab = createNextPtyTab(task, "agent", undefined, ctx.config);
   await ctx.queueTaskMutation(async () => {
-    const latestTask = await readTask(ctx.paths, task.id);
-    const latestAgentTab = latestTask.ptyTabs.find((t) => t.kind === "agent") ?? null;
-    if (latestAgentTab) {
-      await writeTask(ctx.paths, { ...latestTask, selectedPtyTabId: latestAgentTab.id });
-      return;
-    }
-    await writeTask(ctx.paths, {
-      ...latestTask,
-      ptyTabs: [...latestTask.ptyTabs, tab],
-      selectedPtyTabId: tab.id,
+    await mutateTask(ctx.paths, task.id, (latestTask) => {
+      const latestAgentTab = latestTask.ptyTabs.find((candidate) => candidate.kind === "agent") ?? null;
+      return latestAgentTab
+        ? { ...latestTask, selectedPtyTabId: latestAgentTab.id }
+        : {
+            ...latestTask,
+            ptyTabs: [...latestTask.ptyTabs, tab],
+            selectedPtyTabId: tab.id,
+          };
     });
   });
   return { ...task, ptyTabs: [...task.ptyTabs, tab], selectedPtyTabId: tab.id };

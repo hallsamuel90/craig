@@ -1,7 +1,7 @@
 import path from "node:path";
 
 import { configService } from "../../domain/config/index.js";
-import { writeTask } from "../../domain/task/index.js";
+import { mutateTask } from "../../domain/task/index.js";
 import { errorService } from "../../domain/error/index.js";
 import { getViewport } from "../layout.js";
 import { getPtySize, getRequiredPtyTabId } from "../pty/session.js";
@@ -138,19 +138,22 @@ async function submitTaskPrompt(ctx: AppContext): Promise<void> {
     }
     const message = reportRecoverableError(ctx, "create task", error, "Failed to create task.");
     if (createdTask && !(error instanceof InteractiveTaskStartupError)) {
-      await writeTask(ctx.paths, {
-        ...createdTask,
+      await mutateTask(ctx.paths, createdTask.id, (current) => ({
+        ...current,
         status: "draft",
         runnerSession: {
-          ...createdTask.runnerSession,
+          ...current.runnerSession,
           lastKnownState: "failed",
           exitedAt: new Date().toISOString(),
         },
         lastFailureReason: message,
-      }).catch(() => undefined);
+      })).catch(() => undefined);
       await reloadModel(ctx).catch(() => undefined);
     } else if (createdTask) {
-      await writeTask(ctx.paths, { ...createdTask, lastFailureReason: message }).catch(() => undefined);
+      await mutateTask(ctx.paths, createdTask.id, (current) => ({
+        ...current,
+        lastFailureReason: message,
+      })).catch(() => undefined);
       await reloadModel(ctx).catch(() => undefined);
     }
     ctx.state = {

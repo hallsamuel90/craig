@@ -5,12 +5,14 @@ import type { TaskPR, TaskRecord } from "../types.js";
 import type { CraigPaths } from "../../../state/craig-paths.js";
 import { atomicWriteJson } from "../../../shared/atomic-write.js";
 import { readRawTask, writeTask } from "../adapters/task-store.js";
+import { withTaskLock } from "../adapters/task-lock.js";
 import { getCurrentBranch } from "../adapters/git.js";
 import { validateTaskRecord } from "../tasks/validate.js";
 import { fetchPrView, discoverPrView } from "../adapters/github.js";
 import type { GhPrView } from "../adapters/github.js";
 import { resolveArtifactPath } from "../tasks/artifacts.js";
 import { getTaskPrimaryPr, upsertTaskPr, deriveTaskStatusFromPrs, normalizePr } from "./state.js";
+import { CraigError } from "../../error/index.js";
 
 export const writePrStatusArtifact = async (paths: CraigPaths, task: TaskRecord): Promise<void> => {
   const artifactPath = resolveArtifactPath(paths, task.artifacts.prStatusPath);
@@ -26,6 +28,27 @@ export const writePrStatusArtifact = async (paths: CraigPaths, task: TaskRecord)
   });
 };
 
+export const persistTaskAndPrStatus = async (
+  paths: CraigPaths,
+  task: TaskRecord,
+  deps: {
+    writeTask: typeof writeTask;
+    writePrStatusArtifact: typeof writePrStatusArtifact;
+  } = { writeTask, writePrStatusArtifact },
+): Promise<TaskRecord> => {
+  await deps.writeTask(paths, task);
+  try {
+    await deps.writePrStatusArtifact(paths, task);
+  } catch (error) {
+    throw new CraigError(
+      "PARTIAL_RESULT",
+      `Task ${task.id} was updated, but its PR status artifact could not be written.`,
+      { retryable: true, details: { taskId: task.id }, cause: error },
+    );
+  }
+  return task;
+};
+
 export const persistPullRequestView = async (
   paths: CraigPaths,
   task: TaskRecord,
@@ -36,19 +59,23 @@ export const persistPullRequestView = async (
     validateTaskRecord: typeof validateTaskRecord;
     writeTask: typeof writeTask;
     writePrStatusArtifact: typeof writePrStatusArtifact;
-  } = { readRawTask, validateTaskRecord, writeTask, writePrStatusArtifact },
+    withTaskLock: typeof withTaskLock;
+  } = { readRawTask, validateTaskRecord, writeTask, writePrStatusArtifact, withTaskLock },
 ): Promise<TaskRecord> => {
-  const normalized = normalizePr(view, existingPr);
-  const withPr = upsertTaskPr(task, normalized);
-  const status = deriveTaskStatusFromPrs(withPr.prs);
-  const withStatus = { ...withPr, status };
-  await deps.writePrStatusArtifact(paths, withStatus);
-  const raw = await deps.readRawTask(paths, task.id);
-  const latest = deps.validateTaskRecord(raw, `${paths.tasksDir}/${task.id}.json`);
-  const finalStatus = latest.status === "closed" ? latest.status : status;
-  const persistedTask = upsertTaskPr({ ...latest, status: finalStatus }, normalized);
-  await deps.writeTask(paths, persistedTask);
-  return persistedTask;
+  return deps.withTaskLock(paths, task.id, async () => {
+    const raw = await deps.readRawTask(paths, task.id);
+    const latest = deps.validateTaskRecord(raw, `${paths.tasksDir}/${task.id}.json`);
+    const latestExisting = latest.prs.find((pr) =>
+      existingPr?.number !== null && pr.number === existingPr?.number
+    ) ?? existingPr;
+    const normalized = normalizePr(view, latestExisting);
+    const withPr = upsertTaskPr(latest, normalized);
+    const status = latest.status === "closed"
+      ? latest.status
+      : deriveTaskStatusFromPrs(withPr.prs);
+    const persistedTask = { ...withPr, status };
+    return persistTaskAndPrStatus(paths, persistedTask, deps);
+  });
 };
 
 export const refreshPullRequestState = async (

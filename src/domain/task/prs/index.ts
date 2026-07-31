@@ -27,4 +27,12 @@ export {
 
 export { mergeTask } from "./merge.js";
 export { refreshOrDiscoverTargetPullRequest } from "./target.js";
+export {
+  showTaskPullRequests,
+  discoverTaskPullRequest,
+  linkTaskPullRequest,
+  refreshTaskPullRequest,
+  unlinkTaskPullRequest,
+  parsePullRequestSelector,
+} from "./association.js";
 export { GitHubRateLimitError } from "./errors.js";

@@ -6,7 +6,7 @@ import type { TaskCheckResult } from "../types.js";
 import type { CraigPaths } from "../../../state/craig-paths.js";
 import { atomicWriteJson } from "../../../shared/atomic-write.js";
 import { configService } from "../../config/index.js";
-import { writeTask } from "../adapters/task-store.js";
+import { mutateTask } from "../adapters/task-store.js";
 import { hasUncommittedDiff } from "../adapters/git.js";
 import { getTask, assertTaskWorktreeExists } from "./inspect.js";
 import { resolveArtifactPath } from "./artifacts.js";
@@ -35,10 +35,16 @@ export const runChecks = async (paths: CraigPaths, taskId: string): Promise<Comm
     throw new Error(`Craig config at ${paths.configFile} does not define any "checks.commands".`);
   }
 
-  task.checks.status = "running";
-  task.checks.commands = [...commands];
-  task.checks.results = [];
-  await writeTask(paths, task);
+  await mutateTask(paths, task.id, (current) => ({
+    ...current,
+    status: current.status === "running" ? task.status : current.status,
+    checks: {
+      ...current.checks,
+      status: "running",
+      commands: [...commands],
+      results: [],
+    },
+  }));
 
   const results: TaskCheckResult[] = [];
 
@@ -58,16 +64,22 @@ export const runChecks = async (paths: CraigPaths, taskId: string): Promise<Comm
     });
 
     if (exitCode !== 0) {
-      task.checks.results = results;
-      task.checks.status = "failed";
-      task.checks.lastRunAt = finishedAt;
-      task.status = "review";
-      task.lastFailureReason =
+      const lastFailureReason =
         execution.stderr.trim() ||
         execution.stdout.trim() ||
         `Check command failed: ${command}`;
-      await writeCheckSummary(paths, task);
-      await writeTask(paths, task);
+      const failedTask = await mutateTask(paths, task.id, (current) => ({
+        ...current,
+        status: "review",
+        checks: {
+          ...current.checks,
+          results,
+          status: "failed",
+          lastRunAt: finishedAt,
+        },
+        lastFailureReason,
+      }));
+      await writeCheckSummary(paths, failedTask);
 
       return {
         kind: "runChecks",
@@ -78,14 +90,20 @@ export const runChecks = async (paths: CraigPaths, taskId: string): Promise<Comm
     }
   }
 
-  task.checks.results = results;
-  task.checks.status = "passed";
-  task.checks.lastRunAt = new Date().toISOString();
-  task.status = "checked";
-  task.lastFailureReason = null;
-
-  await writeCheckSummary(paths, task);
-  await writeTask(paths, task);
+  const passedTask = await mutateTask(paths, task.id, (current) => ({
+    ...current,
+    status: current.status === "review" || current.status === "checked"
+      ? "checked"
+      : current.status,
+    checks: {
+      ...current.checks,
+      results,
+      status: "passed",
+      lastRunAt: new Date().toISOString(),
+    },
+    lastFailureReason: null,
+  }));
+  await writeCheckSummary(paths, passedTask);
 
   return {
     kind: "runChecks",

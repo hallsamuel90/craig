@@ -1,11 +1,10 @@
-import type { TaskPullRequest, TaskRecord } from "../types.js";
+import type { TaskRecord } from "../types.js";
 import type { CraigPaths } from "../../../state/craig-paths.js";
-import { readRawTask, writeTask } from "../adapters/task-store.js";
+import { readRawTask } from "../adapters/task-store.js";
 import { validateTaskRecord } from "../tasks/validate.js";
 import {
   discoverPullRequestState,
   refreshPullRequestState,
-  writePrStatusArtifact,
   persistPullRequestView,
   getPullRequestDiscoveryBranches,
 } from "./refresh.js";
@@ -18,8 +17,9 @@ import {
 } from "../adapters/github.js";
 import { GitHubRateLimitError } from "./errors.js";
 import { assertTaskWorktreeExists, getTask } from "../tasks/inspect.js";
-import { getTaskPrimaryPr, isPrTerminal, normalizeRequiredChecks } from "./state.js";
+import { getTaskPrimaryPr, isPrTerminal } from "./state.js";
 import { refreshOrDiscoverTargetPullRequest } from "./target.js";
+import { persistProjectPullRequestView } from "./project-persistence.js";
 
 export type PullRequestSyncDisposition = "discovered" | "synced" | "not_found";
 
@@ -68,12 +68,10 @@ export const refreshPullRequestChecks = async (paths: CraigPaths, taskId: string
     if (!discovered.discovered && !primaryPr?.number) {
       throw new Error(`No PR found for ${task.branch}.`);
     }
-    await writePrStatusArtifact(paths, discovered.task);
     return discovered.task;
   }
 
   const refreshed = await refreshPullRequestState(paths, task);
-  await writePrStatusArtifact(paths, refreshed);
   return refreshed;
 };
 
@@ -91,12 +89,6 @@ export const discoverOrRefreshAllProjectPullRequests = async (
       ? await refreshOrDiscoverTargetPullRequest(paths, task, target)
       : await refreshOrDiscoverTargetPullRequest(paths, task, target).catch(() => "not_found" as const);
     counts[disposition === "not_found" ? "notFound" : disposition]++;
-  }
-  const raw = await readRawTask(paths, task.id);
-  const latestTask = validateTaskRecord(raw, `${paths.tasksDir}/${task.id}.json`);
-  if (latestTask.status !== "closed") {
-    latestTask.status = deriveProjectTaskStatus(latestTask);
-    await writeTask(paths, latestTask);
   }
   return counts;
 };
@@ -173,9 +165,7 @@ export const discoverOrRefreshPullRequests = async (
         }
 
         if (item.targetRepoId) {
-          const raw = await readRawTask(paths, item.task.id);
-          const latestTask = validateTaskRecord(raw, `${paths.tasksDir}/${item.task.id}.json`);
-          await persistTargetPullRequestView(paths, latestTask, item.targetRepoId, view);
+          await persistProjectPullRequestView(paths, item.task.id, item.targetRepoId, view);
         } else {
           const raw = await readRawTask(paths, item.task.id);
           const latestTask = validateTaskRecord(raw, `${paths.tasksDir}/${item.task.id}.json`);
@@ -194,15 +184,6 @@ export const discoverOrRefreshPullRequests = async (
         throw error;
       }
       // Background polling is best-effort; manual refresh keeps surfacing actionable errors.
-    }
-  }
-
-  for (const task of tasks.filter((entry) => entry.type === "project" && entry.repoTargets?.length)) {
-    const raw = await readRawTask(paths, task.id);
-    const latestTask = validateTaskRecord(raw, `${paths.tasksDir}/${task.id}.json`);
-    if (latestTask.status !== "closed") {
-      latestTask.status = deriveProjectTaskStatus(latestTask);
-      await writeTask(paths, latestTask);
     }
   }
 
@@ -225,77 +206,6 @@ export const discoverOrRefreshPullRequest = async (
 
   const discovered = await discoverPullRequestState(paths, task);
   return { disposition: discovered.discovered ? "discovered" : "not_found", task: discovered.task };
-};
-
-const deriveProjectTaskStatus = (task: TaskRecord): TaskRecord["status"] => {
-  const readyTargets = (task.repoTargets ?? []).filter((target) => target.status === "ready");
-  const prs = readyTargets.map((target) => target.pullRequest).filter((pr) => Boolean(pr.number));
-
-  if (prs.length === 0) {
-    return task.status;
-  }
-  if (prs.every((pr) => pr.status === "merged")) {
-    return "merged";
-  }
-  if (prs.length === readyTargets.length && prs.every(isProjectTargetMergeReady)) {
-    return "merge_ready";
-  }
-  if (prs.some((pr) => pr.status === "open")) {
-    return "pr_open";
-  }
-  return "checked";
-};
-
-const persistTargetPullRequestView = async (
-  paths: CraigPaths,
-  task: TaskRecord,
-  repoId: string,
-  view: { number: number; url: string; baseRefName: string; headRefName: string; headRefOid?: string | null; state: string; isDraft?: boolean; mergeable: string; mergeStateStatus: string | null; title?: string | null; createdAt?: string | null; updatedAt?: string | null; mergedAt?: string | null; reviewDecision?: string | null; statusCheckRollup: unknown[]; comments?: unknown[] | { nodes?: unknown[] | null } | null },
-): Promise<TaskRecord> => {
-  const pullRequest = normalizePullRequest(view);
-  const repoTargets = (task.repoTargets ?? []).map((target) =>
-    target.repoId === repoId ? { ...target, pullRequest } : target,
-  );
-  const nextTask: TaskRecord = {
-    ...task,
-    repoTargets,
-  };
-
-  await writeTask(paths, nextTask);
-  return nextTask;
-};
-
-const normalizePullRequest = (view: { number: number; url: string; baseRefName: string; headRefName: string; headRefOid?: string | null; state: string; isDraft?: boolean; mergeable: string; mergeStateStatus: string | null; reviewDecision?: string | null; statusCheckRollup: unknown[]; comments?: unknown[] | { nodes?: unknown[] | null } | null }): TaskPullRequest => {
-  return {
-    provider: "github",
-    number: view.number,
-    url: view.url,
-    baseBranch: view.baseRefName,
-    headBranch: view.headRefName,
-    status: normalizePrState(view.state),
-    draft: view.isDraft ?? false,
-    mergeable: view.mergeable === "MERGEABLE",
-    mergeStateStatus: view.mergeStateStatus,
-    reviewDecision: normalizeReviewDecision(view.reviewDecision ?? null),
-    requiredChecks: normalizeRequiredChecks(view.statusCheckRollup),
-    comments: [],
-    lastSyncedAt: new Date().toISOString(),
-    lastSyncedHeadSha: view.headRefOid ?? null,
-  };
-};
-
-const normalizePrState = (state: string): TaskPullRequest["status"] => {
-  if (state === "OPEN") return "open";
-  if (state === "MERGED") return "merged";
-  if (state === "CLOSED") return "closed";
-  return null;
-};
-
-const normalizeReviewDecision = (value: string | null) => {
-  if (value === "APPROVED" || value === "CHANGES_REQUESTED" || value === "REVIEW_REQUIRED") {
-    return value as "APPROVED" | "CHANGES_REQUESTED" | "REVIEW_REQUIRED";
-  }
-  return null;
 };
 
 interface PullRequestBatchItem {
@@ -398,15 +308,4 @@ const recordDisposition = (
   }
 
   result.notFound += 1;
-};
-
-const isProjectTargetMergeReady = (pullRequest: TaskPullRequest): boolean => {
-  return (
-    pullRequest.mergeable &&
-    pullRequest.reviewDecision !== "REVIEW_REQUIRED" &&
-    pullRequest.reviewDecision !== "CHANGES_REQUESTED" &&
-    pullRequest.mergeStateStatus !== "REVIEW_REQUIRED" &&
-    pullRequest.requiredChecks.length > 0 &&
-    pullRequest.requiredChecks.every((check) => check.status === "success" || check.status === "skipped")
-  );
 };

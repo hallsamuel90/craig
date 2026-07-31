@@ -1,7 +1,7 @@
 import type { CommandAddTaskLinkResult, CommandListTaskLinksResult } from "../types.js";
 import type { CraigPaths } from "../../../state/craig-paths.js";
 import { readRepo } from "../../../domain/workspace/index.js";
-import { writeTask } from "../adapters/task-store.js";
+import { mutateTask } from "../adapters/task-store.js";
 import { getTask } from "./inspect.js";
 
 export const addTaskLink = async (
@@ -9,23 +9,24 @@ export const addTaskLink = async (
   taskId: string,
   repoId: string,
 ): Promise<CommandAddTaskLinkResult> => {
-  const [task, repo] = await Promise.all([getTask(paths, taskId), readRepo(paths, repoId)]);
-
-  if (task.repoId === repo.id) {
-    throw new Error(`Repo ${repo.id} is already the primary repo for task ${task.id}.`);
-  }
-
-  const linkedRepoIds = task.linkedRepoIds.includes(repo.id) ? task.linkedRepoIds : [...task.linkedRepoIds, repo.id];
-  await writeTask(paths, {
-    ...task,
-    linkedRepoIds,
+  const repo = await readRepo(paths, repoId);
+  const task = await mutateTask(paths, taskId, (current) => {
+    if (current.repoId === repo.id) {
+      throw new Error(`Repo ${repo.id} is already the primary repo for task ${current.id}.`);
+    }
+    return {
+      ...current,
+      linkedRepoIds: current.linkedRepoIds.includes(repo.id)
+        ? current.linkedRepoIds
+        : [...current.linkedRepoIds, repo.id],
+    };
   });
 
   return {
     kind: "addTaskLink",
     taskId: task.id,
     repoId: repo.id,
-    linkedRepoIds,
+    linkedRepoIds: task.linkedRepoIds,
   };
 };
 
