@@ -91,6 +91,17 @@ describe("upsertTaskPr", () => {
     expect(updated.prs[0]?.status).toBe("merged");
   });
 
+  test("keeps same-number PRs from different project repositories distinct", () => {
+    const repoA = { ...makePr(10, "open"), owner: "example", repo: "repo-a" };
+    const repoB = { ...makePr(10, "open"), owner: "example", repo: "repo-b" };
+    const task = buildTaskRecord("/tmp", { id: "task_1", prs: [repoA] });
+
+    const updated = upsertTaskPr(task, repoB);
+
+    expect(updated.prs).toHaveLength(2);
+    expect(updated.prs.map((pr) => pr.repo)).toEqual(["repo-a", "repo-b"]);
+  });
+
   test("does not mutate the original task", () => {
     const task = buildTaskRecord("/tmp", { id: "task_1", prs: [makePr(10, "open")] });
     upsertTaskPr(task, makePr(11, "open"));

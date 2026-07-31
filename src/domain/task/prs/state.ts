@@ -15,12 +15,28 @@ export const isPrTerminal = (pr: TaskPR): boolean => {
 
 export const upsertTaskPr = (task: TaskRecord, pr: TaskPR): TaskRecord => {
   const idx = task.prs.findIndex(
-    (p) => p.number !== null && p.number === pr.number,
+    (candidate) => isSamePullRequest(candidate, pr),
   );
   const prs = idx >= 0
     ? task.prs.map((p, i) => (i === idx ? pr : p))
     : [...task.prs, pr];
   return { ...task, prs };
+};
+
+export const isSamePullRequest = (
+  left: Pick<TaskPR, "owner" | "repo" | "number">,
+  right: Pick<TaskPR, "owner" | "repo" | "number">,
+): boolean => {
+  if (left.number === null || right.number === null || left.number !== right.number) {
+    return false;
+  }
+  if (!left.owner || !left.repo || !right.owner || !right.repo) {
+    return true;
+  }
+  return (
+    left.owner.toLowerCase() === right.owner.toLowerCase() &&
+    left.repo.toLowerCase() === right.repo.toLowerCase()
+  );
 };
 
 type PrState = {
@@ -78,13 +94,17 @@ export const summarizeRequiredChecks = (pullRequest: { requiredChecks: TaskPullR
     .join(", ");
 };
 
-export const normalizePr = (view: NormalizablePrView, existing: TaskPR | null): TaskPR => {
+export const normalizePr = (
+  view: NormalizablePrView,
+  existing: TaskPR | null,
+  repository?: { owner: string; name: string },
+): TaskPR => {
   const isDraft = view.isDraft ?? false;
   const rawStatus = normalizePrStatus(view.state, isDraft);
   return {
     provider: "github",
-    owner: existing?.owner ?? null,
-    repo: existing?.repo ?? null,
+    owner: repository?.owner ?? existing?.owner ?? null,
+    repo: repository?.name ?? existing?.repo ?? null,
     number: view.number,
     url: view.url,
     title: view.title ?? existing?.title ?? null,

@@ -17,6 +17,11 @@ describe("CLI argument parsing", () => {
     [["task", "new", "--repo", "repo_1", "ship it"], "createTask"],
     [["task", "list"], "listTasks"],
     [["task", "show", "task_1"], "showTask"],
+    [["task", "pr", "show", "task_1"], "showTaskPr"],
+    [["task", "pr", "discover", "task_1"], "discoverTaskPr"],
+    [["task", "pr", "link", "task_1", "--pr", "17"], "linkTaskPr"],
+    [["task", "pr", "refresh", "task_1"], "refreshTaskPr"],
+    [["task", "pr", "unlink", "task_1", "--pr", "17"], "unlinkTaskPr"],
     [["task", "attach", "task_1"], "attachTask"],
     [["task", "logs", "task_1"], "streamTaskLogs"],
     [["task", "diff", "task_1"], "showTaskDiff"],
@@ -67,6 +72,41 @@ describe("CLI argument parsing", () => {
       kind: "showTask",
       taskId: "task_1",
     });
+  });
+
+  test("parses PR repair commands with optional task and repo targets", () => {
+    expect(parseArgv(["task", "pr", "show", "--repo", "repo_a"]).command).toEqual({
+      kind: "showTaskPr",
+      repoId: "repo_a",
+    });
+    expect(
+      parseArgv([
+        "task",
+        "pr",
+        "link",
+        "--pr",
+        "https://github.com/example/repo/pull/17",
+        "task_1",
+        "--repo",
+        "repo_a",
+      ]).command,
+    ).toEqual({
+      kind: "linkTaskPr",
+      taskId: "task_1",
+      repoId: "repo_a",
+      pullRequest: "https://github.com/example/repo/pull/17",
+    });
+  });
+
+  test("rejects missing, duplicate, and inapplicable PR repair options", () => {
+    for (const argv of [
+      ["task", "pr", "link", "task_1"],
+      ["task", "pr", "unlink", "task_1", "--pr", "17", "--pr", "18"],
+      ["task", "pr", "show", "task_1", "--pr", "17"],
+      ["task", "pr", "refresh", "task_1", "--repo"],
+    ]) {
+      expect(() => parseArgv(argv)).toThrow();
+    }
   });
 
   test("preserves command-level option termination for prompt content", () => {

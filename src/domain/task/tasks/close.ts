@@ -1,7 +1,7 @@
 import { access } from "node:fs/promises";
 
 import type { CraigPaths } from "../../../state/craig-paths.js";
-import { writeTask } from "../adapters/task-store.js";
+import { mutateTask } from "../adapters/task-store.js";
 import type { TaskRecord } from "../types.js";
 import { getTask } from "./inspect.js";
 
@@ -9,19 +9,16 @@ export const closeTask = async (paths: CraigPaths, taskId: string): Promise<Task
   const task = await getTask(paths, taskId);
   const worktreeExists = await pathExists(task.worktreePath);
 
-  const closedTask: TaskRecord = {
-    ...task,
+  return mutateTask(paths, taskId, (current): TaskRecord => ({
+    ...current,
     status: "closed",
     cleanup: {
-      ...task.cleanup,
-      preservedWorktree: worktreeExists && task.cleanup.worktreeRemovedAt === null,
+      ...current.cleanup,
+      preservedWorktree: worktreeExists && current.cleanup.worktreeRemovedAt === null,
       warning: null,
     },
     lastFailureReason: null,
-  };
-
-  await writeTask(paths, closedTask);
-  return closedTask;
+  }));
 };
 
 const pathExists = async (targetPath: string): Promise<boolean> => {

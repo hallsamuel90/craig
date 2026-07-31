@@ -7,6 +7,7 @@ import type {
   CommandListTaskLinksResult,
   CommandShowTaskResult,
   CommandCurrentTaskResult,
+  CommandTaskPrResult,
   CommandLogsResult,
   CommandDiffResult,
   CommandFocusResult,
@@ -44,6 +45,11 @@ export type AppCommand =
   | { kind: "refreshInteractiveState" }
   | { kind: "showTask"; taskId: string }
   | { kind: "showCurrentTask" }
+  | { kind: "showTaskPr"; taskId?: string; repoId?: string }
+  | { kind: "discoverTaskPr"; taskId?: string; repoId?: string }
+  | { kind: "linkTaskPr"; taskId?: string; repoId?: string; pullRequest: string }
+  | { kind: "refreshTaskPr"; taskId?: string; repoId?: string }
+  | { kind: "unlinkTaskPr"; taskId?: string; repoId?: string; pullRequest: string }
   | { kind: "showSelectedTask" }
   | { kind: "streamTaskLogs"; taskId: string }
   | { kind: "streamSelectedTaskLogs" }
@@ -78,6 +84,7 @@ export type {
   CommandListTaskLinksResult,
   CommandShowTaskResult,
   CommandCurrentTaskResult,
+  CommandTaskPrResult,
   CommandLogsResult,
   CommandDiffResult,
   CommandFocusResult,
@@ -113,6 +120,7 @@ export type CommandResult =
   | CommandListResult
   | CommandShowTaskResult
   | CommandCurrentTaskResult
+  | CommandTaskPrResult
   | CommandShowContextResult
   | CommandLogsResult
   | CommandDiffResult

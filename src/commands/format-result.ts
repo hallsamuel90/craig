@@ -118,6 +118,12 @@ export function formatCommandResult(result: CommandResult): string {
         `Context source: ${result.context.source}`,
         `Agent tab: ${result.context.agentTabId ?? "none"}`,
       ].join("\n");
+    case "showTaskPr":
+    case "discoverTaskPr":
+    case "linkTaskPr":
+    case "refreshTaskPr":
+    case "unlinkTaskPr":
+      return formatTaskPrResult(result);
     case "showContext":
       return [
         `Workspace: ${result.workspace.root}`,
@@ -149,6 +155,23 @@ export function formatCommandResult(result: CommandResult): string {
     default:
       return assertNever(result);
   }
+}
+
+function formatTaskPrResult(
+  result: Extract<CommandResult, {
+    kind: "showTaskPr" | "discoverTaskPr" | "linkTaskPr" | "refreshTaskPr" | "unlinkTaskPr";
+  }>,
+): string {
+  const summary = `${result.taskId} (${result.repoId}): ${result.disposition}`;
+  const rows = result.pullRequests.length === 0
+    ? ["No pull requests associated."]
+    : [
+        "PR\tSTATUS\tHEAD\tURL",
+        ...result.pullRequests.map((pr) =>
+          `#${pr.number ?? "-"}\t${pr.status ?? "unknown"}\t${pr.headBranch ?? "-"}\t${pr.url ?? "-"}`
+        ),
+      ];
+  return [summary, ...rows, ...result.warnings.map((warning) => `Warning: ${warning}`)].join("\n");
 }
 
 function buildShowWarnings(result: Extract<CommandResult, { kind: "showTask" }>): string[] {

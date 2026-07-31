@@ -37,6 +37,8 @@ export type {
   TaskContextSource,
   ResolvedTaskContext,
   CommandCurrentTaskResult,
+  TaskPrCommandDisposition,
+  CommandTaskPrResult,
   CommandLogsResult,
   CommandDiffResult,
   CommandFocusResult,
@@ -49,7 +51,7 @@ export type {
 export { validateTaskRecord, normalizeLegacyTaskRecord } from "./tasks/validate.js";
 
 // re-export for UI layer access through the domain boundary (not the private adapter path)
-export { readTask, writeTask } from "./adapters/task-store.js";
+export { readTask, writeTask, mutateTask } from "./adapters/task-store.js";
 export { getTaskPrimaryPr } from "./prs/state.js";
 export { GitHubRateLimitError } from "./prs/errors.js";
 export { assertTaskWorktreeExists } from "./tasks/inspect.js";
@@ -103,6 +105,11 @@ import {
   discoverOrRefreshAllProjectPullRequests,
   discoverOrRefreshPullRequests,
   discoverOrRefreshPullRequest,
+  showTaskPullRequests,
+  discoverTaskPullRequest,
+  linkTaskPullRequest,
+  refreshTaskPullRequest,
+  unlinkTaskPullRequest,
   mergeTask,
 } from "./prs/index.js";
 
@@ -146,6 +153,11 @@ export const taskService = {
     discoverOrRefresh: discoverOrRefreshPullRequest,
     discoverOrRefreshAll: discoverOrRefreshAllProjectPullRequests,
     discoverOrRefreshMany: discoverOrRefreshPullRequests,
+    show: showTaskPullRequests,
+    discover: discoverTaskPullRequest,
+    link: linkTaskPullRequest,
+    refreshAssociation: refreshTaskPullRequest,
+    unlink: unlinkTaskPullRequest,
     merge: mergeTask,
     // pure state helpers
     getPrimaryPr: getTaskPrimaryPr,

@@ -6,7 +6,7 @@ import type { CraigPaths } from "../../../state/craig-paths.js";
 import { configService } from "../../config/index.js";
 import type { RunnerType } from "../../config/index.js";
 import { writeSession } from "../adapters/session.js";
-import { writeTask } from "../adapters/task-store.js";
+import { mutateTask } from "../adapters/task-store.js";
 import { commandRunnerAdapter, tmuxSessionManager } from "../adapters/runner.js";
 import { provisionProjectTask, provisionTask } from "./provision.js";
 
@@ -61,12 +61,12 @@ export const createTask = async (
       command: runnerCommand,
     };
 
-    const runningTask: TaskRecord = {
-      ...draftTask,
+    const runningTask = await mutateTask(paths, draftTask.id, (current): TaskRecord => ({
+      ...current,
       status: "running",
       runner,
       sessionId: session.id,
-      selectedPtyTabId: draftTask.selectedPtyTabId,
+      selectedPtyTabId: current.selectedPtyTabId,
       runnerSession: {
         command: session.command,
         pid: null,
@@ -75,9 +75,7 @@ export const createTask = async (
         exitCode: null,
         exitedAt: null,
       },
-    };
-
-    await writeTask(paths, runningTask);
+    }));
     await writeSession(paths, session);
 
     return {
@@ -92,17 +90,16 @@ export const createTask = async (
       runner: runningTask.runner,
     };
   } catch (error) {
-    const failedTask: TaskRecord = {
-      ...draftTask,
+    await mutateTask(paths, draftTask.id, (current): TaskRecord => ({
+      ...current,
       sessionId: null,
       status: "draft",
       runnerSession: {
-        ...draftTask.runnerSession,
+        ...current.runnerSession,
         lastKnownState: "failed",
       },
       lastFailureReason: error instanceof Error ? error.message : "Unknown Craig error",
-    };
-    await writeTask(paths, failedTask);
+    }));
     throw error;
   }
 };

@@ -101,6 +101,38 @@ export async function executeCommand(
       return taskService.showTask(context.paths, command.taskId);
     case "showCurrentTask":
       return taskService.showTask(context.paths, requireResolvedTaskContext(context).task.id);
+    case "showTaskPr":
+      return taskService.prs.show(
+        context.paths,
+        resolveCommandTaskId(command.taskId, context),
+        command.repoId,
+      );
+    case "discoverTaskPr":
+      return taskService.prs.discover(
+        context.paths,
+        resolveCommandTaskId(command.taskId, context),
+        command.repoId,
+      );
+    case "linkTaskPr":
+      return taskService.prs.link(
+        context.paths,
+        resolveCommandTaskId(command.taskId, context),
+        command.pullRequest,
+        command.repoId,
+      );
+    case "refreshTaskPr":
+      return taskService.prs.refreshAssociation(
+        context.paths,
+        resolveCommandTaskId(command.taskId, context),
+        command.repoId,
+      );
+    case "unlinkTaskPr":
+      return taskService.prs.unlink(
+        context.paths,
+        resolveCommandTaskId(command.taskId, context),
+        command.pullRequest,
+        command.repoId,
+      );
     case "showSelectedTask":
       return taskService.showTask(context.paths, requireSelectedTaskId(context, "show"));
     case "streamTaskLogs":
@@ -184,6 +216,10 @@ function requireResolvedTaskContext(context: CommandContext): ResolvedTaskContex
   }
 
   throw new Error("Command requires resolved task context.");
+}
+
+function resolveCommandTaskId(taskId: string | undefined, context: CommandContext): string {
+  return taskId ?? requireResolvedTaskContext(context).task.id;
 }
 
 function requireWorkspaceContext(context: CommandContext): ResolvedWorkspaceContext {

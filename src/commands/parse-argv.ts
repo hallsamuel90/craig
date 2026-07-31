@@ -75,6 +75,9 @@ export function parseArgv(argv: string[]): ParsedArgvCommand {
         ? { kind: "showCurrentTask" }
         : { kind: "showTask", taskId: requireSingleValue(args, "Task id") };
       break;
+    case "task:pr":
+      command = parseTaskPr(args);
+      break;
     case "task:attach":
       command = { kind: "attachTask", taskId: requireSingleValue(args, "Task id") };
       break;
@@ -148,6 +151,11 @@ export function getCommandName(command: AppCommand): string {
     currentTask: "task.current",
     showTask: "task.show",
     showCurrentTask: "task.show",
+    showTaskPr: "task.pr.show",
+    discoverTaskPr: "task.pr.discover",
+    linkTaskPr: "task.pr.link",
+    refreshTaskPr: "task.pr.refresh",
+    unlinkTaskPr: "task.pr.unlink",
     attachTask: "task.attach",
     addTaskLink: "link.add",
     listTaskLinks: "link.list",
@@ -190,6 +198,11 @@ export function getHelpText(): string {
     "  craig task list [--repo <repo-id>]  List known Craig tasks",
     "  craig task current       Show the task resolved from flags, environment, or cwd",
     "  craig task show [<id>]   Show task details; omit id to use resolved context",
+    "  craig task pr show [<id>] [--repo <repo-id>]",
+    "  craig task pr discover [<id>] [--repo <repo-id>]",
+    "  craig task pr link [<id>] --pr <url|number> [--repo <repo-id>]",
+    "  craig task pr refresh [<id>] [--repo <repo-id>]",
+    "  craig task pr unlink [<id>] --pr <url|number> [--repo <repo-id>]",
     "  craig task logs <id>     Stream Craig-managed logs for a task",
     "  craig task diff <id>     Show the current worktree diff for a task",
     "  craig task attach <id>   Attach to a live task session",
@@ -343,6 +356,67 @@ function parseTaskNew(args: string[]): AppCommand {
     ...(runner ? { runner } : {}),
     prompt,
   };
+}
+
+function parseTaskPr(args: string[]): AppCommand {
+  const [action, ...commandArgs] = args;
+  if (!["show", "discover", "link", "refresh", "unlink"].includes(action ?? "")) {
+    throw usageError(`Unsupported command: task pr ${args.join(" ")}`);
+  }
+
+  let taskId: string | undefined;
+  let repoId: string | undefined;
+  let pullRequest: string | undefined;
+  for (let index = 0; index < commandArgs.length; index += 1) {
+    const token = commandArgs[index]!;
+    if (token !== "--repo" && token !== "--pr") {
+      if (token.startsWith("--")) {
+        throw usageError(`Unsupported task pr ${action} option: ${token}`);
+      }
+      if (taskId !== undefined) {
+        throw usageError(`task pr ${action} accepts at most one task id.`);
+      }
+      taskId = requireNonEmpty(token, "Task id");
+      continue;
+    }
+
+    const value = commandArgs[index + 1];
+    if (value === undefined || value === "--") {
+      throw usageError(`Task PR option ${token} requires a value.`);
+    }
+    index += 1;
+    if (token === "--repo") {
+      if (repoId !== undefined) {
+        throw usageError("Task PR option --repo may only be provided once.");
+      }
+      repoId = requireNonEmpty(value, "Repo id");
+    } else {
+      if (pullRequest !== undefined) {
+        throw usageError("Task PR option --pr may only be provided once.");
+      }
+      pullRequest = requireNonEmpty(value, "Pull request selector");
+    }
+  }
+
+  if ((action === "link" || action === "unlink") && pullRequest === undefined) {
+    throw usageError(`task pr ${action} requires --pr <url|number>.`);
+  }
+  if (action !== "link" && action !== "unlink" && pullRequest !== undefined) {
+    throw usageError(`task pr ${action} does not accept --pr.`);
+  }
+
+  const target = {
+    ...(taskId ? { taskId } : {}),
+    ...(repoId ? { repoId } : {}),
+  };
+  switch (action) {
+    case "show": return { kind: "showTaskPr", ...target };
+    case "discover": return { kind: "discoverTaskPr", ...target };
+    case "link": return { kind: "linkTaskPr", ...target, pullRequest: pullRequest! };
+    case "refresh": return { kind: "refreshTaskPr", ...target };
+    case "unlink": return { kind: "unlinkTaskPr", ...target, pullRequest: pullRequest! };
+    default: throw usageError(`Unsupported command: task pr ${args.join(" ")}`);
+  }
 }
 
 function commandResult(command: AppCommand, options: CliGlobalOptions): ParsedArgvCommand {

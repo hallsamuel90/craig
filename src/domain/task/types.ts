@@ -53,6 +53,8 @@ export type TaskPullRequestReviewDecision = "APPROVED" | "CHANGES_REQUESTED" | "
 
 export interface TaskPullRequest {
   provider: "github";
+  owner?: string | null;
+  repo?: string | null;
   number: number | null;
   url: string | null;
   baseBranch: string | null;
@@ -251,6 +253,25 @@ export interface CommandCurrentTaskResult {
     source: TaskContextSource;
     agentTabId: string | null;
   };
+}
+
+export type TaskPrCommandDisposition =
+  | "shown"
+  | "discovered"
+  | "linked"
+  | "synced"
+  | "unlinked"
+  | "unchanged"
+  | "not_found";
+
+export interface CommandTaskPrResult {
+  kind: "showTaskPr" | "discoverTaskPr" | "linkTaskPr" | "refreshTaskPr" | "unlinkTaskPr";
+  taskId: string;
+  repoId: string;
+  disposition: TaskPrCommandDisposition;
+  pullRequests: TaskPR[];
+  primaryPullRequest: TaskPR | null;
+  warnings: string[];
 }
 
 export interface CommandLogsResult {

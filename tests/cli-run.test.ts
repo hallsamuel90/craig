@@ -5,7 +5,8 @@ import { afterEach, describe, expect, test } from "vitest";
 
 import { runCli, type RunCliOptions } from "../src/commands/run.js";
 import { CRAIG_EXIT_CODE_BY_ERROR } from "../src/domain/error/index.js";
-import { createCraigState, createRepoRoot, writeTaskRecord } from "./test-helpers.js";
+import { createCraigState, createGitRepo, createRepoRoot, writeTaskRecord } from "./test-helpers.js";
+import { runCommand } from "../src/shared/exec.js";
 
 const tempRoots: string[] = [];
 
@@ -122,6 +123,63 @@ describe("CLI execution contract", () => {
         kind: "showTask",
         task: { id: "task_1" },
       },
+    });
+  });
+
+  test("routes task PR commands through explicit global task context and JSON envelopes", async () => {
+    const root = await createRepoRoot("craig-cli-task-pr-");
+    tempRoots.push(root);
+    await createGitRepo(root);
+    await runCommand("git", ["remote", "add", "origin", "https://github.com/example/repo.git"], {
+      cwd: root,
+    });
+    await createCraigState(root, ["task_1"]);
+    await writeTaskRecord(root, {
+      id: "task_1",
+      worktreePath: root,
+      branch: "craig/task_1",
+      prs: [{
+        provider: "github",
+        owner: "example",
+        repo: "repo",
+        number: 17,
+        url: "https://github.com/example/repo/pull/17",
+        title: "PR 17",
+        status: "open",
+        draft: false,
+        baseBranch: "main",
+        headBranch: "craig/task_1",
+        mergeable: false,
+        mergeStateStatus: "BLOCKED",
+        reviewDecision: null,
+        requiredChecks: [],
+        comments: [],
+        createdAt: null,
+        updatedAt: null,
+        mergedAt: null,
+        lastSyncedAt: null,
+        lastSyncedHeadSha: null,
+      }],
+    });
+    const output = createOutput();
+
+    const exitCode = await runCli(
+      createOptions(root, ["task", "pr", "show", "--task", "task_1", "--json"], output),
+    );
+
+    expect(exitCode).toBe(0);
+    expect(output.stderr).toEqual([]);
+    expect(JSON.parse(output.stdout[0]!)).toMatchObject({
+      command: "task.pr.show",
+      ok: true,
+      data: {
+        kind: "showTaskPr",
+        taskId: "task_1",
+        repoId: "repo_test",
+        disposition: "shown",
+        primaryPullRequest: { number: 17 },
+      },
+      warnings: [],
     });
   });
 
@@ -251,6 +309,7 @@ describe("CLI execution contract", () => {
       CLI_USAGE: 2,
       WORKSPACE_CONTEXT_NOT_FOUND: 3,
       TASK_CONTEXT_CONFLICT: 4,
+      PR_BRANCH_MISMATCH: 4,
       EXTERNAL_DEPENDENCY_FAILED: 5,
       OPERATION_TIMEOUT: 6,
       PARTIAL_RESULT: 7,

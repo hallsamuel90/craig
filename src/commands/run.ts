@@ -126,6 +126,9 @@ function getTaskResolution(command: AppCommand): "none" | "optional" | "required
   if (command.kind === "currentTask" || command.kind === "showCurrentTask") {
     return "required";
   }
+  if (isTaskPrCommand(command)) {
+    return command.taskId ? "none" : "required";
+  }
   return "none";
 }
 
@@ -174,11 +177,31 @@ function getPositionalTaskId(command: AppCommand): string | undefined {
     case "runChecks":
     case "commitTask":
       return command.taskId;
+    case "showTaskPr":
+    case "discoverTaskPr":
+    case "linkTaskPr":
+    case "refreshTaskPr":
+    case "unlinkTaskPr":
+      return command.taskId;
     case "addTaskLink":
       return command.taskId;
     default:
       return undefined;
   }
+}
+
+function isTaskPrCommand(
+  command: AppCommand,
+): command is Extract<AppCommand, {
+  kind: "showTaskPr" | "discoverTaskPr" | "linkTaskPr" | "refreshTaskPr" | "unlinkTaskPr";
+}> {
+  return [
+    "showTaskPr",
+    "discoverTaskPr",
+    "linkTaskPr",
+    "refreshTaskPr",
+    "unlinkTaskPr",
+  ].includes(command.kind);
 }
 
 function isCiEnvironment(env: Record<string, string | undefined>): boolean {

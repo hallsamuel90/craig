@@ -1,11 +1,15 @@
-import type { CommandResult } from "./types.js";
+import type { CommandResult, CommandTaskPrResult } from "./types.js";
 import type { CraigError } from "../domain/error/index.js";
+
+type JsonSuccessData =
+  | Exclude<CommandResult, CommandTaskPrResult>
+  | Omit<CommandTaskPrResult, "warnings">;
 
 interface JsonSuccessEnvelope {
   schemaVersion: 1;
   command: string;
   ok: true;
-  data: CommandResult;
+  data: JsonSuccessData;
   warnings: string[];
 }
 
@@ -22,14 +26,26 @@ interface JsonErrorEnvelope {
 }
 
 export function formatJsonSuccess(command: string, result: CommandResult): string {
+  const { data, warnings } = splitResultWarnings(result);
   const envelope: JsonSuccessEnvelope = {
     schemaVersion: 1,
     command,
     ok: true,
-    data: result,
-    warnings: [],
+    data,
+    warnings,
   };
   return JSON.stringify(envelope);
+}
+
+function splitResultWarnings(result: CommandResult): {
+  data: JsonSuccessData;
+  warnings: string[];
+} {
+  if ("warnings" in result && Array.isArray(result.warnings)) {
+    const { warnings, ...data } = result;
+    return { data, warnings };
+  }
+  return { data: result, warnings: [] };
 }
 
 export function formatJsonError(command: string, error: CraigError): string {
