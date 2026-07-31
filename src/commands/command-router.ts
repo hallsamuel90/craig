@@ -6,12 +6,14 @@ import { getDefaultUiState, readUiState, writeUiState } from "../state/ui-state-
 import { getHelpText } from "./parse-argv.js";
 import { taskService } from "../domain/task/index.js";
 import { listWorkspaceRecords, workspaceService } from "../domain/workspace/index.js";
+import { agentStatusService } from "../shell/agent-status.js";
 
 export interface CommandContext {
   paths: CraigPaths;
   selectedTaskId?: string | null;
   workspaceContext?: ResolvedWorkspaceContext;
   taskContext?: ResolvedTaskContext | null;
+  signal?: AbortSignal;
 }
 
 export async function executeCommand(
@@ -132,6 +134,24 @@ export async function executeCommand(
         resolveCommandTaskId(command.taskId, context),
         command.pullRequest,
         command.repoId,
+      );
+    case "listAgents":
+      return agentStatusService.listAgents(context.paths, command.taskId);
+    case "showAgentStatus":
+      return agentStatusService.showAgentStatus(context.paths, {
+        ...(command.taskId ? { taskId: command.taskId } : {}),
+        ...(command.tabId ? { tabId: command.tabId } : {}),
+      });
+    case "waitTask":
+      return agentStatusService.waitForTask(
+        context.paths,
+        resolveCommandTaskId(command.taskId, context),
+        {
+          states: command.states,
+          timeoutMs: command.timeoutMs,
+          ...(command.tabId ? { tabId: command.tabId } : {}),
+          ...(context.signal ? { signal: context.signal } : {}),
+        },
       );
     case "showSelectedTask":
       return taskService.showTask(context.paths, requireSelectedTaskId(context, "show"));

@@ -272,7 +272,7 @@ craig task wait [<task-id>] --state <state[,state...]> \
   [--tab <tab-id>] [--timeout <duration>] --json
 ```
 
-`task wait` first reads current state, then subscribes from the returned event cursor, eliminating the read/subscribe race. It exits `6` on timeout and supports `SIGINT` cancellation without mutating the task.
+`task wait` subscribes to daemon activity before reconciling its initial snapshot, eliminating the read/subscribe race without depending on the Phase `2.2` journal. It exits `6` on timeout, reconnects across daemon availability changes, and supports `SIGINT` cancellation without mutating the task. Phase `2.2` can replace this transport-specific subscription with a durable event cursor without changing the command contract.
 
 ### Durable event journal
 
@@ -604,8 +604,8 @@ Records carry a schema version. Readers migrate supported older versions in memo
 
 - `1.1` Add machine-readable command output and deterministic workspace/task context: `verified; regression hardening complete`
 - `1.2` Add explicit PR show/discover/link/refresh/unlink repair commands: `implemented, review-hardened, and verified`
-- `1.3` Import an existing same-repository PR as a Craig task: `pending`
-- `2.1` Extract domain-owned agent status and expose list/status/wait: `pending`
+- `1.3` Import an existing same-repository PR as a Craig task: `deferred by product decision`
+- `2.1` Extract domain-owned agent status and expose list/status/wait: `implemented and verified`
 - `2.2` Add the durable event journal and event list/watch: `pending`
 - `3.1` Add durable, target-specific prompt dispatch and command inspection/wait/cancel: `pending`
 - `4.1` Add capability-scoped parent/child delegation and tree cancellation: `pending`
@@ -618,8 +618,8 @@ Records carry a schema version. Readers migrate supported older versions in memo
 
 - `1.1` Verified by replacing ad hoc argv matching with a structured parser for order-independent global options; adding versioned JSON success/error envelopes, an authoritative error-code-to-exit-code mapping, non-interactive guards, and stable exit categories; resolving workspace context through explicit flags, environment, ancestors, and Git common-worktree discovery; resolving task and agent-tab context through explicit flags, environment, and task filesystem topology without UI selection; exposing `context show`, `task current`, and optional-context `task show`; and propagating Craig identity into task PTYs. Coverage includes every pre-existing parser command with global options before and after the command, flag separators, stdout/stderr isolation, no-input behavior, optional-context task-show execution, task/repo/workspace not-found exits, corrupt-record classification, precedence, missing/invalid/ambiguous/conflicting context, macOS canonical path aliases, project task bundles and repo targets, ambient-context isolation, and packed-artifact JSON success and failure execution. Automated verification passed with 515 tests via `pnpm test`, plus `pnpm typecheck`, `pnpm lint`, `pnpm build`, `pnpm build:npm`, `pnpm package:audit`, and `pnpm package:smoke`.
 - `1.2` Verified by adding task-domain `show`, `discover`, `link`, `refresh`, and `unlink` association services and matching `craig task pr` commands; accepting numeric and GitHub URL selectors; resolving repo-task and explicit or URL-inferred project targets; fetching before link; rejecting repository, branch, and task-target mismatches with stable PR-specific conflict codes; preserving sequential repo-qualified PR history; keeping project target mirrors and PR status artifacts synchronized; re-deriving task status after mutations; and serializing PR, heartbeat, lifecycle, check, commit, cleanup, link, and UI task persistence through the same crash-recoverable task-scoped workspace lock. Review hardening also made unlink independent of a live local Git remote, promotes the preceding project PR when the active association is removed, and emits warnings only once at the stable JSON envelope level. Coverage includes invalid and duplicate options, global and positional task context, stable JSON envelopes and warnings, URL and numeric selectors, no-result discovery, idempotent duplicate link and unlink, offline unlink, active-PR replacement warnings and rollback, project ambiguity, repository and branch mismatch rejection, same-number PRs in different project repositories, concurrent CLI links, concurrent heartbeat/CLI and ordinary task/CLI persistence, stale-lock recovery, and exit `7` partial-result reporting when the task persists but its artifact write fails. Automated verification passed with 536 tests via `pnpm test`, plus `pnpm typecheck`, `pnpm lint`, `pnpm build`, `pnpm build:npm`, `pnpm package:audit`, and `pnpm package:smoke`. An authenticated disposable-workspace smoke against GitHub PR `hallsamuel90/craig#176` verified packed `link`, `show`, `refresh`, and numeric `unlink` JSON flows without modifying a real Craig task.
-- `1.3` Not yet verified.
-- `2.1` Not yet verified.
+- `1.3` Deferred after confirming the Phase `1.2` machine-ready `task pr link` flow already addresses the current association-repair use case. Revisit only if real usage demonstrates that linking must safely replace a task branch or worktree.
+- `2.1` Verified by moving PTY activity snapshots and the `idle | working | ready | error` derivation into a domain-owned agent contract; keeping animation presentation in the UI; adding a shell-owned daemon protocol and activity adapter that observes, reconciles, and reconnects to the existing daemon without starting it as a read side effect; and exposing `agent list`, `agent status`, and `task wait` with versioned JSON results, global task filtering, per-tab selection, task roll-ups, duration parsing, timeout exit `6`, and distinct machine-readable `SIGINT` cancellation. The CLI and sidebar now call the same state and priority functions. Coverage includes all four states, multiple-agent task roll-up, ignored terminal tabs, correctly scoped durable startup failure, successful and non-zero exits, absent daemon behavior with preview disabled, workspace-wide listing from inside a task worktree, missing or cross-task tabs, subscription-before-snapshot race prevention, the shell-owned daemon client's snapshot and connection-loss behavior, timeout, cancellation, and parser/JSON contracts. Automated verification passed with 552 tests via `pnpm test`, including the PTY daemon and real-terminal E2E suites, plus `pnpm typecheck`, `pnpm lint`, `pnpm build`, `pnpm build:npm`, `pnpm package:audit`, and `pnpm package:smoke`.
 - `2.2` Not yet verified.
 - `3.1` Not yet verified.
 - `4.1` Not yet verified.
@@ -630,10 +630,11 @@ Records carry a schema version. Readers migrate supported older versions in memo
 
 ### Next resume point
 
-Resume at `1.3`. Treat the verified Phase `1.1` context/JSON contracts and Phase `1.2` repo-qualified PR association service, GitHub verification rules, shared task-scoped mutation lock, offline unlink behavior, and project-target history promotion as the stable foundation for importing an existing same-repository PR as a Craig task. Reuse the verified selector and repository matching behavior, add explicit worktree ownership metadata, and keep fork-origin import deferred.
+Resume at `2.2`. Treat the verified Phase `2.1` domain-owned agent runtime state, shell daemon observer, task roll-up priority, and race-free `task wait` contract as the stable source for emitting durable semantic `agent.state.changed` events. Preserve the CLI and sidebar state mapping while replacing transport-specific waiting with journal cursors and replay.
 
 ### Skipped and deferred work
 
+- Phase `1.3` PR worktree import is deferred until real usage shows that machine-ready `task pr link` cannot cover the workflow without branch or worktree replacement.
 - Fork-origin PR import is deferred beyond `1.3`.
 - Remote/network control is out of scope.
 - Agent semantic acknowledgements are optional follow-up after reliable delivery.
@@ -742,7 +743,7 @@ Daemon protocol additions are internal, versioned transport contracts. A protoco
 
 - `1.1` and `1.2` are additive stable CLI capabilities and should ship without a feature preview once their machine contracts are tested.
 - `1.3` ships as an explicit command with same-repository limitations documented; it does not alter normal task creation.
-- `2.1` reuses the existing `agentActivityIndicators` preview while the domain extraction lands. CLI status may be marked preview until TUI and CLI report identical results.
+- `2.1` keeps the TUI dots behind the existing `agentActivityIndicators` preview. The additive read-only CLI commands ship stable because the TUI and CLI now derive their states from the same domain contract.
 - `2.2`, `3.1`, `4.1`, and `5.x` are gated by a new `agentOrchestration` feature preview during initial use.
 - Read-only validation, planning, status, and event inspection may be enabled before mutating swarm execution.
 - Preview disablement stops new dispatch/run creation but does not abandon existing durable commands or runs; Craig continues status, cancellation, and safe reconciliation.

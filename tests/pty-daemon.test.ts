@@ -7,6 +7,7 @@ import { tmpdir } from "node:os";
 import { describe, expect, test, vi } from "vitest";
 
 import { createDaemonPtyRuntime, requestDaemonShutdown, servePtyDaemon } from "../src/ui/pty/daemon.js";
+import { tryConnectPtyDaemonActivity } from "../src/shell/pty-daemon-activity.js";
 import { getCraigPaths } from "../src/state/craig-paths.js";
 import { ensureCraigState } from "../src/domain/workspace/workspaces/ensure.js";
 
@@ -193,6 +194,83 @@ describe("PTY daemon", () => {
       second.disposeAll();
     } finally {
       await requestDaemonShutdown(paths);
+      await daemon;
+      await rm(root, { recursive: true, force: true });
+    }
+  }, DAEMON_TEST_TIMEOUT_MS);
+
+  test("marks a running activity snapshot failed when the daemon connection is lost", async () => {
+    const root = await createWorkspace();
+    const paths = getCraigPaths(root);
+    const agentPty = createFakePty();
+    const daemon = servePtyDaemon(paths, {
+      shell: "/bin/zsh",
+      env: { TERM: "xterm-256color" },
+      spawn: vi.fn(() => agentPty),
+    });
+
+    try {
+      const client = await createDaemonPtyRuntime({
+        paths,
+        workspaceRoot: root,
+        activityEnabled: true,
+        resolveSessionSpec: () => ({ cwd: root, command: [] }),
+      });
+      await client.ensureSession("task_1", "task_1:agent", { columns: 80, rows: 24 });
+      await vi.waitFor(() => expect(client.getActivitySnapshots()).toEqual([
+        expect.objectContaining({ tabId: "task_1:agent", sessionState: "running" }),
+      ]));
+      await requestDaemonShutdown(paths);
+      await vi.waitFor(() => expect(client.getActivitySnapshots()).toEqual([
+        expect.objectContaining({
+          tabId: "task_1:agent",
+          sessionState: "failed",
+          error: "Craig PTY daemon connection closed.",
+        }),
+      ]));
+      client.disposeAll();
+    } finally {
+      await daemon;
+      await rm(root, { recursive: true, force: true });
+    }
+  }, DAEMON_TEST_TIMEOUT_MS);
+
+  test("exposes activity through the shell-owned read-only daemon client", async () => {
+    const root = await createWorkspace();
+    const paths = getCraigPaths(root);
+    const agentPty = createFakePty();
+    const onDaemonClose = vi.fn();
+    const daemon = servePtyDaemon(paths, {
+      shell: "/bin/zsh",
+      env: { TERM: "xterm-256color" },
+      spawn: vi.fn(() => agentPty),
+    });
+
+    try {
+      const runtime = await createDaemonPtyRuntime({
+        paths,
+        workspaceRoot: root,
+        resolveSessionSpec: () => ({ cwd: root, command: [] }),
+      });
+      await runtime.ensureSession("task_1", "task_1:agent", { columns: 80, rows: 24 });
+      const activity = await tryConnectPtyDaemonActivity({ paths, onDaemonClose });
+      expect(activity).not.toBeNull();
+      await vi.waitFor(() => expect(activity?.getSnapshots()).toEqual([
+        expect.objectContaining({ tabId: "task_1:agent", sessionState: "running" }),
+      ]));
+
+      await requestDaemonShutdown(paths);
+      await vi.waitFor(() => expect(onDaemonClose).toHaveBeenCalledTimes(1));
+      expect(activity?.getSnapshots()).toEqual([
+        expect.objectContaining({
+          tabId: "task_1:agent",
+          sessionState: "failed",
+          error: "Craig PTY daemon connection closed.",
+        }),
+      ]);
+      activity?.close();
+      runtime.disposeAll();
+    } finally {
       await daemon;
       await rm(root, { recursive: true, force: true });
     }

@@ -6,7 +6,7 @@ import type { WorkspaceShellModel } from "./shell/data.js";
 import type { PreviewOptionsState, RunnerOptionsState } from "./options.js";
 import type { PtySize } from "./pty/runtime.js";
 import type { ControlShellState } from "./state.js";
-import type { PtyActivitySnapshot } from "./agent-activity.js";
+import type { PtyActivitySnapshot } from "../domain/agent/index.js";
 
 type OverlayVariant = "boot" | "pause" | "help" | "options" | "runners" | "previews" | "error-log";
 

@@ -18,6 +18,7 @@ export interface RunCliOptions {
   writeStderr: (_value: string) => void;
   /* eslint-disable-next-line no-unused-vars */
   runInteractive: (_workspaceRoot: string) => Promise<number>;
+  signal?: AbortSignal;
 }
 
 export async function runCli(options: RunCliOptions): Promise<number> {
@@ -62,8 +63,9 @@ export async function runCli(options: RunCliOptions): Promise<number> {
 
     commandName = parsed.commandName;
     assertCompatibleTaskTargets(parsed.command, parsed.options.taskId);
-    const taskResolution = getTaskResolution(parsed.command);
-    assertTaskOptionApplies(parsed.command, parsed.options.taskId, taskResolution);
+    const command = bindGlobalTaskTarget(parsed.command, parsed.options.taskId);
+    const taskResolution = getTaskResolution(command);
+    assertTaskOptionApplies(command, parsed.options.taskId, taskResolution);
     const resolvesTaskContext = taskResolution !== "none";
     const context = await resolveCliContext({
       cwd: options.cwd,
@@ -82,15 +84,22 @@ export async function runCli(options: RunCliOptions): Promise<number> {
       ...(resolvesTaskContext && options.env.CRAIG_AGENT_TAB_ID !== undefined
         ? { environmentAgentTabId: options.env.CRAIG_AGENT_TAB_ID }
         : {}),
-      allowUninitializedWorkspace: allowsUninitializedWorkspace(parsed.command),
+      allowUninitializedWorkspace: allowsUninitializedWorkspace(command),
       resolveTask: taskResolution !== "none",
       requireTask: taskResolution === "required",
     });
-    const result = await executeCommand(parsed.command, {
-      paths: context.paths,
-      workspaceContext: context.workspace,
-      taskContext: context.task,
-    });
+    const cancellation = createCommandCancellation(command, options.signal);
+    let result: Awaited<ReturnType<typeof executeCommand>>;
+    try {
+      result = await executeCommand(command, {
+        paths: context.paths,
+        workspaceContext: context.workspace,
+        taskContext: context.task,
+        ...(cancellation.signal ? { signal: cancellation.signal } : {}),
+      });
+    } finally {
+      cancellation.dispose();
+    }
     const output = jsonOutput
       ? formatJsonSuccess(commandName, result)
       : formatCommandResult(result);
@@ -127,6 +136,12 @@ function getTaskResolution(command: AppCommand): "none" | "optional" | "required
     return "required";
   }
   if (isTaskPrCommand(command)) {
+    return command.taskId ? "none" : "required";
+  }
+  if (command.kind === "listAgents" || command.kind === "showAgentStatus") {
+    return "none";
+  }
+  if (command.kind === "waitTask") {
     return command.taskId ? "none" : "required";
   }
   return "none";
@@ -176,6 +191,9 @@ function getPositionalTaskId(command: AppCommand): string | undefined {
     case "openTask":
     case "runChecks":
     case "commitTask":
+    case "waitTask":
+    case "listAgents":
+    case "showAgentStatus":
       return command.taskId;
     case "showTaskPr":
     case "discoverTaskPr":
@@ -188,6 +206,29 @@ function getPositionalTaskId(command: AppCommand): string | undefined {
     default:
       return undefined;
   }
+}
+
+function bindGlobalTaskTarget(command: AppCommand, globalTaskId: string | undefined): AppCommand {
+  if (!globalTaskId) return command;
+  if (command.kind === "listAgents" || command.kind === "showAgentStatus" || command.kind === "waitTask") {
+    return { ...command, taskId: command.taskId ?? globalTaskId };
+  }
+  return command;
+}
+
+function createCommandCancellation(
+  command: AppCommand,
+  providedSignal: AbortSignal | undefined,
+): { signal?: AbortSignal; dispose(): void } {
+  if (command.kind !== "waitTask") return { dispose: () => undefined };
+  if (providedSignal) return { signal: providedSignal, dispose: () => undefined };
+  const controller = new AbortController();
+  const cancel = () => controller.abort();
+  process.once("SIGINT", cancel);
+  return {
+    signal: controller.signal,
+    dispose: () => process.removeListener("SIGINT", cancel),
+  };
 }
 
 function isTaskPrCommand(

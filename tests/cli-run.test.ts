@@ -183,6 +183,99 @@ describe("CLI execution contract", () => {
     });
   });
 
+  test("reports agent status without requiring the activity preview or a live daemon", async () => {
+    const root = await createRepoRoot("craig-cli-agent-status-");
+    tempRoots.push(root);
+    await createCraigState(root, ["task_1"]);
+    const task = await writeTaskRecord(root, { id: "task_1" });
+    const agentTab = task.ptyTabs.find((tab) => tab.kind === "agent")!;
+    const output = createOutput();
+
+    const exitCode = await runCli(createOptions(root, [
+      "agent", "status", "--task", task.id, "--tab", agentTab.id, "--json",
+    ], output));
+
+    expect(exitCode).toBe(0);
+    expect(output.stderr).toEqual([]);
+    expect(JSON.parse(output.stdout[0]!)).toMatchObject({
+      command: "agent.status",
+      ok: true,
+      data: {
+        kind: "showAgentStatus",
+        daemonAvailable: false,
+        agents: [{ taskId: task.id, tabId: agentTab.id, state: "idle" }],
+        tasks: [{ taskId: task.id, state: "idle" }],
+      },
+    });
+  });
+
+  test("lists every agent when invoked from a task worktree without an explicit filter", async () => {
+    const root = await createRepoRoot("craig-cli-agent-list-");
+    const firstWorktree = path.join(root, "task-1");
+    tempRoots.push(root);
+    await mkdir(firstWorktree, { recursive: true });
+    await createCraigState(root, ["task_1", "task_2"]);
+    await writeTaskRecord(root, { id: "task_1", worktreePath: firstWorktree });
+    await writeTaskRecord(root, { id: "task_2" });
+    const output = createOutput();
+
+    const exitCode = await runCli(createOptions(firstWorktree, ["agent", "list", "--json"], output));
+
+    expect(exitCode).toBe(0);
+    const result = JSON.parse(output.stdout[0]!) as { data: { agents: Array<{ taskId: string }> } };
+    expect(result.data.agents.map((agent) => agent.taskId)).toEqual(["task_1", "task_2"]);
+  });
+
+  test("returns machine-readable task wait success and timeout results", async () => {
+    const root = await createRepoRoot("craig-cli-agent-wait-");
+    tempRoots.push(root);
+    await createCraigState(root, ["task_1"]);
+    await writeTaskRecord(root, { id: "task_1" });
+    const successOutput = createOutput();
+    const timeoutOutput = createOutput();
+
+    const success = await runCli(createOptions(root, [
+      "task", "wait", "task_1", "--state", "idle", "--timeout", "0ms", "--json",
+    ], successOutput));
+    const timeout = await runCli(createOptions(root, [
+      "task", "wait", "task_1", "--state", "ready", "--timeout", "0ms", "--json",
+    ], timeoutOutput));
+
+    expect(success).toBe(0);
+    expect(JSON.parse(successOutput.stdout[0]!)).toMatchObject({
+      command: "task.wait",
+      data: { kind: "waitTask", taskId: "task_1", state: "idle" },
+    });
+    expect(timeout).toBe(6);
+    expect(JSON.parse(timeoutOutput.stderr[0]!)).toMatchObject({
+      command: "task.wait",
+      error: { code: "OPERATION_TIMEOUT", retryable: true },
+    });
+  });
+
+  test("returns a distinct machine-readable cancellation for task wait", async () => {
+    const root = await createRepoRoot("craig-cli-agent-cancel-");
+    tempRoots.push(root);
+    await createCraigState(root, ["task_1"]);
+    await writeTaskRecord(root, { id: "task_1" });
+    const output = createOutput();
+    const controller = new AbortController();
+    controller.abort();
+
+    const exitCode = await runCli({
+      ...createOptions(root, [
+        "task", "wait", "task_1", "--state", "ready", "--timeout", "1m", "--json",
+      ], output),
+      signal: controller.signal,
+    });
+
+    expect(exitCode).toBe(6);
+    expect(JSON.parse(output.stderr[0]!)).toMatchObject({
+      command: "task.wait",
+      error: { code: "OPERATION_CANCELLED", retryable: true, details: { cancelled: true } },
+    });
+  });
+
   test("does not enter the terminal application when input is disabled", async () => {
     const root = await createRepoRoot("craig-cli-no-input-");
     tempRoots.push(root);
@@ -312,6 +405,7 @@ describe("CLI execution contract", () => {
       PR_BRANCH_MISMATCH: 4,
       EXTERNAL_DEPENDENCY_FAILED: 5,
       OPERATION_TIMEOUT: 6,
+      OPERATION_CANCELLED: 6,
       PARTIAL_RESULT: 7,
     });
   });

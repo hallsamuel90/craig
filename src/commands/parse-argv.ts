@@ -1,4 +1,5 @@
 import type { AppCommand } from "./types.js";
+import type { AgentRuntimeState } from "../domain/agent/index.js";
 import { configService } from "../domain/config/index.js";
 import { CraigError } from "../domain/error/index.js";
 
@@ -78,6 +79,16 @@ export function parseArgv(argv: string[]): ParsedArgvCommand {
     case "task:pr":
       command = parseTaskPr(args);
       break;
+    case "task:wait":
+      command = parseTaskWait(args);
+      break;
+    case "agent:list":
+      requireNoArgs(args, "agent list");
+      command = { kind: "listAgents" };
+      break;
+    case "agent:status":
+      command = parseAgentStatus(args);
+      break;
     case "task:attach":
       command = { kind: "attachTask", taskId: requireSingleValue(args, "Task id") };
       break;
@@ -156,6 +167,9 @@ export function getCommandName(command: AppCommand): string {
     linkTaskPr: "task.pr.link",
     refreshTaskPr: "task.pr.refresh",
     unlinkTaskPr: "task.pr.unlink",
+    listAgents: "agent.list",
+    showAgentStatus: "agent.status",
+    waitTask: "task.wait",
     attachTask: "task.attach",
     addTaskLink: "link.add",
     listTaskLinks: "link.list",
@@ -203,6 +217,9 @@ export function getHelpText(): string {
     "  craig task pr link [<id>] --pr <url|number> [--repo <repo-id>]",
     "  craig task pr refresh [<id>] [--repo <repo-id>]",
     "  craig task pr unlink [<id>] --pr <url|number> [--repo <repo-id>]",
+    "  craig agent list [--task <task-id>]  List agent-tab and task roll-up states",
+    "  craig agent status [--task <task-id>] [--tab <tab-id>]  Show agent state details",
+    "  craig task wait [<id>] --state <states> [--tab <tab-id>] [--timeout <duration>]",
     "  craig task logs <id>     Stream Craig-managed logs for a task",
     "  craig task diff <id>     Show the current worktree diff for a task",
     "  craig task attach <id>   Attach to a live task session",
@@ -417,6 +434,66 @@ function parseTaskPr(args: string[]): AppCommand {
     case "unlink": return { kind: "unlinkTaskPr", ...target, pullRequest: pullRequest! };
     default: throw usageError(`Unsupported command: task pr ${args.join(" ")}`);
   }
+}
+
+const DEFAULT_WAIT_TIMEOUT_MS = 5 * 60 * 1_000;
+const AGENT_STATES = new Set(["idle", "working", "ready", "error"]);
+
+function parseAgentStatus(args: string[]): AppCommand {
+  if (args.length === 0) return { kind: "showAgentStatus" };
+  if (args.length === 2 && args[0] === "--tab") {
+    return { kind: "showAgentStatus", tabId: requireNonEmpty(args[1]!, "Agent tab id") };
+  }
+  throw usageError(`Unsupported command: agent status ${args.join(" ")}`);
+}
+
+function parseTaskWait(args: string[]): AppCommand {
+  let taskId: string | undefined;
+  let states: AgentRuntimeState[] | undefined;
+  let tabId: string | undefined;
+  let timeoutMs = DEFAULT_WAIT_TIMEOUT_MS;
+  const seen = new Set<string>();
+
+  for (let index = 0; index < args.length; index += 1) {
+    const token = args[index]!;
+    if (!["--state", "--tab", "--timeout"].includes(token)) {
+      if (token.startsWith("--")) throw usageError(`Unsupported task wait option: ${token}`);
+      if (taskId !== undefined) throw usageError("task wait accepts at most one task id.");
+      taskId = requireNonEmpty(token, "Task id");
+      continue;
+    }
+    if (seen.has(token)) throw usageError(`Task wait option ${token} may only be provided once.`);
+    seen.add(token);
+    const value = args[index + 1];
+    if (value === undefined || value.startsWith("--")) {
+      throw usageError(`Task wait option ${token} requires a value.`);
+    }
+    index += 1;
+    if (token === "--state") states = parseAgentStates(value);
+    else if (token === "--tab") tabId = requireNonEmpty(value, "Agent tab id");
+    else timeoutMs = parseDuration(value);
+  }
+
+  if (!states) throw usageError("task wait requires --state <idle|working|ready|error>[,...].");
+  return { kind: "waitTask", ...(taskId ? { taskId } : {}), states, ...(tabId ? { tabId } : {}), timeoutMs };
+}
+
+function parseAgentStates(value: string): AgentRuntimeState[] {
+  const states = value.split(",").map((state) => state.trim()).filter(Boolean);
+  if (states.length === 0 || states.some((state) => !AGENT_STATES.has(state))) {
+    throw usageError(`Invalid agent state list "${value}". Use idle, working, ready, or error.`);
+  }
+  return [...new Set(states)] as AgentRuntimeState[];
+}
+
+function parseDuration(value: string): number {
+  const match = /^(\d+)(ms|s|m|h)$/.exec(value.trim());
+  if (!match) throw usageError(`Invalid duration "${value}". Use values such as 500ms, 30s, 5m, or 1h.`);
+  const amount = Number(match[1]);
+  const multiplier = { ms: 1, s: 1_000, m: 60_000, h: 3_600_000 }[match[2] as "ms" | "s" | "m" | "h"];
+  const milliseconds = amount * multiplier;
+  if (!Number.isSafeInteger(milliseconds)) throw usageError(`Duration "${value}" is too large.`);
+  return milliseconds;
 }
 
 function commandResult(command: AppCommand, options: CliGlobalOptions): ParsedArgvCommand {

@@ -26,6 +26,12 @@ import type {
   CommandRemoveWorkspaceResult,
 } from "../domain/workspace/index.js";
 import type { CommandShowContextResult } from "../domain/context/index.js";
+import type {
+  AgentRuntimeState,
+  CommandAgentListResult,
+  CommandAgentStatusResult,
+  CommandTaskWaitResult,
+} from "../domain/agent/index.js";
 
 export type AppCommand =
   | { kind: "addWorkspace"; path: string }
@@ -50,6 +56,9 @@ export type AppCommand =
   | { kind: "linkTaskPr"; taskId?: string; repoId?: string; pullRequest: string }
   | { kind: "refreshTaskPr"; taskId?: string; repoId?: string }
   | { kind: "unlinkTaskPr"; taskId?: string; repoId?: string; pullRequest: string }
+  | { kind: "listAgents"; taskId?: string }
+  | { kind: "showAgentStatus"; taskId?: string; tabId?: string }
+  | { kind: "waitTask"; taskId?: string; states: AgentRuntimeState[]; tabId?: string; timeoutMs: number }
   | { kind: "showSelectedTask" }
   | { kind: "streamTaskLogs"; taskId: string }
   | { kind: "streamSelectedTaskLogs" }
@@ -100,6 +109,10 @@ export type {
   CommandRestoreWorkspaceResult,
   CommandRemoveWorkspaceResult,
   CommandShowContextResult,
+  AgentRuntimeState,
+  CommandAgentListResult,
+  CommandAgentStatusResult,
+  CommandTaskWaitResult,
 };
 
 export type CommandResult =
@@ -121,6 +134,9 @@ export type CommandResult =
   | CommandShowTaskResult
   | CommandCurrentTaskResult
   | CommandTaskPrResult
+  | CommandAgentListResult
+  | CommandAgentStatusResult
+  | CommandTaskWaitResult
   | CommandShowContextResult
   | CommandLogsResult
   | CommandDiffResult

@@ -22,6 +22,9 @@ describe("CLI argument parsing", () => {
     [["task", "pr", "link", "task_1", "--pr", "17"], "linkTaskPr"],
     [["task", "pr", "refresh", "task_1"], "refreshTaskPr"],
     [["task", "pr", "unlink", "task_1", "--pr", "17"], "unlinkTaskPr"],
+    [["agent", "list"], "listAgents"],
+    [["agent", "status", "--tab", "task_1:agent"], "showAgentStatus"],
+    [["task", "wait", "task_1", "--state", "ready,error"], "waitTask"],
     [["task", "attach", "task_1"], "attachTask"],
     [["task", "logs", "task_1"], "streamTaskLogs"],
     [["task", "diff", "task_1"], "showTaskDiff"],
@@ -96,6 +99,38 @@ describe("CLI argument parsing", () => {
       repoId: "repo_a",
       pullRequest: "https://github.com/example/repo/pull/17",
     });
+  });
+
+  test("parses agent status and wait commands", () => {
+    expect(parseArgv(["agent", "list", "--task", "task_1"]).command).toEqual({
+      kind: "listAgents",
+    });
+    expect(parseArgv(["agent", "status", "--task", "task_1", "--tab", "task_1:agent"]).command).toEqual({
+      kind: "showAgentStatus",
+      tabId: "task_1:agent",
+    });
+    expect(parseArgv([
+      "task", "wait", "task_1", "--state", "ready,error,ready", "--tab", "task_1:agent", "--timeout", "30s",
+    ]).command).toEqual({
+      kind: "waitTask",
+      taskId: "task_1",
+      states: ["ready", "error"],
+      tabId: "task_1:agent",
+      timeoutMs: 30_000,
+    });
+  });
+
+  test("rejects invalid agent status and wait options", () => {
+    for (const argv of [
+      ["agent", "list", "extra"],
+      ["agent", "status", "--tab"],
+      ["task", "wait", "task_1"],
+      ["task", "wait", "task_1", "--state", "done"],
+      ["task", "wait", "task_1", "--state", "ready", "--timeout", "30"],
+      ["task", "wait", "task_1", "--state", "ready", "--state", "error"],
+    ]) {
+      expect(() => parseArgv(argv)).toThrow();
+    }
   });
 
   test("rejects missing, duplicate, and inapplicable PR repair options", () => {
