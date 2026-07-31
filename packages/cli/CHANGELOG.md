@@ -1,5 +1,11 @@
 # craig-cli
 
+## 0.10.0
+
+### Minor Changes
+
+- b33492e: Add explicit task PR show, discover, link, refresh, and unlink commands with deterministic JSON output, repository and branch verification, project-target selection, preserved PR history, and concurrency-safe persistence.
+
 ## 0.9.0
 
 ### Minor Changes
