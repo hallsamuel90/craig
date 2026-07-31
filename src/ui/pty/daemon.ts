@@ -1,16 +1,15 @@
 import { spawn as spawnChild } from "node:child_process";
-import { createHash } from "node:crypto";
 import { createServer, createConnection, type Socket, type Server } from "node:net";
 import { openSync } from "node:fs";
 import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
-import { tmpdir } from "node:os";
 import path from "node:path";
 
 import type { CraigPaths } from "../../state/craig-paths.js";
 import { resolveExecutablePath } from "../../shared/command-path.js";
 import type { TerminalViewState } from "../state.js";
 import type { TerminalScreenRow } from "../terminal-emulator.js";
-import type { PtyActivitySnapshot } from "../agent-activity.js";
+import type { PtyActivitySnapshot } from "../../domain/agent/index.js";
+import { getPtyDaemonEndpoint, PTY_DAEMON_PROTOCOL_VERSION } from "../../shell/pty-daemon-protocol.js";
 import {
   PtyRuntime,
   type PtyRuntimeOptions,
@@ -18,7 +17,7 @@ import {
   type PtySize,
 } from "./runtime.js";
 
-const DAEMON_PROTOCOL_VERSION = 6;
+const DAEMON_PROTOCOL_VERSION = PTY_DAEMON_PROTOCOL_VERSION;
 const COMPATIBLE_DAEMON_PROTOCOL_VERSIONS = new Set([DAEMON_PROTOCOL_VERSION]);
 const INCREMENTAL_VIEW_UPDATE_INTERVAL_MS = 16;
 const ACTIVITY_UPDATE_INTERVAL_MS = 250;
@@ -86,7 +85,7 @@ export interface DaemonPtyRuntimeOptions extends PtyRuntimeOptions {
 /* eslint-enable no-unused-vars */
 
 export async function createDaemonPtyRuntime(options: DaemonPtyRuntimeOptions): Promise<DaemonPtyRuntimeClient> {
-  const endpoint = getDaemonEndpoint(options.paths);
+  const endpoint = getPtyDaemonEndpoint(options.paths);
   await ensureDaemonRunning(endpoint, options.paths, options.spawnDaemon);
   const socket = await connectToDaemon(endpoint.socketPath);
   const client = new DaemonPtyRuntimeClient(socket, options);
@@ -95,7 +94,7 @@ export async function createDaemonPtyRuntime(options: DaemonPtyRuntimeOptions): 
 }
 
 export async function servePtyDaemon(paths: CraigPaths, options: Partial<PtyRuntimeOptions> = {}): Promise<void> {
-  const endpoint = getDaemonEndpoint(paths);
+  const endpoint = getPtyDaemonEndpoint(paths);
   await mkdir(paths.runtimeDir, { recursive: true });
   await rm(endpoint.socketPath, { force: true });
   const daemon = new PtyDaemonServer(paths, options);
@@ -120,7 +119,7 @@ export async function servePtyDaemon(paths: CraigPaths, options: Partial<PtyRunt
 }
 
 export async function requestDaemonShutdown(paths: CraigPaths): Promise<boolean> {
-  const endpoint = getDaemonEndpoint(paths);
+  const endpoint = getPtyDaemonEndpoint(paths);
   if (!(await canConnect(endpoint.socketPath))) {
     return false;
   }
@@ -884,14 +883,6 @@ function hasPatchMetadataChanged(
 
 function rowKey(row: TerminalScreenRow): string {
   return JSON.stringify(row);
-}
-
-function getDaemonEndpoint(paths: CraigPaths): { socketPath: string; pidPath: string } {
-  const workspaceHash = createHash("sha256").update(paths.workspaceRoot).digest("hex").slice(0, 16);
-  return {
-    socketPath: path.join(tmpdir(), `craig-${workspaceHash}.sock`),
-    pidPath: path.join(paths.runtimeDir, "pty-daemon.pid"),
-  };
 }
 
 /* eslint-disable no-unused-vars */

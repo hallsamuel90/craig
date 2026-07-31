@@ -124,6 +124,11 @@ export function formatCommandResult(result: CommandResult): string {
     case "refreshTaskPr":
     case "unlinkTaskPr":
       return formatTaskPrResult(result);
+    case "listAgents":
+    case "showAgentStatus":
+      return formatAgentStatuses(result);
+    case "waitTask":
+      return `Task ${result.taskId}${result.tabId ? ` tab ${result.tabId}` : ""} reached ${result.state}.`;
     case "showContext":
       return [
         `Workspace: ${result.workspace.root}`,
@@ -155,6 +160,18 @@ export function formatCommandResult(result: CommandResult): string {
     default:
       return assertNever(result);
   }
+}
+
+function formatAgentStatuses(
+  result: Extract<CommandResult, { kind: "listAgents" | "showAgentStatus" }>,
+): string {
+  if (result.agents.length === 0) return "No agent tabs found.";
+  return [
+    "TASK\tTAB\tRUNNER\tSTATE\tSESSION\tERROR",
+    ...result.agents.map((agent) =>
+      `${agent.taskId}\t${agent.tabId}\t${agent.runner}\t${agent.state}\t${agent.sessionState ?? "none"}\t${agent.error ?? ""}`),
+    ...(!result.daemonAvailable ? ["Warning: PTY daemon unavailable; live agent tabs report idle unless a durable startup failure exists."] : []),
+  ].join("\n");
 }
 
 function formatTaskPrResult(

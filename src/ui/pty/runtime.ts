@@ -11,7 +11,7 @@ import {
   writeTerminalEmulator,
 } from "../terminal-emulator.js";
 import { requireExecutablePath, withDefaultCommandPath } from "../../shared/command-path.js";
-import type { PtyActivitySnapshot } from "../agent-activity.js";
+import type { PtyActivitySnapshot } from "../../domain/agent/index.js";
 
 export interface PtySize {
   columns: number;
