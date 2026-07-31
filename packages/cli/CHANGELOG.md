@@ -1,5 +1,11 @@
 # craig-cli
 
+## 0.9.0
+
+### Minor Changes
+
+- cc99295: Add deterministic workspace, task, and agent-tab context resolution with stable JSON command envelopes, error codes, exit statuses, and non-interactive behavior.
+
 ## 0.8.7
 
 ### Patch Changes
