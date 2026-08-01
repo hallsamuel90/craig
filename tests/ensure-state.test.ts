@@ -27,6 +27,9 @@ describe("ensureCraigState", () => {
     await expect(import("node:fs/promises").then(({ stat }) => stat(paths.reposDir))).resolves.toBeTruthy();
     await expect(import("node:fs/promises").then(({ stat }) => stat(paths.workspacesDir))).resolves.toBeTruthy();
     await expect(import("node:fs/promises").then(({ stat }) => stat(paths.runtimeDir))).resolves.toBeTruthy();
+    await expect(import("node:fs/promises").then(({ stat }) => stat(paths.commandsDir))).resolves.toBeTruthy();
+    await expect(import("node:fs/promises").then(({ stat }) => stat(paths.eventsDir))).resolves.toBeTruthy();
+    await expect(import("node:fs/promises").then(({ stat }) => stat(paths.orchestrationDir))).resolves.toBeTruthy();
     expect(index.workspaceRoot).toBe(workspaceRoot);
     expect(index.repoIds).toEqual([]);
     expect(index.workspaceIds).toEqual([]);

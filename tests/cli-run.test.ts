@@ -7,6 +7,7 @@ import { runCli, type RunCliOptions } from "../src/commands/run.js";
 import { CRAIG_EXIT_CODE_BY_ERROR } from "../src/domain/error/index.js";
 import { createCraigState, createGitRepo, createRepoRoot, writeTaskRecord } from "./test-helpers.js";
 import { runCommand } from "../src/shared/exec.js";
+import { configService } from "../src/domain/config/index.js";
 
 const tempRoots: string[] = [];
 
@@ -276,6 +277,64 @@ describe("CLI execution contract", () => {
     });
   });
 
+  test("gates event commands behind agentOrchestration and lists reconciled events when enabled", async () => {
+    const root = await createRepoRoot("craig-cli-events-");
+    tempRoots.push(root);
+    const paths = await createCraigState(root, ["task_1"]);
+    await writeTaskRecord(root, { id: "task_1" });
+    const disabled = createOutput();
+    const enabled = createOutput();
+
+    expect(await runCli(createOptions(root, ["events", "list", "--json"], disabled))).toBe(2);
+    expect(JSON.parse(disabled.stderr[0]!)).toMatchObject({
+      command: "events.list",
+      error: { code: "CLI_USAGE", details: { preview: "agentOrchestration" } },
+    });
+
+    await configService.save(paths, { previews: { agentOrchestration: true } });
+    expect(await runCli(createOptions(root, ["events", "list", "--task", "task_1", "--json"], enabled))).toBe(0);
+    expect(JSON.parse(enabled.stdout[0]!)).toMatchObject({
+      command: "events.list",
+      data: {
+        kind: "listEvents",
+        events: [
+          { sequence: 1, type: "task.created", taskId: "task_1" },
+          { sequence: 2, type: "agent.state.changed", taskId: "task_1" },
+        ],
+        cursor: { sequence: 2 },
+      },
+    });
+  });
+
+  test("streams resumable JSONL events and uses the journal-backed task wait while previewed", async () => {
+    const root = await createRepoRoot("craig-cli-events-watch-");
+    tempRoots.push(root);
+    const paths = await createCraigState(root, ["task_1"]);
+    await writeTaskRecord(root, { id: "task_1" });
+    await configService.save(paths, { previews: { agentOrchestration: true } });
+    const output = createOutput();
+    const controller = new AbortController();
+    const watchOptions = createOptions(root, ["events", "watch", "--format", "jsonl"], output);
+    watchOptions.signal = controller.signal;
+    watchOptions.writeStdout = (value) => {
+      output.stdout.push(value.trimEnd());
+      controller.abort();
+    };
+
+    expect(await runCli(watchOptions)).toBe(0);
+    expect(output.stdout.length).toBeGreaterThan(0);
+    expect(JSON.parse(output.stdout[0]!)).toMatchObject({ schemaVersion: 1, type: "task.created" });
+
+    const waitOutput = createOutput();
+    expect(await runCli(createOptions(root, [
+      "task", "wait", "task_1", "--state", "idle", "--timeout", "0ms", "--json",
+    ], waitOutput))).toBe(0);
+    expect(JSON.parse(waitOutput.stdout[0]!)).toMatchObject({
+      command: "task.wait",
+      data: { state: "idle" },
+    });
+  });
+
   test("does not enter the terminal application when input is disabled", async () => {
     const root = await createRepoRoot("craig-cli-no-input-");
     tempRoots.push(root);
@@ -406,6 +465,9 @@ describe("CLI execution contract", () => {
       EXTERNAL_DEPENDENCY_FAILED: 5,
       OPERATION_TIMEOUT: 6,
       OPERATION_CANCELLED: 6,
+      EVENT_CURSOR_INVALID: 2,
+      EVENT_CURSOR_EXPIRED: 4,
+      EVENT_JOURNAL_CORRUPT: 2,
       PARTIAL_RESULT: 7,
     });
   });

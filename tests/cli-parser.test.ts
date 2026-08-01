@@ -25,6 +25,8 @@ describe("CLI argument parsing", () => {
     [["agent", "list"], "listAgents"],
     [["agent", "status", "--tab", "task_1:agent"], "showAgentStatus"],
     [["task", "wait", "task_1", "--state", "ready,error"], "waitTask"],
+    [["events", "list", "--type", "agent.*"], "listEvents"],
+    [["events", "watch", "--format", "jsonl"], "watchEvents"],
     [["task", "attach", "task_1"], "attachTask"],
     [["task", "logs", "task_1"], "streamTaskLogs"],
     [["task", "diff", "task_1"], "showTaskDiff"],
@@ -128,6 +130,21 @@ describe("CLI argument parsing", () => {
       ["task", "wait", "task_1", "--state", "done"],
       ["task", "wait", "task_1", "--state", "ready", "--timeout", "30"],
       ["task", "wait", "task_1", "--state", "ready", "--state", "error"],
+    ]) {
+      expect(() => parseArgv(argv)).toThrow();
+    }
+  });
+
+  test("parses event filters and rejects invalid stream options", () => {
+    expect(parseArgv(["events", "list", "--task", "task_1", "--type", "task.*", "--after", "12"]).command)
+      .toEqual({ kind: "listEvents", typeGlob: "task.*", after: "12" });
+    expect(parseArgv(["events", "watch", "--format", "jsonl", "--after", "event-id"]).command)
+      .toEqual({ kind: "watchEvents", format: "jsonl", after: "event-id" });
+    for (const argv of [
+      ["events", "list", "--format", "jsonl"],
+      ["events", "watch", "--format", "xml"],
+      ["events", "watch", "--type"],
+      ["events", "list", "--after", "1", "--after", "2"],
     ]) {
       expect(() => parseArgv(argv)).toThrow();
     }

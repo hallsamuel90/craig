@@ -9,8 +9,8 @@ describe("validate", () => {
   });
 
   test("accepts known boolean feature previews", () => {
-    expect(validate({ previews: { incrementalCenterPane: true, agentActivityIndicators: true } }, FILE)).toEqual({
-      previews: { incrementalCenterPane: true, agentActivityIndicators: true },
+    expect(validate({ previews: { incrementalCenterPane: true, agentActivityIndicators: true, agentOrchestration: true } }, FILE)).toEqual({
+      previews: { incrementalCenterPane: true, agentActivityIndicators: true, agentOrchestration: true },
     });
   });
 

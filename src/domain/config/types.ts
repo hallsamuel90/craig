@@ -1,5 +1,5 @@
 export type RunnerType = "codex" | "cursor" | "claude";
-export type PreviewFeatureId = "incrementalCenterPane" | "agentActivityIndicators";
+export type PreviewFeatureId = "incrementalCenterPane" | "agentActivityIndicators" | "agentOrchestration";
 
 export interface RunnerConfig {
   enabled?: boolean;
@@ -25,6 +25,7 @@ export interface CraigConfig {
   previews?: {
     incrementalCenterPane?: boolean;
     agentActivityIndicators?: boolean;
+    agentOrchestration?: boolean;
   };
 }
 

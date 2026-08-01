@@ -10,6 +10,9 @@ import { createDaemonPtyRuntime, requestDaemonShutdown, servePtyDaemon } from ".
 import { tryConnectPtyDaemonActivity } from "../src/shell/pty-daemon-activity.js";
 import { getCraigPaths } from "../src/state/craig-paths.js";
 import { ensureCraigState } from "../src/domain/workspace/workspaces/ensure.js";
+import { configService } from "../src/domain/config/index.js";
+import { watchWorkspaceEvents } from "../src/shell/events.js";
+import { createCraigState, writeTaskRecord } from "./test-helpers.js";
 
 const DAEMON_TEST_TIMEOUT_MS = 15000;
 
@@ -272,6 +275,69 @@ describe("PTY daemon", () => {
       runtime.disposeAll();
     } finally {
       await daemon;
+      await rm(root, { recursive: true, force: true });
+    }
+  }, DAEMON_TEST_TIMEOUT_MS);
+
+  test("keeps an event watch connected through agent transitions, daemon loss, and reconnect", async () => {
+    const root = await mkdtemp(join(tmpdir(), "craig-event-watch-daemon-"));
+    const paths = await createCraigState(root, ["task_1"]);
+    await writeTaskRecord(root, { id: "task_1" });
+    await configService.save(paths, { previews: { agentOrchestration: true } });
+    const agentPty = createFakePty();
+    const daemon = servePtyDaemon(paths, {
+      shell: "/bin/zsh",
+      env: { TERM: "xterm-256color" },
+      spawn: vi.fn(() => agentPty),
+    });
+    const controller = new AbortController();
+    const states: string[] = [];
+    let restartedDaemon: Promise<void> | null = null;
+
+    try {
+      const runtime = await createDaemonPtyRuntime({
+        paths,
+        workspaceRoot: root,
+        resolveSessionSpec: () => ({ cwd: root, command: [] }),
+      });
+      await runtime.ensureSession("task_1", "task_1:agent", { columns: 80, rows: 24 });
+      const watching = watchWorkspaceEvents(
+        paths,
+        { taskId: "task_1", typeGlob: "agent.state.changed" },
+        {
+          signal: controller.signal,
+          pollIntervalMs: 25,
+          onEvent: (event) => states.push((event.data as { state: string }).state),
+        },
+      );
+
+      await vi.waitFor(() => expect(states).toContain("working"));
+      await requestDaemonShutdown(paths);
+      await vi.waitFor(() => expect(states).toContain("error"));
+      await daemon;
+
+      const restartedPty = createFakePty();
+      restartedDaemon = servePtyDaemon(paths, {
+        shell: "/bin/zsh",
+        env: { TERM: "xterm-256color" },
+        spawn: vi.fn(() => restartedPty),
+      });
+      const restartedRuntime = await createDaemonPtyRuntime({
+        paths,
+        workspaceRoot: root,
+        resolveSessionSpec: () => ({ cwd: root, command: [] }),
+      });
+      await restartedRuntime.ensureSession("task_1", "task_1:agent", { columns: 80, rows: 24 });
+      await vi.waitFor(() => expect(states.filter((state) => state === "working")).toHaveLength(2));
+      controller.abort();
+      await watching;
+      restartedRuntime.disposeAll();
+      runtime.disposeAll();
+    } finally {
+      controller.abort();
+      await requestDaemonShutdown(paths);
+      await daemon;
+      if (restartedDaemon) await restartedDaemon;
       await rm(root, { recursive: true, force: true });
     }
   }, DAEMON_TEST_TIMEOUT_MS);
