@@ -7,6 +7,9 @@ import { getHelpText } from "./parse-argv.js";
 import { taskService } from "../domain/task/index.js";
 import { listWorkspaceRecords, workspaceService } from "../domain/workspace/index.js";
 import { agentStatusService } from "../shell/agent-status.js";
+import { eventService } from "../shell/events.js";
+import type { CraigEvent } from "../domain/orchestration/index.js";
+import { configService } from "../domain/config/index.js";
 
 export interface CommandContext {
   paths: CraigPaths;
@@ -14,6 +17,8 @@ export interface CommandContext {
   workspaceContext?: ResolvedWorkspaceContext;
   taskContext?: ResolvedTaskContext | null;
   signal?: AbortSignal;
+  /* eslint-disable-next-line no-unused-vars */
+  emitEvent?: (event: CraigEvent) => void;
 }
 
 export async function executeCommand(
@@ -142,14 +147,35 @@ export async function executeCommand(
         ...(command.taskId ? { taskId: command.taskId } : {}),
         ...(command.tabId ? { tabId: command.tabId } : {}),
       });
-    case "waitTask":
-      return agentStatusService.waitForTask(
+    case "waitTask": {
+      const options = {
+        states: command.states,
+        timeoutMs: command.timeoutMs,
+        ...(command.tabId ? { tabId: command.tabId } : {}),
+        ...(context.signal ? { signal: context.signal } : {}),
+      };
+      const taskId = resolveCommandTaskId(command.taskId, context);
+      const config = await configService.load(context.paths);
+      return configService.previews.isEnabled(config, "agentOrchestration")
+        ? eventService.waitForTaskState(context.paths, taskId, options)
+        : agentStatusService.waitForTask(context.paths, taskId, options);
+    }
+    case "listEvents":
+      return eventService.list(context.paths, {
+        ...(command.taskId ? { taskId: command.taskId } : {}),
+        ...(command.typeGlob ? { typeGlob: command.typeGlob } : {}),
+        ...(command.after ? { after: command.after } : {}),
+      });
+    case "watchEvents":
+      return eventService.watch(
         context.paths,
-        resolveCommandTaskId(command.taskId, context),
         {
-          states: command.states,
-          timeoutMs: command.timeoutMs,
-          ...(command.tabId ? { tabId: command.tabId } : {}),
+          ...(command.taskId ? { taskId: command.taskId } : {}),
+          ...(command.typeGlob ? { typeGlob: command.typeGlob } : {}),
+          ...(command.after ? { after: command.after } : {}),
+        },
+        {
+          onEvent: context.emitEvent ?? (() => undefined),
           ...(context.signal ? { signal: context.signal } : {}),
         },
       );

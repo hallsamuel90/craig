@@ -112,6 +112,10 @@ async function openDaemonObserver(paths: CraigPaths): Promise<AgentRuntimeObserv
   return DaemonActivityObserver.open(paths);
 }
 
+export async function openAgentRuntimeObserver(paths: CraigPaths): Promise<AgentRuntimeObserver> {
+  return openDaemonObserver(paths);
+}
+
 class DaemonActivityObserver implements AgentRuntimeObserver {
   private readonly listeners = new Set<() => void>();
   private readonly snapshots = new Map<string, PtyActivitySnapshot>();
@@ -206,4 +210,5 @@ export const agentStatusService = {
   listAgents,
   showAgentStatus,
   waitForTask,
+  openObserver: openAgentRuntimeObserver,
 };

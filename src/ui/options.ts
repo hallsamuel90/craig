@@ -44,6 +44,7 @@ export const OPTIONS_MENU_ITEMS = ["Runners", "Feature Previews", "Error Log", "
 const PREVIEW_LABELS: Record<PreviewFeatureId, string> = {
   incrementalCenterPane: "Incremental center pane",
   agentActivityIndicators: "Agent activity indicators",
+  agentOrchestration: "Agent orchestration",
 };
 
 export function buildRunnersSubmenuItems(config: CraigConfig, state: RunnerOptionsState): string[] {

@@ -13,6 +13,9 @@ export interface CraigPaths {
   uiStateFile: string;
   tasksDir: string;
   jobsDir: string;
+  commandsDir: string;
+  eventsDir: string;
+  orchestrationDir: string;
   logsDir: string;
   errorLogFile: string;
   artifactsDir: string;
@@ -35,6 +38,9 @@ export function getCraigPaths(workspaceRoot: string): CraigPaths {
     uiStateFile: path.join(craigDir, "runtime", "ui-state.json"),
     tasksDir: path.join(craigDir, "tasks"),
     jobsDir: path.join(craigDir, "jobs"),
+    commandsDir: path.join(craigDir, "commands"),
+    eventsDir: path.join(craigDir, "events"),
+    orchestrationDir: path.join(craigDir, "orchestration"),
     logsDir: path.join(craigDir, "logs"),
     errorLogFile: path.join(craigDir, "logs", "errors.log"),
     artifactsDir: path.join(craigDir, "artifacts"),

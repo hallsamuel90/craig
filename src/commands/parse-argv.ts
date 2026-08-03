@@ -89,6 +89,12 @@ export function parseArgv(argv: string[]): ParsedArgvCommand {
     case "agent:status":
       command = parseAgentStatus(args);
       break;
+    case "events:list":
+      command = parseEvents(args, false);
+      break;
+    case "events:watch":
+      command = parseEvents(args, true);
+      break;
     case "task:attach":
       command = { kind: "attachTask", taskId: requireSingleValue(args, "Task id") };
       break;
@@ -170,6 +176,8 @@ export function getCommandName(command: AppCommand): string {
     listAgents: "agent.list",
     showAgentStatus: "agent.status",
     waitTask: "task.wait",
+    listEvents: "events.list",
+    watchEvents: "events.watch",
     attachTask: "task.attach",
     addTaskLink: "link.add",
     listTaskLinks: "link.list",
@@ -220,6 +228,8 @@ export function getHelpText(): string {
     "  craig agent list [--task <task-id>]  List agent-tab and task roll-up states",
     "  craig agent status [--task <task-id>] [--tab <tab-id>]  Show agent state details",
     "  craig task wait [<id>] --state <states> [--tab <tab-id>] [--timeout <duration>]",
+    "  craig events list [--task <task-id>] [--type <glob>] [--after <cursor>] --json",
+    "  craig events watch [--task <task-id>] [--type <glob>] [--after <cursor>] [--format jsonl]",
     "  craig task logs <id>     Stream Craig-managed logs for a task",
     "  craig task diff <id>     Show the current worktree diff for a task",
     "  craig task attach <id>   Attach to a live task session",
@@ -445,6 +455,31 @@ function parseAgentStatus(args: string[]): AppCommand {
     return { kind: "showAgentStatus", tabId: requireNonEmpty(args[1]!, "Agent tab id") };
   }
   throw usageError(`Unsupported command: agent status ${args.join(" ")}`);
+}
+
+function parseEvents(args: string[], watch: boolean): AppCommand {
+  let typeGlob: string | undefined;
+  let after: string | undefined;
+  let format: "human" | "jsonl" = "human";
+  const seen = new Set<string>();
+  for (let index = 0; index < args.length; index += 1) {
+    const option = args[index]!;
+    if (!["--type", "--after", "--format"].includes(option)) {
+      throw usageError(`Unsupported events ${watch ? "watch" : "list"} option: ${option}`);
+    }
+    if (!watch && option === "--format") throw usageError("--format is supported only by events watch.");
+    if (seen.has(option)) throw usageError(`Events option ${option} may only be provided once.`);
+    seen.add(option);
+    const value = args[index + 1];
+    if (value === undefined || value.startsWith("--")) throw usageError(`Events option ${option} requires a value.`);
+    index += 1;
+    if (option === "--type") typeGlob = requireNonEmpty(value, "Event type glob");
+    else if (option === "--after") after = requireNonEmpty(value, "Event cursor");
+    else if (value === "jsonl") format = "jsonl";
+    else throw usageError('Events watch format must be "jsonl".');
+  }
+  const filters = { ...(typeGlob ? { typeGlob } : {}), ...(after ? { after } : {}) };
+  return watch ? { kind: "watchEvents", ...filters, format } : { kind: "listEvents", ...filters };
 }
 
 function parseTaskWait(args: string[]): AppCommand {

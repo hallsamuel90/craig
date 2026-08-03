@@ -1,6 +1,6 @@
 import type { AppCommand } from "./types.js";
 import { executeCommand } from "./command-router.js";
-import { formatCommandResult } from "./format-result.js";
+import { formatCommandResult, formatEventLine } from "./format-result.js";
 import { formatJsonError, formatJsonSuccess } from "./format-json.js";
 import { hasJsonOutputFlag, parseArgv } from "./parse-argv.js";
 import { CraigError, toCraigError } from "../domain/error/index.js";
@@ -62,6 +62,9 @@ export async function runCli(options: RunCliOptions): Promise<number> {
     }
 
     commandName = parsed.commandName;
+    if (parsed.command.kind === "watchEvents" && parsed.options.json) {
+      throw new CraigError("CLI_USAGE", "events watch streams output; use --format jsonl instead of --json.", {});
+    }
     assertCompatibleTaskTargets(parsed.command, parsed.options.taskId);
     const command = bindGlobalTaskTarget(parsed.command, parsed.options.taskId);
     const taskResolution = getTaskResolution(command);
@@ -96,6 +99,9 @@ export async function runCli(options: RunCliOptions): Promise<number> {
         workspaceContext: context.workspace,
         taskContext: context.task,
         ...(cancellation.signal ? { signal: cancellation.signal } : {}),
+        ...(command.kind === "watchEvents" ? {
+          emitEvent: (event) => options.writeStdout(`${command.format === "jsonl" ? JSON.stringify(event) : formatEventLine(event)}\n`),
+        } : {}),
       });
     } finally {
       cancellation.dispose();
@@ -139,6 +145,9 @@ function getTaskResolution(command: AppCommand): "none" | "optional" | "required
     return command.taskId ? "none" : "required";
   }
   if (command.kind === "listAgents" || command.kind === "showAgentStatus") {
+    return "none";
+  }
+  if (command.kind === "listEvents" || command.kind === "watchEvents") {
     return "none";
   }
   if (command.kind === "waitTask") {
@@ -194,6 +203,8 @@ function getPositionalTaskId(command: AppCommand): string | undefined {
     case "waitTask":
     case "listAgents":
     case "showAgentStatus":
+    case "listEvents":
+    case "watchEvents":
       return command.taskId;
     case "showTaskPr":
     case "discoverTaskPr":
@@ -210,7 +221,10 @@ function getPositionalTaskId(command: AppCommand): string | undefined {
 
 function bindGlobalTaskTarget(command: AppCommand, globalTaskId: string | undefined): AppCommand {
   if (!globalTaskId) return command;
-  if (command.kind === "listAgents" || command.kind === "showAgentStatus" || command.kind === "waitTask") {
+  if (
+    command.kind === "listAgents" || command.kind === "showAgentStatus" || command.kind === "waitTask" ||
+    command.kind === "listEvents" || command.kind === "watchEvents"
+  ) {
     return { ...command, taskId: command.taskId ?? globalTaskId };
   }
   return command;
@@ -220,7 +234,7 @@ function createCommandCancellation(
   command: AppCommand,
   providedSignal: AbortSignal | undefined,
 ): { signal?: AbortSignal; dispose(): void } {
-  if (command.kind !== "waitTask") return { dispose: () => undefined };
+  if (command.kind !== "waitTask" && command.kind !== "watchEvents") return { dispose: () => undefined };
   if (providedSignal) return { signal: providedSignal, dispose: () => undefined };
   const controller = new AbortController();
   const cancel = () => controller.abort();

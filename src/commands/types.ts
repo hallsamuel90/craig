@@ -32,6 +32,10 @@ import type {
   CommandAgentStatusResult,
   CommandTaskWaitResult,
 } from "../domain/agent/index.js";
+import type {
+  CommandEventListResult,
+  CommandEventWatchResult,
+} from "../domain/orchestration/index.js";
 
 export type AppCommand =
   | { kind: "addWorkspace"; path: string }
@@ -59,6 +63,8 @@ export type AppCommand =
   | { kind: "listAgents"; taskId?: string }
   | { kind: "showAgentStatus"; taskId?: string; tabId?: string }
   | { kind: "waitTask"; taskId?: string; states: AgentRuntimeState[]; tabId?: string; timeoutMs: number }
+  | { kind: "listEvents"; taskId?: string; typeGlob?: string; after?: string }
+  | { kind: "watchEvents"; taskId?: string; typeGlob?: string; after?: string; format: "human" | "jsonl" }
   | { kind: "showSelectedTask" }
   | { kind: "streamTaskLogs"; taskId: string }
   | { kind: "streamSelectedTaskLogs" }
@@ -113,6 +119,8 @@ export type {
   CommandAgentListResult,
   CommandAgentStatusResult,
   CommandTaskWaitResult,
+  CommandEventListResult,
+  CommandEventWatchResult,
 };
 
 export type CommandResult =
@@ -137,6 +145,8 @@ export type CommandResult =
   | CommandAgentListResult
   | CommandAgentStatusResult
   | CommandTaskWaitResult
+  | CommandEventListResult
+  | CommandEventWatchResult
   | CommandShowContextResult
   | CommandLogsResult
   | CommandDiffResult

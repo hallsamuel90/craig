@@ -129,6 +129,12 @@ export function formatCommandResult(result: CommandResult): string {
       return formatAgentStatuses(result);
     case "waitTask":
       return `Task ${result.taskId}${result.tabId ? ` tab ${result.tabId}` : ""} reached ${result.state}.`;
+    case "listEvents":
+      return result.events.length === 0
+        ? "No events found."
+        : result.events.map(formatEventLine).join("\n");
+    case "watchEvents":
+      return "";
     case "showContext":
       return [
         `Workspace: ${result.workspace.root}`,
@@ -160,6 +166,10 @@ export function formatCommandResult(result: CommandResult): string {
     default:
       return assertNever(result);
   }
+}
+
+export function formatEventLine(event: { sequence: number; occurredAt: string; type: string; taskId: string | null }): string {
+  return `${event.sequence}\t${event.occurredAt}\t${event.type}\t${event.taskId ?? "-"}`;
 }
 
 function formatAgentStatuses(
