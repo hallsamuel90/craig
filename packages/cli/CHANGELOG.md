@@ -1,5 +1,11 @@
 # craig-cli
 
+## 0.12.0
+
+### Minor Changes
+
+- be7d75e: Add a previewed durable event journal with resumable event listing and JSONL watching for task, pull request, and agent state transitions.
+
 ## 0.11.0
 
 ### Minor Changes
