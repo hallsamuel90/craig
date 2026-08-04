@@ -8,8 +8,9 @@ import { spawn } from "node-pty";
 import { createCraigState, createGitRepo, writeRepoRecord, writeTaskRecord } from "./test-helpers.js";
 import { runCommand } from "../src/shared/exec.js";
 import { getCraigPaths } from "../src/state/craig-paths.js";
-import { requestDaemonShutdown } from "../src/ui/pty/daemon.js";
+import { createDaemonPtyRuntime, requestDaemonShutdown, servePtyDaemon } from "../src/ui/pty/daemon.js";
 import { resolveExecutablePath } from "../src/shared/command-path.js";
+import { configService } from "../src/domain/config/index.js";
 
 describe("Craig terminal mode E2E", () => {
   test("enters terminal mode and supports detach and reattach", async () => {
@@ -398,6 +399,92 @@ describe("Craig terminal mode E2E", () => {
     }
   }, 15000);
 
+  test("prompt dispatch reaches exactly the requested background task and tab", async () => {
+    const repoRoot = process.cwd();
+    const workspaceRoot = await mkdtemp(join(tmpdir(), "craig-terminal-prompt-e2e-"))
+      .then((value) => realpath(value));
+    const paths = await createCraigState(workspaceRoot, ["task_a", "task_b"]);
+    const worktreeA = join(workspaceRoot, "worktrees", "task_a");
+    const worktreeB = join(workspaceRoot, "worktrees", "task_b");
+    await Promise.all([mkdir(worktreeA, { recursive: true }), mkdir(worktreeB, { recursive: true })]);
+    const taskA = await writeTaskRecord(workspaceRoot, { id: "task_a", worktreePath: worktreeA });
+    const taskB = await writeTaskRecord(workspaceRoot, { id: "task_b", worktreePath: worktreeB });
+    const tabA = taskA.ptyTabs.find((tab) => tab.kind === "agent")!.id;
+    const tabB = taskB.ptyTabs.find((tab) => tab.kind === "agent")!.id;
+    await configService.save(paths, { previews: { agentOrchestration: true } });
+
+    const harnessDir = join(workspaceRoot, "prompt-harness");
+    const harnessPath = join(harnessDir, "agent-stub.js");
+    const inputA = join(harnessDir, "task-a.input");
+    const inputB = join(harnessDir, "task-b.input");
+    await mkdir(harnessDir, { recursive: true });
+    await writeFile(harnessPath, `#!/usr/bin/env node
+const fs = require("node:fs");
+process.stdin.setEncoding("utf8");
+if (process.stdin.isTTY) process.stdin.setRawMode(true);
+process.stdin.on("data", (chunk) => fs.appendFileSync(process.env.CRAIG_PROMPT_CAPTURE, chunk));
+process.stdin.resume();
+setInterval(() => {}, 1000);
+`, "utf8");
+    await chmod(harnessPath, 0o755);
+
+    const daemon = servePtyDaemon(paths);
+    let client: Awaited<ReturnType<typeof createDaemonPtyRuntime>> | null = null;
+    try {
+      client = await createDaemonPtyRuntime({
+        paths,
+        workspaceRoot,
+        activityEnabled: true,
+        resolveSessionSpec: (taskId) => ({
+          cwd: taskId === taskA.id ? worktreeA : worktreeB,
+          command: [harnessPath],
+          env: { CRAIG_PROMPT_CAPTURE: taskId === taskA.id ? inputA : inputB },
+        }),
+      });
+      await client.ensureSession(taskA.id, tabA, { columns: 80, rows: 24 });
+      await client.ensureSession(taskB.id, tabB, { columns: 80, rows: 24 });
+
+      const marker = "prompt_for_background_task_only";
+      const execution = await runCommand(resolveTestTsxBin(repoRoot), [
+        resolve(repoRoot, "src/cli.ts"),
+        "--workspace-root", workspaceRoot,
+        "agent", "send",
+        "--task", taskA.id,
+        "--tab", tabA,
+        "--prompt", marker,
+        "--delivery", "immediate",
+        "--json",
+      ], { cwd: repoRoot, env: { ...process.env, CI: "1" } });
+
+      const sendResult = JSON.parse(execution.stdout);
+      expect(sendResult).toMatchObject({
+        command: "agent.send",
+        ok: true,
+        data: { command: { taskId: taskA.id, agentTabId: tabA, state: "queued" } },
+      });
+      await waitForFileText(inputA, marker);
+      const capturedA = await readFile(inputA, "utf8");
+      const capturedB = await readFile(inputB, "utf8").catch(() => "");
+      expect(capturedA.match(new RegExp(marker, "g"))).toHaveLength(1);
+      expect(capturedA).toBe(`\u001b[200~${marker}\u001b[201~\r`);
+      expect(capturedB).not.toContain(marker);
+      const inspection = await runCommand(resolveTestTsxBin(repoRoot), [
+        resolve(repoRoot, "src/cli.ts"),
+        "--workspace-root", workspaceRoot,
+        "command", "show", sendResult.data.command.id,
+        "--json",
+      ], { cwd: repoRoot, env: { ...process.env, CI: "1" } });
+      expect(JSON.parse(inspection.stdout)).toMatchObject({
+        data: { command: { state: "delivered", attempts: 1 } },
+      });
+    } finally {
+      client?.disposeAll();
+      await requestDaemonShutdown(paths);
+      await daemon;
+      await rm(workspaceRoot, { recursive: true, force: true });
+    }
+  }, 20000);
+
   test("restarting Craig reattaches to a live daemon-owned agent tab without relaunching Codex", async () => {
     const repoRoot = process.cwd();
     const workspaceRoot = await mkdtemp(join(tmpdir(), "craig-terminal-daemon-e2e-")).then((value) => realpath(value));
@@ -743,4 +830,14 @@ class PtyOutputBuffer {
 
 function delay(ms: number): Promise<void> {
   return new Promise((resolveDelay) => setTimeout(resolveDelay, ms));
+}
+
+async function waitForFileText(filePath: string, expected: string, timeoutMs = 5_000): Promise<void> {
+  const startedAt = Date.now();
+  while (Date.now() - startedAt < timeoutMs) {
+    const value = await readFile(filePath, "utf8").catch(() => "");
+    if (value.includes(expected)) return;
+    await delay(25);
+  }
+  throw new Error(`Timed out waiting for ${JSON.stringify(expected)} in ${filePath}.`);
 }

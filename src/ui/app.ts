@@ -44,7 +44,7 @@ import { hydrateOpenPtyTabs, syncInputCapture } from "./pty/manager.js";
 import { pollPullRequests } from "./workspace/pr-polling.js";
 import { GitHubPollCoordinator } from "./workspace/github-poll-coordinator.js";
 import { onKey, onUnknown, onMouse } from "./input/dispatch.js";
-import { Heartbeat } from "./heartbeat.js";
+import { Heartbeat } from "../shell/heartbeat.js";
 import { logBackgroundError } from "./actions/index.js";
 import {
   AGENT_ACTIVITY_ANIMATION_FRAMES,

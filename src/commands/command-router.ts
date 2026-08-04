@@ -8,6 +8,7 @@ import { taskService } from "../domain/task/index.js";
 import { listWorkspaceRecords, workspaceService } from "../domain/workspace/index.js";
 import { agentStatusService } from "../shell/agent-status.js";
 import { eventService } from "../shell/events.js";
+import { promptCommandShellService } from "../shell/prompt-commands.js";
 import type { CraigEvent } from "../domain/orchestration/index.js";
 import { configService } from "../domain/config/index.js";
 
@@ -19,6 +20,7 @@ export interface CommandContext {
   signal?: AbortSignal;
   /* eslint-disable-next-line no-unused-vars */
   emitEvent?: (event: CraigEvent) => void;
+  readStdin?: () => Promise<string>;
 }
 
 export async function executeCommand(
@@ -179,6 +181,32 @@ export async function executeCommand(
           ...(context.signal ? { signal: context.signal } : {}),
         },
       );
+    case "sendAgentPrompt":
+      return promptCommandShellService.send(context.paths, {
+        taskId: resolveCommandTaskId(command.taskId, context),
+        ...(command.tabId
+          ? { tabId: command.tabId }
+          : context.taskContext?.agentTabId
+            ? { tabId: context.taskContext.agentTabId }
+            : {}),
+        prompt: command.prompt,
+        delivery: command.delivery,
+        timeoutMs: command.timeoutMs,
+        ...(command.idempotencyKey ? { idempotencyKey: command.idempotencyKey } : {}),
+        ...(context.readStdin ? { readStdin: context.readStdin } : {}),
+      });
+    case "showPromptCommand":
+      return promptCommandShellService.show(context.paths, command.commandId);
+    case "listPromptCommands":
+      return promptCommandShellService.list(context.paths, command.taskId);
+    case "cancelPromptCommand":
+      return promptCommandShellService.cancel(context.paths, command.commandId);
+    case "waitPromptCommand":
+      return promptCommandShellService.wait(context.paths, command.commandId, {
+        ...(command.states ? { states: command.states } : {}),
+        timeoutMs: command.timeoutMs,
+        ...(context.signal ? { signal: context.signal } : {}),
+      });
     case "showSelectedTask":
       return taskService.showTask(context.paths, requireSelectedTaskId(context, "show"));
     case "streamTaskLogs":

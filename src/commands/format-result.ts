@@ -135,6 +135,20 @@ export function formatCommandResult(result: CommandResult): string {
         : result.events.map(formatEventLine).join("\n");
     case "watchEvents":
       return "";
+    case "sendAgentPrompt":
+      return `${result.created ? "Queued" : "Found"} command ${result.command.id} for task ${result.command.taskId} tab ${result.command.agentTabId}.`;
+    case "showPromptCommand":
+      return formatPromptCommand(result.command);
+    case "listPromptCommands":
+      return result.commands.length === 0
+        ? "No prompt commands found."
+        : ["ID\tTASK\tTAB\tSTATE\tDELIVERY\tATTEMPTS", ...result.commands.map((command) =>
+            `${command.id}\t${command.taskId}\t${command.agentTabId}\t${command.state}\t${command.delivery}\t${command.attempts}`)]
+            .join("\n");
+    case "cancelPromptCommand":
+      return `${result.changed ? "Cancelled" : "Command already cancelled:"} ${result.command.id}`;
+    case "waitPromptCommand":
+      return `Command ${result.command.id} reached ${result.command.state}.`;
     case "showContext":
       return [
         `Workspace: ${result.workspace.root}`,
@@ -166,6 +180,21 @@ export function formatCommandResult(result: CommandResult): string {
     default:
       return assertNever(result);
   }
+}
+
+function formatPromptCommand(command: Extract<CommandResult, { kind: "showPromptCommand" }>["command"]): string {
+  return [
+    `${command.id}: ${command.state}`,
+    `Task: ${command.taskId}`,
+    `Agent tab: ${command.agentTabId}`,
+    `Delivery: ${command.delivery}`,
+    `Attempts: ${command.attempts}`,
+    `Prompt source: ${command.prompt.source}`,
+    `Prompt bytes: ${Buffer.byteLength(command.prompt.text)}`,
+    `Created: ${command.createdAt}`,
+    `Updated: ${command.updatedAt}`,
+    `Error: ${command.lastError?.message ?? "none"}`,
+  ].join("\n");
 }
 
 export function formatEventLine(event: { sequence: number; occurredAt: string; type: string; taskId: string | null }): string {

@@ -71,6 +71,27 @@ describe("PTY runtime", () => {
     expect(updated.rows[0]?.segments[0]?.text).toContain("ok");
   });
 
+  test("delivers one safely encoded prompt to the requested tab without changing the attached tab", () => {
+    const firstPty = createFakePty();
+    const secondPty = createFakePty();
+    const runtime = new PtyRuntime({
+      workspaceRoot: "/tmp/craig",
+      shell: "/bin/zsh",
+      env: { TERM: "xterm-256color" },
+      spawn: vi.fn()
+        .mockReturnValueOnce(firstPty)
+        .mockReturnValueOnce(secondPty),
+    });
+
+    runtime.ensureSession("task_1", "task_1:agent", { columns: 80, rows: 24 });
+    runtime.ensureSession("task_2", "task_2:agent", { columns: 80, rows: 24 });
+    runtime.writeToSession("task_1:agent", "\u001b[200~review this\nthen report\u001b[201~\r");
+    runtime.write("attached input");
+
+    expect(firstPty.writes).toEqual(["\u001b[200~review this\nthen report\u001b[201~\r"]);
+    expect(secondPty.writes).toEqual(["attached input"]);
+  });
+
   test("observes submitted input, output, and process exits as session activity", () => {
     const fakePty = createFakePty();
     const onActivity = vi.fn();

@@ -18,6 +18,7 @@ export interface RunCliOptions {
   writeStderr: (_value: string) => void;
   /* eslint-disable-next-line no-unused-vars */
   runInteractive: (_workspaceRoot: string) => Promise<number>;
+  readStdin?: () => Promise<string>;
   signal?: AbortSignal;
 }
 
@@ -102,6 +103,7 @@ export async function runCli(options: RunCliOptions): Promise<number> {
         ...(command.kind === "watchEvents" ? {
           emitEvent: (event) => options.writeStdout(`${command.format === "jsonl" ? JSON.stringify(event) : formatEventLine(event)}\n`),
         } : {}),
+        ...(options.readStdin ? { readStdin: options.readStdin } : {}),
       });
     } finally {
       cancellation.dispose();
@@ -150,6 +152,10 @@ function getTaskResolution(command: AppCommand): "none" | "optional" | "required
   if (command.kind === "listEvents" || command.kind === "watchEvents") {
     return "none";
   }
+  if (command.kind === "sendAgentPrompt") {
+    return command.taskId ? "none" : "required";
+  }
+  if (command.kind === "listPromptCommands") return "none";
   if (command.kind === "waitTask") {
     return command.taskId ? "none" : "required";
   }
@@ -205,6 +211,8 @@ function getPositionalTaskId(command: AppCommand): string | undefined {
     case "showAgentStatus":
     case "listEvents":
     case "watchEvents":
+    case "sendAgentPrompt":
+    case "listPromptCommands":
       return command.taskId;
     case "showTaskPr":
     case "discoverTaskPr":
@@ -224,6 +232,7 @@ function bindGlobalTaskTarget(command: AppCommand, globalTaskId: string | undefi
   if (
     command.kind === "listAgents" || command.kind === "showAgentStatus" || command.kind === "waitTask" ||
     command.kind === "listEvents" || command.kind === "watchEvents"
+    || command.kind === "sendAgentPrompt" || command.kind === "listPromptCommands"
   ) {
     return { ...command, taskId: command.taskId ?? globalTaskId };
   }
@@ -234,7 +243,9 @@ function createCommandCancellation(
   command: AppCommand,
   providedSignal: AbortSignal | undefined,
 ): { signal?: AbortSignal; dispose(): void } {
-  if (command.kind !== "waitTask" && command.kind !== "watchEvents") return { dispose: () => undefined };
+  if (command.kind !== "waitTask" && command.kind !== "watchEvents" && command.kind !== "waitPromptCommand") {
+    return { dispose: () => undefined };
+  }
   if (providedSignal) return { signal: providedSignal, dispose: () => undefined };
   const controller = new AbortController();
   const cancel = () => controller.abort();

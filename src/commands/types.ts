@@ -35,7 +35,15 @@ import type {
 import type {
   CommandEventListResult,
   CommandEventWatchResult,
+  CommandCancelPromptResult,
+  CommandListPromptsResult,
+  CommandSendAgentPromptResult,
+  CommandShowPromptResult,
+  CommandWaitPromptResult,
+  PromptCommandState,
+  PromptDelivery,
 } from "../domain/orchestration/index.js";
+import type { PromptInput } from "../shell/prompt-commands.js";
 
 export type AppCommand =
   | { kind: "addWorkspace"; path: string }
@@ -65,6 +73,11 @@ export type AppCommand =
   | { kind: "waitTask"; taskId?: string; states: AgentRuntimeState[]; tabId?: string; timeoutMs: number }
   | { kind: "listEvents"; taskId?: string; typeGlob?: string; after?: string }
   | { kind: "watchEvents"; taskId?: string; typeGlob?: string; after?: string; format: "human" | "jsonl" }
+  | { kind: "sendAgentPrompt"; taskId?: string; tabId?: string; prompt: PromptInput; delivery: PromptDelivery; timeoutMs: number; idempotencyKey?: string }
+  | { kind: "showPromptCommand"; commandId: string }
+  | { kind: "listPromptCommands"; taskId?: string }
+  | { kind: "cancelPromptCommand"; commandId: string }
+  | { kind: "waitPromptCommand"; commandId: string; states?: PromptCommandState[]; timeoutMs: number }
   | { kind: "showSelectedTask" }
   | { kind: "streamTaskLogs"; taskId: string }
   | { kind: "streamSelectedTaskLogs" }
@@ -121,6 +134,11 @@ export type {
   CommandTaskWaitResult,
   CommandEventListResult,
   CommandEventWatchResult,
+  CommandCancelPromptResult,
+  CommandListPromptsResult,
+  CommandSendAgentPromptResult,
+  CommandShowPromptResult,
+  CommandWaitPromptResult,
 };
 
 export type CommandResult =
@@ -147,6 +165,11 @@ export type CommandResult =
   | CommandTaskWaitResult
   | CommandEventListResult
   | CommandEventWatchResult
+  | CommandCancelPromptResult
+  | CommandListPromptsResult
+  | CommandSendAgentPromptResult
+  | CommandShowPromptResult
+  | CommandWaitPromptResult
   | CommandShowContextResult
   | CommandLogsResult
   | CommandDiffResult
