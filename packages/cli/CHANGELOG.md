@@ -1,5 +1,11 @@
 # craig-cli
 
+## 0.12.1
+
+### Patch Changes
+
+- d70e941: Add preview-gated durable prompt dispatch with target-specific delivery and command inspection, waiting, and cancellation.
+
 ## 0.12.0
 
 ### Minor Changes
