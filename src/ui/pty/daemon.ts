@@ -9,7 +9,11 @@ import { resolveExecutablePath } from "../../shared/command-path.js";
 import type { TerminalViewState } from "../state.js";
 import type { TerminalScreenRow } from "../terminal-emulator.js";
 import type { PtyActivitySnapshot } from "../../domain/agent/index.js";
+import { configService } from "../../domain/config/index.js";
+import { errorService } from "../../domain/error/index.js";
+import { listPromptCommands } from "../../domain/orchestration/index.js";
 import { getPtyDaemonEndpoint, PTY_DAEMON_PROTOCOL_VERSION } from "../../shell/pty-daemon-protocol.js";
+import { OrchestrationSupervisor } from "../../shell/orchestration-supervisor.js";
 import {
   PtyRuntime,
   type PtyRuntimeOptions,
@@ -40,6 +44,7 @@ type DaemonRequest =
   | { id: number; type: "subscribeView"; tabId: string | null }
   | { id: number; type: "getViewState"; tabId: string | null }
   | { id: number; type: "getActivitySnapshots" }
+  | { id: number; type: "wakeOrchestration" }
   | { id: number; type: "shutdown" };
 
 type DaemonResponse =
@@ -99,23 +104,35 @@ export async function servePtyDaemon(paths: CraigPaths, options: Partial<PtyRunt
   await rm(endpoint.socketPath, { force: true });
   const daemon = new PtyDaemonServer(paths, options);
   const server = createServer((socket) => daemon.handleConnection(socket));
-  await listen(server, endpoint.socketPath);
-  await writeFile(endpoint.pidPath, String(process.pid), "utf8");
+  try {
+    await daemon.start();
+    await listen(server, endpoint.socketPath);
+    await writeFile(endpoint.pidPath, String(process.pid), "utf8");
 
-  await new Promise<void>((resolve) => {
-    const close = () => {
-      daemon.closeClients();
-      server.close(() => resolve());
-    };
+    await new Promise<void>((resolve) => {
+      let closing = false;
+      const close = () => {
+        if (closing) return;
+        closing = true;
+        daemon.closeClients();
+        server.close(() => {
+          process.removeListener("SIGTERM", close);
+          process.removeListener("SIGINT", close);
+          resolve();
+        });
+      };
 
-    daemon.onShutdown = close;
-    process.once("SIGTERM", close);
-    process.once("SIGINT", close);
-  });
-
-  await rm(endpoint.socketPath, { force: true });
-  await rm(endpoint.pidPath, { force: true });
-  daemon.disposeAll();
+      daemon.onShutdown = close;
+      process.once("SIGTERM", close);
+      process.once("SIGINT", close);
+    });
+  } finally {
+    daemon.onShutdown = null;
+    await rm(endpoint.socketPath, { force: true });
+    await rm(endpoint.pidPath, { force: true });
+    await daemon.stop();
+    daemon.disposeAll();
+  }
 }
 
 export async function requestDaemonShutdown(paths: CraigPaths): Promise<boolean> {
@@ -529,9 +546,12 @@ class PtyDaemonServer {
   private readonly activityTimers = new Map<string, ReturnType<typeof setTimeout>>();
   private readonly pendingActivities = new Map<string, PtyActivitySnapshot>();
   private readonly runtime: PtyRuntime;
+  private readonly paths: CraigPaths;
+  private orchestrationSupervisor: OrchestrationSupervisor | null = null;
   private attachedTabId: string | null = null;
 
   constructor(paths: CraigPaths, options: Partial<PtyRuntimeOptions>) {
+    this.paths = paths;
     this.runtime = new PtyRuntime({
       ...options,
       workspaceRoot: paths.workspaceRoot,
@@ -540,6 +560,20 @@ class PtyDaemonServer {
       onActivity: (snapshot) => this.handleActivityUpdate(snapshot),
       onActivityRemoved: (tabId) => this.handleActivityRemoved(tabId),
     });
+  }
+
+  async start(): Promise<void> {
+    const config = await configService.load(this.paths);
+    const unfinished = (await listPromptCommands(this.paths))
+      .some((command) => command.state === "queued" || command.state === "delivering");
+    if (configService.previews.isEnabled(config, "agentOrchestration") || unfinished) {
+      await this.ensureOrchestrationSupervisor();
+    }
+  }
+
+  async stop(): Promise<void> {
+    await this.orchestrationSupervisor?.stop();
+    this.orchestrationSupervisor = null;
   }
 
   handleConnection(socket: Socket): void {
@@ -568,7 +602,7 @@ class PtyDaemonServer {
       this.clients.delete(socket);
       this.subscriptions.delete(socket);
       if (!this.hasActivitySubscribers()) {
-        this.runtime.setActivityEnabled(false);
+        this.updateRuntimeActivityEnabled();
         this.clearPendingActivityBroadcasts();
       }
     };
@@ -595,7 +629,7 @@ class PtyDaemonServer {
     }
     this.clients.clear();
     this.subscriptions.clear();
-    this.runtime.setActivityEnabled(false);
+    this.updateRuntimeActivityEnabled();
   }
 
   private async handleLine(socket: Socket, line: string): Promise<void> {
@@ -612,7 +646,7 @@ class PtyDaemonServer {
     }
 
     try {
-      const view = this.handleRequest(socket, request);
+      const view = await this.handleRequest(socket, request);
       writeMessage(socket, {
         id: request.id,
         ok: true,
@@ -626,7 +660,7 @@ class PtyDaemonServer {
     }
   }
 
-  private handleRequest(socket: Socket, request: DaemonRequest): TerminalViewState | null {
+  private async handleRequest(socket: Socket, request: DaemonRequest): Promise<TerminalViewState | null> {
     switch (request.type) {
       case "ping":
         return null;
@@ -684,6 +718,10 @@ class PtyDaemonServer {
         return this.runtime.getViewState(request.tabId);
       case "getActivitySnapshots":
         return null;
+      case "wakeOrchestration":
+        await this.ensureOrchestrationSupervisor();
+        await this.orchestrationSupervisor!.wake();
+        return null;
       case "shutdown":
         setTimeout(() => this.onShutdown?.(), 0);
         return null;
@@ -726,7 +764,7 @@ class PtyDaemonServer {
     }
     this.subscriptions.set(socket, { ...current, activityEnabled: enabled });
     const hasActivitySubscribers = this.hasActivitySubscribers();
-    this.runtime.setActivityEnabled(hasActivitySubscribers);
+    this.updateRuntimeActivityEnabled();
     if (!hasActivitySubscribers) {
       this.clearPendingActivityBroadcasts();
     }
@@ -804,6 +842,23 @@ class PtyDaemonServer {
     }
     this.activityTimers.clear();
     this.pendingActivities.clear();
+  }
+
+  private async ensureOrchestrationSupervisor(): Promise<void> {
+    if (this.orchestrationSupervisor) return;
+    const supervisor = new OrchestrationSupervisor(this.paths, this.runtime, {
+      onError: (error) => errorService.appendErrorLogBestEffort(this.paths, {
+        context: "orchestration supervisor",
+        message: error instanceof Error ? error.message : String(error),
+      }),
+    });
+    await supervisor.start();
+    this.orchestrationSupervisor = supervisor;
+    this.updateRuntimeActivityEnabled();
+  }
+
+  private updateRuntimeActivityEnabled(): void {
+    this.runtime.setActivityEnabled(this.orchestrationSupervisor !== null || this.hasActivitySubscribers());
   }
 
   private scheduleBroadcastUpdate(tabId: string): void {

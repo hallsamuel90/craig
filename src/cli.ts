@@ -33,6 +33,12 @@ async function main(): Promise<number> {
     isOutputTty: process.stdout.isTTY === true,
     writeStdout: (value) => process.stdout.write(value),
     writeStderr: (value) => process.stderr.write(value),
+    readStdin: async () => {
+      let value = "";
+      process.stdin.setEncoding("utf8");
+      for await (const chunk of process.stdin) value += chunk;
+      return value;
+    },
     runInteractive: (workspaceRoot) =>
       startTerminalApp({
         uiStateFile: getCraigPaths(workspaceRoot).uiStateFile,

@@ -335,6 +335,60 @@ describe("CLI execution contract", () => {
     });
   });
 
+  test("gates prompt creation while keeping durable command inspection and cancellation available", async () => {
+    const root = await createRepoRoot("craig-cli-prompt-");
+    tempRoots.push(root);
+    const paths = await createCraigState(root, ["task_1"]);
+    const task = await writeTaskRecord(root, { id: "task_1" });
+    const output = createOutput();
+
+    expect(await runCli(createOptions(root, [
+      "agent", "send", "--task", task.id, "--prompt", "continue", "--json",
+    ], output))).toBe(2);
+    expect(JSON.parse(output.stderr.pop()!)).toMatchObject({
+      command: "agent.send",
+      error: { code: "CLI_USAGE", details: { preview: "agentOrchestration" } },
+    });
+
+    await configService.save(paths, { previews: { agentOrchestration: true } });
+    const sendOutput = createOutput();
+    const sendOptions = createOptions(root, [
+      "agent", "send", "--task", task.id, "--stdin", "--idempotency-key", "cli-send-1", "--json",
+    ], sendOutput);
+    sendOptions.readStdin = async () => "continue from stdin";
+    expect(await runCli(sendOptions)).toBe(0);
+    const sent = JSON.parse(sendOutput.stdout[0]!).data;
+    expect(sent).toMatchObject({
+      kind: "sendAgentPrompt",
+      created: true,
+      command: {
+        taskId: task.id,
+        prompt: { source: "stdin", text: "continue from stdin" },
+        state: "queued",
+      },
+    });
+
+    const commandId = sent.command.id as string;
+    const listOutput = createOutput();
+    expect(await runCli(createOptions(root, ["command", "list", "--task", task.id, "--json"], listOutput))).toBe(0);
+    expect(JSON.parse(listOutput.stdout[0]!).data.commands).toHaveLength(1);
+
+    const waitOutput = createOutput();
+    expect(await runCli(createOptions(root, [
+      "command", "wait", commandId, "--state", "queued", "--timeout", "1s", "--json",
+    ], waitOutput))).toBe(0);
+    expect(JSON.parse(waitOutput.stdout[0]!).data.command.state).toBe("queued");
+
+    await configService.save(paths, { previews: { agentOrchestration: false } });
+    const cancelOutput = createOutput();
+    expect(await runCli(createOptions(root, ["command", "cancel", commandId, "--json"], cancelOutput))).toBe(0);
+    expect(JSON.parse(cancelOutput.stdout[0]!).data).toMatchObject({
+      kind: "cancelPromptCommand",
+      changed: true,
+      command: { state: "cancelled" },
+    });
+  });
+
   test("does not enter the terminal application when input is disabled", async () => {
     const root = await createRepoRoot("craig-cli-no-input-");
     tempRoots.push(root);

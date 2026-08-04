@@ -24,6 +24,11 @@ describe("CLI argument parsing", () => {
     [["task", "pr", "unlink", "task_1", "--pr", "17"], "unlinkTaskPr"],
     [["agent", "list"], "listAgents"],
     [["agent", "status", "--tab", "task_1:agent"], "showAgentStatus"],
+    [["agent", "send", "--prompt", "continue"], "sendAgentPrompt"],
+    [["command", "show", "command_1"], "showPromptCommand"],
+    [["command", "list"], "listPromptCommands"],
+    [["command", "cancel", "command_1"], "cancelPromptCommand"],
+    [["command", "wait", "command_1"], "waitPromptCommand"],
     [["task", "wait", "task_1", "--state", "ready,error"], "waitTask"],
     [["events", "list", "--type", "agent.*"], "listEvents"],
     [["events", "watch", "--format", "jsonl"], "watchEvents"],
@@ -130,6 +135,47 @@ describe("CLI argument parsing", () => {
       ["task", "wait", "task_1", "--state", "done"],
       ["task", "wait", "task_1", "--state", "ready", "--timeout", "30"],
       ["task", "wait", "task_1", "--state", "ready", "--state", "error"],
+    ]) {
+      expect(() => parseArgv(argv)).toThrow();
+    }
+  });
+
+  test("parses prompt dispatch and durable command operations", () => {
+    expect(parseArgv([
+      "agent", "send", "--task", "task_1", "--tab", "task_1:agent", "--prompt", "continue",
+      "--delivery", "immediate", "--timeout", "30s", "--idempotency-key", "dispatch-1",
+    ]).command).toEqual({
+      kind: "sendAgentPrompt",
+      tabId: "task_1:agent",
+      prompt: { source: "inline", text: "continue" },
+      delivery: "immediate",
+      timeoutMs: 30_000,
+      idempotencyKey: "dispatch-1",
+    });
+    expect(parseArgv(["agent", "send", "--prompt-file", "prompt.md"]).command).toMatchObject({
+      prompt: { source: "file", path: "prompt.md" },
+      delivery: "when-ready",
+    });
+    expect(parseArgv(["agent", "send", "--stdin"]).command).toMatchObject({ prompt: { source: "stdin" } });
+    expect(parseArgv([
+      "command", "wait", "command_1", "--state", "delivered,failed,delivered", "--timeout", "2m",
+    ]).command).toEqual({
+      kind: "waitPromptCommand",
+      commandId: "command_1",
+      states: ["delivered", "failed"],
+      timeoutMs: 120_000,
+    });
+  });
+
+  test("rejects invalid prompt and command options", () => {
+    for (const argv of [
+      ["agent", "send"],
+      ["agent", "send", "--prompt", "one", "--stdin"],
+      ["agent", "send", "--prompt", "one", "--delivery", "later"],
+      ["agent", "send", "--prompt-file"],
+      ["command", "list", "extra"],
+      ["command", "wait", "command_1", "--state", "unknown"],
+      ["command", "wait", "command_1", "--timeout", "30"],
     ]) {
       expect(() => parseArgv(argv)).toThrow();
     }

@@ -197,11 +197,61 @@ async function shouldRotate(segmentPath: string, line: string, maxBytes: number)
 
 async function pruneSegments(paths: CraigPaths, maxSegments: number): Promise<void> {
   const segments = await listSegmentFiles(paths);
-  const removed = segments.slice(0, Math.max(0, segments.length - maxSegments));
+  let removeCount = Math.max(0, segments.length - maxSegments);
+  const liveCommandIds = await readLiveCommandIds(paths);
+  if (liveCommandIds === null) return;
+  for (let index = 0; index < removeCount; index += 1) {
+    if (await segmentReferencesCommands(segments[index]!.path, liveCommandIds)) {
+      removeCount = index;
+      break;
+    }
+  }
+  const removed = segments.slice(0, removeCount);
   for (const segment of removed) {
     await rm(segment.path, { force: true });
   }
   if (removed.length > 0) await syncDirectory(paths.eventsDir);
+}
+
+async function readLiveCommandIds(paths: CraigPaths): Promise<Set<string> | null> {
+  const names = await readdir(paths.commandsDir).catch((error: unknown) => {
+    if (isMissing(error)) return [];
+    throw error;
+  });
+  const ids = new Set<string>();
+  for (const name of names.filter((candidate) => candidate.endsWith(".json"))) {
+    try {
+      const value = JSON.parse(await readFile(path.join(paths.commandsDir, name), "utf8")) as {
+        id?: unknown;
+        state?: unknown;
+      };
+      if (
+        typeof value.id === "string" &&
+        (value.state === "queued" || value.state === "delivering")
+      ) {
+        ids.add(value.id);
+      }
+    } catch {
+      // Conservatively retain the journal until the corrupt command record is repaired.
+      return null;
+    }
+  }
+  return ids;
+}
+
+async function segmentReferencesCommands(segmentPath: string, commandIds: Set<string>): Promise<boolean> {
+  if (commandIds.size === 0) return false;
+  const payload = await readFile(segmentPath, "utf8");
+  for (const line of payload.split("\n")) {
+    if (!line) continue;
+    try {
+      const value = JSON.parse(line) as { commandId?: unknown };
+      if (typeof value.commandId === "string" && commandIds.has(value.commandId)) return true;
+    } catch {
+      return true;
+    }
+  }
+  return false;
 }
 
 async function repairTruncatedActiveTail(paths: CraigPaths): Promise<void> {

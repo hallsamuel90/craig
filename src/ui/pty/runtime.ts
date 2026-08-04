@@ -163,6 +163,19 @@ export class PtyRuntime {
     }
   }
 
+  hasRunningSession(tabId: string): boolean {
+    return this.sessions.get(tabId)?.status === "running";
+  }
+
+  writeToSession(tabId: string, input: string): void {
+    const session = this.sessions.get(tabId);
+    if (!session || session.status !== "running") {
+      throw new Error(`Agent tab ${tabId} is not running.`);
+    }
+    session.pty.write(input);
+    this.touchActivity(session);
+  }
+
   scrollViewport(lines: number): void {
     const session = this.getAttachedSession();
     if (!session || lines === 0) {

@@ -12,6 +12,7 @@ import { getCraigPaths } from "../src/state/craig-paths.js";
 import { ensureCraigState } from "../src/domain/workspace/workspaces/ensure.js";
 import { configService } from "../src/domain/config/index.js";
 import { watchWorkspaceEvents } from "../src/shell/events.js";
+import { PTY_DAEMON_PROTOCOL_VERSION } from "../src/shell/pty-daemon-protocol.js";
 import { createCraigState, writeTaskRecord } from "./test-helpers.js";
 
 const DAEMON_TEST_TIMEOUT_MS = 15000;
@@ -704,7 +705,7 @@ describe("PTY daemon", () => {
     }
   }, DAEMON_TEST_TIMEOUT_MS);
 
-  test("keeps a protocol v6 daemon running and preserves events newer than its activity snapshot", async () => {
+  test("keeps a compatible daemon running and preserves events newer than its activity snapshot", async () => {
     const root = await createWorkspace();
     const endpoint = getDaemonEndpointForTest(root);
     let shutdownRequested = false;
@@ -721,7 +722,7 @@ describe("PTY daemon", () => {
           const response = {
             id: request.id,
             ok: true,
-            ...(request.type === "ping" ? { protocolVersion: 6 } : {}),
+            ...(request.type === "ping" ? { protocolVersion: PTY_DAEMON_PROTOCOL_VERSION } : {}),
             ...(request.type === "getActivitySnapshots"
               ? {
                   activities: [{

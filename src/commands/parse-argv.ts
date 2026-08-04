@@ -1,5 +1,6 @@
 import type { AppCommand } from "./types.js";
 import type { AgentRuntimeState } from "../domain/agent/index.js";
+import type { PromptCommandState } from "../domain/orchestration/index.js";
 import { configService } from "../domain/config/index.js";
 import { CraigError } from "../domain/error/index.js";
 
@@ -89,6 +90,22 @@ export function parseArgv(argv: string[]): ParsedArgvCommand {
     case "agent:status":
       command = parseAgentStatus(args);
       break;
+    case "agent:send":
+      command = parseAgentSend(args);
+      break;
+    case "command:show":
+      command = { kind: "showPromptCommand", commandId: requireSingleValue(args, "Command id") };
+      break;
+    case "command:list":
+      requireNoArgs(args, "command list");
+      command = { kind: "listPromptCommands" };
+      break;
+    case "command:cancel":
+      command = { kind: "cancelPromptCommand", commandId: requireSingleValue(args, "Command id") };
+      break;
+    case "command:wait":
+      command = parseCommandWait(args);
+      break;
     case "events:list":
       command = parseEvents(args, false);
       break;
@@ -175,6 +192,11 @@ export function getCommandName(command: AppCommand): string {
     unlinkTaskPr: "task.pr.unlink",
     listAgents: "agent.list",
     showAgentStatus: "agent.status",
+    sendAgentPrompt: "agent.send",
+    showPromptCommand: "command.show",
+    listPromptCommands: "command.list",
+    cancelPromptCommand: "command.cancel",
+    waitPromptCommand: "command.wait",
     waitTask: "task.wait",
     listEvents: "events.list",
     watchEvents: "events.watch",
@@ -227,6 +249,12 @@ export function getHelpText(): string {
     "  craig task pr unlink [<id>] --pr <url|number> [--repo <repo-id>]",
     "  craig agent list [--task <task-id>]  List agent-tab and task roll-up states",
     "  craig agent status [--task <task-id>] [--tab <tab-id>]  Show agent state details",
+    "  craig agent send --task <task-id> [--tab <tab-id>] (--prompt <text> | --prompt-file <path> | --stdin)",
+    "    [--delivery when-ready|immediate] [--timeout <duration>] [--idempotency-key <key>]",
+    "  craig command show <command-id>  Show a durable prompt command",
+    "  craig command list [--task <task-id>]  List durable prompt commands",
+    "  craig command cancel <command-id>  Cancel a queued prompt command",
+    "  craig command wait <command-id> [--state <states>] [--timeout <duration>]",
     "  craig task wait [<id>] --state <states> [--tab <tab-id>] [--timeout <duration>]",
     "  craig events list [--task <task-id>] [--type <glob>] [--after <cursor>] --json",
     "  craig events watch [--task <task-id>] [--type <glob>] [--after <cursor>] [--format jsonl]",
@@ -448,6 +476,7 @@ function parseTaskPr(args: string[]): AppCommand {
 
 const DEFAULT_WAIT_TIMEOUT_MS = 5 * 60 * 1_000;
 const AGENT_STATES = new Set(["idle", "working", "ready", "error"]);
+const PROMPT_COMMAND_STATES = new Set(["queued", "delivering", "delivered", "failed", "cancelled"]);
 
 function parseAgentStatus(args: string[]): AppCommand {
   if (args.length === 0) return { kind: "showAgentStatus" };
@@ -455,6 +484,82 @@ function parseAgentStatus(args: string[]): AppCommand {
     return { kind: "showAgentStatus", tabId: requireNonEmpty(args[1]!, "Agent tab id") };
   }
   throw usageError(`Unsupported command: agent status ${args.join(" ")}`);
+}
+
+function parseAgentSend(args: string[]): AppCommand {
+  let prompt: Extract<AppCommand, { kind: "sendAgentPrompt" }>["prompt"] | undefined;
+  let tabId: string | undefined;
+  let delivery: "when-ready" | "immediate" = "when-ready";
+  let timeoutMs = DEFAULT_WAIT_TIMEOUT_MS;
+  let idempotencyKey: string | undefined;
+  const seen = new Set<string>();
+
+  for (let index = 0; index < args.length; index += 1) {
+    const option = args[index]!;
+    if (!["--prompt", "--prompt-file", "--stdin", "--tab", "--delivery", "--timeout", "--idempotency-key"].includes(option)) {
+      throw usageError(`Unsupported agent send option: ${option}`);
+    }
+    if (seen.has(option)) throw usageError(`Agent send option ${option} may only be provided once.`);
+    seen.add(option);
+    if (option === "--stdin") {
+      if (prompt) throw usageError("Agent send accepts exactly one prompt source.");
+      prompt = { source: "stdin" };
+      continue;
+    }
+    const value = args[index + 1];
+    if (value === undefined || value.startsWith("--")) throw usageError(`Agent send option ${option} requires a value.`);
+    index += 1;
+    if (option === "--prompt" || option === "--prompt-file") {
+      if (prompt) throw usageError("Agent send accepts exactly one prompt source.");
+      prompt = option === "--prompt"
+        ? { source: "inline", text: requireNonEmpty(value, "Prompt") }
+        : { source: "file", path: requireNonEmpty(value, "Prompt file") };
+    } else if (option === "--tab") tabId = requireNonEmpty(value, "Agent tab id");
+    else if (option === "--delivery") {
+      if (value !== "when-ready" && value !== "immediate") {
+        throw usageError('Agent send delivery must be "when-ready" or "immediate".');
+      }
+      delivery = value;
+    } else if (option === "--timeout") timeoutMs = parseDuration(value);
+    else idempotencyKey = requireNonEmpty(value, "Idempotency key");
+  }
+
+  if (!prompt) throw usageError("Agent send requires --prompt, --prompt-file, or --stdin.");
+  return {
+    kind: "sendAgentPrompt",
+    prompt,
+    delivery,
+    timeoutMs,
+    ...(tabId ? { tabId } : {}),
+    ...(idempotencyKey ? { idempotencyKey } : {}),
+  };
+}
+
+function parseCommandWait(args: string[]): AppCommand {
+  const commandId = requireNonEmpty(args[0] ?? "", "Command id");
+  let states: PromptCommandState[] | undefined;
+  let timeoutMs = DEFAULT_WAIT_TIMEOUT_MS;
+  const seen = new Set<string>();
+  for (let index = 1; index < args.length; index += 1) {
+    const option = args[index]!;
+    if (option !== "--state" && option !== "--timeout") throw usageError(`Unsupported command wait option: ${option}`);
+    if (seen.has(option)) throw usageError(`Command wait option ${option} may only be provided once.`);
+    seen.add(option);
+    const value = args[index + 1];
+    if (value === undefined || value.startsWith("--")) throw usageError(`Command wait option ${option} requires a value.`);
+    index += 1;
+    if (option === "--state") states = parsePromptCommandStates(value);
+    else timeoutMs = parseDuration(value);
+  }
+  return { kind: "waitPromptCommand", commandId, ...(states ? { states } : {}), timeoutMs };
+}
+
+function parsePromptCommandStates(value: string): PromptCommandState[] {
+  const states = value.split(",").map((state) => state.trim()).filter(Boolean);
+  if (states.length === 0 || states.some((state) => !PROMPT_COMMAND_STATES.has(state))) {
+    throw usageError(`Invalid command state list "${value}". Use queued, delivering, delivered, failed, or cancelled.`);
+  }
+  return [...new Set(states)] as PromptCommandState[];
 }
 
 function parseEvents(args: string[], watch: boolean): AppCommand {

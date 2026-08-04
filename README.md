@@ -151,10 +151,17 @@ craig task commit <task-id>
 
 craig agent list [--task <task-id>] --json
 craig agent status [--task <task-id>] [--tab <tab-id>] --json
+craig agent send --task <task-id> [--tab <tab-id>] (--prompt <text> | --prompt-file <path> | --stdin) \
+  [--delivery when-ready|immediate] [--timeout <duration>] [--idempotency-key <key>] --json
 craig task wait [<task-id>] --state <states> [--tab <tab-id>] [--timeout <duration>] --json
 
 craig events list [--task <task-id>] [--type <glob>] [--after <cursor>] --json
 craig events watch [--task <task-id>] [--type <glob>] [--after <cursor>] [--format jsonl]
+
+craig command show <command-id> --json
+craig command list [--task <task-id>] --json
+craig command cancel <command-id> --json
+craig command wait <command-id> [--state <states>] [--timeout <duration>] --json
 
 craig link add <task-id> <repo-id>
 craig link list <task-id>
@@ -188,7 +195,7 @@ Optional workspace-local config at `.craig/config.json`:
 
 Feature previews are experimental, workspace-local, and off by default. They can also be toggled from Options > Feature Previews in the TUI.
 
-The durable event journal and `events list`/`events watch` commands require the `agentOrchestration` preview.
+The durable event journal, event commands, and new prompt dispatch creation require the `agentOrchestration` preview. Disabling the preview stops new dispatch creation but leaves command inspection, waiting, cancellation, and safe reconciliation available for existing durable work. Prompt delivery defaults to `when-ready`; `immediate` explicitly interrupts a busy target.
 
 `github.watchIntervalSeconds` is the minimum GitHub polling interval. Craig polls selected PRs with pending checks
 most frequently, backs stable PRs and PR discovery off automatically, and pauses after rate-limit responses.
