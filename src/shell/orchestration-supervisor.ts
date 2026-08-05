@@ -111,7 +111,7 @@ export class OrchestrationSupervisor {
       throw error;
     });
     const tab = task?.ptyTabs.find((candidate) => candidate.id === command.agentTabId);
-    if (!task || !tab || tab.kind !== "agent" || task.status === "closed" || task.status === "merged") {
+    if (!task || !tab || tab.kind !== "agent" || task.status === "closed") {
       await promptCommandService.fail(this.paths, command.id, commandError(
         "PROMPT_TARGET_UNAVAILABLE",
         `Agent tab ${command.agentTabId} is no longer available in task ${command.taskId}.`,

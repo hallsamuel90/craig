@@ -35,7 +35,7 @@ export async function sendAgentPrompt(
 ): Promise<CommandSendAgentPromptResult> {
   await assertCreationEnabled(paths);
   const task = await taskService.getTask(paths, input.taskId);
-  if (task.status === "closed" || task.status === "merged") {
+  if (task.status === "closed") {
     throw new CraigError("COMMAND_STATE_CONFLICT", `Task ${task.id} is ${task.status} and cannot receive prompts.`, {
       details: { taskId: task.id, taskStatus: task.status },
     });
