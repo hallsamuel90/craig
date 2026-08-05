@@ -150,7 +150,8 @@ export class GitHubPollCoordinator {
       );
     }
 
-    if (task.status === "checked") {
+    // A merged PR does not close its task; keep looking for sequential follow-up PRs.
+    if (task.status !== "closed") {
       return this.withMinimum(
         foreground ? this.intervals.discoveryForegroundMs : this.intervals.discoveryBackgroundMs,
       );

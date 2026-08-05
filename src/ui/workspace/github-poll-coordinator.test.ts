@@ -6,18 +6,23 @@ import { GitHubPollCoordinator, type GitHubPollView } from "./github-poll-coordi
 const BACKGROUND: GitHubPollView = { selectedTaskId: null, reviewVisible: false };
 
 describe("GitHubPollCoordinator", () => {
-  test("initially syncs eligible tasks and skips tasks that cannot have a review-ready PR", () => {
+  test("initially syncs every non-closed task and skips only closed tasks", () => {
     const coordinator = new GitHubPollCoordinator({ now: () => 0 });
     const tasks = [
       task("pending", "pr_open", "pending"),
       task("discovery", "checked"),
       task("running", "running"),
       task("draft", "draft"),
+      task("merged", "merged"),
+      task("closed", "closed"),
     ];
 
     expect(coordinator.takeDueTasks(tasks, BACKGROUND).map((entry) => entry.id)).toEqual([
       "pending",
       "discovery",
+      "running",
+      "draft",
+      "merged",
     ]);
   });
 
@@ -43,7 +48,8 @@ describe("GitHubPollCoordinator", () => {
     const coordinator = new GitHubPollCoordinator({ now: () => now });
     const stable = task("stable", "pr_open", "success");
     const discovery = task("discovery", "checked");
-    const tasks = [stable, discovery];
+    const merged = task("merged", "merged");
+    const tasks = [stable, discovery, merged];
 
     coordinator.takeDueTasks(tasks, BACKGROUND);
     coordinator.recordSuccess(tasks, BACKGROUND);
@@ -51,7 +57,11 @@ describe("GitHubPollCoordinator", () => {
     expect(coordinator.takeDueTasks(tasks, BACKGROUND).map((entry) => entry.id)).toEqual(["stable"]);
     coordinator.recordSuccess([stable], BACKGROUND);
     now = 180_000;
-    expect(coordinator.takeDueTasks(tasks, BACKGROUND).map((entry) => entry.id)).toEqual(["stable", "discovery"]);
+    expect(coordinator.takeDueTasks(tasks, BACKGROUND).map((entry) => entry.id)).toEqual([
+      "stable",
+      "discovery",
+      "merged",
+    ]);
   });
 
   test("applies a cross-tick cooldown after a rate limit", () => {
