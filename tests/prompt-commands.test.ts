@@ -2,6 +2,7 @@ import { mkdir, readdir, rm, writeFile } from "node:fs/promises";
 
 import { afterEach, describe, expect, test, vi } from "vitest";
 
+import { configService } from "../src/domain/config/index.js";
 import {
   promptCommandService,
   listEvents,
@@ -9,12 +10,42 @@ import {
   type CreatePromptDispatchInput,
 } from "../src/domain/orchestration/index.js";
 import { OrchestrationSupervisor, type OrchestrationDeliveryRuntime } from "../src/shell/orchestration-supervisor.js";
+import { promptCommandShellService } from "../src/shell/prompt-commands.js";
 import { createCraigState, createRepoRoot, writeTaskRecord } from "./test-helpers.js";
 
 const roots: string[] = [];
 
 afterEach(async () => {
   await Promise.all(roots.splice(0).map((root) => rm(root, { recursive: true, force: true })));
+});
+
+describe("prompt command admission", () => {
+  test("allows merged tasks to receive follow-up prompts but rejects closed tasks", async () => {
+    const root = await createRepoRoot("craig-prompt-admission-");
+    roots.push(root);
+    const paths = await createCraigState(root, ["task_merged", "task_closed"]);
+    const merged = await writeTaskRecord(root, { id: "task_merged", status: "merged" });
+    const closed = await writeTaskRecord(root, { id: "task_closed", status: "closed" });
+    await configService.save(paths, { previews: { agentOrchestration: true } });
+
+    const accepted = await promptCommandShellService.send(paths, {
+      taskId: merged.id,
+      prompt: { source: "inline", text: "start the next pull request" },
+      delivery: "when-ready",
+      timeoutMs: 60_000,
+    });
+    expect(accepted.command).toMatchObject({ taskId: merged.id, state: "queued" });
+
+    await expect(promptCommandShellService.send(paths, {
+      taskId: closed.id,
+      prompt: { source: "inline", text: "this task is finished" },
+      delivery: "when-ready",
+      timeoutMs: 60_000,
+    })).rejects.toMatchObject({
+      code: "COMMAND_STATE_CONFLICT",
+      details: { taskId: closed.id, taskStatus: "closed" },
+    });
+  });
 });
 
 describe("durable prompt commands", () => {
@@ -105,6 +136,24 @@ describe("durable prompt commands", () => {
 });
 
 describe("orchestration supervisor", () => {
+  test.each(["when-ready", "immediate"] as const)(
+    "delivers %s follow-up work to a live merged task",
+    async (delivery) => {
+      const { paths, input, tabId } = await setupCommand();
+      await writeTaskRecord(paths.repoRoot, { id: input.taskId, status: "merged" });
+      const created = await promptCommandService.create(paths, { ...input, delivery });
+      const runtime = createRuntime(tabId, delivery === "when-ready" ? Date.now() - 10_000 : Date.now());
+      const supervisor = new OrchestrationSupervisor(paths, runtime, { intervalMs: 10_000 });
+      try {
+        await supervisor.start();
+        expect(runtime.writeToSession).toHaveBeenCalledOnce();
+        expect((await promptCommandService.show(paths, created.command.id)).command.state).toBe("delivered");
+      } finally {
+        await supervisor.stop();
+      }
+    },
+  );
+
   test("delivers exactly once to the requested ready tab", async () => {
     const { paths, input, tabId } = await setupCommand();
     const created = await promptCommandService.create(paths, input);
@@ -175,18 +224,11 @@ describe("orchestration supervisor", () => {
     }
   });
 
-  test("fails closed targets and expired commands without writing to a PTY", async () => {
+  test("fails closed targets, exited sessions, and expired commands without writing to a PTY", async () => {
     const { paths, input, tabId } = await setupCommand();
     const closed = await promptCommandService.create(paths, input);
     const closedRuntime = createRuntime(tabId, Date.now());
-    closedRuntime.getActivitySnapshots = () => [{
-      taskId: input.taskId,
-      tabId,
-      sessionState: "exited",
-      lastActivityAt: Date.now(),
-      exitCode: 0,
-      error: null,
-    }];
+    await writeTaskRecord(paths.repoRoot, { id: input.taskId, status: "closed" });
     const closedSupervisor = new OrchestrationSupervisor(paths, closedRuntime, { intervalMs: 10_000 });
     try {
       await closedSupervisor.start();
@@ -195,6 +237,27 @@ describe("orchestration supervisor", () => {
       expect(closedRuntime.writeToSession).not.toHaveBeenCalled();
     } finally {
       await closedSupervisor.stop();
+    }
+
+    await writeTaskRecord(paths.repoRoot, { id: input.taskId, status: "merged" });
+    const exited = await promptCommandService.create(paths, { ...input, id: "command_exited" });
+    const exitedRuntime = createRuntime(tabId, Date.now());
+    exitedRuntime.getActivitySnapshots = () => [{
+      taskId: input.taskId,
+      tabId,
+      sessionState: "exited",
+      lastActivityAt: Date.now(),
+      exitCode: 0,
+      error: null,
+    }];
+    const exitedSupervisor = new OrchestrationSupervisor(paths, exitedRuntime, { intervalMs: 10_000 });
+    try {
+      await exitedSupervisor.start();
+      expect((await promptCommandService.show(paths, exited.command.id)).command)
+        .toMatchObject({ state: "failed", lastError: { code: "PROMPT_TARGET_UNAVAILABLE" } });
+      expect(exitedRuntime.writeToSession).not.toHaveBeenCalled();
+    } finally {
+      await exitedSupervisor.stop();
     }
 
     const expired = await promptCommandService.create(paths, {
