@@ -1,5 +1,11 @@
 # craig-cli
 
+## 0.12.2
+
+### Patch Changes
+
+- 205fadb: Allow live agent sessions to receive follow-up prompt dispatches after an earlier pull request has merged.
+
 ## 0.12.1
 
 ### Patch Changes
