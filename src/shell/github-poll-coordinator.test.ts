@@ -1,6 +1,6 @@
 import { describe, expect, test } from "vitest";
 
-import { GitHubRateLimitError, type TaskRecord } from "../../domain/task/index.js";
+import { GitHubRateLimitError, type TaskRecord } from "../domain/task/index.js";
 import { GitHubPollCoordinator, type GitHubPollView } from "./github-poll-coordinator.js";
 
 const BACKGROUND: GitHubPollView = { selectedTaskId: null, reviewVisible: false };

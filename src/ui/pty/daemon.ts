@@ -15,6 +15,11 @@ import { listPromptCommands } from "../../domain/orchestration/index.js";
 import { getPtyDaemonEndpoint, PTY_DAEMON_PROTOCOL_VERSION } from "../../shell/pty-daemon-protocol.js";
 import { OrchestrationSupervisor } from "../../shell/orchestration-supervisor.js";
 import {
+  PullRequestSyncSupervisor,
+  type PullRequestSyncSupervisorOptions,
+} from "../../shell/pull-request-sync-supervisor.js";
+import type { GitHubPollView } from "../../shell/github-poll-coordinator.js";
+import {
   PtyRuntime,
   type PtyRuntimeOptions,
   type PtySessionSpec,
@@ -44,6 +49,7 @@ type DaemonRequest =
   | { id: number; type: "subscribeView"; tabId: string | null }
   | { id: number; type: "getViewState"; tabId: string | null }
   | { id: number; type: "getActivitySnapshots" }
+  | { id: number; type: "setPullRequestPollView"; view: GitHubPollView }
   | { id: number; type: "wakeOrchestration" }
   | { id: number; type: "shutdown" };
 
@@ -64,7 +70,8 @@ type DaemonEvent =
   | { type: "update"; tabId: string; view: TerminalViewState }
   | { type: "update"; tabId: string; patch: TerminalViewPatch }
   | { type: "activity"; snapshot: PtyActivitySnapshot }
-  | { type: "activityRemoved"; tabId: string };
+  | { type: "activityRemoved"; tabId: string }
+  | { type: "tasksChanged"; taskIds: string[] };
 type DaemonMessage = DaemonResponse | DaemonEvent;
 
 interface ClientViewSubscription {
@@ -73,6 +80,7 @@ interface ClientViewSubscription {
   tabId: string | null;
   view: TerminalViewState | null;
   rowKeys: string[];
+  pullRequestPollView: GitHubPollView;
 }
 
 /* eslint-disable no-unused-vars */
@@ -86,6 +94,11 @@ export interface DaemonPtyRuntimeOptions extends PtyRuntimeOptions {
   spawnDaemon?: (workspaceRoot: string) => void;
   viewUpdateMode?: PtyViewUpdateMode;
   activityEnabled?: boolean;
+  onTasksChanged?: (taskIds: string[]) => void;
+}
+
+export interface PtyDaemonServerOptions extends Partial<PtyRuntimeOptions> {
+  pullRequestSync?: false | PullRequestSyncSupervisorOptions;
 }
 /* eslint-enable no-unused-vars */
 
@@ -98,7 +111,7 @@ export async function createDaemonPtyRuntime(options: DaemonPtyRuntimeOptions): 
   return client;
 }
 
-export async function servePtyDaemon(paths: CraigPaths, options: Partial<PtyRuntimeOptions> = {}): Promise<void> {
+export async function servePtyDaemon(paths: CraigPaths, options: PtyDaemonServerOptions = {}): Promise<void> {
   const endpoint = getPtyDaemonEndpoint(paths);
   await mkdir(paths.runtimeDir, { recursive: true });
   await rm(endpoint.socketPath, { force: true });
@@ -146,6 +159,7 @@ export async function requestDaemonShutdown(paths: CraigPaths): Promise<boolean>
 }
 
 export class DaemonPtyRuntimeClient {
+  readonly managesPullRequestSync = true;
   private nextRequestId = 1;
   private readonly pending = new Map<number, PendingRequest>();
   private readonly viewCache = new Map<string, TerminalViewState>();
@@ -157,6 +171,9 @@ export class DaemonPtyRuntimeClient {
   private subscribedTabId: string | null = null;
   private viewUpdateMode: PtyViewUpdateMode;
   private activityEnabled: boolean;
+  private pullRequestPollView: GitHubPollView = { selectedTaskId: null, reviewVisible: false };
+  /* eslint-disable-next-line no-unused-vars */
+  private tasksChangedHandler: ((taskIds: string[]) => void) | undefined;
   private buffer = "";
   private closed = false;
   private readonly options: DaemonPtyRuntimeOptions;
@@ -165,6 +182,7 @@ export class DaemonPtyRuntimeClient {
     this.options = options;
     this.viewUpdateMode = options.viewUpdateMode ?? "snapshot";
     this.activityEnabled = options.activityEnabled ?? false;
+    this.tasksChangedHandler = options.onTasksChanged;
     socket.setEncoding("utf8");
     socket.on("data", (chunk) => this.handleData(String(chunk)));
     socket.on("error", (error) => this.rejectAll(error instanceof Error ? error : new Error(String(error))));
@@ -316,6 +334,23 @@ export class DaemonPtyRuntimeClient {
       .catch(() => undefined);
   }
 
+  setPullRequestPollView(view: GitHubPollView): void {
+    if (
+      this.closed ||
+      (this.pullRequestPollView.selectedTaskId === view.selectedTaskId &&
+        this.pullRequestPollView.reviewVisible === view.reviewVisible)
+    ) {
+      return;
+    }
+    this.pullRequestPollView = view;
+    void this.send({ type: "setPullRequestPollView", view }).catch(() => undefined);
+  }
+
+  /* eslint-disable-next-line no-unused-vars */
+  setTasksChangedHandler(handler: (taskIds: string[]) => void): void {
+    this.tasksChangedHandler = handler;
+  }
+
   disposeSession(tabId: string): void {
     this.viewCache.delete(tabId);
     this.removeCachedActivity(tabId);
@@ -442,6 +477,9 @@ export class DaemonPtyRuntimeClient {
     if (message.type === "activityRemoved") {
       this.removeCachedActivity(message.tabId);
     }
+    if (message.type === "tasksChanged") {
+      this.tasksChangedHandler?.(message.taskIds);
+    }
   }
 
   private subscribeToView(tabId: string | null): void {
@@ -548,12 +586,17 @@ class PtyDaemonServer {
   private readonly runtime: PtyRuntime;
   private readonly paths: CraigPaths;
   private orchestrationSupervisor: OrchestrationSupervisor | null = null;
+  private pullRequestSyncSupervisor: PullRequestSyncSupervisor | null = null;
+  private readonly pullRequestSyncOptions: false | PullRequestSyncSupervisorOptions | undefined;
   private attachedTabId: string | null = null;
 
-  constructor(paths: CraigPaths, options: Partial<PtyRuntimeOptions>) {
+  constructor(paths: CraigPaths, options: PtyDaemonServerOptions) {
     this.paths = paths;
+    this.pullRequestSyncOptions = options.pullRequestSync;
+    const runtimeOptions = { ...options };
+    delete runtimeOptions.pullRequestSync;
     this.runtime = new PtyRuntime({
-      ...options,
+      ...runtimeOptions,
       workspaceRoot: paths.workspaceRoot,
       activityEnabled: false,
       onUpdate: (invalidation) => this.handleRuntimeUpdate(invalidation.tabId),
@@ -564,6 +607,26 @@ class PtyDaemonServer {
 
   async start(): Promise<void> {
     const config = await configService.load(this.paths);
+    if (this.pullRequestSyncOptions !== false) {
+      const configuredOptions = this.pullRequestSyncOptions ?? {};
+      this.pullRequestSyncSupervisor = new PullRequestSyncSupervisor(this.paths, {
+        ...configuredOptions,
+        minimumIntervalMs: configuredOptions.minimumIntervalMs ??
+          (config.github?.watchIntervalSeconds ?? 5) * 1_000,
+        onTasksChanged: async (taskIds) => {
+          this.broadcastTasksChanged(taskIds);
+          await configuredOptions.onTasksChanged?.(taskIds);
+        },
+        onError: async (error) => {
+          await errorService.appendErrorLogBestEffort(this.paths, {
+            context: "pull request sync supervisor",
+            message: error instanceof Error ? error.message : String(error),
+          });
+          await configuredOptions.onError?.(error);
+        },
+      });
+      this.pullRequestSyncSupervisor.start();
+    }
     const unfinished = (await listPromptCommands(this.paths))
       .some((command) => command.state === "queued" || command.state === "delivering");
     if (configService.previews.isEnabled(config, "agentOrchestration") || unfinished) {
@@ -572,6 +635,8 @@ class PtyDaemonServer {
   }
 
   async stop(): Promise<void> {
+    await this.pullRequestSyncSupervisor?.stop();
+    this.pullRequestSyncSupervisor = null;
     await this.orchestrationSupervisor?.stop();
     this.orchestrationSupervisor = null;
   }
@@ -585,6 +650,7 @@ class PtyDaemonServer {
       tabId: null,
       view: null,
       rowKeys: [],
+      pullRequestPollView: { selectedTaskId: null, reviewVisible: false },
     });
     socket.setEncoding("utf8");
     socket.on("data", (chunk) => {
@@ -601,6 +667,7 @@ class PtyDaemonServer {
     const removeClient = () => {
       this.clients.delete(socket);
       this.subscriptions.delete(socket);
+      this.pullRequestSyncSupervisor?.setView(this.getPullRequestPollView());
       if (!this.hasActivitySubscribers()) {
         this.updateRuntimeActivityEnabled();
         this.clearPendingActivityBroadcasts();
@@ -718,6 +785,9 @@ class PtyDaemonServer {
         return this.runtime.getViewState(request.tabId);
       case "getActivitySnapshots":
         return null;
+      case "setPullRequestPollView":
+        this.setPullRequestPollView(socket, request.view);
+        return null;
       case "wakeOrchestration":
         await this.ensureOrchestrationSupervisor();
         await this.orchestrationSupervisor!.wake();
@@ -739,6 +809,7 @@ class PtyDaemonServer {
       tabId,
       view,
       rowKeys: view.rows.map(rowKey),
+      pullRequestPollView: current?.pullRequestPollView ?? { selectedTaskId: null, reviewVisible: false },
     });
     return view;
   }
@@ -753,6 +824,7 @@ class PtyDaemonServer {
       tabId,
       view,
       rowKeys: view.rows.map(rowKey),
+      pullRequestPollView: current?.pullRequestPollView ?? { selectedTaskId: null, reviewVisible: false },
     });
     return view;
   }
@@ -767,6 +839,26 @@ class PtyDaemonServer {
     this.updateRuntimeActivityEnabled();
     if (!hasActivitySubscribers) {
       this.clearPendingActivityBroadcasts();
+    }
+  }
+
+  private setPullRequestPollView(socket: Socket, view: GitHubPollView): void {
+    const current = this.subscriptions.get(socket);
+    if (!current) return;
+    this.subscriptions.set(socket, { ...current, pullRequestPollView: view });
+    this.pullRequestSyncSupervisor?.setView(this.getPullRequestPollView());
+  }
+
+  private getPullRequestPollView(): GitHubPollView {
+    const views = [...this.subscriptions.values()].map((subscription) => subscription.pullRequestPollView);
+    return views.find((view) => view.selectedTaskId && view.reviewVisible) ??
+      views.find((view) => view.selectedTaskId) ??
+      { selectedTaskId: null, reviewVisible: false };
+  }
+
+  private broadcastTasksChanged(taskIds: string[]): void {
+    for (const client of this.clients) {
+      writeMessage(client, { type: "tasksChanged", taskIds });
     }
   }
 
