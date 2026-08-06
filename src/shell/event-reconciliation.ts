@@ -28,6 +28,7 @@ export async function reconcileEvents(
     Date.now(),
   );
   const projection = validateProjection(storedProjection);
+  const projectionNeedsRepair = projection !== storedProjection;
   const appended: CraigEvent[] = [];
   const latestTaskEvents = latestBy(existing.filter(isTaskLifecycleEvent), (event) => event.taskId);
   const latestPrEvents = latestBy(existing.filter((event) => event.type.startsWith("task.pr.")), (event) => event.taskId);
@@ -51,7 +52,10 @@ export async function reconcileEvents(
         workspaceId: task.workspaceId || null,
         occurredAt: task.updatedAt,
         actor,
-        data: taskData,
+        data: {
+          ...taskData,
+          changedFields: previousTaskData ? changedTaskFields(previousTaskData, taskData) : [],
+        },
       });
       appended.push(event);
       taskEventId = event.id;
@@ -122,7 +126,9 @@ export async function reconcileEvents(
     appended.push(event);
     projection.agents[agent.tabId] = { state: agent.state, eventId: event.id };
   }
-  await atomicWriteJson(projectionPath(paths), projection);
+  if (appended.length > 0 || projectionNeedsRepair) {
+    await atomicWriteJson(projectionPath(paths), projection);
+  }
   return appended;
 }
 
@@ -144,10 +150,28 @@ function buildTaskData(task: TaskRecord) {
     title: task.title,
     runner: task.runner,
     branch: task.branch,
+    lastCommitSha: task.lastCommit?.sha ?? null,
+    checksStatus: task.checks.status,
+    checksLastRunAt: task.checks.lastRunAt,
     sourceUpdatedAt: task.updatedAt,
     agentTabIds: task.ptyTabs.filter((tab) => tab.kind === "agent").map((tab) => tab.id),
   };
   return { ...source, signature: signature(source) };
+}
+
+const SEMANTIC_TASK_FIELDS = [
+  "status",
+  "title",
+  "runner",
+  "branch",
+  "lastCommitSha",
+  "checksStatus",
+  "checksLastRunAt",
+  "agentTabIds",
+] as const;
+
+function changedTaskFields(previous: Record<string, unknown>, current: Record<string, unknown>): string[] {
+  return SEMANTIC_TASK_FIELDS.filter((field) => JSON.stringify(previous[field]) !== JSON.stringify(current[field]));
 }
 
 function buildPrData(prs: TaskPR[]) {

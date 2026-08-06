@@ -1,5 +1,7 @@
 import type { TaskRecord } from "../domain/task/index.js";
 import { taskService } from "../domain/task/index.js";
+import type { CraigEvent } from "../domain/orchestration/index.js";
+import type { PtyActivitySnapshot } from "../domain/agent/index.js";
 import type { CraigPaths } from "../state/craig-paths.js";
 import {
   GitHubPollCoordinator,
@@ -7,6 +9,7 @@ import {
   type GitHubPollView,
 } from "./github-poll-coordinator.js";
 import { Heartbeat } from "./heartbeat.js";
+import { PullRequestEventMonitor } from "./pull-request-event-monitor.js";
 
 const BACKGROUND_POLL_VIEW: GitHubPollView = {
   selectedTaskId: null,
@@ -25,6 +28,7 @@ export interface PullRequestSyncSupervisorOptions {
   heartbeatIntervalMs?: number;
   now?: () => number;
   dependencies?: PullRequestSyncDependencies;
+  reconcileEvents?: false | (() => Promise<CraigEvent[]>);
   onTasksChanged?: (taskIds: string[]) => void | Promise<void>;
   onError?: (error: unknown) => void | Promise<void>;
 }
@@ -44,17 +48,18 @@ export class PullRequestSyncSupervisor {
   private readonly dependencies: PullRequestSyncDependencies;
   private readonly onTasksChanged: NonNullable<PullRequestSyncSupervisorOptions["onTasksChanged"]>;
   private readonly onError: NonNullable<PullRequestSyncSupervisorOptions["onError"]>;
+  private readonly eventMonitor: PullRequestEventMonitor | null;
+  private readonly pendingWakeTaskIds = new Set<string>();
   private reconciliation: Promise<void> | null = null;
+  private reconciliationVersion = 0;
   private view = BACKGROUND_POLL_VIEW;
   private running = false;
   private lastErrorMessage: string | null = null;
 
-  /* eslint-disable no-unused-vars */
   constructor(
     private readonly paths: CraigPaths,
     options: PullRequestSyncSupervisorOptions = {},
   ) {
-    /* eslint-enable no-unused-vars */
     const heartbeatIntervalMs = options.heartbeatIntervalMs ?? 1_000;
     this.dependencies = options.dependencies ?? defaultDependencies;
     this.onTasksChanged = options.onTasksChanged ?? (() => undefined);
@@ -64,6 +69,17 @@ export class PullRequestSyncSupervisor {
       ...(options.intervals ? { intervals: options.intervals } : {}),
       ...(options.now ? { now: options.now } : {}),
     });
+    this.eventMonitor = options.reconcileEvents
+      ? new PullRequestEventMonitor(paths, {
+          reconcileEvents: options.reconcileEvents,
+          onEvents: async (events) => {
+            const taskIds = getPullRequestSyncWakeTaskIds(events);
+            if (taskIds.length > 0) await this.wake(taskIds);
+          },
+          onError: (error) => this.reportError(error),
+          ...(options.now ? { now: options.now } : {}),
+        })
+      : null;
     this.heartbeat = new Heartbeat({
       resolutionMs: heartbeatIntervalMs,
       ...(options.now ? { now: options.now } : {}),
@@ -79,6 +95,7 @@ export class PullRequestSyncSupervisor {
   start(): void {
     if (this.running) return;
     this.running = true;
+    this.eventMonitor?.start();
     this.heartbeat.start();
   }
 
@@ -86,6 +103,7 @@ export class PullRequestSyncSupervisor {
     if (!this.running) return;
     this.running = false;
     this.heartbeat.stop();
+    await this.eventMonitor?.stop();
     await this.reconciliation?.catch(() => undefined);
   }
 
@@ -93,16 +111,41 @@ export class PullRequestSyncSupervisor {
     this.view = view;
   }
 
-  async wake(): Promise<void> {
+  notifyActivity(snapshot: PtyActivitySnapshot): void {
+    this.eventMonitor?.notifyActivity(snapshot);
+  }
+
+  notifyActivityRemoved(tabId: string): void {
+    this.eventMonitor?.notifyActivityRemoved(tabId);
+  }
+
+  async wake(taskIds?: readonly string[]): Promise<void> {
+    if (taskIds?.length) {
+      for (const taskId of taskIds) this.pendingWakeTaskIds.add(taskId);
+      this.reconciliationVersion += 1;
+    }
     await this.reconcile();
   }
 
   private reconcile(): Promise<void> {
     if (this.reconciliation) return this.reconciliation;
-    this.reconciliation = this.reconcilePullRequests().finally(() => {
-      this.reconciliation = null;
-    });
+    this.reconciliation = this.drainReconciliations();
     return this.reconciliation;
+  }
+
+  private async drainReconciliations(): Promise<void> {
+    try {
+      while (true) {
+        const version = this.reconciliationVersion;
+        const immediateTaskIds = [...this.pendingWakeTaskIds];
+        this.pendingWakeTaskIds.clear();
+        this.coordinator.requestImmediate(immediateTaskIds);
+        await this.reconcilePullRequests();
+        if (version === this.reconciliationVersion) return;
+      }
+    } finally {
+      this.reconciliation = null;
+    }
   }
 
   private async reconcilePullRequests(): Promise<void> {
@@ -152,6 +195,38 @@ export class PullRequestSyncSupervisor {
     await this.onError(error);
   }
 }
+
+export function getPullRequestSyncWakeTaskIds(events: readonly CraigEvent[]): string[] {
+  const taskIds = new Set<string>();
+  for (const event of events) {
+    if (!event.taskId) continue;
+    if (event.type === "task.created" || event.type === "task.pr.unlinked") {
+      taskIds.add(event.taskId);
+      continue;
+    }
+    const data = asRecord(event.data);
+    if (event.type === "task.updated") {
+      const changedFields = Array.isArray(data?.changedFields) ? data.changedFields : [];
+      if (changedFields.some((field) => typeof field === "string" && PR_WAKE_TASK_FIELDS.has(field))) {
+        taskIds.add(event.taskId);
+      }
+      continue;
+    }
+    if (
+      event.type === "agent.state.changed" &&
+      data?.previousState === "working" &&
+      (data.state === "ready" || data.state === "idle" || data.state === "error")
+    ) {
+      taskIds.add(event.taskId);
+    }
+  }
+  return [...taskIds];
+}
+
+const PR_WAKE_TASK_FIELDS = new Set(["branch", "lastCommitSha", "checksStatus", "checksLastRunAt"]);
+
+const asRecord = (value: unknown): Record<string, unknown> | null =>
+  typeof value === "object" && value !== null && !Array.isArray(value) ? value as Record<string, unknown> : null;
 
 function taskPullRequestSignature(task: TaskRecord): string {
   return JSON.stringify({

@@ -1,9 +1,11 @@
 import { describe, expect, test, vi } from "vitest";
 
 import { GitHubRateLimitError, type TaskRecord } from "../domain/task/index.js";
+import type { CraigEvent } from "../domain/orchestration/index.js";
 import { getCraigPaths } from "../state/craig-paths.js";
 import {
   PullRequestSyncSupervisor,
+  getPullRequestSyncWakeTaskIds,
   type PullRequestSyncDependencies,
 } from "./pull-request-sync-supervisor.js";
 
@@ -119,7 +121,57 @@ describe("PullRequestSyncSupervisor", () => {
     await Promise.all([first, second]);
     expect(syncTasks).toHaveBeenCalledOnce();
   });
+
+  test("pulls a task poll forward after an event while respecting the minimum interval", async () => {
+    let now = 0;
+    const task = buildTask("task_1", "checked");
+    const syncTasks = vi.fn(async () => [task]);
+    const supervisor = new PullRequestSyncSupervisor(getCraigPaths("/workspace"), {
+      now: () => now,
+      minimumIntervalMs: 5_000,
+      dependencies: dependenciesFor(() => [task], syncTasks),
+    });
+
+    await supervisor.wake();
+    now = 1_000;
+    await supervisor.wake([task.id]);
+    expect(syncTasks).toHaveBeenCalledOnce();
+    now = 5_000;
+    await supervisor.wake();
+    expect(syncTasks).toHaveBeenCalledTimes(2);
+  });
+
+  test("selects semantic task and agent events without feeding PR refreshes back into polling", () => {
+    expect(getPullRequestSyncWakeTaskIds([
+      event("task.created", "task_created", {}),
+      event("task.updated", "task_commit", { changedFields: ["lastCommitSha"] }),
+      event("task.updated", "task_status", { changedFields: [] }),
+      event("task.pr.refreshed", "task_refresh", {}),
+      event("task.pr.unlinked", "task_unlinked", {}),
+      event("agent.state.changed", "task_ready", { previousState: "working", state: "ready" }),
+      event("agent.state.changed", "task_working", { previousState: "idle", state: "working" }),
+      event("task.updated", "task_commit", { changedFields: ["checksStatus"] }),
+    ])).toEqual(["task_created", "task_commit", "task_unlinked", "task_ready"]);
+  });
 });
+
+function event(type: string, taskId: string, data: unknown): CraigEvent {
+  return {
+    schemaVersion: 1,
+    id: `${type}:${taskId}`,
+    sequence: 1,
+    workspaceId: "workspace",
+    taskId,
+    agentTabId: null,
+    commandId: null,
+    swarmRunId: null,
+    swarmStepId: null,
+    type,
+    occurredAt: "2026-01-01T00:00:00.000Z",
+    actor: { type: "system", component: "heartbeat" },
+    data,
+  };
+}
 
 function dependenciesFor(
   listTasks: () => TaskRecord[],
