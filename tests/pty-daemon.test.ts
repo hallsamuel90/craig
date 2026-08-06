@@ -300,9 +300,11 @@ describe("PTY daemon", () => {
       });
       await first.ensureSession("task_1", "task_1:terminal", { columns: 80, rows: 24 });
       await first.ensureSession("task_1", "task_1:agent", { columns: 80, rows: 24 });
+      first.setViewedTab("task_1:terminal");
       terminalPty.emitData("terminal-live\r\n");
-      agentPty.emitData("agent-live\r\n");
       await vi.waitFor(() => expect(viewText(first.getViewState("task_1:terminal"))).toContain("terminal-live"));
+      first.setViewedTab("task_1:agent");
+      agentPty.emitData("agent-live\r\n");
       await vi.waitFor(() => expect(viewText(first.getViewState("task_1:agent"))).toContain("agent-live"));
       first.disposeAll();
 
@@ -346,7 +348,6 @@ describe("PTY daemon", () => {
         activityEnabled: true,
         resolveSessionSpec: () => ({ cwd: root, command: [] }),
         onActivity,
-        viewUpdateMode: "incremental",
       });
       await first.ensureSession("task_1", "task_1:agent", { columns: 80, rows: 24 });
       first.setViewedTab(null);
@@ -366,7 +367,6 @@ describe("PTY daemon", () => {
         workspaceRoot: root,
         activityEnabled: true,
         resolveSessionSpec: () => ({ cwd: root, command: [] }),
-        viewUpdateMode: "incremental",
       });
       expect(second.getActivitySnapshots()).toEqual([
         expect.objectContaining({
@@ -632,7 +632,6 @@ describe("PTY daemon", () => {
         workspaceRoot: root,
         resolveSessionSpec: () => ({ cwd: root, command: [] }),
         onUpdate,
-        viewUpdateMode: "incremental",
       });
       await client.ensureSession("task_1", "task_1:agent", { columns: 80, rows: 24 });
       await client.ensureSession("task_1", "task_1:terminal", { columns: 80, rows: 24 });
@@ -666,40 +665,6 @@ describe("PTY daemon", () => {
       onUpdate.mockClear();
       agentPty.emitExit(7);
       await vi.waitFor(() => expect(client.getViewState("task_1:agent").status).toBe("exited"));
-      expect(onUpdate).toHaveBeenCalledWith({ tabId: "task_1:agent", kind: "full" });
-      client.disposeAll();
-    } finally {
-      await requestDaemonShutdown(paths);
-      await daemon;
-      await rm(root, { recursive: true, force: true });
-    }
-  }, DAEMON_TEST_TIMEOUT_MS);
-
-  test("snapshot mode keeps legacy full-view updates for background sessions", async () => {
-    const root = await createWorkspace();
-    const paths = getCraigPaths(root);
-    const agentPty = createFakePty();
-    const terminalPty = createFakePty();
-    const spawn = vi.fn()
-      .mockReturnValueOnce(agentPty)
-      .mockReturnValueOnce(terminalPty);
-    const onUpdate = vi.fn();
-    const daemon = servePtyDaemon(paths, { shell: "/bin/zsh", env: { TERM: "xterm-256color" }, spawn });
-
-    try {
-      const client = await createDaemonPtyRuntime({
-        paths,
-        workspaceRoot: root,
-        resolveSessionSpec: () => ({ cwd: root, command: [] }),
-        onUpdate,
-      });
-      await client.ensureSession("task_1", "task_1:agent", { columns: 80, rows: 24 });
-      await client.ensureSession("task_1", "task_1:terminal", { columns: 80, rows: 24 });
-      onUpdate.mockClear();
-
-      agentPty.emitData("legacy-background-output\r\n");
-
-      await vi.waitFor(() => expect(viewText(client.getViewState("task_1:agent"))).toContain("legacy-background-output"));
       expect(onUpdate).toHaveBeenCalledWith({ tabId: "task_1:agent", kind: "full" });
       client.disposeAll();
     } finally {
@@ -956,7 +921,6 @@ describe("PTY daemon", () => {
         activityEnabled: true,
         resolveSessionSpec: () => ({ cwd: root, command: [] }),
         spawnDaemon,
-        viewUpdateMode: "incremental",
       });
 
       expect(client.getActivitySnapshots()).toEqual([

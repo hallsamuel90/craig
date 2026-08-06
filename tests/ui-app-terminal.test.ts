@@ -68,7 +68,7 @@ describe("terminal app PTY attach flow", () => {
     await expect(app).resolves.toBe(0);
   });
 
-  test("switches tasks without repainting the inspector when the incremental preview is enabled", async () => {
+  test("switches tasks without repainting the inspector", async () => {
     const root = await mkdtemp(join(tmpdir(), "craig-ui-app-regional-nav-"));
     tempRoots.push(root);
     const paths = await setupWorkspace(root);
@@ -81,6 +81,7 @@ describe("terminal app PTY attach flow", () => {
     });
     const index = JSON.parse(await readFile(paths.indexFile, "utf8")) as { taskIds: string[] };
     await writeFile(paths.indexFile, JSON.stringify({ ...index, taskIds: [...index.taskIds, secondTask.id] }), "utf8");
+    await configService.save(paths, { previews: { incrementalCenterPane: false } });
     await writeFile(
       paths.uiStateFile,
       JSON.stringify({
@@ -97,7 +98,6 @@ describe("terminal app PTY attach flow", () => {
         updatedAt: "2026-05-04T00:00:00.000Z",
       }),
     );
-    await configService.save(paths, { previews: { incrementalCenterPane: true } });
     const terminal = new FakeTerminal();
     const ptyRuntime = new FakePtyRuntime();
     const app = startTerminalApp({ terminal, ptyRuntime, uiStateFile: paths.uiStateFile, workspaceRoot: root });
@@ -2267,8 +2267,9 @@ describe("terminal app PTY attach flow", () => {
     terminal.emitKey("TAB"); // inspector
     terminal.emitKey("RIGHT"); // review
     await vi.waitFor(() => expect(stripAnsi(terminal.frames.at(-1) ?? "")).toContain("#17"));
+    const closeFrameStart = terminal.frames.length;
     terminal.emitKey("X");
-    await vi.waitFor(() => expect(stripAnsi(terminal.frames.at(-1) ?? "")).toContain("Archived task task_20260430_02"));
+    await vi.waitFor(() => expect(stripAnsi(terminal.frames.slice(closeFrameStart).join(""))).toContain("Archived task task_20260430_02"));
     terminal.emitKey("q");
 
     await expect(app).resolves.toBe(0);
@@ -2619,27 +2620,21 @@ describe("terminal app PTY attach flow", () => {
     await vi.waitFor(() => {
       const frame = stripAnsi(terminal.frames.at(-1) ?? "");
       expect(frame).toContain("Feature Previews - Experimental");
-      expect(frame).toContain("[ ] Incremental center pane");
       expect(frame).toContain("[ ] Agent activity indicators");
+      expect(frame).toContain("[ ] Agent orchestration");
+      expect(frame).not.toContain("Incremental center pane");
       expect(frame).toContain("may change or be removed");
     });
 
     terminal.emitKey("ENTER");
-    await vi.waitFor(async () => expect((await configService.load(paths)).previews?.incrementalCenterPane).toBe(true));
-    expect(ptyRuntime.setViewUpdateMode).toHaveBeenCalledWith("incremental");
-    await vi.waitFor(() => expect(stripAnsi(terminal.frames.at(-1) ?? "")).toContain("[x] Incremental center pane"));
-
-    terminal.emitKey("ENTER");
-    await vi.waitFor(async () => expect((await configService.load(paths)).previews?.incrementalCenterPane).toBe(false));
-    expect(ptyRuntime.setViewUpdateMode).toHaveBeenLastCalledWith("snapshot");
-    const viewModeCallCount = ptyRuntime.setViewUpdateMode.mock.calls.length;
+    await vi.waitFor(async () => expect((await configService.load(paths)).previews?.agentActivityIndicators).toBe(true));
+    await vi.waitFor(() => expect(stripAnsi(terminal.frames.at(-1) ?? "")).toContain("[x] Agent activity indicators"));
+    expect(ptyRuntime.setActivityEnabled).toHaveBeenLastCalledWith(true);
 
     terminal.emitKey("DOWN");
     terminal.emitKey("ENTER");
-    await vi.waitFor(async () => expect((await configService.load(paths)).previews?.agentActivityIndicators).toBe(true));
-    await vi.waitFor(() => expect(stripAnsi(terminal.frames.at(-1) ?? "")).toContain("[x] Agent activity indicators"));
-    expect(ptyRuntime.setViewUpdateMode).toHaveBeenCalledTimes(viewModeCallCount);
-    expect(ptyRuntime.setActivityEnabled).toHaveBeenLastCalledWith(true);
+    await vi.waitFor(async () => expect((await configService.load(paths)).previews?.agentOrchestration).toBe(true));
+    await vi.waitFor(() => expect(stripAnsi(terminal.frames.at(-1) ?? "")).toContain("[x] Agent orchestration"));
 
     terminal.emitKey("ESCAPE");
     terminal.emitKey("ESCAPE");
@@ -2898,7 +2893,6 @@ class FakePtyRuntime implements PtyRuntimePort {
   disposeSession = vi.fn();
   disposeAll = vi.fn();
   setViewedTab = vi.fn();
-  setViewUpdateMode = vi.fn();
   setActivityEnabled = vi.fn();
   setPullRequestPollView = vi.fn();
   /* eslint-disable-next-line no-unused-vars */
