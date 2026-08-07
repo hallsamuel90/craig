@@ -1,5 +1,11 @@
 # craig-cli
 
+## 0.12.5
+
+### Patch Changes
+
+- 3fa48b2: Refresh pull request state sooner after task commits, checks, PR unlinking, and agent completion events while retaining interval polling as a fallback.
+
 ## 0.12.4
 
 ### Patch Changes
