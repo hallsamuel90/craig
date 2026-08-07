@@ -102,6 +102,33 @@ describe("CLI execution contract", () => {
     });
   });
 
+  test("denies delegation commands from agent context without a capability", async () => {
+    const root = await createRepoRoot("craig-cli-unscoped-agent-");
+    const worktree = path.join(root, "worktree");
+    tempRoots.push(root);
+    await mkdir(worktree, { recursive: true });
+    await createCraigState(root, ["task_1"]);
+    const task = await writeTaskRecord(root, { id: "task_1", worktreePath: worktree });
+    const agentTab = task.ptyTabs.find((tab) => tab.kind === "agent")!;
+    const output = createOutput();
+
+    const exitCode = await runCli({
+      ...createOptions(root, ["--json", "task", "children"], output),
+      env: {
+        CRAIG_WORKSPACE_ROOT: root,
+        CRAIG_TASK_ID: task.id,
+        CRAIG_AGENT_TAB_ID: agentTab.id,
+      },
+    });
+
+    expect(exitCode).toBe(CRAIG_EXIT_CODE_BY_ERROR.CAPABILITY_DENIED);
+    expect(output.stdout).toEqual([]);
+    expect(JSON.parse(output.stderr[0]!)).toMatchObject({
+      ok: false,
+      error: { code: "CAPABILITY_DENIED", details: { reason: "agent capability is missing" } },
+    });
+  });
+
   test("executes task show without an id from cwd context", async () => {
     const root = await createRepoRoot("craig-cli-task-show-");
     const worktree = path.join(root, "worktree");
@@ -386,6 +413,34 @@ describe("CLI execution contract", () => {
       kind: "cancelPromptCommand",
       changed: true,
       command: { state: "cancelled" },
+    });
+  });
+
+  test("gates child creation while keeping lineage inspection available", async () => {
+    const root = await createRepoRoot("craig-cli-delegation-");
+    tempRoots.push(root);
+    await createCraigState(root, ["parent", "child"]);
+    await writeTaskRecord(root, { id: "parent", rootTaskId: "parent" });
+    await writeTaskRecord(root, {
+      id: "child",
+      parentTaskId: "parent",
+      rootTaskId: "parent",
+      delegationDepth: 1,
+    });
+    const blocked = createOutput();
+    expect(await runCli(createOptions(root, [
+      "task", "create-child", "--parent", "parent", "--repo", "repo_test", "more work", "--json",
+    ], blocked))).toBe(2);
+    expect(JSON.parse(blocked.stderr[0]!)).toMatchObject({
+      command: "task.create-child",
+      error: { code: "CLI_USAGE", details: { preview: "agentOrchestration" } },
+    });
+
+    const inspection = createOutput();
+    expect(await runCli(createOptions(root, ["task", "children", "parent", "--json"], inspection))).toBe(0);
+    expect(JSON.parse(inspection.stdout[0]!)).toMatchObject({
+      command: "task.children",
+      data: { kind: "listTaskChildren", taskId: "parent", children: [{ id: "child", delegationDepth: 1 }] },
     });
   });
 

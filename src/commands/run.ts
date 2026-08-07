@@ -104,6 +104,8 @@ export async function runCli(options: RunCliOptions): Promise<number> {
           emitEvent: (event) => options.writeStdout(`${command.format === "jsonl" ? JSON.stringify(event) : formatEventLine(event)}\n`),
         } : {}),
         ...(options.readStdin ? { readStdin: options.readStdin } : {}),
+        ...(options.env.CRAIG_AGENT_TAB_ID ? { agentContext: true } : {}),
+        ...(options.env.CRAIG_AGENT_CAPABILITY ? { agentCapabilityId: options.env.CRAIG_AGENT_CAPABILITY } : {}),
       });
     } finally {
       cancellation.dispose();
@@ -143,6 +145,8 @@ function getTaskResolution(command: AppCommand): "none" | "optional" | "required
   if (command.kind === "currentTask" || command.kind === "showCurrentTask") {
     return "required";
   }
+  if (command.kind === "createChildTask") return command.parentTaskId ? "none" : "required";
+  if (command.kind === "listTaskChildren" || command.kind === "cancelTaskTree") return command.taskId ? "none" : "required";
   if (isTaskPrCommand(command)) {
     return command.taskId ? "none" : "required";
   }
@@ -200,6 +204,8 @@ function getPositionalTaskId(command: AppCommand): string | undefined {
     case "showTask":
     case "attachTask":
     case "listTaskLinks":
+    case "listTaskChildren":
+    case "cancelTaskTree":
     case "streamTaskLogs":
     case "showTaskDiff":
     case "focusTask":
@@ -214,6 +220,8 @@ function getPositionalTaskId(command: AppCommand): string | undefined {
     case "sendAgentPrompt":
     case "listPromptCommands":
       return command.taskId;
+    case "createChildTask":
+      return command.parentTaskId;
     case "showTaskPr":
     case "discoverTaskPr":
     case "linkTaskPr":
@@ -232,9 +240,12 @@ function bindGlobalTaskTarget(command: AppCommand, globalTaskId: string | undefi
   if (
     command.kind === "listAgents" || command.kind === "showAgentStatus" || command.kind === "waitTask" ||
     command.kind === "listEvents" || command.kind === "watchEvents"
-    || command.kind === "sendAgentPrompt" || command.kind === "listPromptCommands"
+    || command.kind === "sendAgentPrompt" || command.kind === "listPromptCommands" ||
+    command.kind === "listTaskChildren" || command.kind === "cancelTaskTree" || command.kind === "createChildTask"
   ) {
-    return { ...command, taskId: command.taskId ?? globalTaskId };
+    return command.kind === "createChildTask"
+      ? { ...command, parentTaskId: command.parentTaskId ?? globalTaskId }
+      : { ...command, taskId: command.taskId ?? globalTaskId };
   }
   return command;
 }

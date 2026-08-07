@@ -15,7 +15,12 @@ export function resolvePtySessionSpec(model: WorkspaceShellModel, tabId: string,
     ? {
         CRAIG_WORKSPACE_ROOT: workspaceRoot,
         CRAIG_TASK_ID: task.id,
-        ...(tab?.kind === "agent" ? { CRAIG_AGENT_TAB_ID: tab.id } : {}),
+        ...(tab?.kind === "agent" ? {
+          CRAIG_AGENT_TAB_ID: tab.id,
+          ...(model.agentCapabilityTokens?.[tab.id]
+            ? { CRAIG_AGENT_CAPABILITY: model.agentCapabilityTokens[tab.id] }
+            : {}),
+        } : {}),
       }
     : {};
 

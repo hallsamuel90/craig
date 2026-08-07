@@ -1,4 +1,8 @@
 /* eslint-disable no-unused-vars */
+import { randomUUID } from "node:crypto";
+import { mkdir, rm, writeFile } from "node:fs/promises";
+import path from "node:path";
+
 import type { CraigPaths } from "../../../state/craig-paths.js";
 import { writeSession } from "./session.js";
 import type { SessionRecord, SessionSnapshot, SessionTerminalSize } from "../types.js";
@@ -146,7 +150,7 @@ export const tmuxSessionManager: SessionManager = {
 
 export interface RunnerAdapter {
   prepare(...args: [TaskRecord, { repoRoot: string }]): Promise<void>;
-  launch(...args: [TaskRecord, { repoRoot: string; session: SessionRecord }]): Promise<void>;
+  launch(...args: [TaskRecord, { repoRoot: string; session: SessionRecord; environment?: Record<string, string> }]): Promise<void>;
   status(...args: [TaskRecord, { session: SessionRecord }]): Promise<"starting" | "running" | "exited" | "failed">;
   stop(...args: [TaskRecord, { session: SessionRecord }]): Promise<void>;
   collectArtifacts(...args: [TaskRecord, { session: SessionRecord }]): Promise<void>;
@@ -163,11 +167,19 @@ export const commandRunnerAdapter: RunnerAdapter = {
   async launch(task, input) {
     const command = task.runnerSession.command;
     const executable = requireExecutablePath(command[0]!, { cwd: task.worktreePath, env: withDefaultCommandPath() });
-    await sendCommandToPane(
-      input.session.paneId,
-      [executable, ...command.slice(1)].map((part) => shellEscape(part)).join(" "),
-      input.repoRoot,
-    );
+    const environmentFile = Object.keys(input.environment ?? {}).length > 0
+      ? await writeLaunchEnvironment(input.session, input.environment!)
+      : null;
+    const launchCommand = [executable, ...command.slice(1)].map((part) => shellEscape(part)).join(" ");
+    const paneCommand = environmentFile
+      ? `. ${shellEscape(environmentFile)} && rm -f ${shellEscape(environmentFile)} && exec ${launchCommand}`
+      : `exec ${launchCommand}`;
+    try {
+      await sendCommandToPane(input.session.paneId, paneCommand, input.repoRoot);
+    } catch (error) {
+      if (environmentFile) await rm(environmentFile, { force: true }).catch(() => undefined);
+      throw error;
+    }
   },
 
   async status(task) {
@@ -182,6 +194,20 @@ export const commandRunnerAdapter: RunnerAdapter = {
     return;
   },
 };
+
+async function writeLaunchEnvironment(session: SessionRecord, environment: Record<string, string>): Promise<string> {
+  const directory = path.join(path.dirname(session.logPath ?? session.worktreePath), ".launch-environment");
+  await mkdir(directory, { recursive: true, mode: 0o700 });
+  const file = path.join(directory, `${session.id}.${randomUUID()}.sh`);
+  const payload = Object.entries(environment)
+    .map(([key, value]) => {
+      if (!/^[A-Za-z_][A-Za-z0-9_]*$/.test(key)) throw new Error(`Invalid launch environment variable name: ${key}`);
+      return `export ${key}=${shellEscape(value)}`;
+    })
+    .join("\n");
+  await writeFile(file, `${payload}\n`, { encoding: "utf8", mode: 0o600, flag: "wx" });
+  return file;
+}
 
 const snapshotSession = async (session: SessionRecord, repoRoot: string): Promise<SessionSnapshot> => {
   const result = await runCommandAllowingFailure("tmux", ["list-panes", "-F", "#{pane_id}", "-t", session.paneId], {

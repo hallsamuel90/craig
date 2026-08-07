@@ -1,4 +1,5 @@
 export type { RunnerType } from "../config/index.js";
+export type { TaskLineageInput } from "./tasks/provision.js";
 export type {
   TaskType,
   TaskStatus,

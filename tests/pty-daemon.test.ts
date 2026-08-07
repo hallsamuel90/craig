@@ -15,6 +15,7 @@ import { taskService } from "../src/domain/task/index.js";
 import { readAllEvents } from "../src/domain/orchestration/index.js";
 import { watchWorkspaceEvents } from "../src/shell/events.js";
 import { PTY_DAEMON_PROTOCOL_VERSION } from "../src/shell/pty-daemon-protocol.js";
+import { disposeDaemonSessions } from "../src/shell/pty-daemon-orchestration.js";
 import { runCommand } from "../src/shared/exec.js";
 import { createCraigState, createGitRepo, createStubCommands, writeTaskRecord } from "./test-helpers.js";
 
@@ -261,7 +262,7 @@ describe("PTY daemon", () => {
       await client.ensureSession("task_1", "task_1:terminal", { columns: 80, rows: 24 });
       await client.ensureSession("task_1", "task_1:agent", { columns: 80, rows: 24 });
 
-      client.disposeSession("task_1:terminal");
+      await expect(disposeDaemonSessions(paths, ["task_1:terminal"])).resolves.toBe(true);
       await vi.waitFor(() => expect(firstPty.kill).toHaveBeenCalledTimes(1));
       await new Promise((resolveWait) => setTimeout(resolveWait, 350));
       expect(client.getActivitySnapshots().some((snapshot) => snapshot.tabId === "task_1:terminal")).toBe(false);

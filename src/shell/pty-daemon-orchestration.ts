@@ -18,6 +18,22 @@ export async function wakeOrchestrationSupervisor(paths: CraigPaths): Promise<bo
   }
 }
 
+export async function disposeDaemonSessions(paths: CraigPaths, tabIds: string[]): Promise<boolean> {
+  if (tabIds.length === 0) return true;
+  const socket = await connect(getPtyDaemonEndpoint(paths).socketPath).catch(() => null);
+  if (!socket) return false;
+  try {
+    const ping = await request(socket, { type: "ping" });
+    if (ping.protocolVersion !== PTY_DAEMON_PROTOCOL_VERSION) return false;
+    for (const tabId of tabIds) await request(socket, { type: "disposeSession", tabId });
+    return true;
+  } catch {
+    return false;
+  } finally {
+    socket.end();
+  }
+}
+
 interface Response {
   id: number;
   ok: boolean;
@@ -27,7 +43,10 @@ interface Response {
 
 let requestId = 1;
 
-function request(socket: Socket, input: { type: "ping" | "wakeOrchestration" }): Promise<Response> {
+function request(socket: Socket, input:
+  | { type: "ping" | "wakeOrchestration" }
+  | { type: "disposeSession"; tabId: string },
+): Promise<Response> {
   const id = requestId++;
   return new Promise((resolve, reject) => {
     let buffer = "";

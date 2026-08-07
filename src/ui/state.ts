@@ -534,7 +534,7 @@ export function getLeftItemIds(model: { workspaces?: WorkspaceRecord[]; repos: R
   if (model.workspaces?.length) {
     for (const workspace of model.workspaces) {
       itemIds.push(`workspace:${workspace.id}`);
-      for (const task of model.tasks.filter((entry) => entry.workspaceId === workspace.id)) {
+      for (const { task } of orderTasksForSidebar(model.tasks.filter((entry) => entry.workspaceId === workspace.id))) {
         itemIds.push(`task:${task.id}`);
       }
       if (workspace.kind === "project") {
@@ -547,7 +547,7 @@ export function getLeftItemIds(model: { workspaces?: WorkspaceRecord[]; repos: R
   } else {
     for (const repo of model.repos) {
       itemIds.push(`repo:${repo.id}`);
-      for (const task of model.tasks.filter((entry) => entry.repoId === repo.id)) {
+      for (const { task } of orderTasksForSidebar(model.tasks.filter((entry) => entry.repoId === repo.id))) {
         itemIds.push(`task:${task.id}`);
       }
       itemIds.push(`new-task:${repo.id}`);
@@ -556,6 +556,42 @@ export function getLeftItemIds(model: { workspaces?: WorkspaceRecord[]; repos: R
 
   itemIds.push("new-workspace");
   return itemIds;
+}
+
+export interface SidebarTaskEntry {
+  task: TaskRecord;
+  visualDepth: 0 | 1;
+}
+
+export function orderTasksForSidebar(tasks: TaskRecord[]): SidebarTaskEntry[] {
+  const taskIds = new Set(tasks.map((task) => task.id));
+  const emitted = new Set<string>();
+  const entries: SidebarTaskEntry[] = [];
+  const descendantsByRoot = new Map<string, TaskRecord[]>();
+
+  for (const task of tasks) {
+    if (task.rootTaskId === task.id || !taskIds.has(task.rootTaskId)) continue;
+    const descendants = descendantsByRoot.get(task.rootTaskId) ?? [];
+    descendants.push(task);
+    descendantsByRoot.set(task.rootTaskId, descendants);
+  }
+
+  for (const task of tasks) {
+    const rootIsVisible = task.rootTaskId !== task.id && taskIds.has(task.rootTaskId);
+    if (rootIsVisible) continue;
+    entries.push({ task, visualDepth: 0 });
+    emitted.add(task.id);
+    for (const descendant of descendantsByRoot.get(task.id) ?? []) {
+      if (emitted.has(descendant.id)) continue;
+      entries.push({ task: descendant, visualDepth: 1 });
+      emitted.add(descendant.id);
+    }
+  }
+
+  for (const task of tasks) {
+    if (!emitted.has(task.id)) entries.push({ task, visualDepth: 0 });
+  }
+  return entries;
 }
 
 export function parseLeftItemId(value: string | null): { kind: "workspace" | "repo" | "task"; id: string } | null {

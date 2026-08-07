@@ -40,6 +40,17 @@ export const normalizeLegacyTaskRecord = (value: unknown): unknown => {
     linkedRepoIds: Array.isArray(candidate.linkedRepoIds)
       ? candidate.linkedRepoIds.filter((entry): entry is string => typeof entry === "string")
       : [],
+    parentTaskId: typeof candidate.parentTaskId === "string" || candidate.parentTaskId === null ? candidate.parentTaskId : null,
+    rootTaskId: typeof candidate.rootTaskId === "string" ? candidate.rootTaskId : candidate.id,
+    delegationDepth: Number.isInteger(candidate.delegationDepth) && Number(candidate.delegationDepth) >= 0
+      ? candidate.delegationDepth
+      : 0,
+    delegationIdempotencyKey:
+      typeof candidate.delegationIdempotencyKey === "string" || candidate.delegationIdempotencyKey === null
+        ? candidate.delegationIdempotencyKey
+        : null,
+    swarmRunId: typeof candidate.swarmRunId === "string" || candidate.swarmRunId === null ? candidate.swarmRunId : null,
+    swarmStepId: typeof candidate.swarmStepId === "string" || candidate.swarmStepId === null ? candidate.swarmStepId : null,
     ptyTabs: normalizeTaskPtyTabs(candidate),
     bundlePath: typeof candidate.bundlePath === "string" || candidate.bundlePath === null ? candidate.bundlePath : null,
     selectedRepoTargetId:
@@ -92,6 +103,12 @@ const isTaskRecord = (value: unknown): value is TaskRecord => {
     (typeof candidate.selectedPtyTabId === "string" || candidate.selectedPtyTabId === null) &&
     Array.isArray(candidate.linkedRepoIds) &&
     candidate.linkedRepoIds.every((entry) => typeof entry === "string") &&
+    (typeof candidate.parentTaskId === "string" || candidate.parentTaskId === null) &&
+    typeof candidate.rootTaskId === "string" &&
+    Number.isInteger(candidate.delegationDepth) && Number(candidate.delegationDepth) >= 0 &&
+    (typeof candidate.delegationIdempotencyKey === "string" || candidate.delegationIdempotencyKey === null) &&
+    (typeof candidate.swarmRunId === "string" || candidate.swarmRunId === null) &&
+    (typeof candidate.swarmStepId === "string" || candidate.swarmStepId === null) &&
     typeof candidate.repoRoot === "string" &&
     typeof candidate.worktreePath === "string" &&
     typeof candidate.branch === "string" &&
@@ -199,6 +216,7 @@ const isTaskPtyTabs = (value: TaskRecord["ptyTabs"] | undefined): value is TaskP
         tab !== null &&
         typeof tab.id === "string" &&
         (tab.kind === "agent" || tab.kind === "terminal") &&
+        (tab.capabilityId === undefined || typeof tab.capabilityId === "string") &&
         typeof tab.title === "string" &&
         Array.isArray(tab.command) &&
         tab.command.every((entry) => typeof entry === "string") &&

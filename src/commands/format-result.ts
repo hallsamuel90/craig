@@ -53,6 +53,21 @@ export function formatCommandResult(result: CommandResult): string {
         `Worktree: ${result.worktreePath}`,
         `Runner: ${result.runner}`,
       ].join("\n");
+    case "createChildTask":
+      return [
+        `${result.idempotentReplay ? "Found" : "Created"} child task ${result.taskId}`,
+        `Parent: ${result.parentTaskId}`,
+        `Root: ${result.rootTaskId}`,
+        `Depth: ${result.delegationDepth}`,
+        `Status: ${result.status}`,
+        `Worktree: ${result.worktreePath}`,
+      ].join("\n");
+    case "listTaskChildren":
+      return result.children.length === 0
+        ? `Task ${result.taskId} has no children.`
+        : ["ID\tSTATUS\tDEPTH\tTITLE", ...result.children.map((task) => `${task.id}\t${task.status}\t${task.delegationDepth}\t${task.title}`)].join("\n");
+    case "cancelTaskTree":
+      return [`Cancelled task tree ${result.taskId}`, ...result.cancelled.map((task) => `${task.taskId}: ${task.disposition}`)].join("\n");
     case "attachTask":
       return `Attached to task ${result.taskId} via session ${result.sessionId}`;
     case "addTaskLink":

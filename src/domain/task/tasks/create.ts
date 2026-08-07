@@ -1,3 +1,4 @@
+/* eslint-disable no-unused-vars */
 import path from "node:path";
 
 import type { CommandCreateTaskResult } from "../types.js";
@@ -9,12 +10,18 @@ import { writeSession } from "../adapters/session.js";
 import { mutateTask } from "../adapters/task-store.js";
 import { commandRunnerAdapter, tmuxSessionManager } from "../adapters/runner.js";
 import { provisionProjectTask, provisionTask } from "./provision.js";
+import type { TaskLineageInput } from "./provision.js";
 
 export const createTask = async (
   paths: CraigPaths,
   repoIdOrWorkspaceId: string,
   prompt: string,
-  options: { runner?: RunnerType; workspaceId?: string } = {},
+  options: {
+    runner?: RunnerType;
+    workspaceId?: string;
+    lineage?: TaskLineageInput;
+    onProvisioned?: (task: TaskRecord) => Promise<Record<string, string> | void>;
+  } = {},
 ): Promise<CommandCreateTaskResult> => {
   const trimmedPrompt = prompt.trim();
   const config = await configService.load(paths);
@@ -29,8 +36,8 @@ export const createTask = async (
     throw new Error("Task prompt cannot be empty.");
   }
   const provisioned = options.workspaceId
-    ? await provisionProjectTask(paths, options.workspaceId, trimmedPrompt, { runner, config })
-    : await provisionTask(paths, repoIdOrWorkspaceId, trimmedPrompt, { runner, config });
+    ? await provisionProjectTask(paths, options.workspaceId, trimmedPrompt, { runner, config, ...(options.lineage ? { lineage: options.lineage } : {}) })
+    : await provisionTask(paths, repoIdOrWorkspaceId, trimmedPrompt, { runner, config, ...(options.lineage ? { lineage: options.lineage } : {}) });
   const draftTask = provisioned.task;
   const runnerCommand = configService.runners.buildCommand(runner, trimmedPrompt, config);
   const sessionId = `session_${draftTask.id}`;
@@ -39,6 +46,7 @@ export const createTask = async (
     : path.join(paths.logsDir, `${draftTask.id}.log`);
 
   try {
+    const launchEnvironment = await options.onProvisioned?.(draftTask);
     await commandRunnerAdapter.prepare(draftTask, { repoRoot: provisioned.repoRoot });
 
     let session = await tmuxSessionManager.create(paths, {
@@ -51,7 +59,11 @@ export const createTask = async (
       logPath,
       command: runnerCommand,
     });
-    await commandRunnerAdapter.launch(draftTask, { repoRoot: provisioned.repoRoot, session });
+    await commandRunnerAdapter.launch(draftTask, {
+      repoRoot: provisioned.repoRoot,
+      session,
+      ...(launchEnvironment ? { environment: launchEnvironment } : {}),
+    });
 
     const startedAt = new Date().toISOString();
     session = {

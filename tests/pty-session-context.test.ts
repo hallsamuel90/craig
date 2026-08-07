@@ -16,6 +16,7 @@ describe("PTY session context", () => {
           repos: [],
           tasks: [task],
           inspection: null,
+          agentCapabilityTokens: { [agentTab.id]: "capability_test.secret" },
         },
         agentTab.id,
         workspaceRoot,
@@ -26,6 +27,7 @@ describe("PTY session context", () => {
         CRAIG_WORKSPACE_ROOT: workspaceRoot,
         CRAIG_TASK_ID: task.id,
         CRAIG_AGENT_TAB_ID: agentTab.id,
+        CRAIG_AGENT_CAPABILITY: "capability_test.secret",
       },
     });
   });
