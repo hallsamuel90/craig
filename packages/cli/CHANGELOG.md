@@ -1,5 +1,11 @@
 # craig-cli
 
+## 0.12.4
+
+### Patch Changes
+
+- 6932d56: Keep pull request discovery and check synchronization running in the workspace daemon while the TUI is detached, and surface operational GitHub failures for retry and diagnostics.
+
 ## 0.12.3
 
 ### Patch Changes
