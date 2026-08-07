@@ -1,5 +1,11 @@
 # craig-cli
 
+## 0.13.0
+
+### Minor Changes
+
+- 709b9f9: Make incremental regional center-pane rendering permanent and remove its feature preview toggle, legacy daemon snapshot mode, and full-repaint path.
+
 ## 0.12.5
 
 ### Patch Changes
