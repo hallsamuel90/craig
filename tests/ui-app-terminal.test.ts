@@ -1697,6 +1697,32 @@ describe("terminal app PTY attach flow", () => {
     expect(ptyRuntime.ensureSession).not.toHaveBeenCalled();
   });
 
+  test("daemon-managed PR sync updates persisted task state without duplicate TUI GitHub polling", async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    const root = await mkdtemp(join(tmpdir(), "craig-ui-app-"));
+    tempRoots.push(root);
+    const paths = await setupWorkspace(root);
+    const terminal = new FakeTerminal();
+    const ptyRuntime = new FakePtyRuntime({ managesPullRequestSync: true });
+    const pollSpy = vi.spyOn(taskService.prs, "discoverOrRefreshMany");
+    const app = startTerminalApp({ terminal, ptyRuntime, uiStateFile: paths.uiStateFile, workspaceRoot: root });
+    await vi.waitFor(() => expect(terminal.hasKeyListener()).toBe(true));
+
+    terminal.emitKey("\r");
+    await vi.advanceTimersByTimeAsync(2_000);
+    expect(pollSpy).not.toHaveBeenCalled();
+
+    const task = await readTask(paths, "task_20260430_02");
+    await writeTask(paths, { ...task, title: "daemon-refreshed task" });
+    ptyRuntime.emitTasksChanged([task.id]);
+    await vi.waitFor(() => expect(stripAnsi(terminal.frames.at(-1) ?? "")).toContain("daemon-refreshed task"));
+    expect(pollSpy).not.toHaveBeenCalled();
+
+    terminal.emitKey("q");
+    await expect(app).resolves.toBe(0);
+    pollSpy.mockRestore();
+  });
+
   test("polling refreshes unselected task badges without navigation", async () => {
     const root = await mkdtemp(join(tmpdir(), "craig-ui-app-"));
     tempRoots.push(root);
@@ -2832,14 +2858,23 @@ class FakeTerminal implements TerminalRuntime {
 }
 
 class FakePtyRuntime implements PtyRuntimePort {
+  readonly managesPullRequestSync: boolean;
   private readonly hydratedTabIds = new Set<string>();
   private readonly hydrateRows: boolean;
   private scrollbackLines = 0;
   private readonly activitySnapshots: PtyActivitySnapshot[];
 
-  constructor(options: { hydrateRows?: boolean; activitySnapshots?: PtyActivitySnapshot[] } = {}) {
+  /* eslint-disable-next-line no-unused-vars */
+  private tasksChangedHandler: ((taskIds: string[]) => void) | null = null;
+
+  constructor(options: {
+    hydrateRows?: boolean;
+    activitySnapshots?: PtyActivitySnapshot[];
+    managesPullRequestSync?: boolean;
+  } = {}) {
     this.hydrateRows = options.hydrateRows ?? true;
     this.activitySnapshots = options.activitySnapshots ?? [];
+    this.managesPullRequestSync = options.managesPullRequestSync ?? false;
   }
 
   ensureSession = vi.fn((taskId: string, tabId: string): TerminalViewState => this.getRunningView(taskId, tabId));
@@ -2865,6 +2900,15 @@ class FakePtyRuntime implements PtyRuntimePort {
   setViewedTab = vi.fn();
   setViewUpdateMode = vi.fn();
   setActivityEnabled = vi.fn();
+  setPullRequestPollView = vi.fn();
+  /* eslint-disable-next-line no-unused-vars */
+  setTasksChangedHandler = vi.fn((handler: (taskIds: string[]) => void) => {
+    this.tasksChangedHandler = handler;
+  });
+
+  emitTasksChanged(taskIds: string[]): void {
+    this.tasksChangedHandler?.(taskIds);
+  }
 
   getViewState(tabId: string | null): TerminalViewState {
     if (tabId && (this.hydratedTabIds.has(tabId) || this.ensureSession.mock.calls.some(([, attachedTabId]) => attachedTabId === tabId))) {

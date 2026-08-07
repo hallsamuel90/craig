@@ -7,6 +7,7 @@ import type { PreviewOptionsState, RunnerOptionsState } from "./options.js";
 import type { PtySize } from "./pty/runtime.js";
 import type { ControlShellState } from "./state.js";
 import type { PtyActivitySnapshot } from "../domain/agent/index.js";
+import type { GitHubPollView } from "../shell/github-poll-coordinator.js";
 
 type OverlayVariant = "boot" | "pause" | "help" | "options" | "runners" | "previews" | "error-log";
 
@@ -42,6 +43,7 @@ export interface TerminalRuntime {
 }
 
 export interface PtyRuntimePort {
+  readonly managesPullRequestSync?: boolean;
   ensureSession(...args: [string, string, PtySize]): ControlShellState["terminal"] | Promise<ControlShellState["terminal"]>;
   hydrateSessions?(...args: [string[]]): void | Promise<void>;
   pruneStale?(...args: [string[]]): void | Promise<void>;
@@ -57,6 +59,8 @@ export interface PtyRuntimePort {
   setViewedTab?(...args: [string | null]): void;
   setViewUpdateMode?(...args: ["snapshot" | "incremental"]): void;
   setActivityEnabled?(...args: [boolean]): void;
+  setPullRequestPollView?(...args: [GitHubPollView]): void;
+  setTasksChangedHandler?(...args: [(taskIds: string[]) => void]): void;
 }
 /* eslint-enable no-unused-vars */
 

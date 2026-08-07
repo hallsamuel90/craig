@@ -94,11 +94,15 @@ export const fetchPrView = async (selector: string, worktreePath: string): Promi
 export const discoverPrView = async (branch: string, worktreePath: string): Promise<GhPrView | null> => {
   const result = await runCommandAllowingFailure("gh", buildPrViewArgs(branch), { cwd: worktreePath });
 
-  if (result.exitCode !== 0) {
-    return null;
+  if (result.exitCode === 0) {
+    return JSON.parse(result.stdout) as GhPrView;
   }
 
-  return JSON.parse(result.stdout) as GhPrView;
+  const message = result.stderr.trim() || result.stdout.trim();
+  if (isPullRequestNotFoundMessage(message)) {
+    return null;
+  }
+  throw new Error(message || `GitHub CLI failed while discovering a pull request for ${branch}.`);
 };
 
 export const discoverPrViewForCommand = async (

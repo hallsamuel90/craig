@@ -8,7 +8,7 @@ import { syncShell, setSuccessToast, buildActionContext, reloadModel, upsertTask
 import { getSelectedTask } from "../shell/sync.js";
 import type { ControlShellState } from "../state.js";
 import type { AppContext } from "../app-context.js";
-import type { GitHubPollCoordinator, GitHubPollView } from "./github-poll-coordinator.js";
+import type { GitHubPollCoordinator, GitHubPollView } from "../../shell/github-poll-coordinator.js";
 
 export async function pollPullRequests(
   ctx: AppContext,

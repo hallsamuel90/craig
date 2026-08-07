@@ -3,6 +3,7 @@ import type * as TerminalKitModule from "terminal-kit";
 
 import { readUiState } from "../state/ui-state-store.js";
 import { configService } from "../domain/config/index.js";
+import { taskService } from "../domain/task/index.js";
 import { getCraigPaths } from "../state/craig-paths.js";
 import { loadWorkspaceShellModel } from "./shell/loader.js";
 import { resolvePtySessionSpec, getPtySize } from "./pty/session.js";
@@ -39,10 +40,11 @@ import {
   syncShell,
   withTerminalView,
   restoreTerminalScreen,
+  upsertTaskInModel,
 } from "./shell/sync.js";
 import { hydrateOpenPtyTabs, syncInputCapture } from "./pty/manager.js";
 import { pollPullRequests } from "./workspace/pr-polling.js";
-import { GitHubPollCoordinator } from "./workspace/github-poll-coordinator.js";
+import { GitHubPollCoordinator, type GitHubPollView } from "../shell/github-poll-coordinator.js";
 import { onKey, onUnknown, onMouse } from "./input/dispatch.js";
 import { Heartbeat } from "../shell/heartbeat.js";
 import { logBackgroundError } from "./actions/index.js";
@@ -76,6 +78,16 @@ function getRunnerOptionsState(state: Extract<AppState, { mode: "overlay" }>): R
 
 function getPreviewOptionsState(state: Extract<AppState, { mode: "overlay" }>): PreviewOptionsState {
   return state.previewOptions ?? { menuIndex: state.menuIndex, message: state.optionsMessage };
+}
+
+function getPullRequestPollView(state: AppState): GitHubPollView {
+  if (state.mode !== "main") {
+    return { selectedTaskId: null, reviewVisible: false };
+  }
+  return {
+    selectedTaskId: state.shell.selectedTaskId,
+    reviewVisible: state.shell.inspectionMode === "review",
+  };
 }
 
 function mergePtyInvalidations(
@@ -141,9 +153,11 @@ export async function startTerminalApp(options: TerminalAppOptions = {}): Promis
     let agentActivityAnimationFrame = 0;
     let hadWorkingAgentActivity = false;
     const renderedAgentActivityByTabId = new Map<string, AgentActivityState>();
-    const githubPollCoordinator = new GitHubPollCoordinator({
-      minimumIntervalMs: (config.github?.watchIntervalSeconds ?? 5) * 1_000,
-    });
+    const githubPollCoordinator = initialPtyRuntime.managesPullRequestSync
+      ? null
+      : new GitHubPollCoordinator({
+          minimumIntervalMs: (config.github?.watchIntervalSeconds ?? 5) * 1_000,
+        });
     let ctx!: AppContext;
     const heartbeat = new Heartbeat({
       resolutionMs: configService.previews.isEnabled(config, "agentActivityIndicators")
@@ -281,6 +295,25 @@ export async function startTerminalApp(options: TerminalAppOptions = {}): Promis
       }
     };
 
+    let taskRefreshQueue = Promise.resolve();
+    const handleTasksChanged = (taskIds: string[]) => {
+      taskRefreshQueue = taskRefreshQueue.then(async () => {
+        const tasks = await Promise.all(
+          [...new Set(taskIds)].map((taskId) => taskService.getTask(ctx.paths, taskId)),
+        );
+        for (const task of tasks) upsertTaskInModel(ctx, task);
+        if (ctx.state.mode === "main") {
+          ctx.state = { mode: "main", shell: syncShell(ctx, ctx.state.shell) };
+        } else {
+          ctx.state = { ...ctx.state, shell: syncShell(ctx, ctx.state.shell) };
+        }
+        ctx.render();
+      }).catch((error: unknown) =>
+        logBackgroundError("daemon task-state refresh", error, buildActionContext(ctx))
+      );
+    };
+    ctx.ptyRuntime.setTasksChangedHandler?.(handleTasksChanged);
+
     const buildMainPresentation = (
       renderState: Extract<AppState, { mode: "main" }>,
     ): { data: ShellData; presentation: MainShellPresentation } => {
@@ -343,6 +376,7 @@ export async function startTerminalApp(options: TerminalAppOptions = {}): Promis
         return false;
       }
       syncInputCapture(ctx);
+      ctx.ptyRuntime.setPullRequestPollView?.(getPullRequestPollView(ctx.state));
       ctx.ptyRuntime.setViewedTab?.(resolveTerminalViewTabId(ctx, ctx.state.shell));
       const { data, presentation } = buildMainPresentation(ctx.state);
       return writeMainRegions(data, presentation, ["rail", "left", "center", "footer"], false);
@@ -351,6 +385,7 @@ export async function startTerminalApp(options: TerminalAppOptions = {}): Promis
     ctx.render = () => {
       syncInputCapture(ctx);
       const renderState = ctx.state;
+      ctx.ptyRuntime.setPullRequestPollView?.(getPullRequestPollView(renderState));
       ctx.ptyRuntime.setViewedTab?.(
         renderState.mode === "main" ? resolveTerminalViewTabId(ctx, renderState.shell) : null,
       );
@@ -489,11 +524,13 @@ export async function startTerminalApp(options: TerminalAppOptions = {}): Promis
     activeTerminal.on("key", boundOnKey);
     activeTerminal.on("unknown", boundOnUnknown);
     activeTerminal.on("mouse", boundOnMouse);
-    heartbeat.register({
-      id: "github.pull-requests",
-      intervalMs: 1_000,
-      run: (signal) => pollPullRequests(ctx, githubPollCoordinator, signal),
-    });
+    if (githubPollCoordinator) {
+      heartbeat.register({
+        id: "github.pull-requests",
+        intervalMs: 1_000,
+        run: (signal) => pollPullRequests(ctx, githubPollCoordinator, signal),
+      });
+    }
     heartbeat.register({
       id: "agent.activity-indicators",
       intervalMs: AGENT_ACTIVITY_ANIMATION_INTERVAL_MS,

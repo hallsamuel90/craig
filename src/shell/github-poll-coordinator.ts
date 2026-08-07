@@ -2,7 +2,7 @@ import {
   GitHubRateLimitError,
   type TaskPullRequestCheck,
   type TaskRecord,
-} from "../../domain/task/index.js";
+} from "../domain/task/index.js";
 
 export interface GitHubPollView {
   selectedTaskId: string | null;

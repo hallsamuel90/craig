@@ -99,6 +99,7 @@ export const discoverOrRefreshPullRequests = async (
 ): Promise<PullRequestPollResult[]> => {
   const results = new Map<string, PullRequestPollResult>();
   const batchGroups = new Map<string, PullRequestBatchGroup>();
+  const failures: unknown[] = [];
 
   for (const task of tasks) {
     const result = ensurePollResult(results, task);
@@ -115,12 +116,14 @@ export const discoverOrRefreshPullRequests = async (
         };
         await enqueueBatchItem(batchGroups, item).catch(async () => {
           try {
+            await ensureGhAuthenticated(target.worktreePath);
             const disposition = target.pullRequest.number
               ? await refreshOrDiscoverTargetPullRequest(paths, task, target)
-              : await refreshOrDiscoverTargetPullRequest(paths, task, target).catch(() => "not_found" as const);
+              : await refreshOrDiscoverTargetPullRequest(paths, task, target);
             recordDisposition(result, disposition, target.pullRequest.number ?? null, target.pullRequest.url ?? null);
-          } catch {
-            // Background fallback refresh remains best-effort.
+          } catch (error) {
+            if (error instanceof GitHubRateLimitError) throw error;
+            failures.push(error);
           }
         });
       }
@@ -143,8 +146,9 @@ export const discoverOrRefreshPullRequests = async (
         const { disposition, task: refreshedTask } = await discoverOrRefreshPullRequest(paths, task.id);
         const refreshedPrimaryPr = getTaskPrimaryPr(refreshedTask);
         recordDisposition(result, disposition, refreshedPrimaryPr?.number ?? null, refreshedPrimaryPr?.url ?? null);
-      } catch {
-        // Background fallback refresh remains best-effort.
+      } catch (error) {
+        if (error instanceof GitHubRateLimitError) throw error;
+        failures.push(error);
       }
     });
   }
@@ -183,10 +187,11 @@ export const discoverOrRefreshPullRequests = async (
       if (error instanceof GitHubRateLimitError) {
         throw error;
       }
-      // Background polling is best-effort; manual refresh keeps surfacing actionable errors.
+      failures.push(error);
     }
   }
 
+  throwPullRequestPollFailures(failures);
   return tasks.map((task) => ensurePollResult(results, task));
 };
 
@@ -308,4 +313,10 @@ const recordDisposition = (
   }
 
   result.notFound += 1;
+};
+
+const throwPullRequestPollFailures = (failures: unknown[]): void => {
+  if (failures.length === 0) return;
+  if (failures.length === 1) throw failures[0];
+  throw new AggregateError(failures, `${failures.length} pull request polling operations failed.`);
 };

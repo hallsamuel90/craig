@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto";
 import { createServer } from "node:net";
-import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, rm, symlink, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 
@@ -11,13 +11,152 @@ import { tryConnectPtyDaemonActivity } from "../src/shell/pty-daemon-activity.js
 import { getCraigPaths } from "../src/state/craig-paths.js";
 import { ensureCraigState } from "../src/domain/workspace/workspaces/ensure.js";
 import { configService } from "../src/domain/config/index.js";
+import { taskService } from "../src/domain/task/index.js";
 import { watchWorkspaceEvents } from "../src/shell/events.js";
 import { PTY_DAEMON_PROTOCOL_VERSION } from "../src/shell/pty-daemon-protocol.js";
-import { createCraigState, writeTaskRecord } from "./test-helpers.js";
+import { runCommand } from "../src/shared/exec.js";
+import { createCraigState, createGitRepo, createStubCommands, writeTaskRecord } from "./test-helpers.js";
 
 const DAEMON_TEST_TIMEOUT_MS = 15000;
 
 describe("PTY daemon", () => {
+  test("synchronizes pull requests through the production adapter without a connected TUI or orchestration preview", async () => {
+    const root = await mkdtemp(join(tmpdir(), "craig-pr-sync-daemon-"));
+    const paths = await createCraigState(root, ["task_1"]);
+    await createGitRepo(root);
+    await writeFile(join(root, "index.ts"), "export const value = 1;\n", "utf8");
+    await runCommand("git", ["add", "index.ts"], { cwd: root });
+    await runCommand("git", ["commit", "-m", "initial"], { cwd: root });
+    await runCommand("git", ["remote", "add", "origin", "https://github.com/example/repo.git"], { cwd: root });
+
+    const stubDir = await createStubCommands(root);
+    const ghBinDir = join(root, "gh-bin");
+    await mkdir(ghBinDir, { recursive: true });
+    await symlink(join(stubDir, "gh"), join(ghBinDir, "gh"));
+    const previousPath = process.env.PATH;
+    const previousGraphqlFile = process.env.CRAIG_TEST_GH_GRAPHQL_FILE;
+    process.env.PATH = `${ghBinDir}:${previousPath ?? ""}`;
+    const graphqlFile = join(root, "gh-graphql.json");
+    await writeFile(graphqlFile, JSON.stringify({
+      data: {
+        repository: {
+          item0: {
+            nodes: [{
+              number: 41,
+              url: "https://github.com/example/repo/pull/41",
+              baseRefName: "main",
+              headRefName: "craig/task_1",
+              headRefOid: "remote-head",
+              state: "OPEN",
+              mergeable: "MERGEABLE",
+              mergeStateStatus: "CLEAN",
+              statusCheckRollup: { contexts: { nodes: [] } },
+            }],
+          },
+        },
+      },
+    }), "utf8");
+    process.env.CRAIG_TEST_GH_GRAPHQL_FILE = graphqlFile;
+    await writeTaskRecord(root, {
+      id: "task_1",
+      status: "checked",
+      branch: "craig/task_1",
+      worktreePath: root,
+    });
+    const daemon = servePtyDaemon(paths, {
+      pullRequestSync: {
+        heartbeatIntervalMs: 10,
+      },
+    });
+
+    try {
+      await vi.waitFor(async () => {
+        expect((await taskService.getTask(paths, "task_1")).prs[0]?.number).toBe(41);
+      });
+      expect((await taskService.getTask(paths, "task_1")).status).toBe("pr_open");
+      expect(configService.previews.isEnabled(await configService.load(paths), "agentOrchestration")).toBe(false);
+    } finally {
+      await requestDaemonShutdown(paths);
+      await daemon;
+      restoreEnv("PATH", previousPath);
+      restoreEnv("CRAIG_TEST_GH_GRAPHQL_FILE", previousGraphqlFile);
+      await rm(root, { recursive: true, force: true });
+    }
+  }, DAEMON_TEST_TIMEOUT_MS);
+
+  test("notifies connected TUIs after daemon-owned PR state changes", async () => {
+    const root = await mkdtemp(join(tmpdir(), "craig-pr-sync-event-"));
+    const paths = await createCraigState(root, ["task_1"]);
+    await writeTaskRecord(root, { id: "task_1", status: "checked" });
+    const onTasksChanged = vi.fn();
+    const daemon = servePtyDaemon(paths, {
+      pullRequestSync: {
+        heartbeatIntervalMs: 100,
+        dependencies: {
+          listTasks: async () => [(await taskService.getTask(paths, "task_1"))],
+          syncTasks: async () => {
+            const current = await taskService.getTask(paths, "task_1");
+            const updated = await writeTaskRecord(root, { ...current, status: "pr_open" });
+            return [updated];
+          },
+        },
+      },
+    });
+
+    try {
+      const client = await createDaemonPtyRuntime({
+        paths,
+        workspaceRoot: root,
+        onTasksChanged,
+        resolveSessionSpec: () => ({ cwd: root, command: [] }),
+      });
+      await vi.waitFor(() => expect(onTasksChanged).toHaveBeenCalledWith(["task_1"]));
+      client.disposeAll();
+    } finally {
+      await requestDaemonShutdown(paths);
+      await daemon;
+      await rm(root, { recursive: true, force: true });
+    }
+  }, DAEMON_TEST_TIMEOUT_MS);
+
+  test("resumes pull request synchronization after a daemon restart", async () => {
+    const root = await mkdtemp(join(tmpdir(), "craig-pr-sync-restart-"));
+    const paths = await createCraigState(root, ["task_1"]);
+    await writeTaskRecord(root, { id: "task_1", status: "merged" });
+    const startSyncDaemon = (nextStatus: "pr_open" | "checked") => servePtyDaemon(paths, {
+      pullRequestSync: {
+        heartbeatIntervalMs: 10,
+        dependencies: {
+          listTasks: async () => [(await taskService.getTask(paths, "task_1"))],
+          syncTasks: async () => {
+            const current = await taskService.getTask(paths, "task_1");
+            return [await writeTaskRecord(root, { ...current, status: nextStatus })];
+          },
+        },
+      },
+    });
+    let daemon = startSyncDaemon("pr_open");
+
+    try {
+      await vi.waitFor(async () => {
+        expect((await taskService.getTask(paths, "task_1")).status).toBe("pr_open");
+      });
+      await requestDaemonShutdown(paths);
+      await daemon;
+
+      const current = await taskService.getTask(paths, "task_1");
+      await writeTaskRecord(root, { ...current, status: "merged" });
+      daemon = startSyncDaemon("checked");
+      await vi.waitFor(async () => {
+        expect((await taskService.getTask(paths, "task_1")).status).toBe("checked");
+      });
+    } finally {
+      await requestDaemonShutdown(paths);
+      await daemon;
+      await rm(root, { recursive: true, force: true });
+    }
+  }, DAEMON_TEST_TIMEOUT_MS);
+
   test("reconnect returns an existing live tab session without spawning again", async () => {
     const root = await createWorkspace();
     const paths = getCraigPaths(root);
@@ -791,6 +930,14 @@ async function createWorkspace(): Promise<string> {
   await ensureCraigState(root);
   await mkdir(getCraigPaths(root).runtimeDir, { recursive: true });
   return root;
+}
+
+function restoreEnv(name: string, value: string | undefined): void {
+  if (value === undefined) {
+    delete process.env[name];
+  } else {
+    process.env[name] = value;
+  }
 }
 
 function viewText(view: { rows: Array<{ segments: Array<{ text: string }> }> }): string {

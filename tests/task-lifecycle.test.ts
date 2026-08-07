@@ -302,6 +302,25 @@ describe("task lifecycle services", () => {
     expect(await readFile(path.join(stubDir, ".graphql-attempts"), "utf8")).toBe("1");
   });
 
+  test("discoverOrRefreshPullRequests surfaces non-rate-limit GitHub failures", async () => {
+    const repoRoot = await createRepoRoot("craig-pr-batch-auth-failure-");
+    tempRoots.push(repoRoot);
+    const { paths, worktreePath, stubDir } = await createTrackedTaskRepo(repoRoot);
+    process.env.PATH = `${stubDir}:${originalPath}`;
+    process.env.CRAIG_TEST_GH_MODE = "auth-fail";
+    await runCommand("git", ["remote", "set-url", "origin", "https://github.com/example/repo.git"], { cwd: worktreePath });
+
+    const task = await writeTaskRecord(paths.repoRoot, {
+      id: "task_1",
+      status: "checked",
+      worktreePath,
+      branch: "craig/task_1",
+    });
+
+    await expect(discoverOrRefreshPullRequests(paths, [task])).rejects.toThrow("gh auth failed");
+    expect((await readTask(paths, "task_1")).prs).toHaveLength(0);
+  });
+
   test("discoverOrRefreshPullRequest does not resurrect a closed task", async () => {
     const repoRoot = await createRepoRoot("craig-pr-closed-refresh-");
     tempRoots.push(repoRoot);
