@@ -195,11 +195,12 @@ Optional workspace-local config at `.craig/config.json`:
 
 Feature previews are experimental, workspace-local, and off by default. They can also be toggled from Options > Feature Previews in the TUI.
 
-The durable event journal, event commands, and new prompt dispatch creation require the `agentOrchestration` preview. Disabling the preview stops new dispatch creation but leaves command inspection, waiting, cancellation, and safe reconciliation available for existing durable work. Prompt delivery defaults to `when-ready`; `immediate` explicitly interrupts a busy target.
+Event commands and new prompt dispatch creation require the `agentOrchestration` preview. Craig may still maintain durable semantic events internally for stable daemon services such as pull request synchronization. Disabling the preview stops new dispatch creation but leaves command inspection, waiting, cancellation, and safe reconciliation available for existing durable work. Prompt delivery defaults to `when-ready`; `immediate` explicitly interrupts a busy target.
 
 `github.watchIntervalSeconds` is the minimum GitHub polling interval. Craig polls selected PRs with pending checks
 most frequently, backs stable PRs and PR discovery off automatically, and pauses after rate-limit responses. The
-workspace daemon keeps PR discovery and check synchronization running while the TUI is detached or closed.
+workspace daemon keeps PR discovery and check synchronization running while the TUI is detached or closed, and
+reacts to task and agent completion events for faster refreshes.
 
 ## Contributing
 

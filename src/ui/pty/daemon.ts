@@ -14,6 +14,7 @@ import { errorService } from "../../domain/error/index.js";
 import { listPromptCommands } from "../../domain/orchestration/index.js";
 import { getPtyDaemonEndpoint, PTY_DAEMON_PROTOCOL_VERSION } from "../../shell/pty-daemon-protocol.js";
 import { OrchestrationSupervisor } from "../../shell/orchestration-supervisor.js";
+import { reconcileEvents } from "../../shell/event-reconciliation.js";
 import {
   PullRequestSyncSupervisor,
   type PullRequestSyncSupervisorOptions,
@@ -587,6 +588,7 @@ class PtyDaemonServer {
   private readonly paths: CraigPaths;
   private orchestrationSupervisor: OrchestrationSupervisor | null = null;
   private pullRequestSyncSupervisor: PullRequestSyncSupervisor | null = null;
+  private pullRequestEventReconciliationEnabled = false;
   private readonly pullRequestSyncOptions: false | PullRequestSyncSupervisorOptions | undefined;
   private attachedTabId: string | null = null;
 
@@ -609,8 +611,20 @@ class PtyDaemonServer {
     const config = await configService.load(this.paths);
     if (this.pullRequestSyncOptions !== false) {
       const configuredOptions = this.pullRequestSyncOptions ?? {};
+      const reconcilePullRequestEvents = configuredOptions.reconcileEvents === false
+        ? false
+        : configuredOptions.reconcileEvents ?? (() => reconcileEvents(this.paths, {
+            agentObserver: {
+              daemonAvailable: true,
+              getSnapshots: () => this.runtime.getActivitySnapshots(),
+              subscribe: () => () => undefined,
+              close: () => undefined,
+            },
+          }));
+      this.pullRequestEventReconciliationEnabled = Boolean(reconcilePullRequestEvents);
       this.pullRequestSyncSupervisor = new PullRequestSyncSupervisor(this.paths, {
         ...configuredOptions,
+        reconcileEvents: reconcilePullRequestEvents,
         minimumIntervalMs: configuredOptions.minimumIntervalMs ??
           (config.github?.watchIntervalSeconds ?? 5) * 1_000,
         onTasksChanged: async (taskIds) => {
@@ -626,6 +640,7 @@ class PtyDaemonServer {
         },
       });
       this.pullRequestSyncSupervisor.start();
+      this.updateRuntimeActivityEnabled();
     }
     const unfinished = (await listPromptCommands(this.paths))
       .some((command) => command.state === "queued" || command.state === "delivering");
@@ -637,6 +652,8 @@ class PtyDaemonServer {
   async stop(): Promise<void> {
     await this.pullRequestSyncSupervisor?.stop();
     this.pullRequestSyncSupervisor = null;
+    this.pullRequestEventReconciliationEnabled = false;
+    this.updateRuntimeActivityEnabled();
     await this.orchestrationSupervisor?.stop();
     this.orchestrationSupervisor = null;
   }
@@ -875,6 +892,7 @@ class PtyDaemonServer {
   }
 
   private handleActivityUpdate(snapshot: PtyActivitySnapshot): void {
+    this.pullRequestSyncSupervisor?.notifyActivity(snapshot);
     if (!this.hasActivitySubscribers()) {
       return;
     }
@@ -898,6 +916,7 @@ class PtyDaemonServer {
   }
 
   private handleActivityRemoved(tabId: string): void {
+    this.pullRequestSyncSupervisor?.notifyActivityRemoved(tabId);
     const timer = this.activityTimers.get(tabId);
     if (timer) {
       clearTimeout(timer);
@@ -950,7 +969,11 @@ class PtyDaemonServer {
   }
 
   private updateRuntimeActivityEnabled(): void {
-    this.runtime.setActivityEnabled(this.orchestrationSupervisor !== null || this.hasActivitySubscribers());
+    this.runtime.setActivityEnabled(
+      this.orchestrationSupervisor !== null ||
+      this.pullRequestEventReconciliationEnabled ||
+      this.hasActivitySubscribers(),
+    );
   }
 
   private scheduleBroadcastUpdate(tabId: string): void {

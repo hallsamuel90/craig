@@ -92,6 +92,22 @@ describe("GitHubPollCoordinator", () => {
     now = 60_000;
     expect(coordinator.takeDueTasks([pending], view)).toEqual([pending]);
   });
+
+  test("pulls an event-triggered poll forward without bypassing the configured minimum", () => {
+    let now = 0;
+    const coordinator = new GitHubPollCoordinator({ minimumIntervalMs: 5_000, now: () => now });
+    const discovery = task("discovery", "checked");
+
+    coordinator.takeDueTasks([discovery], BACKGROUND);
+    coordinator.recordSuccess([discovery], BACKGROUND);
+    now = 1_000;
+    coordinator.requestImmediate([discovery.id]);
+    expect(coordinator.takeDueTasks([discovery], BACKGROUND)).toEqual([]);
+    now = 4_999;
+    expect(coordinator.takeDueTasks([discovery], BACKGROUND)).toEqual([]);
+    now = 5_000;
+    expect(coordinator.takeDueTasks([discovery], BACKGROUND)).toEqual([discovery]);
+  });
 });
 
 function task(

@@ -12,6 +12,7 @@ import { getCraigPaths } from "../src/state/craig-paths.js";
 import { ensureCraigState } from "../src/domain/workspace/workspaces/ensure.js";
 import { configService } from "../src/domain/config/index.js";
 import { taskService } from "../src/domain/task/index.js";
+import { readAllEvents } from "../src/domain/orchestration/index.js";
 import { watchWorkspaceEvents } from "../src/shell/events.js";
 import { PTY_DAEMON_PROTOCOL_VERSION } from "../src/shell/pty-daemon-protocol.js";
 import { runCommand } from "../src/shared/exec.js";
@@ -75,11 +76,58 @@ describe("PTY daemon", () => {
       });
       expect((await taskService.getTask(paths, "task_1")).status).toBe("pr_open");
       expect(configService.previews.isEnabled(await configService.load(paths), "agentOrchestration")).toBe(false);
+      await vi.waitFor(async () => {
+        expect((await readAllEvents(paths)).some((event) => event.type === "task.created")).toBe(true);
+      });
     } finally {
       await requestDaemonShutdown(paths);
       await daemon;
       restoreEnv("PATH", previousPath);
       restoreEnv("CRAIG_TEST_GH_GRAPHQL_FILE", previousGraphqlFile);
+      await rm(root, { recursive: true, force: true });
+    }
+  }, DAEMON_TEST_TIMEOUT_MS);
+
+  test("accelerates daemon-owned pull request synchronization after a semantic task event", async () => {
+    const root = await mkdtemp(join(tmpdir(), "craig-pr-event-wake-"));
+    const paths = await createCraigState(root, ["task_1"]);
+    await writeTaskRecord(root, { id: "task_1", status: "checked" });
+    const syncTasks = vi.fn(async (_paths, tasks) => tasks);
+    const daemon = servePtyDaemon(paths, {
+      pullRequestSync: {
+        heartbeatIntervalMs: 10,
+        minimumIntervalMs: 1_000,
+        dependencies: {
+          listTasks: async () => [await taskService.getTask(paths, "task_1")],
+          syncTasks,
+        },
+      },
+    });
+
+    try {
+      await vi.waitFor(() => expect(syncTasks).toHaveBeenCalledOnce());
+      await vi.waitFor(async () => {
+        expect((await readAllEvents(paths)).some((event) => event.type === "task.created")).toBe(true);
+      });
+      const task = await taskService.getTask(paths, "task_1");
+      await writeTaskRecord(root, {
+        ...task,
+        lastCommit: {
+          sha: "0123456789abcdef0123456789abcdef01234567",
+          message: "semantic change",
+          committedAt: "2026-08-06T12:00:00.000Z",
+        },
+      });
+      await vi.waitFor(() => expect(syncTasks).toHaveBeenCalledTimes(2), { timeout: 2_500 });
+      const events = await readAllEvents(paths);
+      expect(events).toContainEqual(expect.objectContaining({
+        type: "task.updated",
+        taskId: "task_1",
+        data: expect.objectContaining({ changedFields: expect.arrayContaining(["lastCommitSha"]) }),
+      }));
+    } finally {
+      await requestDaemonShutdown(paths);
+      await daemon;
       await rm(root, { recursive: true, force: true });
     }
   }, DAEMON_TEST_TIMEOUT_MS);

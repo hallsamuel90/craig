@@ -23,6 +23,7 @@ export interface GitHubPollIntervals {
 interface ScheduledTask {
   intervalMs: number;
   nextPollAt: number;
+  lastPollAt: number | null;
 }
 
 interface PollablePullRequest {
@@ -78,7 +79,7 @@ export class GitHubPollCoordinator {
 
       const scheduled = this.scheduledTasks.get(task.id);
       if (!scheduled) {
-        this.scheduledTasks.set(task.id, { intervalMs, nextPollAt: now });
+        this.scheduledTasks.set(task.id, { intervalMs, nextPollAt: now, lastPollAt: null });
         if (now >= this.notBefore) {
           due.push(task);
         }
@@ -97,6 +98,18 @@ export class GitHubPollCoordinator {
     return due;
   }
 
+  requestImmediate(taskIds: readonly string[]): void {
+    const now = this.now();
+    for (const taskId of taskIds) {
+      const scheduled = this.scheduledTasks.get(taskId);
+      if (!scheduled) continue;
+      const earliestPollAt = scheduled.lastPollAt === null
+        ? now
+        : Math.max(now, scheduled.lastPollAt + this.minimumIntervalMs);
+      scheduled.nextPollAt = Math.min(scheduled.nextPollAt, earliestPollAt);
+    }
+  }
+
   recordSuccess(tasks: readonly TaskRecord[], view: GitHubPollView): void {
     const now = this.now();
     this.rateLimitFailures = 0;
@@ -106,7 +119,7 @@ export class GitHubPollCoordinator {
       if (intervalMs === null) {
         this.scheduledTasks.delete(task.id);
       } else {
-        this.scheduledTasks.set(task.id, { intervalMs, nextPollAt: now + intervalMs });
+        this.scheduledTasks.set(task.id, { intervalMs, nextPollAt: now + intervalMs, lastPollAt: now });
       }
     }
   }
@@ -129,6 +142,7 @@ export class GitHubPollCoordinator {
       const scheduled = this.scheduledTasks.get(task.id);
       if (scheduled) {
         scheduled.nextPollAt = now + retryMs;
+        scheduled.lastPollAt = now;
       }
     }
   }

@@ -1,4 +1,4 @@
-import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdtemp, readFile, rm, stat, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { tmpdir } from "node:os";
 
@@ -31,15 +31,24 @@ describe("event reconciliation", () => {
     await updateTask(taskPath, {
       status: "review",
       updatedAt: "2026-04-21T00:00:01.000Z",
+      lastCommit: {
+        sha: "commit-after-agent-work",
+        message: "ship event wakeup",
+        committedAt: "2026-04-21T00:00:01.000Z",
+      },
       prs: [pullRequest("open", "2026-04-21T00:00:01.000Z")],
     });
     await reconcileEvents(paths);
-    expect((await readAllEvents(paths)).map((event) => event.type)).toEqual([
+    const linkedEvents = await readAllEvents(paths);
+    expect(linkedEvents.map((event) => event.type)).toEqual([
       "task.created",
       "agent.state.changed",
       "task.updated",
       "task.pr.linked",
     ]);
+    expect(linkedEvents.find((event) => event.type === "task.updated")?.data).toMatchObject({
+      changedFields: expect.arrayContaining(["status", "lastCommitSha"]),
+    });
 
     await updateTask(taskPath, {
       updatedAt: "2026-04-21T00:00:02.000Z",
@@ -64,8 +73,15 @@ describe("event reconciliation", () => {
     const finalEvents = await readAllEvents(paths);
     expect(finalEvents.map((event) => event.type).slice(-2)).toEqual(["task.closed", "task.pr.unlinked"]);
     const count = finalEvents.length;
+    const projectionPath = path.join(paths.orchestrationDir, "event-reconciliation.json");
+    const projectionBefore = await stat(projectionPath);
     await reconcileEvents(paths);
     expect(await readAllEvents(paths)).toHaveLength(count);
+    const projectionAfter = await stat(projectionPath);
+    expect({ ino: projectionAfter.ino, mtimeMs: projectionAfter.mtimeMs }).toEqual({
+      ino: projectionBefore.ino,
+      mtimeMs: projectionBefore.mtimeMs,
+    });
   });
 
   test("does not recreate semantic events after their segments rotate out of retention", async () => {
