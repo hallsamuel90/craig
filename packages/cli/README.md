@@ -186,7 +186,6 @@ Optional workspace-local config at `.craig/config.json`:
     "watchIntervalSeconds": 5
   },
   "previews": {
-    "incrementalCenterPane": false,
     "agentActivityIndicators": false,
     "agentOrchestration": false
   }

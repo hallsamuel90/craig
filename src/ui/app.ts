@@ -139,7 +139,6 @@ export async function startTerminalApp(options: TerminalAppOptions = {}): Promis
     (await createDaemonPtyRuntime({
       ...ptyOptions,
       paths,
-      viewUpdateMode: configService.previews.isEnabled(config, "incrementalCenterPane") ? "incremental" : "snapshot",
       activityEnabled: configService.previews.isEnabled(config, "agentActivityIndicators"),
     }));
 
@@ -238,8 +237,7 @@ export async function startTerminalApp(options: TerminalAppOptions = {}): Promis
           if (ctx.state.mode === "main") {
             const shell = withTerminalView(ctx, ctx.state.shell);
             ctx.state = { mode: "main", shell };
-            const incrementalCenterEnabled = configService.previews.isEnabled(ctx.config, "incrementalCenterPane");
-            if (!incrementalCenterEnabled || !lastShellData || !lastRenderedCenter) {
+            if (!lastShellData || !lastRenderedCenter) {
               ctx.render();
               return;
             }
@@ -269,7 +267,7 @@ export async function startTerminalApp(options: TerminalAppOptions = {}): Promis
             lastRenderedFrame = null;
             activeTerminal.hideCursor(true);
           }
-        }, configService.previews.isEnabled(ctx.config, "incrementalCenterPane") ? 0 : 50);
+        }, 0);
       }
     };
 
@@ -370,8 +368,7 @@ export async function startTerminalApp(options: TerminalAppOptions = {}): Promis
     ctx.renderTaskNavigation = () => {
       if (
         ctx.state.mode !== "main" ||
-        ctx.pendingClear ||
-        !configService.previews.isEnabled(ctx.config, "incrementalCenterPane")
+        ctx.pendingClear
       ) {
         return false;
       }
@@ -398,7 +395,6 @@ export async function startTerminalApp(options: TerminalAppOptions = {}): Promis
         mainPresentation = rendered.presentation;
         frame = mainPresentation.frame;
         if (
-          configService.previews.isEnabled(ctx.config, "incrementalCenterPane") &&
           !ctx.pendingClear &&
           writeMainRegions(
             rendered.data,

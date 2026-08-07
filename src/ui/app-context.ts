@@ -57,7 +57,6 @@ export interface PtyRuntimePort {
   getViewState(...args: [string | null]): ControlShellState["terminal"];
   getActivitySnapshots?(): PtyActivitySnapshot[];
   setViewedTab?(...args: [string | null]): void;
-  setViewUpdateMode?(...args: ["snapshot" | "incremental"]): void;
   setActivityEnabled?(...args: [boolean]): void;
   setPullRequestPollView?(...args: [GitHubPollView]): void;
   setTasksChangedHandler?(...args: [(taskIds: string[]) => void]): void;

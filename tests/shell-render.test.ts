@@ -85,7 +85,7 @@ describe("terminal shell renderer", () => {
     });
     const previewsFrame = renderOptionsOverlayFrame(MIN_VIEWPORT, {
       color: false,
-      optionsMenuItems: ["[ ] Incremental center pane"],
+      optionsMenuItems: ["[ ] Agent activity indicators"],
       optionsMessage: "Experimental features may change or be removed. Enter toggles.",
       optionsSubtitle: "Feature Previews - Experimental",
       menuIndex: 0,
@@ -104,14 +104,14 @@ describe("terminal shell renderer", () => {
       optionsLines.findIndex((line) => line.includes("Runners")),
     );
     expect(optionsLines.findIndex((line) => line.includes("Runners"))).toBe(
-      previewLines.findIndex((line) => line.includes("Incremental center pane")),
+      previewLines.findIndex((line) => line.includes("Agent activity indicators")),
     );
     expect(contentCenter(bootLines.find((line) => line.includes("> Start")) ?? "")).toBeCloseTo(
       contentCenter(optionsLines.find((line) => line.includes("> Runners")) ?? ""),
       0,
     );
     expect(contentCenter(optionsLines.find((line) => line.includes("> Runners")) ?? "")).toBeCloseTo(
-      contentCenter(previewLines.find((line) => line.includes("> [ ] Incremental center pane")) ?? ""),
+      contentCenter(previewLines.find((line) => line.includes("> [ ] Agent activity indicators")) ?? ""),
       0,
     );
   });
