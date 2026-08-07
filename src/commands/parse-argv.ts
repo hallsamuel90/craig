@@ -65,6 +65,15 @@ export function parseArgv(argv: string[]): ParsedArgvCommand {
     case "task:new":
       command = parseTaskNew(args);
       break;
+    case "task:create-child":
+      command = parseTaskCreateChild(args);
+      break;
+    case "task:children":
+      command = { kind: "listTaskChildren", ...(args.length === 0 ? {} : { taskId: requireSingleValue(args, "Task id") }) };
+      break;
+    case "task:cancel-tree":
+      command = { kind: "cancelTaskTree", ...(args.length === 0 ? {} : { taskId: requireSingleValue(args, "Task id") }) };
+      break;
     case "task:list":
       command = parseTaskList(args);
       break;
@@ -181,6 +190,9 @@ export function getCommandName(command: AppCommand): string {
     restoreWorkspace: "workspace.restore",
     removeWorkspace: "workspace.remove",
     createTask: "task.new",
+    createChildTask: "task.create-child",
+    listTaskChildren: "task.children",
+    cancelTaskTree: "task.cancel-tree",
     listTasks: "task.list",
     currentTask: "task.current",
     showTask: "task.show",
@@ -239,6 +251,9 @@ export function getHelpText(): string {
     "  craig workspace remove <id>  Remove an archived workspace",
     "  craig task new --repo <repo-id> [--runner codex|cursor|claude] <prompt>",
     "  craig task new --workspace <workspace-id> [--runner codex|cursor|claude] <prompt>",
+    "  craig task create-child --parent <task-id> --repo <repo-id> [--runner codex|cursor|claude] [--idempotency-key <key>] <prompt>",
+    "  craig task children [<task-id>]  List direct child tasks",
+    "  craig task cancel-tree [<task-id>]  Cancel a task and all descendants",
     "  craig task list [--repo <repo-id>]  List known Craig tasks",
     "  craig task current       Show the task resolved from flags, environment, or cwd",
     "  craig task show [<id>]   Show task details; omit id to use resolved context",
@@ -410,6 +425,54 @@ function parseTaskNew(args: string[]): AppCommand {
     ...(workspaceId ? { workspaceId } : {}),
     ...(runner ? { runner } : {}),
     prompt,
+  };
+}
+
+function parseTaskCreateChild(args: string[]): AppCommand {
+  let parentTaskId: string | undefined;
+  let repoId: string | undefined;
+  let runner: ReturnType<typeof configService.runners.parse> | undefined;
+  let idempotencyKey: string | undefined;
+  const promptParts: string[] = [];
+  let parseOptions = true;
+  for (let index = 0; index < args.length; index += 1) {
+    const token = args[index]!;
+    if (token === "--") {
+      parseOptions = false;
+      continue;
+    }
+    if (!parseOptions || !["--parent", "--repo", "--runner", "--idempotency-key"].includes(token)) {
+      if (parseOptions && token.startsWith("--")) throw usageError(`Unsupported task create-child option: ${token}`);
+      promptParts.push(token);
+      continue;
+    }
+    const value = args[index + 1];
+    if (value === undefined || value === "--") throw usageError(`Task option ${token} requires a value.`);
+    index += 1;
+    if (token === "--parent") {
+      if (parentTaskId) throw usageError("Task option --parent may only be provided once.");
+      parentTaskId = requireNonEmpty(value, "Parent task id");
+    } else if (token === "--repo") {
+      if (repoId) throw usageError("Task option --repo may only be provided once.");
+      repoId = requireNonEmpty(value, "Repo id");
+    } else if (token === "--runner") {
+      if (runner) throw usageError("Task option --runner may only be provided once.");
+      try { runner = configService.runners.parse(value); } catch (error) {
+        throw usageError(error instanceof Error ? error.message : "Unsupported runner.");
+      }
+    } else {
+      if (idempotencyKey) throw usageError("Task option --idempotency-key may only be provided once.");
+      idempotencyKey = requireNonEmpty(value, "Idempotency key");
+    }
+  }
+  if (!repoId) throw usageError("Child task creation requires '--repo <repo-id>'.");
+  return {
+    kind: "createChildTask",
+    ...(parentTaskId ? { parentTaskId } : {}),
+    repoId,
+    prompt: requireNonEmpty(promptParts.join(" "), "Child task prompt"),
+    ...(runner ? { runner } : {}),
+    ...(idempotencyKey ? { idempotencyKey } : {}),
   };
 }
 

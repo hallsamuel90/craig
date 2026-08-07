@@ -5,6 +5,7 @@ export { resolveArtifactPath } from "./artifacts.js";
 export { validateTaskRecord, normalizeLegacyTaskRecord } from "./validate.js";
 export { getTask, assertTaskWorktreeExists, resolveTaskLogPath, buildTaskInspection } from "./inspect.js";
 export { provisionTask, provisionProjectTask, createDefaultTaskPtyTabs } from "./provision.js";
+export type { TaskLineageInput } from "./provision.js";
 export type { ProvisionedTask, ProvisionedProjectTask } from "./provision.js";
 export { createTask } from "./create.js";
 export { showTask } from "./show.js";

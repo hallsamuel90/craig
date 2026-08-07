@@ -6,7 +6,7 @@ import { getMockShellData } from "../src/ui/mock-data.js";
 import { MIN_VIEWPORT } from "../src/ui/layout.js";
 import { OPTIONS_MENU_ITEMS } from "../src/ui/options.js";
 import { renderBootOverlayFrame, renderErrorLogOverlayFrame, renderMainShellFrame, renderMainShellPresentation, renderOptionsOverlayFrame, renderPauseOverlayFrame } from "../src/ui/render.js";
-import { createInitialShellState } from "../src/ui/state.js";
+import { createInitialShellState, getLeftItemIds } from "../src/ui/state.js";
 import { buildShellData } from "../src/ui/shell/data.js";
 import { buildTaskRecord } from "./test-helpers.js";
 
@@ -329,6 +329,96 @@ describe("terminal shell renderer", () => {
     expect(renderMainShellFrame(MIN_VIEWPORT, first, { color: false })).toContain("CODEX ●");
     expect(renderMainShellFrame(MIN_VIEWPORT, first, { color: true })).toContain("38;2;61;89;161");
     expect(renderMainShellFrame(MIN_VIEWPORT, bright, { color: true })).toContain("38;2;122;162;247");
+  });
+
+  test("flattens all task descendants to one visual sidebar level and preserves navigation order", () => {
+    const root = buildTaskRecord("/tmp/craig", {
+      id: "task_root",
+      title: "orchestration root",
+      repoId: "repo_nested",
+      workspaceId: "workspace_nested",
+    });
+    const child = buildTaskRecord("/tmp/craig", {
+      id: "task_child",
+      title: "direct child",
+      repoId: root.repoId,
+      workspaceId: root.workspaceId,
+      parentTaskId: root.id,
+      rootTaskId: root.id,
+      delegationDepth: 1,
+    });
+    const grandchild = buildTaskRecord("/tmp/craig", {
+      id: "task_grandchild",
+      title: "nested grandchild",
+      repoId: root.repoId,
+      workspaceId: root.workspaceId,
+      parentTaskId: child.id,
+      rootTaskId: root.id,
+      delegationDepth: 2,
+    });
+    const independent = buildTaskRecord("/tmp/craig", {
+      id: "task_independent",
+      title: "independent root",
+      repoId: root.repoId,
+      workspaceId: root.workspaceId,
+    });
+    const crossWorkspaceChild = buildTaskRecord("/tmp/craig", {
+      id: "task_cross_workspace_child",
+      title: "cross workspace child",
+      repoId: root.repoId,
+      workspaceId: root.workspaceId,
+      parentTaskId: "task_root_in_other_workspace",
+      rootTaskId: "task_root_in_other_workspace",
+      delegationDepth: 1,
+    });
+    const workspace = {
+      id: root.workspaceId,
+      kind: "repo" as const,
+      name: "nested",
+      primaryRepoId: root.repoId,
+      rootPath: "/tmp/craig",
+      branch: "main",
+      status: "active" as const,
+      linkedRepoIds: [],
+      archivedAt: null,
+      createdAt: "",
+      updatedAt: "",
+    };
+    const model = {
+      workspaceRoot: "/tmp/craig",
+      workspaces: [workspace],
+      repos: [{ id: root.repoId, name: "nested", rootPath: "/tmp/craig", defaultBranch: "main", createdAt: "", updatedAt: "" }],
+      tasks: [root, child, grandchild, independent, crossWorkspaceChild],
+      inspection: null,
+    };
+    const data = buildShellData({
+      ...createInitialShellState(null),
+      selectedWorkspaceId: root.workspaceId,
+      selectedRepoId: root.repoId,
+      selectedTaskId: root.id,
+      selectedLeftItemId: `task:${root.id}`,
+      focusedRegion: "tasks",
+    }, model);
+    const taskRows = data.leftTree.filter((row) => row.taskId);
+
+    expect(taskRows.map((row) => row.taskId)).toEqual([
+      root.id,
+      child.id,
+      grandchild.id,
+      independent.id,
+      crossWorkspaceChild.id,
+    ]);
+    expect(taskRows.map((row) => row.indent)).toEqual([2, 4, 4, 2, 2]);
+    expect(getLeftItemIds(model)).toEqual([
+      `workspace:${workspace.id}`,
+      `task:${root.id}`,
+      `task:${child.id}`,
+      `task:${grandchild.id}`,
+      `task:${independent.id}`,
+      `task:${crossWorkspaceChild.id}`,
+      `new-task:${root.repoId}`,
+      "new-workspace",
+    ]);
   });
 
   test("renders an actionable empty state when the selected repo has no tasks", () => {

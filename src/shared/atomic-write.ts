@@ -1,14 +1,14 @@
 import { randomUUID } from "node:crypto";
-import { open, readFile, rename, rm } from "node:fs/promises";
+import { chmod, open, readFile, rename, rm } from "node:fs/promises";
 import path from "node:path";
 
-export async function atomicWriteJson(filePath: string, value: unknown): Promise<void> {
+export async function atomicWriteJson(filePath: string, value: unknown, options: { mode?: number } = {}): Promise<void> {
   const directory = path.dirname(filePath);
   const tempFile = path.join(
     directory,
     `.${path.basename(filePath)}.${process.pid}.${Date.now()}.${randomUUID()}.tmp`,
   );
-  const handle = await open(tempFile, "w");
+  const handle = await open(tempFile, "w", options.mode);
 
   try {
     const payload = `${JSON.stringify(value, null, 2)}\n`;
@@ -17,6 +17,7 @@ export async function atomicWriteJson(filePath: string, value: unknown): Promise
     await handle.sync();
     await handle.close();
     await rename(tempFile, filePath);
+    if (options.mode !== undefined) await chmod(filePath, options.mode);
   } catch (error) {
     await handle.close().catch(() => undefined);
     await rm(tempFile, { force: true }).catch(() => undefined);

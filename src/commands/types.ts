@@ -40,6 +40,9 @@ import type {
   CommandSendAgentPromptResult,
   CommandShowPromptResult,
   CommandWaitPromptResult,
+  CommandCreateChildResult,
+  CommandListChildrenResult,
+  CommandCancelTreeResult,
   PromptCommandState,
   PromptDelivery,
 } from "../domain/orchestration/index.js";
@@ -55,6 +58,9 @@ export type AppCommand =
   | { kind: "restoreWorkspace"; workspaceId: string }
   | { kind: "removeWorkspace"; workspaceId: string }
   | { kind: "createTask"; repoId?: string; workspaceId?: string; prompt: string; runner?: RunnerType }
+  | { kind: "createChildTask"; parentTaskId?: string; repoId: string; prompt: string; runner?: RunnerType; idempotencyKey?: string }
+  | { kind: "listTaskChildren"; taskId?: string }
+  | { kind: "cancelTaskTree"; taskId?: string }
   | { kind: "listTasks"; repoId?: string; workspaceId?: string }
   | { kind: "currentTask" }
   | { kind: "attachTask"; taskId: string }
@@ -139,6 +145,9 @@ export type {
   CommandSendAgentPromptResult,
   CommandShowPromptResult,
   CommandWaitPromptResult,
+  CommandCreateChildResult,
+  CommandListChildrenResult,
+  CommandCancelTreeResult,
 };
 
 export type CommandResult =
@@ -151,6 +160,9 @@ export type CommandResult =
   | CommandRestoreWorkspaceResult
   | CommandRemoveWorkspaceResult
   | CommandCreateTaskResult
+  | CommandCreateChildResult
+  | CommandListChildrenResult
+  | CommandCancelTreeResult
   | CommandAttachTaskResult
   | CommandAddTaskLinkResult
   | CommandListTaskLinksResult

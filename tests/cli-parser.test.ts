@@ -15,6 +15,9 @@ describe("CLI argument parsing", () => {
     [["workspace", "restore", "workspace_1"], "restoreWorkspace"],
     [["workspace", "remove", "workspace_1"], "removeWorkspace"],
     [["task", "new", "--repo", "repo_1", "ship it"], "createTask"],
+    [["task", "create-child", "--parent", "task_1", "--repo", "repo_1", "ship it"], "createChildTask"],
+    [["task", "children", "task_1"], "listTaskChildren"],
+    [["task", "cancel-tree", "task_1"], "cancelTaskTree"],
     [["task", "list"], "listTasks"],
     [["task", "show", "task_1"], "showTask"],
     [["task", "pr", "show", "task_1"], "showTaskPr"],
@@ -82,6 +85,22 @@ describe("CLI argument parsing", () => {
       kind: "showTask",
       taskId: "task_1",
     });
+  });
+
+  test("parses child delegation options and context-defaulted tree commands", () => {
+    expect(parseArgv([
+      "task", "create-child", "--repo", "repo_a", "--parent", "task_1",
+      "--runner", "claude", "--idempotency-key", "phase-a", "implement", "phase", "a",
+    ]).command).toEqual({
+      kind: "createChildTask",
+      parentTaskId: "task_1",
+      repoId: "repo_a",
+      runner: "claude",
+      idempotencyKey: "phase-a",
+      prompt: "implement phase a",
+    });
+    expect(parseArgv(["task", "children"]).command).toEqual({ kind: "listTaskChildren" });
+    expect(parseArgv(["task", "cancel-tree"]).command).toEqual({ kind: "cancelTaskTree" });
   });
 
   test("parses PR repair commands with optional task and repo targets", () => {

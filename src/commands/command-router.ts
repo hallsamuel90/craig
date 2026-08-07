@@ -10,7 +10,10 @@ import { agentStatusService } from "../shell/agent-status.js";
 import { eventService } from "../shell/events.js";
 import { promptCommandShellService } from "../shell/prompt-commands.js";
 import type { CraigEvent } from "../domain/orchestration/index.js";
+import { createChildTask, createRootTask, listTaskChildren } from "../domain/orchestration/index.js";
+import { cancelTaskTreeAndSessions } from "../shell/delegation.js";
 import { configService } from "../domain/config/index.js";
+import { CraigError } from "../domain/error/index.js";
 
 export interface CommandContext {
   paths: CraigPaths;
@@ -21,6 +24,8 @@ export interface CommandContext {
   /* eslint-disable-next-line no-unused-vars */
   emitEvent?: (event: CraigEvent) => void;
   readStdin?: () => Promise<string>;
+  agentCapabilityId?: string;
+  agentContext?: boolean;
 }
 
 export async function executeCommand(
@@ -77,11 +82,44 @@ export async function executeCommand(
     case "removeWorkspace":
       return workspaceService.removeWorkspace(context.paths, command.workspaceId, { listTasks: taskService.listTasks });
     case "createTask":
-      return taskService.createTask(
+      return createRootTask(
         context.paths,
         command.repoId ?? command.workspaceId ?? "",
         command.prompt,
         { ...(command.runner ? { runner: command.runner } : {}), ...(command.workspaceId ? { workspaceId: command.workspaceId } : {}) },
+      );
+    case "createChildTask": {
+      const config = await configService.load(context.paths);
+      if (!configService.previews.isEnabled(config, "agentOrchestration")) {
+        throw new CraigError(
+          "CLI_USAGE",
+          "Child delegation is a feature preview. Enable agentOrchestration before creating child tasks.",
+          { details: { preview: "agentOrchestration" } },
+        );
+      }
+      assertScopedAgent(context);
+      return createChildTask(context.paths, {
+        parentTaskId: command.parentTaskId ?? requireResolvedTaskContext(context).task.id,
+        repoId: command.repoId,
+        prompt: command.prompt,
+        ...(command.runner ? { runner: command.runner } : {}),
+        ...(command.idempotencyKey ? { idempotencyKey: command.idempotencyKey } : {}),
+        ...(context.agentCapabilityId ? { capabilityId: context.agentCapabilityId } : {}),
+      });
+    }
+    case "listTaskChildren":
+      assertScopedAgent(context);
+      return listTaskChildren(
+        context.paths,
+        command.taskId ?? requireResolvedTaskContext(context).task.id,
+        context.agentCapabilityId,
+      );
+    case "cancelTaskTree":
+      assertScopedAgent(context);
+      return cancelTaskTreeAndSessions(
+        context.paths,
+        command.taskId ?? requireResolvedTaskContext(context).task.id,
+        context.agentCapabilityId,
       );
     case "listTasks":
       return command.repoId || command.workspaceId
@@ -258,6 +296,15 @@ export async function executeCommand(
     default:
       return assertNever(command);
   }
+}
+
+function assertScopedAgent(context: CommandContext): void {
+  if (!context.agentContext || context.agentCapabilityId) return;
+  throw new CraigError(
+    "CAPABILITY_DENIED",
+    "This agent session has no delegation capability. Restart the agent session to receive one.",
+    { details: { reason: "agent capability is missing" } },
+  );
 }
 
 async function selectWorkspaceInUi(paths: CraigPaths, workspaceId: string, selectedRepoId: string | null): Promise<void> {

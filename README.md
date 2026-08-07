@@ -148,6 +148,10 @@ craig task logs <task-id>
 craig task diff <task-id>
 craig task check <task-id>
 craig task commit <task-id>
+craig task create-child --parent <task-id> --repo <repo-id> [--runner codex|cursor|claude] \
+  [--idempotency-key <key>] "<task>" --json
+craig task children [<task-id>] --json
+craig task cancel-tree [<task-id>] --json
 
 craig agent list [--task <task-id>] --json
 craig agent status [--task <task-id>] [--tab <tab-id>] --json
@@ -194,7 +198,9 @@ Optional workspace-local config at `.craig/config.json`:
 
 Feature previews are experimental, workspace-local, and off by default. They can also be toggled from Options > Feature Previews in the TUI.
 
-Event commands and new prompt dispatch creation require the `agentOrchestration` preview. Craig may still maintain durable semantic events internally for stable daemon services such as pull request synchronization. Disabling the preview stops new dispatch creation but leaves command inspection, waiting, cancellation, and safe reconciliation available for existing durable work. Prompt delivery defaults to `when-ready`; `immediate` explicitly interrupts a busy target.
+Event commands, new prompt dispatch creation, and child-task creation require the `agentOrchestration` preview. Preview-enabled agent PTYs receive an opaque workspace-local capability token scoped to their own task, the delegation command families, an expiry, and bounded child/depth/concurrency/prompt limits; only a non-authorizing reference is stored on the task. `task children` and idempotent `task cancel-tree` remain available when the preview is disabled so existing lineage can be inspected and safely stopped. Craig may still maintain durable semantic events internally for stable daemon services such as pull request synchronization. Disabling the preview stops new dispatch and child creation but leaves command inspection, waiting, cancellation, and safe reconciliation available for existing durable work. Prompt delivery defaults to `when-ready`; `immediate` explicitly interrupts a busy target.
+
+The TUI sidebar groups descendants beneath their root task while enforcing a single visual child level. Grandchildren and deeper descendants use the same indentation as direct children, and every task row continues to show only that task's agent-tab activity roll-up.
 
 `github.watchIntervalSeconds` is the minimum GitHub polling interval. Craig polls selected PRs with pending checks
 most frequently, backs stable PRs and PR discovery off automatically, and pauses after rate-limit responses. The

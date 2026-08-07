@@ -7,6 +7,8 @@ import { loadTaskLocalInspection } from "./task-local-inspection.js";
 import type { WorkspaceShellModel } from "./data.js";
 import { restoreShellState, getLeftItemIds } from "../state.js";
 import type { ControlShellState } from "../state.js";
+import { configService } from "../../domain/config/index.js";
+import { ensureTaskCapabilities } from "../../domain/orchestration/index.js";
 
 export async function loadWorkspaceShellModel(
   workspaceRoot: string,
@@ -18,7 +20,22 @@ export async function loadWorkspaceShellModel(
     workspaceService.repos.listRegisteredRepos(paths),
     workspaceService.listWorkspaces(paths, { archived: false }),
   ]);
-  const taskResult = await taskService.listTasks(paths);
+  let taskResult = await taskService.listTasks(paths);
+  const agentCapabilityTokens: Record<string, string> = {};
+  const config = await configService.load(paths);
+  if (configService.previews.isEnabled(config, "agentOrchestration")) {
+    const environments = await Promise.all(taskResult.tasks.map(async (task) => ({
+      task,
+      environment: await ensureTaskCapabilities(paths, task),
+    })));
+    for (const { task, environment } of environments) {
+      const agentTab = task.ptyTabs.find((tab) => tab.kind === "agent");
+      if (agentTab && environment.CRAIG_AGENT_CAPABILITY) {
+        agentCapabilityTokens[agentTab.id] = environment.CRAIG_AGENT_CAPABILITY;
+      }
+    }
+    taskResult = await taskService.listTasks(paths);
+  }
   const selectedTask = resolveSelectedTaskForInspection(taskResult.tasks, shell);
   const selection = shell
     ? {
@@ -33,6 +50,7 @@ export async function loadWorkspaceShellModel(
     repos: repoResult.repos,
     tasks: taskResult.tasks,
     inspection,
+    ...(Object.keys(agentCapabilityTokens).length > 0 ? { agentCapabilityTokens } : {}),
     ...(enabledRunnerIds ? { enabledRunnerIds } : {}),
   };
 }

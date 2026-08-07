@@ -106,6 +106,7 @@ export type TaskPtyTabKind = "agent" | "terminal";
 export interface TaskPtyTabRecord {
   id: string;
   kind: TaskPtyTabKind;
+  capabilityId?: string;
   runner?: RunnerType;
   title: string;
   command: string[];
@@ -162,6 +163,12 @@ export interface TaskRecord {
   sessionId: string | null;
   selectedPtyTabId: string | null;
   linkedRepoIds: string[];
+  parentTaskId: string | null;
+  rootTaskId: string;
+  delegationDepth: number;
+  delegationIdempotencyKey: string | null;
+  swarmRunId: string | null;
+  swarmStepId: string | null;
   repoRoot: string;
   worktreePath: string;
   branch: string;

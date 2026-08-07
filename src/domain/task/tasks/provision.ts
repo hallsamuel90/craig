@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import { mkdir, rm, writeFile } from "node:fs/promises";
 import path from "node:path";
 
@@ -24,13 +25,22 @@ export interface ProvisionedProjectTask extends ProvisionedTask {
   repoTargets: ProjectTaskRepoTarget[];
 }
 
+export interface TaskLineageInput {
+  parentTaskId: string | null;
+  rootTaskId?: string;
+  delegationDepth: number;
+  delegationIdempotencyKey?: string | null;
+  swarmRunId?: string | null;
+  swarmStepId?: string | null;
+}
+
 const PROJECT_BUNDLE_GUIDE_FILENAME = ["AGENTS", "md"].join(".");
 
 export const provisionTask = async (
   paths: CraigPaths,
   repoId: string,
   prompt: string,
-  options: { sessionId?: string | null; runner?: RunnerType; config?: CraigConfig } = {},
+  options: { sessionId?: string | null; runner?: RunnerType; config?: CraigConfig; lineage?: TaskLineageInput } = {},
 ): Promise<ProvisionedTask> => {
   const repo = await readRepo(paths, repoId);
   const [workspace, taskId] = await Promise.all([
@@ -60,6 +70,7 @@ export const provisionTask = async (
     config: options.config ?? {},
     branch,
     worktreePath,
+    ...(options.lineage ? { lineage: options.lineage } : {}),
   });
 
   await writeTask(paths, draftTask);
@@ -79,7 +90,7 @@ export const provisionProjectTask = async (
   paths: CraigPaths,
   workspaceId: string,
   prompt: string,
-  options: { sessionId?: string | null; runner?: RunnerType; config?: CraigConfig } = {},
+  options: { sessionId?: string | null; runner?: RunnerType; config?: CraigConfig; lineage?: TaskLineageInput } = {},
 ): Promise<ProvisionedProjectTask> => {
   const workspace = (await listWorkspaceRecords(paths)).find((entry) => entry.id === workspaceId && entry.status === "active");
   if (!workspace) {
@@ -171,6 +182,7 @@ export const provisionProjectTask = async (
     sessionId,
     selectedPtyTabId: ptyTabs[0]?.id ?? null,
     linkedRepoIds: repoIds.filter((repoId) => repoId !== readyTarget.repoId),
+    ...resolveLineage(taskId, options.lineage),
     repoRoot: bundlePath,
     worktreePath: bundlePath,
     branch,
@@ -233,6 +245,7 @@ export const createDefaultTaskPtyTabs = (
     {
       id: `${taskId}:agent`,
       kind: "agent",
+      ...(config.previews?.agentOrchestration ? { capabilityId: `capability_${randomUUID()}` } : {}),
       title: profile.defaultAgentTitle,
       command: configService.runners.buildCommand(runner, undefined, config),
       createdAt: timestamp,
@@ -265,6 +278,7 @@ const buildDraftTask = (paths: CraigPaths, input: DraftTaskInput): TaskRecord =>
     sessionId: input.sessionId,
     selectedPtyTabId: ptyTabs[0]?.id ?? null,
     linkedRepoIds: [],
+    ...resolveLineage(input.taskId, input.lineage),
     repoRoot: input.repoRoot,
     worktreePath: input.worktreePath,
     branch: input.branch,
@@ -447,7 +461,17 @@ interface DraftTaskInput {
   config?: CraigConfig;
   branch: string;
   worktreePath: string;
+  lineage?: TaskLineageInput;
 }
+
+const resolveLineage = (taskId: string, lineage?: TaskLineageInput) => ({
+  parentTaskId: lineage?.parentTaskId ?? null,
+  rootTaskId: lineage?.rootTaskId ?? taskId,
+  delegationDepth: lineage?.delegationDepth ?? 0,
+  delegationIdempotencyKey: lineage?.delegationIdempotencyKey ?? null,
+  swarmRunId: lineage?.swarmRunId ?? null,
+  swarmStepId: lineage?.swarmStepId ?? null,
+});
 
 const resolveWorkspaceForRepo = async (paths: CraigPaths, repoId: string) => {
   const workspaces = await listWorkspaceRecords(paths);

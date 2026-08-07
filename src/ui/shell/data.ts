@@ -20,7 +20,7 @@ import { getTaskPrimaryPr } from "../../domain/task/index.js";
 import type { RepoRecord, WorkspaceRecord } from "../../domain/workspace/index.js";
 import { configService } from "../../domain/config/index.js";
 import type { RunnerType } from "../../domain/config/index.js";
-import { INSPECTION_TAB_ID, isTaskLeftItemId } from "../state.js";
+import { INSPECTION_TAB_ID, isTaskLeftItemId, orderTasksForSidebar } from "../state.js";
 import type { TerminalCellStyle, TerminalRowSegment } from "../terminal-emulator.js";
 import {
   getTaskAgentActivity,
@@ -135,6 +135,7 @@ export interface WorkspaceShellModel {
   tasks: TaskRecord[];
   workspaceRoot: string;
   inspection: TaskLocalInspection | null;
+  agentCapabilityTokens?: Record<string, string>;
   enabledRunnerIds?: RunnerType[];
 }
 
@@ -272,14 +273,14 @@ function buildLeftTree(
       if (repoTasks.length === 0) {
         rows.push({ text: "  · no tasks yet", indent: 0, muted: true });
       } else {
-        for (const task of repoTasks) {
+        for (const { task, visualDepth } of orderTasksForSidebar(repoTasks)) {
           const selected = state.selectedLeftItemId === `task:${task.id}`;
           const displayTitle = task.title.length > 28 ? `${task.title.slice(0, 25)}…` : task.title;
           const row: ShellTreeRow = {
             id: `task:${task.id}`,
             taskId: task.id,
             text: activity ? displayTitle : `${selected ? "▸" : "•"} ${displayTitle}`,
-            indent: 2,
+            indent: visualDepth === 0 ? 2 : 4,
             selected,
             focused: selected && state.focusedRegion === "tasks",
             ...(activity
@@ -369,14 +370,14 @@ function buildLegacyRepoLeftTree(
       if (repoTasks.length === 0) {
         rows.push({ text: "  · no tasks yet", indent: 0, muted: true });
       } else {
-        for (const task of repoTasks) {
+        for (const { task, visualDepth } of orderTasksForSidebar(repoTasks)) {
           const selected = state.selectedLeftItemId === `task:${task.id}`;
           const displayTitle = task.title.length > 28 ? `${task.title.slice(0, 25)}…` : task.title;
           const legacyRow: ShellTreeRow = {
             id: `task:${task.id}`,
             taskId: task.id,
             text: activity ? displayTitle : `${selected ? "▸" : "•"} ${displayTitle}`,
-            indent: 2,
+            indent: visualDepth === 0 ? 2 : 4,
             selected,
             focused: selected && state.focusedRegion === "tasks",
             ...(activity

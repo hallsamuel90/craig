@@ -6,6 +6,7 @@ import { requireExecutablePath, withDefaultCommandPath } from "../../shared/comm
 import type { TaskRecord } from "../../domain/task/index.js";
 import type { ControlShellState } from "../state.js";
 import type { ActionContext } from "./context.js";
+import { ensureTaskCapabilities } from "../../domain/orchestration/index.js";
 
 export class InteractiveTaskStartupError extends Error {
   readonly task: TaskRecord;
@@ -28,6 +29,9 @@ export const createInteractiveTask = async (
   const provisioned = workspaceId
     ? await ctx.taskService.provisionProjectTask(ctx.paths, workspaceId, prompt, { runner, config: ctx.config })
     : await ctx.taskService.provisionTask(ctx.paths, repoId ?? "", prompt, { runner, config: ctx.config });
+  if (configService.previews.isEnabled(ctx.config, "agentOrchestration")) {
+    await ensureTaskCapabilities(ctx.paths, provisioned.task, { type: "human", source: "tui", processId: process.pid });
+  }
   try {
     const env = withDefaultCommandPath();
     requireExecutablePath(configService.runners.getConfiguredProfile(runner, ctx.config).executable, {
