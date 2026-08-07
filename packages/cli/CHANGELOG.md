@@ -1,5 +1,11 @@
 # craig-cli
 
+## 0.12.3
+
+### Patch Changes
+
+- e94dd9a: Keep discovering pull requests for active tasks after an earlier pull request merges.
+
 ## 0.12.2
 
 ### Patch Changes
