@@ -1,5 +1,11 @@
 # craig-cli
 
+## 0.13.2
+
+### Patch Changes
+
+- 8cf30e1: Add preview-gated validation and side-effect-free planning for strict, versioned swarm YAML DAGs.
+
 ## 0.13.1
 
 ### Patch Changes
