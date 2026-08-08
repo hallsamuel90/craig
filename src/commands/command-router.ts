@@ -1,3 +1,5 @@
+import path from "node:path";
+
 import type { CommandResult, AppCommand } from "./types.js";
 import type { CraigPaths } from "../state/craig-paths.js";
 import type { ResolvedTaskContext } from "../domain/task/index.js";
@@ -10,7 +12,7 @@ import { agentStatusService } from "../shell/agent-status.js";
 import { eventService } from "../shell/events.js";
 import { promptCommandShellService } from "../shell/prompt-commands.js";
 import type { CraigEvent } from "../domain/orchestration/index.js";
-import { createChildTask, createRootTask, listTaskChildren } from "../domain/orchestration/index.js";
+import { createChildTask, createRootTask, listTaskChildren, planSwarmFile, validateSwarmFile } from "../domain/orchestration/index.js";
 import { cancelTaskTreeAndSessions } from "../shell/delegation.js";
 import { configService } from "../domain/config/index.js";
 import { CraigError } from "../domain/error/index.js";
@@ -26,6 +28,7 @@ export interface CommandContext {
   readStdin?: () => Promise<string>;
   agentCapabilityId?: string;
   agentContext?: boolean;
+  cwd?: string;
 }
 
 export async function executeCommand(
@@ -121,6 +124,12 @@ export async function executeCommand(
         command.taskId ?? requireResolvedTaskContext(context).task.id,
         context.agentCapabilityId,
       );
+    case "validateSwarm":
+      await assertSwarmPreview(context);
+      return validateSwarmFile(path.resolve(context.cwd ?? process.cwd(), command.file));
+    case "planSwarm":
+      await assertSwarmPreview(context);
+      return planSwarmFile(path.resolve(context.cwd ?? process.cwd(), command.file), command.inputs);
     case "listTasks":
       return command.repoId || command.workspaceId
         ? taskService.listTasks(context.paths, { ...(command.repoId ? { repoId: command.repoId } : {}), ...(command.workspaceId ? { workspaceId: command.workspaceId } : {}) })
@@ -304,6 +313,16 @@ function assertScopedAgent(context: CommandContext): void {
     "CAPABILITY_DENIED",
     "This agent session has no delegation capability. Restart the agent session to receive one.",
     { details: { reason: "agent capability is missing" } },
+  );
+}
+
+async function assertSwarmPreview(context: CommandContext): Promise<void> {
+  const config = await configService.load(context.paths);
+  if (configService.previews.isEnabled(config, "agentOrchestration")) return;
+  throw new CraigError(
+    "CLI_USAGE",
+    "Swarm planning is a feature preview. Enable agentOrchestration before validating or planning a swarm.",
+    { details: { preview: "agentOrchestration" } },
   );
 }
 

@@ -35,6 +35,8 @@ describe("CLI argument parsing", () => {
     [["task", "wait", "task_1", "--state", "ready,error"], "waitTask"],
     [["events", "list", "--type", "agent.*"], "listEvents"],
     [["events", "watch", "--format", "jsonl"], "watchEvents"],
+    [["swarm", "validate", "swarm.yaml"], "validateSwarm"],
+    [["swarm", "plan", "swarm.yaml", "--input", "task_id=task_1"], "planSwarm"],
     [["task", "attach", "task_1"], "attachTask"],
     [["task", "logs", "task_1"], "streamTaskLogs"],
     [["task", "diff", "task_1"], "showTaskDiff"],
@@ -75,6 +77,23 @@ describe("CLI argument parsing", () => {
       workspaceRoot: "./workspace",
       taskId: "task_1",
     });
+  });
+
+  test("parses swarm validation and repeated named plan inputs", () => {
+    expect(parseArgv(["swarm", "validate", "flow.yaml"]).command).toEqual({
+      kind: "validateSwarm",
+      file: "flow.yaml",
+    });
+    expect(parseArgv([
+      "swarm", "plan", "flow.yaml", "--input", "task_id=task_1", "--input", "strict=true",
+    ]).command).toEqual({
+      kind: "planSwarm",
+      file: "flow.yaml",
+      inputs: { task_id: "task_1", strict: "true" },
+    });
+    expect(() => parseArgv(["swarm", "plan", "flow.yaml", "--input", "task_id=one", "--input", "task_id=two"]))
+      .toThrow(/only be provided once/);
+    expect(() => parseArgv(["swarm", "plan", "--input", "broken"])).toThrow(/key=value/);
   });
 
   test("supports context commands and optional task show context", () => {

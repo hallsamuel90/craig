@@ -68,6 +68,21 @@ export function formatCommandResult(result: CommandResult): string {
         : ["ID\tSTATUS\tDEPTH\tTITLE", ...result.children.map((task) => `${task.id}\t${task.status}\t${task.delegationDepth}\t${task.title}`)].join("\n");
     case "cancelTaskTree":
       return [`Cancelled task tree ${result.taskId}`, ...result.cancelled.map((task) => `${task.taskId}: ${task.disposition}`)].join("\n");
+    case "validateSwarm":
+      return [
+        `Valid swarm ${result.name}`,
+        `Definition: ${result.definitionHash}`,
+        `Steps: ${result.stepCount}`,
+        `Order: ${result.order.join(" -> ")}`,
+      ].join("\n");
+    case "planSwarm":
+      return [
+        `Planned swarm ${result.name}`,
+        `Definition: ${result.definitionHash}`,
+        `Steps: ${result.steps.length}`,
+        ...result.waves.map((wave, index) => `Wave ${index}: ${wave.join(", ")}`),
+        "Mutations: none",
+      ].join("\n");
     case "attachTask":
       return `Attached to task ${result.taskId} via session ${result.sessionId}`;
     case "addTaskLink":

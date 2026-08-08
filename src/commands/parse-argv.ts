@@ -121,6 +121,12 @@ export function parseArgv(argv: string[]): ParsedArgvCommand {
     case "events:watch":
       command = parseEvents(args, true);
       break;
+    case "swarm:validate":
+      command = { kind: "validateSwarm", file: requireSingleValue(args, "Swarm file") };
+      break;
+    case "swarm:plan":
+      command = parseSwarmPlan(args);
+      break;
     case "task:attach":
       command = { kind: "attachTask", taskId: requireSingleValue(args, "Task id") };
       break;
@@ -193,6 +199,8 @@ export function getCommandName(command: AppCommand): string {
     createChildTask: "task.create-child",
     listTaskChildren: "task.children",
     cancelTaskTree: "task.cancel-tree",
+    validateSwarm: "swarm.validate",
+    planSwarm: "swarm.plan",
     listTasks: "task.list",
     currentTask: "task.current",
     showTask: "task.show",
@@ -273,6 +281,8 @@ export function getHelpText(): string {
     "  craig task wait [<id>] --state <states> [--tab <tab-id>] [--timeout <duration>]",
     "  craig events list [--task <task-id>] [--type <glob>] [--after <cursor>] --json",
     "  craig events watch [--task <task-id>] [--type <glob>] [--after <cursor>] [--format jsonl]",
+    "  craig swarm validate <file>  Validate a versioned swarm YAML definition",
+    "  craig swarm plan <file> [--input key=value]  Build a deterministic, side-effect-free plan",
     "  craig task logs <id>     Stream Craig-managed logs for a task",
     "  craig task diff <id>     Show the current worktree diff for a task",
     "  craig task attach <id>   Attach to a live task session",
@@ -679,6 +689,30 @@ function parseTaskWait(args: string[]): AppCommand {
 
   if (!states) throw usageError("task wait requires --state <idle|working|ready|error>[,...].");
   return { kind: "waitTask", ...(taskId ? { taskId } : {}), states, ...(tabId ? { tabId } : {}), timeoutMs };
+}
+
+function parseSwarmPlan(args: string[]): AppCommand {
+  let file: string | undefined;
+  const inputs: Record<string, string> = {};
+  for (let index = 0; index < args.length; index += 1) {
+    const token = args[index]!;
+    if (token !== "--input") {
+      if (token.startsWith("--")) throw usageError(`Unsupported swarm plan option: ${token}`);
+      if (file !== undefined) throw usageError("swarm plan accepts exactly one definition file.");
+      file = requireNonEmpty(token, "Swarm file");
+      continue;
+    }
+    const value = args[index + 1];
+    if (value === undefined || value.startsWith("--")) throw usageError("Swarm plan option --input requires key=value.");
+    index += 1;
+    const separator = value.indexOf("=");
+    if (separator < 1) throw usageError(`Invalid swarm input "${value}". Use key=value.`);
+    const name = requireNonEmpty(value.slice(0, separator), "Swarm input name");
+    if (Object.hasOwn(inputs, name)) throw usageError(`Swarm input "${name}" may only be provided once.`);
+    inputs[name] = value.slice(separator + 1);
+  }
+  if (!file) throw usageError("swarm plan requires a definition file.");
+  return { kind: "planSwarm", file, inputs };
 }
 
 function parseAgentStates(value: string): AgentRuntimeState[] {
