@@ -100,6 +100,40 @@ try {
       errorCode: "TASK_NOT_FOUND",
     },
   );
+  await execFileAsync(craigBin, ["repo", "add", "."], { cwd: projectDir, maxBuffer: 1024 * 1024 * 10 });
+  await writeFile(
+    join(projectDir, ".craig", "config.json"),
+    `${JSON.stringify({ previews: { agentOrchestration: true } }, null, 2)}\n`,
+    "utf8",
+  );
+  const swarmFile = join(projectDir, "swarm-smoke.yaml");
+  await writeFile(swarmFile, [
+    "version: 1",
+    "name: package-smoke",
+    "limits: { max_concurrency: 1, max_tasks: 1, timeout: 1h }",
+    "inputs:",
+    "  task_id: { type: string, required: true }",
+    "steps:",
+    "  inspect:",
+    "    task: \"${{ inputs.task_id }}\"",
+    "    agent: { runner: codex }",
+    "    prompt: Inspect the task.",
+    "",
+  ].join("\n"), "utf8");
+  const validateResult = await execFileAsync(craigBin, ["--json", "swarm", "validate", swarmFile], {
+    cwd: projectDir,
+    maxBuffer: 1024 * 1024 * 10,
+  });
+  expectJsonSuccess(validateResult.stdout, "swarm.validate", "validateSwarm");
+  const planResult = await execFileAsync(
+    craigBin,
+    ["--json", "swarm", "plan", swarmFile, "--input", "task_id=task_smoke"],
+    { cwd: projectDir, maxBuffer: 1024 * 1024 * 10 },
+  );
+  const planEnvelope = expectJsonSuccess(planResult.stdout, "swarm.plan", "planSwarm");
+  if (planEnvelope.data?.steps?.[0]?.target?.task !== "task_smoke" || planEnvelope.data?.mutations?.length !== 0) {
+    throw new Error(`Packed CLI returned an invalid swarm plan: ${planResult.stdout}`);
+  }
 
   const codexStubDir = join(tempRoot, "bin");
   await mkdir(codexStubDir, { recursive: true });
@@ -111,6 +145,19 @@ try {
   process.stdout.write(`Package smoke passed for ${packResult.filename}\n`);
 } finally {
   await rm(tempRoot, { recursive: true, force: true });
+}
+
+function expectJsonSuccess(stdout, command, kind) {
+  const envelope = JSON.parse(stdout);
+  if (
+    envelope.schemaVersion !== 1 ||
+    envelope.command !== command ||
+    envelope.ok !== true ||
+    envelope.data?.kind !== kind
+  ) {
+    throw new Error(`Packed CLI returned an invalid JSON envelope: ${stdout}`);
+  }
+  return envelope;
 }
 
 async function waitForCraigBoot(craigBin, cwd, stubDir) {

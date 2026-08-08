@@ -162,6 +162,9 @@ craig task wait [<task-id>] --state <states> [--tab <tab-id>] [--timeout <durati
 craig events list [--task <task-id>] [--type <glob>] [--after <cursor>] --json
 craig events watch [--task <task-id>] [--type <glob>] [--after <cursor>] [--format jsonl]
 
+craig swarm validate <file> --json
+craig swarm plan <file> [--input key=value] --json
+
 craig command show <command-id> --json
 craig command list [--task <task-id>] --json
 craig command cancel <command-id> --json
@@ -198,7 +201,30 @@ Optional workspace-local config at `.craig/config.json`:
 
 Feature previews are experimental, workspace-local, and off by default. They can also be toggled from Options > Feature Previews in the TUI.
 
-Event commands, new prompt dispatch creation, and child-task creation require the `agentOrchestration` preview. Preview-enabled agent PTYs receive an opaque workspace-local capability token scoped to their own task, the delegation command families, an expiry, and bounded child/depth/concurrency/prompt limits; only a non-authorizing reference is stored on the task. `task children` and idempotent `task cancel-tree` remain available when the preview is disabled so existing lineage can be inspected and safely stopped. Craig may still maintain durable semantic events internally for stable daemon services such as pull request synchronization. Disabling the preview stops new dispatch and child creation but leaves command inspection, waiting, cancellation, and safe reconciliation available for existing durable work. Prompt delivery defaults to `when-ready`; `immediate` explicitly interrupts a busy target.
+Event commands, new prompt dispatch creation, child-task creation, and swarm validation/planning require the `agentOrchestration` preview. Preview-enabled agent PTYs receive an opaque workspace-local capability token scoped to their own task, the delegation command families, an expiry, and bounded child/depth/concurrency/prompt limits; only a non-authorizing reference is stored on the task. `task children` and idempotent `task cancel-tree` remain available when the preview is disabled so existing lineage can be inspected and safely stopped. Craig may still maintain durable semantic events internally for stable daemon services such as pull request synchronization. Disabling the preview stops new dispatch and child creation but leaves command inspection, waiting, cancellation, and safe reconciliation available for existing durable work. Prompt delivery defaults to `when-ready`; `immediate` explicitly interrupts a busy target.
+
+Swarm definitions are strict, versioned YAML DAGs. `swarm validate` checks the schema, limits, templates, references, dependencies, output schemas, and human-review checkpoints. `swarm plan` resolves declared inputs and returns deterministic execution waves without creating tasks, commands, capabilities, events, definitions, or run state. Runtime execution remains unavailable until the next preview phase.
+
+```yaml
+version: 1
+name: inspect-and-review
+limits: { max_concurrency: 2, max_tasks: 4, timeout: 2h }
+inputs:
+  task_id: { type: string, required: true }
+steps:
+  inspect:
+    task: "${{ inputs.task_id }}"
+    prompt: Inspect the task and submit structured findings.
+    output:
+      schema: { type: object, required: [findings] }
+  review:
+    needs: [inspect]
+    human_review:
+      title: Review findings
+      summary: Review the submitted findings before execution continues.
+      feedback_target: { task: "${{ steps.inspect.task_id }}" }
+      timeout: 1h
+```
 
 The TUI sidebar groups descendants beneath their root task while enforcing a single visual child level. Grandchildren and deeper descendants use the same indentation as direct children, and every task row continues to show only that task's agent-tab activity roll-up.
 

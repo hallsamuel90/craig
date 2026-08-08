@@ -444,6 +444,54 @@ describe("CLI execution contract", () => {
     });
   });
 
+  test("gates swarm commands and returns a side-effect-free JSON plan when enabled", async () => {
+    const root = await createRepoRoot("craig-cli-swarm-");
+    tempRoots.push(root);
+    const paths = await createCraigState(root);
+    const definition = path.join(root, "swarm.yaml");
+    await writeFile(definition, `
+version: 1
+name: cli-plan
+limits:
+  max_concurrency: 1
+  max_tasks: 2
+  timeout: 1h
+inputs:
+  task_id:
+    type: string
+    required: true
+steps:
+  inspect:
+    task: "\${{ inputs.task_id }}"
+    prompt: Inspect the task.
+`, "utf8");
+
+    const blocked = createOutput();
+    expect(await runCli(createOptions(root, ["swarm", "validate", "swarm.yaml", "--json"], blocked))).toBe(2);
+    expect(JSON.parse(blocked.stderr[0]!)).toMatchObject({
+      command: "swarm.validate",
+      error: { code: "CLI_USAGE", details: { preview: "agentOrchestration" } },
+    });
+
+    await configService.save(paths, { previews: { agentOrchestration: true } });
+    const output = createOutput();
+    expect(await runCli(createOptions(root, [
+      "swarm", "plan", "swarm.yaml", "--input", "task_id=task_1", "--json",
+    ], output))).toBe(0);
+    expect(JSON.parse(output.stdout[0]!)).toMatchObject({
+      command: "swarm.plan",
+      ok: true,
+      data: {
+        kind: "planSwarm",
+        name: "cli-plan",
+        inputs: { task_id: "task_1" },
+        order: ["inspect"],
+        mutations: [],
+        steps: [{ id: "inspect", target: { type: "task", task: "task_1" } }],
+      },
+    });
+  });
+
   test("does not enter the terminal application when input is disabled", async () => {
     const root = await createRepoRoot("craig-cli-no-input-");
     tempRoots.push(root);

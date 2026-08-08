@@ -97,6 +97,7 @@ export async function runCli(options: RunCliOptions): Promise<number> {
     try {
       result = await executeCommand(command, {
         paths: context.paths,
+        cwd: options.cwd,
         workspaceContext: context.workspace,
         taskContext: context.task,
         ...(cancellation.signal ? { signal: cancellation.signal } : {}),

@@ -43,6 +43,8 @@ import type {
   CommandCreateChildResult,
   CommandListChildrenResult,
   CommandCancelTreeResult,
+  CommandValidateSwarmResult,
+  CommandPlanSwarmResult,
   PromptCommandState,
   PromptDelivery,
 } from "../domain/orchestration/index.js";
@@ -61,6 +63,8 @@ export type AppCommand =
   | { kind: "createChildTask"; parentTaskId?: string; repoId: string; prompt: string; runner?: RunnerType; idempotencyKey?: string }
   | { kind: "listTaskChildren"; taskId?: string }
   | { kind: "cancelTaskTree"; taskId?: string }
+  | { kind: "validateSwarm"; file: string }
+  | { kind: "planSwarm"; file: string; inputs: Record<string, string> }
   | { kind: "listTasks"; repoId?: string; workspaceId?: string }
   | { kind: "currentTask" }
   | { kind: "attachTask"; taskId: string }
@@ -148,6 +152,8 @@ export type {
   CommandCreateChildResult,
   CommandListChildrenResult,
   CommandCancelTreeResult,
+  CommandValidateSwarmResult,
+  CommandPlanSwarmResult,
 };
 
 export type CommandResult =
@@ -163,6 +169,8 @@ export type CommandResult =
   | CommandCreateChildResult
   | CommandListChildrenResult
   | CommandCancelTreeResult
+  | CommandValidateSwarmResult
+  | CommandPlanSwarmResult
   | CommandAttachTaskResult
   | CommandAddTaskLinkResult
   | CommandListTaskLinksResult

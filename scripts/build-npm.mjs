@@ -26,6 +26,9 @@ await build({
   define: {
     __CRAIG_VERSION__: JSON.stringify(pkgJson.version),
   },
+  alias: {
+    yaml: resolve(repoRoot, "node_modules/yaml/browser/index.js"),
+  },
 });
 
 await chmod(outfile, 0o755);
