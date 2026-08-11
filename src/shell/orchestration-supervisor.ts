@@ -1,3 +1,5 @@
+import { setTimeout as wait } from "node:timers/promises";
+
 import { getTaskAgentTabActivity, type PtyActivitySnapshot } from "../domain/agent/index.js";
 import {
   listPromptCommands,
@@ -10,7 +12,7 @@ import { CraigError } from "../domain/error/index.js";
 import type { CraigPaths } from "../state/craig-paths.js";
 import { Heartbeat } from "./heartbeat.js";
 import { acquireOrchestrationLeader, type OrchestrationLeaderLease } from "./orchestration-leader.js";
-import { encodeRunnerPrompt } from "./prompt-delivery.js";
+import { buildRunnerPromptSubmission } from "./prompt-delivery.js";
 import { reconcilePromptCommandEvents } from "./command-event-reconciliation.js";
 import { reconcileFuryRuns } from "./fury-runtime.js";
 
@@ -142,10 +144,10 @@ export class OrchestrationSupervisor {
 
     await promptCommandService.beginDelivery(this.paths, command.id);
     try {
-      this.runtime.writeToSession(
-        command.agentTabId,
-        encodeRunnerPrompt(tab.runner ?? task.runner, command.prompt.text),
-      );
+      const submission = buildRunnerPromptSubmission(tab.runner ?? task.runner, command.prompt.text);
+      this.runtime.writeToSession(command.agentTabId, submission.paste);
+      await wait(submission.submitDelayMs);
+      this.runtime.writeToSession(command.agentTabId, submission.submit);
     } catch (error) {
       await promptCommandService.fail(this.paths, command.id, commandError(
         "PROMPT_DELIVERY_UNCERTAIN",

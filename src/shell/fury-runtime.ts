@@ -8,7 +8,6 @@ import {
   appendEvent,
   approveFuryPlan,
   authorizeCapability,
-  createChildTask,
   createFuryPlan,
   createFuryRun,
   furyDirs,
@@ -49,7 +48,7 @@ import {
 } from "../domain/orchestration/index.js";
 import { taskService } from "../domain/task/index.js";
 import type { CraigPaths } from "../state/craig-paths.js";
-import { cancelTaskTreeAndSessions } from "./delegation.js";
+import { cancelTaskTreeAndSessions, createChildTaskAndSession } from "./delegation.js";
 import { wakeOrchestrationSupervisor } from "./pty-daemon-orchestration.js";
 
 const SYSTEM_ACTOR = { type: "system" as const, component: "orchestration-supervisor" as const };
@@ -305,7 +304,7 @@ async function scheduleAgentStep(paths: CraigPaths, run: FuryRun, step: FuryStep
     let agentTabId: string;
     let commandId: string | null = null;
     if (current.plan.target?.type === "create_child") {
-      const created = await createChildTask(paths, {
+      const created = await createChildTaskAndSession(paths, {
         parentTaskId: run.rootTaskId,
         repoId: resolveReferences(current.plan.target.repo, run),
         prompt,

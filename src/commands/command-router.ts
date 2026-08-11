@@ -13,8 +13,8 @@ import { agentStatusService } from "../shell/agent-status.js";
 import { eventService } from "../shell/events.js";
 import { promptCommandShellService } from "../shell/prompt-commands.js";
 import type { CraigActor, CraigEvent } from "../domain/orchestration/index.js";
-import { createChildTask, createRootTask, listTaskChildren, validateFuryFile } from "../domain/orchestration/index.js";
-import { cancelTaskTreeAndSessions } from "../shell/delegation.js";
+import { createRootTask, listTaskChildren, validateFuryFile } from "../domain/orchestration/index.js";
+import { cancelTaskTreeAndSessions, createChildTaskAndSession } from "../shell/delegation.js";
 import { configService } from "../domain/config/index.js";
 import { CraigError } from "../domain/error/index.js";
 import { furyRuntimeService } from "../shell/fury-runtime.js";
@@ -103,7 +103,7 @@ export async function executeCommand(
         );
       }
       assertScopedAgent(context);
-      return createChildTask(context.paths, {
+      return createChildTaskAndSession(context.paths, {
         parentTaskId: command.parentTaskId ?? requireResolvedTaskContext(context).task.id,
         repoId: command.repoId,
         prompt: command.prompt,

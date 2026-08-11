@@ -21,6 +21,17 @@ const HUMAN_LIMITS: AgentCapabilityRecord["limits"] = {
   maxPromptBytes: 32 * 1024,
 };
 
+/* eslint-disable no-unused-vars */
+export interface ChildTaskCreationPorts {
+  createTask?: (
+    paths: CraigPaths,
+    repoId: string,
+    prompt: string,
+    options?: Parameters<typeof taskService.createTask>[3],
+  ) => Promise<{ taskId: string }>;
+}
+/* eslint-enable no-unused-vars */
+
 export async function createRootTask(
   paths: CraigPaths,
   repoIdOrWorkspaceId: string,
@@ -42,7 +53,11 @@ export async function createRootTask(
   });
 }
 
-export async function createChildTask(paths: CraigPaths, input: CreateChildInput): Promise<CommandCreateChildResult> {
+export async function createChildTask(
+  paths: CraigPaths,
+  input: CreateChildInput,
+  ports: ChildTaskCreationPorts = {},
+): Promise<CommandCreateChildResult> {
   return withDelegationLock(paths, async () => {
     const parent = await taskService.getTask(paths, input.parentTaskId);
     const authorization = input.capabilityId
@@ -80,7 +95,7 @@ export async function createChildTask(paths: CraigPaths, input: CreateChildInput
     const activeChildren = children.filter((task) => task.status !== "closed" && task.status !== "merged");
     if (activeChildren.length >= limits.maxConcurrentChildren) limit("concurrent children", limits.maxConcurrentChildren);
 
-    const created = await taskService.createTask(paths, input.repoId, prompt, {
+    const created = await (ports.createTask ?? taskService.createTask)(paths, input.repoId, prompt, {
       ...(input.runner ? { runner: input.runner } : {}),
       lineage: {
         parentTaskId: parent.id,

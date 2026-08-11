@@ -11,6 +11,8 @@ import { getCraigPaths } from "../src/state/craig-paths.js";
 import { createDaemonPtyRuntime, requestDaemonShutdown, servePtyDaemon } from "../src/ui/pty/daemon.js";
 import { resolveExecutablePath } from "../src/shared/command-path.js";
 import { configService } from "../src/domain/config/index.js";
+import { taskService } from "../src/domain/task/index.js";
+import { createChildTaskAndSession } from "../src/shell/delegation.js";
 
 describe("Craig terminal mode E2E", () => {
   test("enters terminal mode and supports detach and reattach", async () => {
@@ -394,58 +396,100 @@ describe("Craig terminal mode E2E", () => {
     }
   }, 15000);
 
-  test("prompt dispatch reaches exactly the requested background task and tab", async () => {
+  test("a delegated Cursor child starts once, accepts work while unselected, and remains navigable", async () => {
     const repoRoot = process.cwd();
     const workspaceRoot = await mkdtemp(join(tmpdir(), "craig-terminal-prompt-e2e-"))
       .then((value) => realpath(value));
-    const paths = await createCraigState(workspaceRoot, ["task_a", "task_b"]);
-    const worktreeA = join(workspaceRoot, "worktrees", "task_a");
-    const worktreeB = join(workspaceRoot, "worktrees", "task_b");
-    await Promise.all([mkdir(worktreeA, { recursive: true }), mkdir(worktreeB, { recursive: true })]);
-    const taskA = await writeTaskRecord(workspaceRoot, { id: "task_a", worktreePath: worktreeA });
-    const taskB = await writeTaskRecord(workspaceRoot, { id: "task_b", worktreePath: worktreeB });
-    const tabA = taskA.ptyTabs.find((tab) => tab.kind === "agent")!.id;
-    const tabB = taskB.ptyTabs.find((tab) => tab.kind === "agent")!.id;
-    await configService.save(paths, { previews: { agentOrchestration: true } });
+    const paths = await createCraigState(workspaceRoot, ["task_parent"]);
+    const sourceRepo = join(workspaceRoot, "repo-a");
+    await mkdir(sourceRepo, { recursive: true });
+    await createGitRepo(sourceRepo);
+    await writeFile(join(sourceRepo, "README.md"), "# repo-a\n", "utf8");
+    await runCommand("git", ["add", "README.md"], { cwd: sourceRepo });
+    await runCommand("git", ["commit", "-m", "init"], { cwd: sourceRepo });
+    await writeRepoRecord(workspaceRoot, {
+      id: "repo_a", name: "repo-a", rootPath: sourceRepo, defaultBranch: "main",
+      createdAt: "2026-08-11T00:00:00.000Z", updatedAt: "2026-08-11T00:00:00.000Z",
+    }, {
+      id: "workspace_repo_a", primaryRepoId: "repo_a", branch: "main", status: "active", linkedRepoIds: [],
+      archivedAt: null, createdAt: "2026-08-11T00:00:00.000Z", updatedAt: "2026-08-11T00:00:00.000Z",
+    });
+    const parent = await writeTaskRecord(workspaceRoot, {
+      id: "task_parent", repoId: "repo_a", workspaceId: "workspace_repo_a",
+      repoRoot: sourceRepo, worktreePath: sourceRepo, rootTaskId: "task_parent",
+    });
 
     const harnessDir = join(workspaceRoot, "prompt-harness");
     const harnessPath = join(harnessDir, "agent-stub.js");
-    const inputA = join(harnessDir, "task-a.input");
-    const inputB = join(harnessDir, "task-b.input");
+    const launchLog = join(harnessDir, "launches.jsonl");
+    const input = join(harnessDir, "child.input");
+    const accepted = join(harnessDir, "child.accepted");
     await mkdir(harnessDir, { recursive: true });
     await writeFile(harnessPath, `#!/usr/bin/env node
 const fs = require("node:fs");
+fs.appendFileSync(${JSON.stringify(launchLog)}, JSON.stringify(process.argv.slice(2)) + "\\n");
 process.stdin.setEncoding("utf8");
 if (process.stdin.isTTY) process.stdin.setRawMode(true);
-process.stdin.on("data", (chunk) => fs.appendFileSync(process.env.CRAIG_PROMPT_CAPTURE, chunk));
+let pasteReceived = false;
+process.stdin.on("data", (chunk) => {
+  fs.appendFileSync(${JSON.stringify(input)}, chunk);
+  if (chunk.includes("\\u001b[201~")) pasteReceived = true;
+  if (pasteReceived && chunk === "\\r") {
+    fs.appendFileSync(${JSON.stringify(accepted)}, "submitted\\n");
+  }
+});
 process.stdin.resume();
 setInterval(() => {}, 1000);
 `, "utf8");
     await chmod(harnessPath, 0o755);
+    await configService.save(paths, {
+      previews: { agentOrchestration: true },
+      runners: { cursor: { enabled: true, path: harnessPath } },
+    });
 
     const daemon = servePtyDaemon(paths);
     let client: Awaited<ReturnType<typeof createDaemonPtyRuntime>> | null = null;
     try {
+      const initialPrompt = "Implement the isolated child phase";
+      const created = await createChildTaskAndSession(paths, {
+        parentTaskId: parent.id,
+        repoId: "repo_a",
+        prompt: initialPrompt,
+        runner: "cursor",
+        idempotencyKey: "hands-on-child",
+      });
+      const childTask = await taskService.getTask(paths, created.taskId);
+      const childTab = childTask.ptyTabs.find((tab) => tab.kind === "agent")!.id;
+      await waitForFileText(launchLog, initialPrompt);
+
       client = await createDaemonPtyRuntime({
         paths,
         workspaceRoot,
         activityEnabled: true,
-        resolveSessionSpec: (taskId) => ({
-          cwd: taskId === taskA.id ? worktreeA : worktreeB,
+        resolveSessionSpec: () => ({
+          cwd: childTask.worktreePath,
           command: [harnessPath],
-          env: { CRAIG_PROMPT_CAPTURE: taskId === taskA.id ? inputA : inputB },
         }),
       });
-      await client.ensureSession(taskA.id, tabA, { columns: 80, rows: 24 });
-      await client.ensureSession(taskB.id, tabB, { columns: 80, rows: 24 });
+      await client.ensureSession(childTask.id, childTab, { columns: 80, rows: 24 });
+      expect((await readFile(launchLog, "utf8")).trim().split("\n")).toEqual([
+        JSON.stringify([initialPrompt]),
+      ]);
+      expect(childTask).toMatchObject({
+        parentTaskId: parent.id,
+        rootTaskId: parent.id,
+        delegationDepth: 1,
+        status: "running",
+        sessionId: null,
+      });
 
-      const marker = "prompt_for_background_task_only";
+      const marker = "prompt_for_unselected_child";
       const execution = await runCommand(resolveTestTsxBin(repoRoot), [
         resolve(repoRoot, "src/cli.ts"),
         "--workspace-root", workspaceRoot,
         "agent", "send",
-        "--task", taskA.id,
-        "--tab", tabA,
+        "--task", childTask.id,
+        "--tab", childTab,
         "--prompt", marker,
         "--delivery", "immediate",
         "--json",
@@ -455,14 +499,14 @@ setInterval(() => {}, 1000);
       expect(sendResult).toMatchObject({
         command: "agent.send",
         ok: true,
-        data: { command: { taskId: taskA.id, agentTabId: tabA, state: "queued" } },
+        data: { command: { taskId: childTask.id, agentTabId: childTab, state: "queued" } },
       });
-      await waitForFileText(inputA, marker);
-      const capturedA = await readFile(inputA, "utf8");
-      const capturedB = await readFile(inputB, "utf8").catch(() => "");
-      expect(capturedA.match(new RegExp(marker, "g"))).toHaveLength(1);
-      expect(capturedA).toBe(`\u001b[200~${marker}\u001b[201~\r`);
-      expect(capturedB).not.toContain(marker);
+      await waitForFileText(input, marker);
+      await waitForFileText(accepted, "submitted");
+      const captured = await readFile(input, "utf8");
+      expect(captured.match(new RegExp(marker, "g"))).toHaveLength(1);
+      expect(captured).toBe(`\u001b[200~${marker}\u001b[201~\r`);
+      expect((await readFile(launchLog, "utf8")).trim().split("\n")).toHaveLength(1);
       const inspection = await runCommand(resolveTestTsxBin(repoRoot), [
         resolve(repoRoot, "src/cli.ts"),
         "--workspace-root", workspaceRoot,

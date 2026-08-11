@@ -85,10 +85,11 @@ describe("PTY runtime", () => {
 
     runtime.ensureSession("task_1", "task_1:agent", { columns: 80, rows: 24 });
     runtime.ensureSession("task_2", "task_2:agent", { columns: 80, rows: 24 });
-    runtime.writeToSession("task_1:agent", "\u001b[200~review this\nthen report\u001b[201~\r");
+    runtime.writeToSession("task_1:agent", "\u001b[200~review this\nthen report\u001b[201~");
+    runtime.writeToSession("task_1:agent", "\r");
     runtime.write("attached input");
 
-    expect(firstPty.writes).toEqual(["\u001b[200~review this\nthen report\u001b[201~\r"]);
+    expect(firstPty.writes).toEqual(["\u001b[200~review this\nthen report\u001b[201~", "\r"]);
     expect(secondPty.writes).toEqual(["attached input"]);
   });
 

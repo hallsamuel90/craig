@@ -146,7 +146,7 @@ describe("orchestration supervisor", () => {
       const supervisor = new OrchestrationSupervisor(paths, runtime, { intervalMs: 10_000 });
       try {
         await supervisor.start();
-        expect(runtime.writeToSession).toHaveBeenCalledOnce();
+        expect(runtime.writeToSession).toHaveBeenCalledTimes(2);
         expect((await promptCommandService.show(paths, created.command.id)).command.state).toBe("delivered");
       } finally {
         await supervisor.stop();
@@ -161,15 +161,16 @@ describe("orchestration supervisor", () => {
     const supervisor = new OrchestrationSupervisor(paths, runtime, { intervalMs: 10_000 });
     try {
       await supervisor.start();
-      expect(runtime.writeToSession).toHaveBeenCalledOnce();
-      expect(runtime.writeToSession).toHaveBeenCalledWith(
+      expect(runtime.writeToSession).toHaveBeenNthCalledWith(
+        1,
         tabId,
-        `\u001b[200~${input.prompt.text}\u001b[201~\r`,
+        `\u001b[200~${input.prompt.text}\u001b[201~`,
       );
+      expect(runtime.writeToSession).toHaveBeenNthCalledWith(2, tabId, "\r");
       expect((await promptCommandService.show(paths, created.command.id)).command)
         .toMatchObject({ state: "delivered", attempts: 1 });
       await supervisor.wake();
-      expect(runtime.writeToSession).toHaveBeenCalledOnce();
+      expect(runtime.writeToSession).toHaveBeenCalledTimes(2);
     } finally {
       await supervisor.stop();
     }
@@ -192,7 +193,7 @@ describe("orchestration supervisor", () => {
         error: null,
       }];
       await supervisor.wake();
-      expect(runtime.writeToSession).toHaveBeenCalledOnce();
+      expect(runtime.writeToSession).toHaveBeenCalledTimes(2);
       expect((await promptCommandService.show(paths, created.command.id)).command.state).toBe("delivered");
     } finally {
       await supervisor.stop();
@@ -296,6 +297,30 @@ describe("orchestration supervisor", () => {
       });
       await supervisor.wake();
       expect(runtime.writeToSession).toHaveBeenCalledOnce();
+    } finally {
+      await supervisor.stop();
+    }
+  });
+
+  test("does not report delivery when the separate submit write fails", async () => {
+    const { paths, input, tabId } = await setupCommand();
+    const created = await promptCommandService.create(paths, { ...input, delivery: "immediate" });
+    const runtime = createRuntime(tabId, Date.now());
+    runtime.writeToSession
+      .mockImplementationOnce(() => undefined)
+      .mockImplementationOnce(() => {
+        throw new Error("session closed before submit");
+      });
+    const supervisor = new OrchestrationSupervisor(paths, runtime, { intervalMs: 10_000 });
+    try {
+      await supervisor.start();
+      expect(runtime.writeToSession).toHaveBeenCalledTimes(2);
+      expect((await promptCommandService.show(paths, created.command.id)).command).toMatchObject({
+        state: "failed",
+        attempts: 1,
+        deliveredAt: null,
+        lastError: { code: "PROMPT_DELIVERY_UNCERTAIN", deliveryUncertain: true },
+      });
     } finally {
       await supervisor.stop();
     }
