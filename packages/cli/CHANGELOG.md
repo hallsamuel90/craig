@@ -1,5 +1,12 @@
 # craig-cli
 
+## 0.13.4
+
+### Patch Changes
+
+- a29a9c6: Preserve live agent PTYs across compatible Craig upgrades and replace the error-only log with structured leveled daemon and session logs.
+- a29a9c6: Keep a task's activity indicator working while any of its agent tabs is active.
+
 ## 0.13.3
 
 ### Patch Changes
