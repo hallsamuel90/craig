@@ -994,13 +994,9 @@ async function ensureDaemonRunning(
   }
 
   if (await canConnect(endpoint.socketPath)) {
-    await shutdownDaemonSocket(endpoint.socketPath);
-    await waitForDisconnect(endpoint.socketPath, 1000);
-  }
-
-  if (await canConnect(endpoint.socketPath)) {
-    await terminateDaemonProcess(endpoint);
-    await waitForDisconnect(endpoint.socketPath, 1000);
+    throw new Error(
+      "A live Craig PTY daemon is using an incompatible protocol. Exit the other Craig instance and restart explicitly; this client will not replace a live workspace daemon.",
+    );
   }
 
   await cleanupStaleEndpoint(endpoint);
@@ -1098,21 +1094,6 @@ async function shutdownDaemonSocket(socketPath: string): Promise<void> {
   await sendDaemonRequest(socketPath, { id: 1, type: "shutdown" }).catch(() => null);
 }
 
-async function terminateDaemonProcess(endpoint: { socketPath: string; pidPath: string }): Promise<void> {
-  const pidText = await readFile(endpoint.pidPath, "utf8").catch(() => null);
-  const pid = Number(pidText?.trim());
-  if (!Number.isInteger(pid) || pid <= 0 || !isProcessAlive(pid)) {
-    await rm(endpoint.socketPath, { force: true });
-    return;
-  }
-
-  try {
-    process.kill(pid, "SIGTERM");
-  } catch {
-    await rm(endpoint.socketPath, { force: true });
-  }
-}
-
 async function requestDaemonPing(socketPath: string): Promise<DaemonResponse> {
   return sendDaemonRequest(socketPath, { id: 1, type: "ping" });
 }
@@ -1151,17 +1132,6 @@ function sendDaemonRequest(socketPath: string, request: DaemonRequest): Promise<
     });
     socket.once("close", () => cleanup());
   });
-}
-
-async function waitForDisconnect(socketPath: string, timeoutMs: number): Promise<void> {
-  const started = Date.now();
-  while (Date.now() - started < timeoutMs) {
-    if (!(await canConnect(socketPath))) {
-      return;
-    }
-
-    await delay(50);
-  }
 }
 
 function connectToDaemon(socketPath: string): Promise<Socket> {

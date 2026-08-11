@@ -421,6 +421,24 @@ describe("terminal shell renderer", () => {
     ]);
   });
 
+  test("surfaces waiting fury reviews without adding nested navigation", () => {
+    const task = buildTaskRecord("/tmp/craig", { id: "task_fury", workspaceId: "workspace_fury" });
+    const state = { ...createInitialShellState(null), selectedTaskId: task.id, selectedLeftItemId: `task:${task.id}` };
+    const data = buildShellData(state, {
+      workspaceRoot: "/tmp/craig",
+      workspaces: [{
+        id: "workspace_fury", kind: "repo", name: "fury", primaryRepoId: task.repoId,
+        status: "active", rootPath: "/tmp/craig", branch: "main", linkedRepoIds: [], archivedAt: null,
+        createdAt: "", updatedAt: "",
+      }],
+      repos: [{ id: task.repoId, name: "fury", rootPath: "/tmp/craig", defaultBranch: "main", createdAt: "", updatedAt: "" }],
+      tasks: [task],
+      inspection: null,
+      furyApprovalCount: 2,
+    });
+    expect(data.leftTree.some((row) => row.text === "● 2 Fury approvals waiting" && !row.id)).toBe(true);
+  });
+
   test("renders an actionable empty state when the selected repo has no tasks", () => {
     const repo = { id: "repo_bug_fixes", name: "bug-fixes", rootPath: "/tmp/craig", defaultBranch: "main", createdAt: "", updatedAt: "" };
     const data = buildShellData(

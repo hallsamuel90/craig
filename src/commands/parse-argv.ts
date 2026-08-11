@@ -121,11 +121,38 @@ export function parseArgv(argv: string[]): ParsedArgvCommand {
     case "events:watch":
       command = parseEvents(args, true);
       break;
-    case "swarm:validate":
-      command = { kind: "validateSwarm", file: requireSingleValue(args, "Swarm file") };
+    case "fury:validate":
+      command = { kind: "validateFury", file: requireSingleValue(args, "Fury file") };
       break;
-    case "swarm:plan":
-      command = parseSwarmPlan(args);
+    case "fury:plan":
+      command = parseFuryPlan(args);
+      break;
+    case "fury:approve":
+      command = { kind: "approveFury", planId: requireSingleValue(args, "Fury plan id") };
+      break;
+    case "fury:run":
+      command = { kind: "runFury", planId: requireSingleValue(args, "Fury plan id") };
+      break;
+    case "fury:status":
+      command = { kind: "showFury", runId: requireSingleValue(args, "Fury run id") };
+      break;
+    case "fury:watch":
+      command = parseFuryWatch(args);
+      break;
+    case "fury:cancel":
+      command = { kind: "cancelFury", runId: requireSingleValue(args, "Fury run id") };
+      break;
+    case "fury:resume":
+      command = { kind: "resumeFury", runId: requireSingleValue(args, "Fury run id") };
+      break;
+    case "fury:step":
+      command = parseFuryStep(args);
+      break;
+    case "fury:reviews":
+      command = parseFuryReviews(args);
+      break;
+    case "fury:review":
+      command = parseFuryReview(args);
       break;
     case "task:attach":
       command = { kind: "attachTask", taskId: requireSingleValue(args, "Task id") };
@@ -186,6 +213,9 @@ export function hasJsonOutputFlag(argv: string[]): boolean {
 }
 
 export function getCommandName(command: AppCommand): string {
+  if (command.kind === "actFuryReview") {
+    return `fury.review.${command.action === "request_changes" ? "request-changes" : command.action}`;
+  }
   const names: Record<AppCommand["kind"], string> = {
     addWorkspace: "workspace.add",
     addRepo: "repo.add",
@@ -199,8 +229,19 @@ export function getCommandName(command: AppCommand): string {
     createChildTask: "task.create-child",
     listTaskChildren: "task.children",
     cancelTaskTree: "task.cancel-tree",
-    validateSwarm: "swarm.validate",
-    planSwarm: "swarm.plan",
+    validateFury: "fury.validate",
+    planFury: "fury.plan",
+    approveFury: "fury.approve",
+    runFury: "fury.run",
+    showFury: "fury.status",
+    watchFury: "fury.watch",
+    cancelFury: "fury.cancel",
+    resumeFury: "fury.resume",
+    completeFuryStep: "fury.step.complete",
+    failFuryStep: "fury.step.fail",
+    listFuryReviews: "fury.reviews.list",
+    showFuryReview: "fury.review.show",
+    actFuryReview: "fury.review.action",
     listTasks: "task.list",
     currentTask: "task.current",
     showTask: "task.show",
@@ -281,8 +322,14 @@ export function getHelpText(): string {
     "  craig task wait [<id>] --state <states> [--tab <tab-id>] [--timeout <duration>]",
     "  craig events list [--task <task-id>] [--type <glob>] [--after <cursor>] --json",
     "  craig events watch [--task <task-id>] [--type <glob>] [--after <cursor>] [--format jsonl]",
-    "  craig swarm validate <file>  Validate a versioned swarm YAML definition",
-    "  craig swarm plan <file> [--input key=value]  Build a deterministic, side-effect-free plan",
+    "  craig fury validate <file>  Validate a versioned fury YAML definition",
+    "  craig fury plan <file> [--root-task <id>] [--input key=value]  Create an immutable approval plan",
+    "  craig fury approve <plan-id>  Approve an exact validated plan (human only)",
+    "  craig fury run <plan-id>  Start the single run authorized by an approved plan",
+    "  craig fury status|watch|cancel|resume <run-id>  Inspect or control a durable run",
+    "  craig fury step complete|fail --run <run-id> --step <step-id>  Explicitly finish agent work",
+    "  craig fury reviews list [--run <run-id>] [--state <state>]  List human checkpoints",
+    "  craig fury review show|approve|reject|request-changes|resubmit <review-id>",
     "  craig task logs <id>     Stream Craig-managed logs for a task",
     "  craig task diff <id>     Show the current worktree diff for a task",
     "  craig task attach <id>   Attach to a live task session",
@@ -691,28 +738,105 @@ function parseTaskWait(args: string[]): AppCommand {
   return { kind: "waitTask", ...(taskId ? { taskId } : {}), states, ...(tabId ? { tabId } : {}), timeoutMs };
 }
 
-function parseSwarmPlan(args: string[]): AppCommand {
+function parseFuryPlan(args: string[]): AppCommand {
   let file: string | undefined;
+  let rootTaskId: string | undefined;
   const inputs: Record<string, string> = {};
   for (let index = 0; index < args.length; index += 1) {
     const token = args[index]!;
-    if (token !== "--input") {
-      if (token.startsWith("--")) throw usageError(`Unsupported swarm plan option: ${token}`);
-      if (file !== undefined) throw usageError("swarm plan accepts exactly one definition file.");
-      file = requireNonEmpty(token, "Swarm file");
+    if (token !== "--input" && token !== "--root-task") {
+      if (token.startsWith("--")) throw usageError(`Unsupported fury plan option: ${token}`);
+      if (file !== undefined) throw usageError("fury plan accepts exactly one definition file.");
+      file = requireNonEmpty(token, "Fury file");
       continue;
     }
     const value = args[index + 1];
-    if (value === undefined || value.startsWith("--")) throw usageError("Swarm plan option --input requires key=value.");
+    if (value === undefined || value.startsWith("--")) throw usageError(`Fury plan option ${token} requires a value.`);
     index += 1;
+    if (token === "--root-task") {
+      if (rootTaskId) throw usageError("Fury plan option --root-task may only be provided once.");
+      rootTaskId = requireNonEmpty(value, "Root task id");
+      continue;
+    }
     const separator = value.indexOf("=");
-    if (separator < 1) throw usageError(`Invalid swarm input "${value}". Use key=value.`);
-    const name = requireNonEmpty(value.slice(0, separator), "Swarm input name");
-    if (Object.hasOwn(inputs, name)) throw usageError(`Swarm input "${name}" may only be provided once.`);
+    if (separator < 1) throw usageError(`Invalid fury input "${value}". Use key=value.`);
+    const name = requireNonEmpty(value.slice(0, separator), "Fury input name");
+    if (Object.hasOwn(inputs, name)) throw usageError(`Fury input "${name}" may only be provided once.`);
     inputs[name] = value.slice(separator + 1);
   }
-  if (!file) throw usageError("swarm plan requires a definition file.");
-  return { kind: "planSwarm", file, inputs };
+  if (!file) throw usageError("fury plan requires a definition file.");
+  return { kind: "planFury", file, inputs, ...(rootTaskId ? { rootTaskId } : {}) };
+}
+
+function parseFuryWatch(args: string[]): AppCommand {
+  const runId = requireNonEmpty(args[0] ?? "", "Fury run id");
+  let after: string | undefined;
+  let format: "human" | "jsonl" = "human";
+  for (let index = 1; index < args.length; index += 2) {
+    const option = args[index]; const value = args[index + 1];
+    if (!value || !["--after", "--format"].includes(option ?? "")) throw usageError("fury watch supports --after and --format jsonl.");
+    if (option === "--after") after = requireNonEmpty(value, "Event cursor");
+    else if (value === "jsonl") format = value;
+    else throw usageError("fury watch format must be jsonl.");
+  }
+  return { kind: "watchFury", runId, ...(after ? { after } : {}), format };
+}
+
+function parseFuryStep(args: string[]): AppCommand {
+  const action = args[0];
+  if (action !== "complete" && action !== "fail") throw usageError("fury step requires complete or fail.");
+  const values = parseNamedOptions(args.slice(1), ["--run", "--step", "--output", "--output-file", "--stdin", "--reason"]);
+  const runId = requireNonEmpty(values.get("--run") ?? "", "Fury run id");
+  const stepId = requireNonEmpty(values.get("--step") ?? "", "Fury step id");
+  if (action === "fail") {
+    if (["--output", "--output-file", "--stdin"].some((key) => values.has(key))) throw usageError("fury step fail accepts only --reason.");
+    return { kind: "failFuryStep", runId, stepId, reason: requireNonEmpty(values.get("--reason") ?? "", "Failure reason") };
+  }
+  if (values.has("--reason")) throw usageError("fury step complete does not accept --reason.");
+  const sources = ["--output", "--output-file", "--stdin"].filter((key) => values.has(key));
+  if (sources.length > 1) throw usageError("fury step complete accepts only one output source.");
+  const source = sources[0];
+  return { kind: "completeFuryStep", runId, stepId,
+    ...(source === "--output" ? { output: { source: "inline" as const, text: values.get(source)! } }
+      : source === "--output-file" ? { output: { source: "file" as const, path: values.get(source)! } }
+        : source === "--stdin" ? { output: { source: "stdin" as const } } : {}) };
+}
+
+function parseFuryReviews(args: string[]): AppCommand {
+  if (args[0] !== "list") throw usageError("fury reviews requires list.");
+  const values = parseNamedOptions(args.slice(1), ["--run", "--state"]);
+  const runId = values.get("--run");
+  const state = values.get("--state");
+  if (state && !["waiting_for_review", "changes_requested", "approved", "rejected", "timed_out", "cancelled"].includes(state)) {
+    throw usageError(`Unsupported fury review state: ${state}`);
+  }
+  return { kind: "listFuryReviews", ...(runId ? { runId } : {}), ...(state ? { state } : {}) };
+}
+
+function parseFuryReview(args: string[]): AppCommand {
+  const action = args[0];
+  const reviewId = requireNonEmpty(args[1] ?? "", "Fury review id");
+  if (action === "show") { requireExactLength(args, 2, "fury review show"); return { kind: "showFuryReview", reviewId }; }
+  if (!action || !["approve", "reject", "request-changes", "resubmit"].includes(action)) throw usageError("Unsupported fury review action.");
+  const values = parseNamedOptions(args.slice(2), ["--note", "--reason", "--summary"]);
+  const mapped = action === "request-changes" ? "request_changes" : action as "approve" | "reject" | "resubmit";
+  const message = values.get("--note") ?? values.get("--reason") ?? values.get("--summary");
+  const allowedOption = action === "approve" ? "--note" : action === "resubmit" ? "--summary" : "--reason";
+  if ([...values.keys()].some((key) => key !== allowedOption)) throw usageError(`fury review ${action} accepts only ${allowedOption}.`);
+  return { kind: "actFuryReview", reviewId, action: mapped, ...(message ? { message } : {}) };
+}
+
+function parseNamedOptions(args: string[], supported: string[]): Map<string, string> {
+  const values = new Map<string, string>();
+  for (let index = 0; index < args.length; index += 1) {
+    const key = args[index]!;
+    if (!supported.includes(key) || values.has(key)) throw usageError(`Unsupported or duplicate option: ${key}`);
+    if (key === "--stdin") { values.set(key, "true"); continue; }
+    const value = args[++index];
+    if (value === undefined || value.startsWith("--")) throw usageError(`Option ${key} requires a value.`);
+    values.set(key, requireNonEmpty(value, key));
+  }
+  return values;
 }
 
 function parseAgentStates(value: string): AgentRuntimeState[] {

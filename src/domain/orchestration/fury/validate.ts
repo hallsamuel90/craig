@@ -3,12 +3,12 @@ import { createHash } from "node:crypto";
 import { CraigError } from "../../error/index.js";
 import { configService } from "../../config/index.js";
 import type {
-  SwarmAgentStep,
-  SwarmDefinition,
-  SwarmHumanReviewStep,
-  SwarmInputDefinition,
-  SwarmInputType,
-  SwarmStep,
+  FuryAgentStep,
+  FuryDefinition,
+  FuryHumanReviewStep,
+  FuryInputDefinition,
+  FuryInputType,
+  FuryStep,
 } from "./types.js";
 
 const ID_PATTERN = /^[a-z][a-z0-9_-]{0,63}$/;
@@ -18,17 +18,17 @@ const MAX_STEPS = 128;
 const MAX_CONCURRENCY = 16;
 const MAX_TASKS = 32;
 const MAX_TIMEOUT_MS = 7 * 24 * 60 * 60 * 1_000;
-export const MAX_SWARM_PROMPT_BYTES = 32 * 1024;
+export const MAX_FURY_PROMPT_BYTES = 32 * 1024;
 const MAX_SCHEMA_DEPTH = 16;
 
-export interface ValidatedSwarm {
-  definition: SwarmDefinition;
+export interface ValidatedFury {
+  definition: FuryDefinition;
   hash: string;
   order: string[];
   waves: string[][];
 }
 
-export function validateSwarmDefinition(value: unknown, sourceName: string): ValidatedSwarm {
+export function validateFuryDefinition(value: unknown, sourceName: string): ValidatedFury {
   const issues: string[] = [];
   const root = object(value, "$", issues);
   unknownFields(root, ["version", "name", "limits", "inputs", "steps"], "$", issues);
@@ -53,7 +53,7 @@ export function validateSwarmDefinition(value: unknown, sourceName: string): Val
   if (topology) validateTemplates(steps, inputs, topology.ancestors, issues);
   if (issues.length > 0) invalid(sourceName, issues);
 
-  const definition: SwarmDefinition = { version: 1, name, limits, inputs, steps };
+  const definition: FuryDefinition = { version: 1, name, limits, inputs, steps };
   return {
     definition,
     hash: createHash("sha256").update(stableStringify(definition)).digest("hex"),
@@ -70,7 +70,7 @@ function boundWaves(waves: string[][], maxConcurrency: number): string[][] {
   });
 }
 
-function validateLimits(value: unknown, issues: string[]): SwarmDefinition["limits"] {
+function validateLimits(value: unknown, issues: string[]): FuryDefinition["limits"] {
   const limits = object(value, "$.limits", issues);
   unknownFields(limits, ["max_concurrency", "max_tasks", "timeout"], "$.limits", issues);
   const maxConcurrency = integer(limits.max_concurrency, "$.limits.max_concurrency", 1, MAX_CONCURRENCY, issues);
@@ -80,12 +80,12 @@ function validateLimits(value: unknown, issues: string[]): SwarmDefinition["limi
   return { maxConcurrency, maxTasks, timeoutMs };
 }
 
-function validateInputs(value: unknown, issues: string[]): Record<string, SwarmInputDefinition> {
+function validateInputs(value: unknown, issues: string[]): Record<string, FuryInputDefinition> {
   if (value === undefined) return {};
   const raw = object(value, "$.inputs", issues);
   const entries = Object.entries(raw);
   if (entries.length > MAX_INPUTS) issues.push(`$.inputs may contain at most ${MAX_INPUTS} inputs.`);
-  const inputs: Record<string, SwarmInputDefinition> = {};
+  const inputs: Record<string, FuryInputDefinition> = {};
   for (const [id, candidate] of entries) {
     if (!ID_PATTERN.test(id)) issues.push(`$.inputs key "${id}" must match ${ID_PATTERN}.`);
     const input = object(candidate, `$.inputs.${id}`, issues);
@@ -105,7 +105,7 @@ function validateInputs(value: unknown, issues: string[]): Record<string, SwarmI
   return inputs;
 }
 
-function validateSteps(value: unknown, issues: string[]): SwarmStep[] {
+function validateSteps(value: unknown, issues: string[]): FuryStep[] {
   const raw = object(value, "$.steps", issues);
   const entries = Object.entries(raw);
   if (entries.length === 0) issues.push("$.steps must contain at least one step.");
@@ -120,7 +120,7 @@ function validateSteps(value: unknown, issues: string[]): SwarmStep[] {
   });
 }
 
-function validateAgentStep(id: string, step: Record<string, unknown>, needs: string[], issues: string[]): SwarmAgentStep {
+function validateAgentStep(id: string, step: Record<string, unknown>, needs: string[], issues: string[]): FuryAgentStep {
   unknownFields(step, ["needs", "task", "create_child", "agent", "prompt", "output"], `$.steps.${id}`, issues);
   const hasTask = step.task !== undefined;
   const hasChild = step.create_child !== undefined;
@@ -132,7 +132,7 @@ function validateAgentStep(id: string, step: Record<string, unknown>, needs: str
     unknownFields(child, ["repo"], `$.steps.${id}.create_child`, issues);
     createChild = { repo: nonEmptyString(child.repo, `$.steps.${id}.create_child.repo`, issues) };
   }
-  let runner: SwarmAgentStep["runner"];
+  let runner: FuryAgentStep["runner"];
   if (step.agent !== undefined) {
     const agent = object(step.agent, `$.steps.${id}.agent`, issues);
     unknownFields(agent, ["runner"], `$.steps.${id}.agent`, issues);
@@ -142,8 +142,8 @@ function validateAgentStep(id: string, step: Record<string, unknown>, needs: str
     }
   }
   const prompt = nonEmptyString(step.prompt, `$.steps.${id}.prompt`, issues);
-  if (Buffer.byteLength(prompt) > MAX_SWARM_PROMPT_BYTES) {
-    issues.push(`$.steps.${id}.prompt exceeds ${MAX_SWARM_PROMPT_BYTES} bytes.`);
+  if (Buffer.byteLength(prompt) > MAX_FURY_PROMPT_BYTES) {
+    issues.push(`$.steps.${id}.prompt exceeds ${MAX_FURY_PROMPT_BYTES} bytes.`);
   }
   let outputSchema: Record<string, unknown> | undefined;
   if (step.output !== undefined) {
@@ -160,7 +160,7 @@ function validateAgentStep(id: string, step: Record<string, unknown>, needs: str
   };
 }
 
-function validateHumanStep(id: string, step: Record<string, unknown>, needs: string[], issues: string[]): SwarmHumanReviewStep {
+function validateHumanStep(id: string, step: Record<string, unknown>, needs: string[], issues: string[]): FuryHumanReviewStep {
   unknownFields(step, ["needs", "human_review"], `$.steps.${id}`, issues);
   const review = object(step.human_review, `$.steps.${id}.human_review`, issues);
   unknownFields(review, ["title", "summary", "feedback_target", "timeout"], `$.steps.${id}.human_review`, issues);
@@ -205,7 +205,7 @@ function validateJsonSchema(value: unknown, location: string, issues: string[], 
   return schema;
 }
 
-function buildTopology(steps: SwarmStep[], issues: string[]): {
+function buildTopology(steps: FuryStep[], issues: string[]): {
   order: string[]; waves: string[][]; ancestors: Map<string, Set<string>>;
 } | null {
   const ids = new Set(steps.map((step) => step.id));
@@ -250,8 +250,8 @@ function buildTopology(steps: SwarmStep[], issues: string[]): {
 }
 
 function validateTemplates(
-  steps: SwarmStep[],
-  inputs: Record<string, SwarmInputDefinition>,
+  steps: FuryStep[],
+  inputs: Record<string, FuryInputDefinition>,
   ancestors: Map<string, Set<string>>,
   issues: string[],
 ): void {
@@ -274,10 +274,10 @@ function validateTemplates(
 
 function validateReference(
   reference: string,
-  step: SwarmStep,
-  inputs: Record<string, SwarmInputDefinition>,
+  step: FuryStep,
+  inputs: Record<string, FuryInputDefinition>,
   ancestors: Map<string, Set<string>>,
-  byId: Map<string, SwarmStep>,
+  byId: Map<string, FuryStep>,
   issues: string[],
 ): void {
   const input = /^inputs\.([a-z][a-z0-9_-]{0,63})$/.exec(reference);
@@ -384,13 +384,13 @@ function boolean(value: unknown, location: string, issues: string[]): boolean {
   return false;
 }
 
-function inputType(value: unknown, location: string, issues: string[]): SwarmInputType {
+function inputType(value: unknown, location: string, issues: string[]): FuryInputType {
   if (value === "string" || value === "number" || value === "boolean") return value;
   issues.push(`${location} must be string, number, or boolean.`);
   return "string";
 }
 
-function matchesInputType(value: unknown, type: SwarmInputType): value is string | number | boolean {
+function matchesInputType(value: unknown, type: FuryInputType): value is string | number | boolean {
   return typeof value === type && (type !== "number" || Number.isFinite(value));
 }
 
@@ -414,7 +414,7 @@ function duration(value: unknown, location: string, issues: string[]): number {
 }
 
 function invalid(sourceName: string, issues: string[]): never {
-  throw new CraigError("SWARM_DEFINITION_INVALID", `Swarm definition ${sourceName} is invalid: ${issues[0]}`, {
+  throw new CraigError("FURY_DEFINITION_INVALID", `Fury definition ${sourceName} is invalid: ${issues[0]}`, {
     details: { file: sourceName, issues: [...new Set(issues)] },
   });
 }

@@ -25,9 +25,13 @@ export const normalizeLegacyTaskRecord = (value: unknown): unknown => {
     layoutSlot?: number | null;
     tmuxTarget?: string;
   };
+  const legacy = value as Record<string, unknown>;
+  const normalizedBase = { ...legacy };
+  delete normalizedBase.swarmRunId;
+  delete normalizedBase.swarmStepId;
 
   return {
-    ...candidate,
+    ...normalizedBase,
     runner: normalizeRunner(candidate.runner),
     repoId: typeof candidate.repoId === "string" ? candidate.repoId : "legacy_repo",
     workspaceId: typeof candidate.workspaceId === "string" ? candidate.workspaceId : "legacy_workspace",
@@ -49,8 +53,12 @@ export const normalizeLegacyTaskRecord = (value: unknown): unknown => {
       typeof candidate.delegationIdempotencyKey === "string" || candidate.delegationIdempotencyKey === null
         ? candidate.delegationIdempotencyKey
         : null,
-    swarmRunId: typeof candidate.swarmRunId === "string" || candidate.swarmRunId === null ? candidate.swarmRunId : null,
-    swarmStepId: typeof candidate.swarmStepId === "string" || candidate.swarmStepId === null ? candidate.swarmStepId : null,
+    furyRunId: typeof candidate.furyRunId === "string" || candidate.furyRunId === null
+      ? candidate.furyRunId
+      : typeof legacy.swarmRunId === "string" ? legacy.swarmRunId : null,
+    furyStepId: typeof candidate.furyStepId === "string" || candidate.furyStepId === null
+      ? candidate.furyStepId
+      : typeof legacy.swarmStepId === "string" ? legacy.swarmStepId : null,
     ptyTabs: normalizeTaskPtyTabs(candidate),
     bundlePath: typeof candidate.bundlePath === "string" || candidate.bundlePath === null ? candidate.bundlePath : null,
     selectedRepoTargetId:
@@ -107,8 +115,8 @@ const isTaskRecord = (value: unknown): value is TaskRecord => {
     typeof candidate.rootTaskId === "string" &&
     Number.isInteger(candidate.delegationDepth) && Number(candidate.delegationDepth) >= 0 &&
     (typeof candidate.delegationIdempotencyKey === "string" || candidate.delegationIdempotencyKey === null) &&
-    (typeof candidate.swarmRunId === "string" || candidate.swarmRunId === null) &&
-    (typeof candidate.swarmStepId === "string" || candidate.swarmStepId === null) &&
+    (typeof candidate.furyRunId === "string" || candidate.furyRunId === null) &&
+    (typeof candidate.furyStepId === "string" || candidate.furyStepId === null) &&
     typeof candidate.repoRoot === "string" &&
     typeof candidate.worktreePath === "string" &&
     typeof candidate.branch === "string" &&

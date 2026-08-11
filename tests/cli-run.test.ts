@@ -1,4 +1,4 @@
-import { mkdir, rm, writeFile } from "node:fs/promises";
+import { mkdir, realpath, rm, writeFile } from "node:fs/promises";
 import path from "node:path";
 
 import { afterEach, describe, expect, test } from "vitest";
@@ -8,6 +8,8 @@ import { CRAIG_EXIT_CODE_BY_ERROR } from "../src/domain/error/index.js";
 import { createCraigState, createGitRepo, createRepoRoot, writeTaskRecord } from "./test-helpers.js";
 import { runCommand } from "../src/shared/exec.js";
 import { configService } from "../src/domain/config/index.js";
+import { ensureTaskCapabilities } from "../src/domain/orchestration/index.js";
+import { taskService } from "../src/domain/task/index.js";
 
 const tempRoots: string[] = [];
 
@@ -444,11 +446,13 @@ describe("CLI execution contract", () => {
     });
   });
 
-  test("gates swarm commands and returns a side-effect-free JSON plan when enabled", async () => {
-    const root = await createRepoRoot("craig-cli-swarm-");
+  test("gates fury commands and persists an immutable approval plan when enabled", async () => {
+    const root = await createRepoRoot("craig-cli-fury-");
     tempRoots.push(root);
-    const paths = await createCraigState(root);
-    const definition = path.join(root, "swarm.yaml");
+    const paths = await createCraigState(root, ["task_1"]);
+    await writeTaskRecord(root, { id: "task_1" });
+    const definition = path.join(root, ".craig", "fury", "cli-plan.yaml");
+    await mkdir(path.dirname(definition), { recursive: true });
     await writeFile(definition, `
 version: 1
 name: cli-plan
@@ -467,29 +471,105 @@ steps:
 `, "utf8");
 
     const blocked = createOutput();
-    expect(await runCli(createOptions(root, ["swarm", "validate", "swarm.yaml", "--json"], blocked))).toBe(2);
+    expect(await runCli(createOptions(root, ["fury", "validate", ".craig/fury/cli-plan.yaml", "--json"], blocked))).toBe(2);
     expect(JSON.parse(blocked.stderr[0]!)).toMatchObject({
-      command: "swarm.validate",
+      command: "fury.validate",
       error: { code: "CLI_USAGE", details: { preview: "agentOrchestration" } },
     });
 
     await configService.save(paths, { previews: { agentOrchestration: true } });
     const output = createOutput();
     expect(await runCli(createOptions(root, [
-      "swarm", "plan", "swarm.yaml", "--input", "task_id=task_1", "--json",
+      "fury", "plan", ".craig/fury/cli-plan.yaml", "--root-task", "task_1", "--input", "task_id=task_1", "--json",
     ], output))).toBe(0);
     expect(JSON.parse(output.stdout[0]!)).toMatchObject({
-      command: "swarm.plan",
+      command: "fury.plan",
       ok: true,
       data: {
-        kind: "planSwarm",
-        name: "cli-plan",
-        inputs: { task_id: "task_1" },
-        order: ["inspect"],
-        mutations: [],
-        steps: [{ id: "inspect", target: { type: "task", task: "task_1" } }],
+        kind: "planFury",
+        plan: {
+          id: expect.stringMatching(/^fury_plan_/),
+          name: "cli-plan",
+          rootTaskId: "task_1",
+          inputs: { task_id: "task_1" },
+          order: ["inspect"],
+          steps: [{ id: "inspect", target: { type: "task", task: "task_1" } }],
+        },
       },
     });
+  });
+
+  test("runs, completes, and approves a durable fury through JSON CLI commands", async () => {
+    const root = await createRepoRoot("craig-cli-fury-runtime-");
+    tempRoots.push(root);
+    const paths = await createCraigState(root, ["task_root"]);
+    await writeTaskRecord(root, { id: "task_root" });
+    await configService.save(paths, { previews: { agentOrchestration: true } });
+    const definition = path.join(root, ".craig", "fury", "cli-runtime.yaml");
+    await mkdir(path.dirname(definition), { recursive: true });
+    await writeFile(definition, `
+version: 1
+name: cli-runtime
+limits: { max_concurrency: 1, max_tasks: 2, timeout: 1h }
+inputs:
+  task_id: { type: string, required: true }
+steps:
+  work:
+    task: "\${{ inputs.task_id }}"
+    prompt: Do the work.
+  review:
+    needs: [work]
+    human_review:
+      title: Review work
+      summary: Approve the completed work.
+      timeout: 1h
+`, "utf8");
+
+    const task = await taskService.getTask(paths, "task_root");
+    const capability = await ensureTaskCapabilities(paths, task);
+    const agentTabId = (await taskService.getTask(paths, "task_root")).ptyTabs.find((tab) => tab.kind === "agent")!.id;
+    const agentEnv = {
+      CRAIG_WORKSPACE_ROOT: root,
+      CRAIG_TASK_ID: "task_root",
+      CRAIG_AGENT_TAB_ID: agentTabId,
+      CRAIG_AGENT_CAPABILITY: capability.CRAIG_AGENT_CAPABILITY,
+    };
+    const planned = createOutput();
+    const planOptions = createOptions(root, [
+      "fury", "plan", ".craig/fury/cli-runtime.yaml", "--input", "task_id=task_root", "--json",
+    ], planned);
+    planOptions.env = agentEnv;
+    expect(await runCli(planOptions)).toBe(0);
+    const planId = JSON.parse(planned.stdout[0]!).data.plan.id as string;
+
+    const unapproved = createOutput();
+    expect(await runCli(createOptions(root, ["fury", "run", planId, "--json"], unapproved))).toBe(4);
+    expect(JSON.parse(unapproved.stderr[0]!)).toMatchObject({ error: { code: "FURY_APPROVAL_REQUIRED" } });
+
+    const planApproval = createOutput();
+    expect(await runCli(createOptions(root, ["fury", "approve", planId, "--json"], planApproval))).toBe(0);
+    expect(JSON.parse(planApproval.stdout[0]!)).toMatchObject({ data: { approval: { planId } } });
+
+    const started = createOutput();
+    const runOptions = createOptions(root, ["fury", "run", planId, "--json"], started);
+    runOptions.env = agentEnv;
+    expect(await runCli(runOptions)).toBe(0);
+    const runId = JSON.parse(started.stdout[0]!).data.run.id as string;
+
+    const completed = createOutput();
+    const agentOptions = createOptions(root, ["fury", "step", "complete", "--run", runId, "--step", "work", "--json"], completed);
+    agentOptions.env = agentEnv;
+    const completionExit = await runCli(agentOptions);
+    expect(completed.stderr).toEqual([]);
+    expect(completionExit).toBe(0);
+    expect(JSON.parse(completed.stdout[0]!).data.run.state).toBe("waiting_for_review");
+
+    const reviews = createOutput();
+    expect(await runCli(createOptions(root, ["fury", "reviews", "list", "--run", runId, "--json"], reviews))).toBe(0);
+    const reviewId = JSON.parse(reviews.stdout[0]!).data.reviews[0].id as string;
+    const approved = createOutput();
+    expect(await runCli(createOptions(root, ["fury", "review", "approve", reviewId, "--note", "ship it", "--json"], approved))).toBe(0);
+    expect(JSON.parse(approved.stdout[0]!).data.run.state).toBe("succeeded");
   });
 
   test("does not enter the terminal application when input is disabled", async () => {
@@ -512,6 +592,36 @@ steps:
     expect(interactiveCalls).toBe(0);
     expect(output.stdout).toEqual([]);
     expect(output.stderr[0]).toContain("requires a TTY");
+  });
+
+  test("requires an explicit workspace when an agent session launches the interactive TUI", async () => {
+    const liveRoot = await createRepoRoot("craig-cli-live-agent-");
+    const isolatedRoot = await createRepoRoot("craig-cli-isolated-");
+    tempRoots.push(liveRoot, isolatedRoot);
+    await createCraigState(liveRoot, ["task_1"]);
+    const output = createOutput();
+    const interactiveRoots: string[] = [];
+    const base = {
+      ...createOptions(liveRoot, [], output),
+      env: {
+        CRAIG_WORKSPACE_ROOT: liveRoot,
+        CRAIG_TASK_ID: "task_1",
+        CRAIG_AGENT_TAB_ID: "task_1:agent",
+      },
+      isInputTty: true,
+      isOutputTty: true,
+      runInteractive: async (workspaceRoot: string) => {
+        interactiveRoots.push(workspaceRoot);
+        return 0;
+      },
+    };
+
+    expect(await runCli(base)).toBe(CRAIG_EXIT_CODE_BY_ERROR.TASK_CONTEXT_CONFLICT);
+    expect(interactiveRoots).toEqual([]);
+    expect(output.stderr[0]).toContain("will not implicitly attach to a live workspace");
+
+    expect(await runCli({ ...base, argv: ["--workspace-root", isolatedRoot] })).toBe(0);
+    expect(interactiveRoots).toEqual([await realpath(isolatedRoot)]);
   });
 
   test("rejects conflicting global and positional task targets", async () => {

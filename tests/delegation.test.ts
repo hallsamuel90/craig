@@ -36,8 +36,8 @@ vi.mock("../src/domain/task/index.js", () => ({
           rootTaskId?: string;
           delegationDepth: number;
           delegationIdempotencyKey?: string | null;
-          swarmRunId?: string | null;
-          swarmStepId?: string | null;
+          furyRunId?: string | null;
+          furyStepId?: string | null;
         };
         onProvisioned?: (task: TaskRecord) => Promise<Record<string, string> | void>;
       }) => {
@@ -50,8 +50,8 @@ vi.mock("../src/domain/task/index.js", () => ({
           rootTaskId: options.lineage?.rootTaskId ?? id,
           delegationDepth: options.lineage?.delegationDepth ?? 0,
           delegationIdempotencyKey: options.lineage?.delegationIdempotencyKey ?? null,
-          swarmRunId: options.lineage?.swarmRunId ?? null,
-          swarmStepId: options.lineage?.swarmStepId ?? null,
+          furyRunId: options.lineage?.furyRunId ?? null,
+          furyStepId: options.lineage?.furyStepId ?? null,
         });
         mocks.tasks.push(task);
         await options.onProvisioned?.(task);
@@ -122,6 +122,18 @@ describe("capability-scoped delegation", () => {
     expect((await stat(file)).mode & 0o777).toBe(0o600);
     const original = JSON.parse(await readFile(file, "utf8")) as Record<string, unknown>;
     const capabilityToken = String(original.token);
+    expect(original.allowedCommandFamilies).toEqual([
+      "task.create-child",
+      "task.children",
+      "task.cancel-tree",
+    ]);
+    await writeFile(file, JSON.stringify({
+      ...original,
+      allowedCommandFamilies: [...original.allowedCommandFamilies as string[], "future.command"],
+    }));
+    await expect(authorizeCapability(paths, capabilityToken, "task.children", parent.id)).resolves.toMatchObject({
+      actor: { type: "agent", taskId: parent.id },
+    });
     await writeFile(file, JSON.stringify({ ...original, allowedCommandFamilies: ["task.children"] }));
     await expect(authorizeCapability(paths, capabilityToken, "task.create-child", parent.id)).rejects.toMatchObject({
       code: "CAPABILITY_DENIED",
@@ -171,6 +183,20 @@ describe("capability-scoped delegation", () => {
 
     expect(second).toEqual(first);
     expect(files.filter((name) => name === `${capabilityId}.json`)).toHaveLength(1);
+  });
+
+  test("issues distinct scoped capabilities for mixed-runner agent tabs", async () => {
+    const mixed = taskRecord("mixed", { rootTaskId: "mixed" });
+    mixed.ptyTabs.push({
+      id: "mixed:cursor", kind: "agent", runner: "cursor", title: "Cursor", command: ["cursor"],
+      createdAt: mixed.createdAt, updatedAt: mixed.updatedAt,
+    });
+    mocks.tasks.push(mixed);
+    const codex = await ensureTaskCapabilities(paths, mixed, undefined, "mixed:agent");
+    const cursor = await ensureTaskCapabilities(paths, mixed, undefined, "mixed:cursor");
+    expect(cursor.CRAIG_AGENT_CAPABILITY).not.toBe(codex.CRAIG_AGENT_CAPABILITY);
+    await expect(authorizeCapability(paths, cursor.CRAIG_AGENT_CAPABILITY!, "fury.step.complete", mixed.id))
+      .resolves.toMatchObject({ actor: { taskId: mixed.id, agentTabId: "mixed:cursor" } });
   });
 
   test("creates a bounded child with durable lineage and replays an idempotency key", async () => {
@@ -311,8 +337,8 @@ function taskRecord(id: string, overrides: Partial<TaskRecord> = {}): TaskRecord
     rootTaskId: overrides.rootTaskId ?? id,
     delegationDepth: overrides.delegationDepth ?? 0,
     delegationIdempotencyKey: overrides.delegationIdempotencyKey ?? null,
-    swarmRunId: overrides.swarmRunId ?? null,
-    swarmStepId: overrides.swarmStepId ?? null,
+    furyRunId: overrides.furyRunId ?? null,
+    furyStepId: overrides.furyStepId ?? null,
     repoRoot: "/repo",
     worktreePath: `/worktrees/${id}`,
     branch: `craig/${id}`,

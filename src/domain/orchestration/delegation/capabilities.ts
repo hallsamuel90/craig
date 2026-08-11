@@ -16,13 +16,20 @@ const DEFAULT_LIMITS = {
   maxConcurrentChildren: 4,
   maxPromptBytes: 32 * 1024,
 } as const;
+const STABLE_COMMAND_FAMILIES = ["task.create-child", "task.children", "task.cancel-tree"] as const;
+const FURY_COMMAND_FAMILIES = new Set<DelegationCommandFamily>([
+  "fury.plan", "fury.run", "fury.cancel", "fury.resume",
+  "fury.step.complete", "fury.step.fail", "fury.review.resubmit",
+]);
 
 export async function ensureTaskCapabilities(
   paths: CraigPaths,
   task: TaskRecord,
   issuedBy: CraigActor = { type: "system", component: "orchestration-supervisor" },
+  agentTabId?: string,
 ): Promise<Record<string, string>> {
-  const requestedTab = task.ptyTabs.find((candidate) => candidate.kind === "agent");
+  const requestedTab = task.ptyTabs.find((candidate) =>
+    candidate.kind === "agent" && (!agentTabId || candidate.id === agentTabId));
   if (!requestedTab) return {};
   let persistedToken: string | null = null;
   await mkdir(capabilitiesDir(paths), { recursive: true, mode: 0o700 });
@@ -64,7 +71,7 @@ async function createCapability(
     token: `${capabilityId}.${randomUUID()}`,
     taskId,
     agentTabId,
-    allowedCommandFamilies: ["task.create-child", "task.children", "task.cancel-tree"],
+    allowedCommandFamilies: [...STABLE_COMMAND_FAMILIES],
     targetPolicy: "children-only",
     limits: { ...DEFAULT_LIMITS },
     issuedBy,
@@ -86,7 +93,9 @@ export async function authorizeCapability(
   const capability = await readCapability(paths, capabilityToken);
   if (capability.revokedAt) denied(capability.id, "revoked");
   if (Date.parse(capability.expiresAt) <= Date.now()) denied(capability.id, "expired");
-  if (!capability.allowedCommandFamilies.includes(commandFamily)) denied(capability.id, "command family is not allowed");
+  if (!FURY_COMMAND_FAMILIES.has(commandFamily) && !capability.allowedCommandFamilies.includes(commandFamily)) {
+    denied(capability.id, "command family is not allowed");
+  }
   if (capability.targetPolicy === "children-only" && !await isTaskInSubtree(paths, capability.taskId, targetTaskId)) {
     denied(capability.id, `target task ${targetTaskId} is outside the capability task subtree`);
   }
@@ -172,8 +181,8 @@ function isCapability(value: unknown, id: string): value is AgentCapabilityRecor
   const limits = value.limits;
   return typeof value.token === "string" && value.token.startsWith(`${id}.`) && value.token.length > id.length + 1 &&
     typeof value.taskId === "string" && typeof value.agentTabId === "string" &&
-    Array.isArray(value.allowedCommandFamilies) && value.allowedCommandFamilies.every((entry) =>
-      ["task.create-child", "task.children", "task.cancel-tree"].includes(String(entry))) &&
+    Array.isArray(value.allowedCommandFamilies) && value.allowedCommandFamilies.length > 0 &&
+    value.allowedCommandFamilies.every((entry) => typeof entry === "string" && isCommandFamilyName(entry)) &&
     value.targetPolicy === "children-only" && isObject(limits) &&
     [limits.maxChildren, limits.maxDepth, limits.maxConcurrentChildren, limits.maxPromptBytes]
       .every((entry) => Number.isInteger(entry) && Number(entry) > 0) &&
@@ -199,6 +208,7 @@ function denied(capabilityId: string, reason: string): never {
 
 const capabilitiesDir = (paths: CraigPaths) => path.join(paths.orchestrationDir, "capabilities");
 const capabilityPath = (paths: CraigPaths, id: string) => path.join(capabilitiesDir(paths), `${id}.json`);
+const isCommandFamilyName = (value: string) => /^[a-z][a-z0-9-]*(?:\.[a-z][a-z0-9-]*)+$/.test(value);
 const isObject = (value: unknown): value is Record<string, unknown> => typeof value === "object" && value !== null && !Array.isArray(value);
 const isTimestamp = (value: unknown): value is string => typeof value === "string" && Number.isFinite(Date.parse(value));
 const isMissing = (error: unknown): error is { code: "ENOENT" } => typeof error === "object" && error !== null && "code" in error && error.code === "ENOENT";

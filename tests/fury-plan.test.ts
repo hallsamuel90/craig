@@ -4,7 +4,7 @@ import path from "node:path";
 
 import { afterEach, describe, expect, test } from "vitest";
 
-import { parseSwarmYaml, planSwarmFile, validateSwarmDefinition, validateSwarmFile } from "../src/domain/orchestration/index.js";
+import { parseFuryYaml, planFuryFile, validateFuryDefinition, validateFuryFile } from "../src/domain/orchestration/index.js";
 
 const roots: string[] = [];
 
@@ -59,15 +59,15 @@ steps:
     prompt: Continue after approval.
 `;
 
-describe("swarm definition validation and planning", () => {
+describe("fury definition validation and planning", () => {
   test("validates and deterministically plans a fixed DAG with a human checkpoint", async () => {
     const file = await fixture("valid.yaml", VALID);
-    const validated = await validateSwarmFile(file);
-    const first = await planSwarmFile(file, { task_id: "task_1", strict: "true" });
-    const second = await planSwarmFile(file, { strict: "true", task_id: "task_1" });
+    const validated = await validateFuryFile(file);
+    const first = await planFuryFile(file, { task_id: "task_1", strict: "true" });
+    const second = await planFuryFile(file, { strict: "true", task_id: "task_1" });
 
     expect(validated).toMatchObject({
-      kind: "validateSwarm",
+      kind: "validateFury",
       valid: true,
       name: "review-and-fix",
       stepCount: 5,
@@ -76,10 +76,8 @@ describe("swarm definition validation and planning", () => {
     });
     expect(first).toEqual(second);
     expect(first).toMatchObject({
-      kind: "planSwarm",
       inputs: { task_id: "task_1", strict: true },
       waves: [["inspect"], ["fix"], ["verify"], ["human_review"], ["publish"]],
-      mutations: [],
       steps: [
         { id: "inspect", wave: 0, target: { type: "task", task: "task_1" }, prompt: "Inspect with strict=true." },
         { id: "fix", wave: 1, target: { type: "create_child", repo: "craig" } },
@@ -101,50 +99,50 @@ describe("swarm definition validation and planning", () => {
     ["excessive limits", VALID.replace("max_concurrency: 3", "max_concurrency: 17"), "1 through 16"],
     ["undeclared output", VALID.replace("    output:\n      schema:\n        type: object\n        required: [issues]\n", ""), "without a declared output schema"],
   ])("rejects %s", (_name, yaml, message) => {
-    expect(() => validateSwarmDefinition(parseSwarmYaml(yaml, "fixture.yaml"), "fixture.yaml")).toThrow(message);
+    expect(() => validateFuryDefinition(parseFuryYaml(yaml, "fixture.yaml"), "fixture.yaml")).toThrow(message);
   });
 
   test("rejects YAML syntax hazards and malformed templates", () => {
-    expect(() => parseSwarmYaml("version: 1\nversion: 1\n", "duplicate.yaml")).toThrow("invalid");
-    expect(() => parseSwarmYaml("value: &shared ok\ncopy: *shared\n", "alias.yaml")).toThrow("invalid");
+    expect(() => parseFuryYaml("version: 1\nversion: 1\n", "duplicate.yaml")).toThrow("invalid");
+    expect(() => parseFuryYaml("value: &shared ok\ncopy: *shared\n", "alias.yaml")).toThrow("invalid");
     const malformed = VALID.replace("${{ inputs.task_id }}", "${{ inputs.task_id }");
-    expect(() => validateSwarmDefinition(parseSwarmYaml(malformed, "template.yaml"), "template.yaml"))
+    expect(() => validateFuryDefinition(parseFuryYaml(malformed, "template.yaml"), "template.yaml"))
       .toThrow("malformed template");
   });
 
   test("bounds definition size and output-schema nesting", () => {
-    expect(() => parseSwarmYaml("x".repeat(1024 * 1024 + 1), "large.yaml")).toThrow("exceeds");
-    const nested = parseSwarmYaml(VALID, "nested.yaml") as Record<string, Record<string, Record<string, unknown>>>;
+    expect(() => parseFuryYaml("x".repeat(1024 * 1024 + 1), "large.yaml")).toThrow("exceeds");
+    const nested = parseFuryYaml(VALID, "nested.yaml") as Record<string, Record<string, Record<string, unknown>>>;
     let schema: Record<string, unknown> = { type: "string" };
     for (let index = 0; index < 18; index += 1) schema = { type: "array", items: schema };
     nested.steps!.inspect!.output = { schema };
-    expect(() => validateSwarmDefinition(nested, "nested.yaml"))
+    expect(() => validateFuryDefinition(nested, "nested.yaml"))
       .toThrow("maximum schema depth");
   });
 
   test("rejects missing, unknown, duplicate-like, and incorrectly typed plan inputs", async () => {
     const file = await fixture("inputs.yaml", VALID);
-    await expect(planSwarmFile(file, {})).rejects.toMatchObject({ code: "SWARM_INPUT_INVALID" });
-    await expect(planSwarmFile(file, { task_id: "task_1", extra: "x" })).rejects.toMatchObject({ code: "SWARM_INPUT_INVALID" });
-    await expect(planSwarmFile(file, { task_id: "task_1", strict: "yes" })).rejects.toMatchObject({ code: "SWARM_INPUT_INVALID" });
+    await expect(planFuryFile(file, {})).rejects.toMatchObject({ code: "FURY_INPUT_INVALID" });
+    await expect(planFuryFile(file, { task_id: "task_1", extra: "x" })).rejects.toMatchObject({ code: "FURY_INPUT_INVALID" });
+    await expect(planFuryFile(file, { task_id: "task_1", strict: "yes" })).rejects.toMatchObject({ code: "FURY_INPUT_INVALID" });
   });
 
   test("revalidates input-rendered targets and prompt bounds", async () => {
     const file = await fixture("rendered-inputs.yaml", VALID);
-    await expect(planSwarmFile(file, { task_id: "" })).rejects.toMatchObject({ code: "SWARM_INPUT_INVALID" });
+    await expect(planFuryFile(file, { task_id: "" })).rejects.toMatchObject({ code: "FURY_INPUT_INVALID" });
 
     const numeric = await fixture("numeric-input.yaml", VALID
       .replace("strict:\n    type: boolean", "strict:\n    type: number")
       .replace("default: false", "default: 1"));
-    await expect(planSwarmFile(numeric, { task_id: "task_1", strict: "" }))
-      .rejects.toMatchObject({ code: "SWARM_INPUT_INVALID" });
+    await expect(planFuryFile(numeric, { task_id: "task_1", strict: "" }))
+      .rejects.toMatchObject({ code: "FURY_INPUT_INVALID" });
 
     const expandedPrompt = await fixture(
       "expanded-prompt.yaml",
       VALID.replace("Inspect with strict=${{ inputs.strict }}.", "Inspect ${{ inputs.task_id }}."),
     );
-    await expect(planSwarmFile(expandedPrompt, { task_id: "x".repeat(33 * 1024) }))
-      .rejects.toMatchObject({ code: "SWARM_INPUT_INVALID" });
+    await expect(planFuryFile(expandedPrompt, { task_id: "x".repeat(33 * 1024) }))
+      .rejects.toMatchObject({ code: "FURY_INPUT_INVALID" });
   });
 
   test("checks referenced output paths when the schema declares properties", () => {
@@ -152,16 +150,16 @@ describe("swarm definition validation and planning", () => {
       "type: object\n        required: [issues]",
       "type: object\n        properties:\n          issues:\n            type: object\n            properties:\n              summary: { type: string }\n        required: [issues]",
     );
-    expect(() => validateSwarmDefinition(
-      parseSwarmYaml(schema.replace("steps.inspect.output.issues", "steps.inspect.output.issues.summary"), "valid-path.yaml"),
+    expect(() => validateFuryDefinition(
+      parseFuryYaml(schema.replace("steps.inspect.output.issues", "steps.inspect.output.issues.summary"), "valid-path.yaml"),
       "valid-path.yaml",
     )).not.toThrow();
-    expect(() => validateSwarmDefinition(
-      parseSwarmYaml(schema.replace("steps.inspect.output.issues", "steps.inspect.output.findigns"), "invalid-path.yaml"),
+    expect(() => validateFuryDefinition(
+      parseFuryYaml(schema.replace("steps.inspect.output.issues", "steps.inspect.output.findigns"), "invalid-path.yaml"),
       "invalid-path.yaml",
     )).toThrow("not declared");
-    expect(() => validateSwarmDefinition(
-      parseSwarmYaml(schema.replace("steps.inspect.output.issues", "steps.inspect.output.issues.summary.extra"), "deep-path.yaml"),
+    expect(() => validateFuryDefinition(
+      parseFuryYaml(schema.replace("steps.inspect.output.issues", "steps.inspect.output.issues.summary.extra"), "deep-path.yaml"),
       "deep-path.yaml",
     )).toThrow("not declared");
   });
@@ -172,7 +170,7 @@ describe("swarm definition validation and planning", () => {
       .replace("  fix:\n", "  audit:\n    task: task_2\n    prompt: Audit independently.\n  summarize:\n    task: task_3\n    prompt: Summarize independently.\n  fix:\n")
       .replace("needs: [inspect]\n    create_child", "needs: [inspect, audit, summarize]\n    create_child");
     const file = await fixture("parallel.yaml", parallel);
-    const plan = await planSwarmFile(file, { task_id: "task_1" });
+    const plan = await planFuryFile(file, { task_id: "task_1" });
     expect(plan.waves).toEqual([
       ["inspect", "audit"],
       ["summarize"],
@@ -185,24 +183,24 @@ describe("swarm definition validation and planning", () => {
   });
 
   test("validation and planning do not mutate the containing workspace", async () => {
-    const root = await mkdtemp(path.join(os.tmpdir(), "craig-swarm-no-mutation-"));
+    const root = await mkdtemp(path.join(os.tmpdir(), "craig-fury-no-mutation-"));
     roots.push(root);
     const state = path.join(root, ".craig");
     await mkdir(path.join(state, "tasks"), { recursive: true });
     await writeFile(path.join(state, "sentinel.json"), "{\"stable\":true}\n", "utf8");
-    const file = path.join(root, "swarm.yaml");
+    const file = path.join(root, "fury.yaml");
     await writeFile(file, VALID, "utf8");
     const before = await snapshot(state);
 
-    await validateSwarmFile(file);
-    await planSwarmFile(file, { task_id: "task_1" });
+    await validateFuryFile(file);
+    await planFuryFile(file, { task_id: "task_1" });
 
     expect(await snapshot(state)).toEqual(before);
   });
 });
 
 async function fixture(name: string, contents: string): Promise<string> {
-  const root = await mkdtemp(path.join(os.tmpdir(), "craig-swarm-"));
+  const root = await mkdtemp(path.join(os.tmpdir(), "craig-fury-"));
   roots.push(root);
   const file = path.join(root, name);
   await writeFile(file, contents, "utf8");

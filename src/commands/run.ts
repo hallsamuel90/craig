@@ -45,6 +45,23 @@ export async function runCli(options: RunCliOptions): Promise<number> {
         );
       }
 
+      if (
+        parsed.options.workspaceRoot === undefined &&
+        (options.env.CRAIG_TASK_ID !== undefined || options.env.CRAIG_AGENT_TAB_ID !== undefined)
+      ) {
+        throw new CraigError(
+          "TASK_CONTEXT_CONFLICT",
+          "Interactive Craig will not implicitly attach to a live workspace from an agent session. Pass --workspace-root <path> to confirm the live workspace, or pass a different directory for an isolated workspace.",
+          {
+            details: {
+              workspaceRoot: options.env.CRAIG_WORKSPACE_ROOT ?? null,
+              taskId: options.env.CRAIG_TASK_ID ?? null,
+              agentTabId: options.env.CRAIG_AGENT_TAB_ID ?? null,
+            },
+          },
+        );
+      }
+
       const context = await resolveCliContext({
         cwd: options.cwd,
         ...(parsed.options.workspaceRoot !== undefined
@@ -63,8 +80,8 @@ export async function runCli(options: RunCliOptions): Promise<number> {
     }
 
     commandName = parsed.commandName;
-    if (parsed.command.kind === "watchEvents" && parsed.options.json) {
-      throw new CraigError("CLI_USAGE", "events watch streams output; use --format jsonl instead of --json.", {});
+    if ((parsed.command.kind === "watchEvents" || parsed.command.kind === "watchFury") && parsed.options.json) {
+      throw new CraigError("CLI_USAGE", "watch commands stream output; use --format jsonl instead of --json.", {});
     }
     assertCompatibleTaskTargets(parsed.command, parsed.options.taskId);
     const command = bindGlobalTaskTarget(parsed.command, parsed.options.taskId);
@@ -101,7 +118,7 @@ export async function runCli(options: RunCliOptions): Promise<number> {
         workspaceContext: context.workspace,
         taskContext: context.task,
         ...(cancellation.signal ? { signal: cancellation.signal } : {}),
-        ...(command.kind === "watchEvents" ? {
+        ...(command.kind === "watchEvents" || command.kind === "watchFury" ? {
           emitEvent: (event) => options.writeStdout(`${command.format === "jsonl" ? JSON.stringify(event) : formatEventLine(event)}\n`),
         } : {}),
         ...(options.readStdin ? { readStdin: options.readStdin } : {}),
@@ -161,6 +178,11 @@ function getTaskResolution(command: AppCommand): "none" | "optional" | "required
     return command.taskId ? "none" : "required";
   }
   if (command.kind === "listPromptCommands") return "none";
+  if (command.kind === "planFury") return command.rootTaskId ? "optional" : "required";
+  if (
+    command.kind === "approveFury" || command.kind === "runFury" || command.kind === "cancelFury" || command.kind === "resumeFury" ||
+    command.kind === "completeFuryStep" || command.kind === "failFuryStep" || command.kind === "actFuryReview"
+  ) return "optional";
   if (command.kind === "waitTask") {
     return command.taskId ? "none" : "required";
   }
@@ -255,7 +277,7 @@ function createCommandCancellation(
   command: AppCommand,
   providedSignal: AbortSignal | undefined,
 ): { signal?: AbortSignal; dispose(): void } {
-  if (command.kind !== "waitTask" && command.kind !== "watchEvents" && command.kind !== "waitPromptCommand") {
+  if (command.kind !== "waitTask" && command.kind !== "watchEvents" && command.kind !== "watchFury" && command.kind !== "waitPromptCommand") {
     return { dispose: () => undefined };
   }
   if (providedSignal) return { signal: providedSignal, dispose: () => undefined };

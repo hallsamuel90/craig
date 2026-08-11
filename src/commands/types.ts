@@ -43,8 +43,18 @@ import type {
   CommandCreateChildResult,
   CommandListChildrenResult,
   CommandCancelTreeResult,
-  CommandValidateSwarmResult,
-  CommandPlanSwarmResult,
+  CommandValidateFuryResult,
+  CommandPlanFuryResult,
+  CommandApproveFuryResult,
+  CommandRunFuryResult,
+  CommandShowFuryResult,
+  CommandCancelFuryResult,
+  CommandResumeFuryResult,
+  CommandStepFuryResult,
+  CommandListFuryReviewsResult,
+  CommandShowFuryReviewResult,
+  CommandActFuryReviewResult,
+  CommandWatchFuryResult,
   PromptCommandState,
   PromptDelivery,
 } from "../domain/orchestration/index.js";
@@ -63,8 +73,19 @@ export type AppCommand =
   | { kind: "createChildTask"; parentTaskId?: string; repoId: string; prompt: string; runner?: RunnerType; idempotencyKey?: string }
   | { kind: "listTaskChildren"; taskId?: string }
   | { kind: "cancelTaskTree"; taskId?: string }
-  | { kind: "validateSwarm"; file: string }
-  | { kind: "planSwarm"; file: string; inputs: Record<string, string> }
+  | { kind: "validateFury"; file: string }
+  | { kind: "planFury"; file: string; inputs: Record<string, string>; rootTaskId?: string }
+  | { kind: "approveFury"; planId: string }
+  | { kind: "runFury"; planId: string }
+  | { kind: "showFury"; runId: string }
+  | { kind: "watchFury"; runId: string; after?: string; format: "human" | "jsonl" }
+  | { kind: "cancelFury"; runId: string }
+  | { kind: "resumeFury"; runId: string }
+  | { kind: "completeFuryStep"; runId: string; stepId: string; output?: { source: "inline"; text: string } | { source: "file"; path: string } | { source: "stdin" } }
+  | { kind: "failFuryStep"; runId: string; stepId: string; reason: string }
+  | { kind: "listFuryReviews"; runId?: string; state?: string }
+  | { kind: "showFuryReview"; reviewId: string }
+  | { kind: "actFuryReview"; reviewId: string; action: "approve" | "reject" | "request_changes" | "resubmit"; message?: string }
   | { kind: "listTasks"; repoId?: string; workspaceId?: string }
   | { kind: "currentTask" }
   | { kind: "attachTask"; taskId: string }
@@ -152,8 +173,18 @@ export type {
   CommandCreateChildResult,
   CommandListChildrenResult,
   CommandCancelTreeResult,
-  CommandValidateSwarmResult,
-  CommandPlanSwarmResult,
+  CommandValidateFuryResult,
+  CommandPlanFuryResult,
+  CommandApproveFuryResult,
+  CommandRunFuryResult,
+  CommandShowFuryResult,
+  CommandCancelFuryResult,
+  CommandResumeFuryResult,
+  CommandStepFuryResult,
+  CommandListFuryReviewsResult,
+  CommandShowFuryReviewResult,
+  CommandActFuryReviewResult,
+  CommandWatchFuryResult,
 };
 
 export type CommandResult =
@@ -169,8 +200,18 @@ export type CommandResult =
   | CommandCreateChildResult
   | CommandListChildrenResult
   | CommandCancelTreeResult
-  | CommandValidateSwarmResult
-  | CommandPlanSwarmResult
+  | CommandValidateFuryResult
+  | CommandPlanFuryResult
+  | CommandApproveFuryResult
+  | CommandRunFuryResult
+  | CommandShowFuryResult
+  | CommandCancelFuryResult
+  | CommandResumeFuryResult
+  | CommandStepFuryResult
+  | CommandListFuryReviewsResult
+  | CommandShowFuryReviewResult
+  | CommandActFuryReviewResult
+  | CommandWatchFuryResult
   | CommandAttachTaskResult
   | CommandAddTaskLinkResult
   | CommandListTaskLinksResult

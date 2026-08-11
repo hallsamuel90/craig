@@ -8,7 +8,7 @@ import type { WorkspaceShellModel } from "./data.js";
 import { restoreShellState, getLeftItemIds } from "../state.js";
 import type { ControlShellState } from "../state.js";
 import { configService } from "../../domain/config/index.js";
-import { ensureTaskCapabilities } from "../../domain/orchestration/index.js";
+import { ensureTaskCapabilities, listFuryReviews, listPendingFuryPlans } from "../../domain/orchestration/index.js";
 
 export async function loadWorkspaceShellModel(
   workspaceRoot: string,
@@ -23,18 +23,21 @@ export async function loadWorkspaceShellModel(
   let taskResult = await taskService.listTasks(paths);
   const agentCapabilityTokens: Record<string, string> = {};
   const config = await configService.load(paths);
+  let furyApprovalCount = 0;
   if (configService.previews.isEnabled(config, "agentOrchestration")) {
-    const environments = await Promise.all(taskResult.tasks.map(async (task) => ({
-      task,
-      environment: await ensureTaskCapabilities(paths, task),
-    })));
-    for (const { task, environment } of environments) {
-      const agentTab = task.ptyTabs.find((tab) => tab.kind === "agent");
-      if (agentTab && environment.CRAIG_AGENT_CAPABILITY) {
+    const environments = await Promise.all(taskResult.tasks.flatMap((task) =>
+      task.ptyTabs.filter((tab) => tab.kind === "agent").map(async (agentTab) => ({
+        agentTab,
+        environment: await ensureTaskCapabilities(paths, task, undefined, agentTab.id),
+      }))));
+    for (const { agentTab, environment } of environments) {
+      if (environment.CRAIG_AGENT_CAPABILITY) {
         agentCapabilityTokens[agentTab.id] = environment.CRAIG_AGENT_CAPABILITY;
       }
     }
     taskResult = await taskService.listTasks(paths);
+    const [pendingPlans, reviews] = await Promise.all([listPendingFuryPlans(paths), listFuryReviews(paths)]);
+    furyApprovalCount = pendingPlans.length + reviews.filter((review) => review.state === "waiting_for_review").length;
   }
   const selectedTask = resolveSelectedTaskForInspection(taskResult.tasks, shell);
   const selection = shell
@@ -50,6 +53,7 @@ export async function loadWorkspaceShellModel(
     repos: repoResult.repos,
     tasks: taskResult.tasks,
     inspection,
+    furyApprovalCount,
     ...(Object.keys(agentCapabilityTokens).length > 0 ? { agentCapabilityTokens } : {}),
     ...(enabledRunnerIds ? { enabledRunnerIds } : {}),
   };
