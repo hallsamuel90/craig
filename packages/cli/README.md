@@ -162,8 +162,18 @@ craig task wait [<task-id>] --state <states> [--tab <tab-id>] [--timeout <durati
 craig events list [--task <task-id>] [--type <glob>] [--after <cursor>] --json
 craig events watch [--task <task-id>] [--type <glob>] [--after <cursor>] [--format jsonl]
 
-craig swarm validate <file> --json
-craig swarm plan <file> [--input key=value] --json
+craig fury validate <file> --json
+craig fury plan <file> [--root-task <task-id>] [--input key=value] --json
+craig fury approve <plan-id> --json
+craig fury run <plan-id> --json
+craig fury status <run-id> --json
+craig fury watch <run-id> [--after <cursor>] [--format jsonl]
+craig fury cancel <run-id> --json
+craig fury resume <run-id> --json
+craig fury step complete --run <run-id> --step <step-id> [--output <json> | --output-file <path> | --stdin] --json
+craig fury step fail --run <run-id> --step <step-id> --reason <text> --json
+craig fury reviews list [--run <run-id>] [--state <state>] --json
+craig fury review show|approve|reject|request-changes|resubmit <review-id> --json
 
 craig command show <command-id> --json
 craig command list [--task <task-id>] --json
@@ -201,9 +211,13 @@ Optional workspace-local config at `.craig/config.json`:
 
 Feature previews are experimental, workspace-local, and off by default. They can also be toggled from Options > Feature Previews in the TUI.
 
-Event commands, new prompt dispatch creation, child-task creation, and swarm validation/planning require the `agentOrchestration` preview. Preview-enabled agent PTYs receive an opaque workspace-local capability token scoped to their own task, the delegation command families, an expiry, and bounded child/depth/concurrency/prompt limits; only a non-authorizing reference is stored on the task. `task children` and idempotent `task cancel-tree` remain available when the preview is disabled so existing lineage can be inspected and safely stopped. Craig may still maintain durable semantic events internally for stable daemon services such as pull request synchronization. Disabling the preview stops new dispatch and child creation but leaves command inspection, waiting, cancellation, and safe reconciliation available for existing durable work. Prompt delivery defaults to `when-ready`; `immediate` explicitly interrupts a busy target.
+An interactive Craig launched from inside an agent session will not implicitly attach to that agent's live workspace. Pass `--workspace-root <live-root>` to confirm that attachment, or create and pass a different directory for an isolated blank workspace. A client also refuses to replace a live PTY daemon that uses an incompatible protocol; exit the other Craig instance before restarting explicitly.
 
-Swarm definitions are strict, versioned YAML DAGs. `swarm validate` checks the schema, limits, templates, references, dependencies, output schemas, and human-review checkpoints. `swarm plan` resolves declared inputs and returns deterministic execution waves without creating tasks, commands, capabilities, events, definitions, or run state. Runtime execution remains unavailable until the next preview phase.
+Event commands, new prompt dispatch creation, child-task creation, and fury validation/planning require the `agentOrchestration` preview. Preview-enabled agent PTYs receive an opaque workspace-local capability token scoped to their own task, the stable delegation command families, an expiry, and bounded child/depth/concurrency/prompt limits; only a non-authorizing reference is stored on the task. Fury operations reuse that scoped token according to each command's preview and recovery policy without persisting preview-only command families into the base capability record, so stable Craig can still read the workspace after preview use. `task children` and idempotent `task cancel-tree` remain available when the preview is disabled so existing lineage can be inspected and safely stopped. Craig may still maintain durable semantic events internally for stable daemon services such as pull request synchronization. Disabling the preview stops new dispatch and child creation but leaves command inspection, waiting, cancellation, and safe reconciliation available for existing durable work. Prompt delivery defaults to `when-ready`; `immediate` explicitly interrupts a busy target.
+
+Fury definitions are strict, versioned YAML DAGs stored under `.craig/fury/`. `fury validate` checks the schema, limits, templates, references, dependencies, output schemas, and human-review checkpoints without mutating runtime state. `fury plan` resolves declared inputs, binds the graph to a planning task, persists an immutable content-hashed plan, and requests human sign-off.
+
+Only a human can `fury approve` the exact plan hash. `fury run` accepts only an approved plan id, creates at most one run for that approval, and schedules every new task as a direct child of the planning task; graph dependencies never create visual grandchildren. Every agent step must explicitly call `fury step complete` or `fury step fail`; terminal silence is never success. Declared outputs are JSON-schema validated before dependents can run. Human-review steps remain blocked until an attributable human approval, while request-changes routes durable feedback to the declared task and requires an explicit resubmission. The sidebar shows one flat Fury attention row when plan or review approvals are waiting. The heartbeat reconciles interrupted dispatch, deadlines, missing agent sessions, and pending work. Retries, conditions, fan-out, and recursive Fury runs remain deferred.
 
 ```yaml
 version: 1

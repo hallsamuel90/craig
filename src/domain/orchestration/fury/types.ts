@@ -1,20 +1,20 @@
 import type { RunnerType } from "../../config/index.js";
 
-export type SwarmInputType = "string" | "number" | "boolean";
+export type FuryInputType = "string" | "number" | "boolean";
 
-export interface SwarmLimits {
+export interface FuryLimits {
   maxConcurrency: number;
   maxTasks: number;
   timeoutMs: number;
 }
 
-export interface SwarmInputDefinition {
-  type: SwarmInputType;
+export interface FuryInputDefinition {
+  type: FuryInputType;
   required: boolean;
   defaultValue?: string | number | boolean;
 }
 
-export interface SwarmAgentStep {
+export interface FuryAgentStep {
   kind: "agent";
   id: string;
   needs: string[];
@@ -25,7 +25,7 @@ export interface SwarmAgentStep {
   outputSchema?: Record<string, unknown>;
 }
 
-export interface SwarmHumanReviewStep {
+export interface FuryHumanReviewStep {
   kind: "human_review";
   id: string;
   needs: string[];
@@ -35,19 +35,19 @@ export interface SwarmHumanReviewStep {
   timeoutMs?: number;
 }
 
-export type SwarmStep = SwarmAgentStep | SwarmHumanReviewStep;
+export type FuryStep = FuryAgentStep | FuryHumanReviewStep;
 
-export interface SwarmDefinition {
+export interface FuryDefinition {
   version: 1;
   name: string;
-  limits: SwarmLimits;
-  inputs: Record<string, SwarmInputDefinition>;
-  steps: SwarmStep[];
+  limits: FuryLimits;
+  inputs: Record<string, FuryInputDefinition>;
+  steps: FuryStep[];
 }
 
-export interface SwarmPlanStep {
+export interface FuryPlanStep {
   id: string;
-  kind: SwarmStep["kind"];
+  kind: FuryStep["kind"];
   needs: string[];
   wave: number;
   target: { type: "task"; task: string } | { type: "create_child"; repo: string } | null;
@@ -57,8 +57,8 @@ export interface SwarmPlanStep {
   review: { title: string; summary: string; feedbackTask: string | null; timeoutMs: number } | null;
 }
 
-export interface CommandValidateSwarmResult {
-  kind: "validateSwarm";
+export interface CommandValidateFuryResult {
+  kind: "validateFury";
   schemaVersion: 1;
   valid: true;
   file: string;
@@ -67,19 +67,17 @@ export interface CommandValidateSwarmResult {
   inputNames: string[];
   stepCount: number;
   order: string[];
-  limits: SwarmLimits;
+  limits: FuryLimits;
 }
 
-export interface CommandPlanSwarmResult {
-  kind: "planSwarm";
+export interface FuryPlanSpec {
   schemaVersion: 1;
   file: string;
   definitionHash: string;
   name: string;
   inputs: Record<string, string | number | boolean>;
-  limits: SwarmLimits;
+  limits: FuryLimits;
   order: string[];
   waves: string[][];
-  steps: SwarmPlanStep[];
-  mutations: [];
+  steps: FuryPlanStep[];
 }

@@ -1,4 +1,4 @@
-import { appendFile, mkdtemp, rm, writeFile } from "node:fs/promises";
+import { appendFile, mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { tmpdir } from "node:os";
 
@@ -6,11 +6,13 @@ import { afterEach, describe, expect, test } from "vitest";
 
 import {
   appendEvent,
+  furyDirs,
   listEvents,
   readAllEvents,
 } from "../src/domain/orchestration/index.js";
 import { getCraigPaths } from "../src/state/craig-paths.js";
-import { createCraigState } from "./test-helpers.js";
+import { validateTaskRecord } from "../src/domain/task/index.js";
+import { buildTaskRecord, createCraigState } from "./test-helpers.js";
 
 const roots: string[] = [];
 const actor = { type: "system" as const, component: "heartbeat" as const };
@@ -20,6 +22,27 @@ afterEach(async () => {
 });
 
 describe("event journal", () => {
+  test("normalizes retained swarm lineage to Fury without exposing legacy fields", async () => {
+    const paths = await createPaths();
+    const legacyEvent = {
+      schemaVersion: 1, id: "legacy", sequence: 1, workspaceId: null, taskId: "task_legacy",
+      agentTabId: null, commandId: null, swarmRunId: "swarm_legacy", swarmStepId: "inspect",
+      type: "swarm.step.started", occurredAt: new Date().toISOString(), actor, data: {},
+    };
+    await writeFile(path.join(paths.eventsDir, "segment-0000000000000001.jsonl"), `${JSON.stringify(legacyEvent)}\n`, "utf8");
+    const [event] = await readAllEvents(paths);
+    expect(event).toMatchObject({ type: "fury.step.started", furyRunId: "swarm_legacy", furyStepId: "inspect" });
+    expect(event).not.toHaveProperty("swarmRunId");
+
+    const current = buildTaskRecord(paths.workspaceRoot, { id: "task_legacy" });
+    const legacyTask = { ...current, swarmRunId: "swarm_legacy", swarmStepId: "inspect" } as Record<string, unknown>;
+    delete legacyTask.furyRunId;
+    delete legacyTask.furyStepId;
+    const task = validateTaskRecord(legacyTask, "legacy-task.json");
+    expect(task).toMatchObject({ furyRunId: "swarm_legacy", furyStepId: "inspect" });
+    expect(task).not.toHaveProperty("swarmRunId");
+  });
+
   test("serializes concurrent appends with monotonic sequences and idempotent ids", async () => {
     const paths = await createPaths();
     const events = await Promise.all(Array.from({ length: 20 }, (_, index) => appendEvent(paths, {
@@ -105,6 +128,22 @@ describe("event journal", () => {
     await appendEvent(rotated, { type: "task.updated", actor, data: {} }, { maxSegmentBytes: 1 });
     await appendFile(path.join(rotated.eventsDir, "segment-0000000000000001.jsonl"), "truncated", "utf8");
     await expect(listEvents(rotated)).rejects.toMatchObject({ code: "EVENT_JOURNAL_CORRUPT" });
+  });
+
+  test("retains event segments referenced by a live fury run", async () => {
+    const paths = await createPaths();
+    const runsDir = furyDirs(paths).runs;
+    await mkdir(runsDir, { recursive: true });
+    const runFile = path.join(runsDir, "fury_live.json");
+    await writeFile(runFile, JSON.stringify({ id: "fury_live", state: "running" }), "utf8");
+    await appendEvent(paths, { type: "fury.run.running", furyRunId: "fury_live", actor, data: {} }, { maxSegmentBytes: 1, maxSegments: 2 });
+    await appendEvent(paths, { type: "task.updated", actor, data: { index: 2 } }, { maxSegmentBytes: 1, maxSegments: 2 });
+    await appendEvent(paths, { type: "task.updated", actor, data: { index: 3 } }, { maxSegmentBytes: 1, maxSegments: 2 });
+    expect((await readAllEvents(paths)).map((event) => event.sequence)).toEqual([1, 2, 3]);
+
+    await writeFile(runFile, JSON.stringify({ id: "fury_live", state: "succeeded" }), "utf8");
+    await appendEvent(paths, { type: "task.updated", actor, data: { index: 4 } }, { maxSegmentBytes: 1, maxSegments: 2 });
+    expect((await readAllEvents(paths)).map((event) => event.sequence)).toEqual([3, 4]);
   });
 });
 

@@ -19,11 +19,11 @@ Craig already owns durable task records, worktrees, runner PTYs, GitHub pull-req
 - there is no durable command, event, wait, cancellation, or parent/child task contract
 - there is no declarative orchestration format
 
-The product goal is to make `craig` usable by both people and agents as the local control plane for Craig. The first slices must solve problems that exist now, especially identifying task context and linking or importing PRs. Later slices build on those same contracts to observe agents, inject prompts across tasks, delegate bounded work, and run declarative swarms.
+The product goal is to make `craig` usable by both people and agents as the local control plane for Craig. The first slices must solve problems that exist now, especially identifying task context and linking or importing PRs. Later slices build on those same contracts to observe agents, inject prompts across tasks, delegate bounded work, and run declarative furys.
 
 Goals:
 
-- ship useful CLI primitives before building a swarm runtime
+- ship useful CLI primitives before building a fury runtime
 - make task and workspace context resolvable without scraping the TUI
 - make every automation-facing command non-interactive and machine-readable
 - explicitly repair, refresh, unlink, and inspect task-to-PR associations
@@ -32,15 +32,15 @@ Goals:
 - introduce a durable workspace event journal with resumable cursors
 - deliver prompts to a specific task and agent tab through a durable, idempotent queue
 - model parent/child delegation with limits, lineage, cancellation, and audit history
-- define swarms as versioned YAML DAGs whose persisted runs survive Craig restarts
-- allow swarm authors to place intentional, durable human review checkpoints before downstream work proceeds
+- define furys as versioned YAML DAGs whose persisted runs survive Craig restarts
+- allow fury authors to place intentional, durable human review checkpoints before downstream work proceeds
 - use events for normal orchestration transitions and heartbeat jobs only for reconciliation
 - keep the TUI, human CLI, and agent CLI on the same domain services
 
 ## Non-goals
 
 - a hosted Craig control plane or cross-machine coordinator
-- arbitrary shell execution from swarm YAML
+- arbitrary shell execution from fury YAML
 - treating terminal silence as proof that work succeeded
 - replacing GitHub Actions or general-purpose workflow engines
 - parsing terminal text to infer structured step outputs
@@ -63,9 +63,9 @@ The work lands as independently useful vertical slices:
 3. durable agent status, events, and waits
 4. targeted prompt dispatch
 5. bounded parent/child delegation
-6. YAML swarm validation, execution, and intentional human review gates
+6. YAML fury validation, execution, and intentional human review gates
 
-The CLI primitives are the product foundation, not a temporary wrapper around swarm implementation.
+The CLI primitives are the product foundation, not a temporary wrapper around fury implementation.
 
 ### Architecture boundaries
 
@@ -78,13 +78,13 @@ agent CLI ─────┘       │                       │
                       ├── PTY daemon           ├── task / PR records
                       ├── Git / GitHub          ├── command records
                       └── clock / process       ├── event journal
-                                                  └── swarm runs
+                                                  └── fury runs
 ```
 
 Ownership rules:
 
 - `domain/task/` continues to own task context, task lifecycle, and PR association result types.
-- `domain/agent/` owns observed agent status. A new `domain/orchestration/` consumes that status and owns command records, event envelopes, prompt dispatch, delegation, and swarm definitions/runs.
+- `domain/agent/` owns observed agent status. A new `domain/orchestration/` consumes that status and owns command records, event envelopes, prompt dispatch, delegation, and fury definitions/runs.
 - Domain services define ports for runtime delivery, clocks, ids, and external lookups. They do not import `ui/`, the PTY daemon, or terminal rendering.
 - Shell adapters implement those ports using the existing PTY daemon, Git, GitHub CLI, filesystem, and process runtime.
 - `commands/` parses input and maps domain results to output. It does not own result types or business rules.
@@ -182,7 +182,7 @@ Craig-launched PTYs receive:
 - `CRAIG_TASK_ID`
 - `CRAIG_AGENT_TAB_ID` for agent tabs
 - `CRAIG_PARENT_TASK_ID` when delegated
-- `CRAIG_SWARM_RUN_ID` and `CRAIG_SWARM_STEP_ID` for swarm workers
+- `CRAIG_FURY_RUN_ID` and `CRAIG_FURY_STEP_ID` for fury workers
 - `CRAIG_CAPABILITY_TOKEN` when the launched agent has mutation permissions
 
 The UI-selected task is never an implicit CLI fallback. This prevents a command in one worktree from mutating whichever task happens to be selected in another Craig process.
@@ -261,7 +261,7 @@ type AgentRuntimeState = "idle" | "working" | "ready" | "error";
 
 Task roll-up priority is `error > working > ready > idle`, so a task remains visibly active while any agent tab is working. Agent-tab status remains independently visible.
 
-This state is an observation signal, not workflow completion. A quiet agent may still be reasoning, and `ready` never means that a swarm step succeeded.
+This state is an observation signal, not workflow completion. A quiet agent may still be reasoning, and `ready` never means that a fury step succeeded.
 
 Commands:
 
@@ -287,8 +287,8 @@ interface CraigEvent<TType extends string = string, TData = unknown> {
   taskId: string | null;
   agentTabId: string | null;
   commandId: string | null;
-  swarmRunId: string | null;
-  swarmStepId: string | null;
+  furyRunId: string | null;
+  furyStepId: string | null;
   type: TType;
   occurredAt: string;
   actor: CraigActor;
@@ -302,7 +302,7 @@ Initial event families:
 - `task.pr.linked`, `task.pr.unlinked`, `task.pr.refreshed`
 - `agent.state.changed`
 - `command.queued`, `command.delivered`, `command.failed`, `command.cancelled`
-- `swarm.run.*`, `swarm.step.*`, and `swarm.review.*`
+- `fury.run.*`, `fury.step.*`, and `fury.review.*`
 
 ```ts
 type CraigActor =
@@ -319,7 +319,7 @@ Journal requirements:
 - bounded record size and payload redaction
 - fsync/atomic segment rotation appropriate for local durability
 - recovery that ignores only a truncated final line and reports all other corruption
-- retention by rotated segment, never deletion of records still referenced by a live command or swarm run
+- retention by rotated segment, never deletion of records still referenced by a live command or fury run
 
 Commands:
 
@@ -387,11 +387,11 @@ craig task children [<task-id>] --json
 craig task cancel-tree [<task-id>] --json
 ```
 
-Task records gain `parentTaskId`, `rootTaskId`, `delegationDepth`, and optional `swarmRunId`/`swarmStepId`. Cancellation is top-down and idempotent. A child failure does not silently cancel siblings; that decision belongs to the caller or swarm policy.
+Task records gain `parentTaskId`, `rootTaskId`, `delegationDepth`, and optional `furyRunId`/`furyStepId`. Cancellation is top-down and idempotent. A child failure does not silently cancel siblings; that decision belongs to the caller or fury policy.
 
-### Declarative swarm format
+### Declarative fury format
 
-A swarm definition is immutable input. Runtime state is stored separately.
+A Fury definition is immutable input stored under `.craig/fury/`. Validation is read-only. Planning resolves inputs and runners, binds the graph to the current planning task, and persists an immutable content-hashed approval plan separately from runtime state.
 
 ```yaml
 version: 1
@@ -451,6 +451,8 @@ Version 1 rules:
 
 - The graph must be acyclic.
 - A step targets an existing task or creates one child task.
+- Every `create_child` target becomes a direct child of the planning task. DAG dependencies control execution order and never change task ancestry.
+- A concrete existing-task or feedback target must be the planning task; downstream `${{ steps.<id>.task_id }}` references may target children created by the same plan.
 - A step is either an agent step or a `human_review` step; the two shapes are mutually exclusive.
 - Steps use prompt delivery only; arbitrary `shell:` steps are rejected.
 - References are limited to declared inputs and completed step outputs.
@@ -464,26 +466,28 @@ Version 1 rules:
 - A review without its own timeout remains bounded by the required run timeout. A review timeout fails the step unless the run was cancelled first.
 - Static limits are required and validated before any task is created.
 - Unknown fields fail validation.
+- Running requires a durable human approval whose plan id and content hash still match. An approved plan produces at most one run.
 
 Commands:
 
 ```text
-craig swarm validate <file> --json
-craig swarm plan <file> [--input key=value] --json
-craig swarm run <file> [--input key=value] [--idempotency-key <key>] --json
-craig swarm status <run-id> --json
-craig swarm watch <run-id> [--after <cursor>] --format jsonl
-craig swarm cancel <run-id> --json
-craig swarm resume <run-id> --json
-craig swarm step complete --run <run-id> --step <step-id> \
+craig fury validate <file> --json
+craig fury plan <file> [--root-task <task-id>] [--input key=value] --json
+craig fury approve <plan-id> --json
+craig fury run <plan-id> --json
+craig fury status <run-id> --json
+craig fury watch <run-id> [--after <cursor>] --format jsonl
+craig fury cancel <run-id> --json
+craig fury resume <run-id> --json
+craig fury step complete --run <run-id> --step <step-id> \
   (--output <json> | --output-file <path> | --stdin) --json
-craig swarm step fail --run <run-id> --step <step-id> --reason <text> --json
-craig swarm reviews list [--run <run-id>] [--state <state>] --json
-craig swarm review show <review-id> --json
-craig swarm review approve <review-id> [--note <text>] --json
-craig swarm review reject <review-id> --reason <text> --json
-craig swarm review request-changes <review-id> --reason <text> --json
-craig swarm review resubmit <review-id> [--summary <text>] --json
+craig fury step fail --run <run-id> --step <step-id> --reason <text> --json
+craig fury reviews list [--run <run-id>] [--state <state>] --json
+craig fury review show <review-id> --json
+craig fury review approve <review-id> [--note <text>] --json
+craig fury review reject <review-id> --reason <text> --json
+craig fury review request-changes <review-id> --reason <text> --json
+craig fury review resubmit <review-id> [--summary <text>] --json
 ```
 
 Agent steps use:
@@ -516,7 +520,7 @@ Normal transitions are event-driven. The heartbeat periodically reconciles:
 
 The heartbeat never executes business transitions without re-reading durable state and applying an idempotent domain transition.
 
-Conditions, retries, `foreach`, dynamic fan-out, and recursive child-created swarms are deferred until the fixed DAG is reliable.
+Conditions, retries, `foreach`, dynamic fan-out, and recursive child-created Fury runs are deferred until the fixed DAG is reliable.
 
 ### Persistence model
 
@@ -528,7 +532,10 @@ New workspace-local state:
   events/<segment>.jsonl
   orchestration/
     capabilities/<capability-id>.json
+  fury/
     definitions/<definition-hash>.yaml
+    plans/<plan-id>.json
+    approvals/<plan-id>.json
     reviews/<review-id>.json
     runs/<run-id>.json
 ```
@@ -553,14 +560,36 @@ interface PromptDispatch {
   deliveredAt: string | null;
 }
 
-interface SwarmRun {
+interface FuryPlan {
   schemaVersion: 1;
   id: string;
+  planHash: string;
+  definitionHash: string;
+  rootTaskId: string;
+  inputs: Record<string, unknown>;
+  steps: FuryPlanStep[];
+  createdBy: CraigActor;
+  createdAt: string;
+}
+
+interface FuryApproval {
+  schemaVersion: 1;
+  planId: string;
+  planHash: string;
+  approvedBy: Extract<CraigActor, { type: "human" }>;
+  approvedAt: string;
+}
+
+interface FuryRun {
+  schemaVersion: 1;
+  id: string;
+  planId: string;
+  planHash: string;
   definitionHash: string;
   state: "pending" | "running" | "waiting_for_review" | "succeeded" | "failed" | "cancelled" | "timed_out";
   inputs: Record<string, unknown>;
-  limits: SwarmLimits;
-  stepRuns: Record<string, SwarmStepRun>;
+  limits: FuryLimits;
+  stepRuns: Record<string, FuryStepRun>;
   eventCursor: number;
   actor: CraigActor;
   createdAt: string;
@@ -596,7 +625,7 @@ interface HumanReviewDecision {
 }
 ```
 
-Records carry a schema version. Readers migrate supported older versions in memory and rewrite only during an explicit mutation. Secrets and capability values are never copied into events, logs, JSON output, or swarm definitions.
+Records carry a schema version. Readers migrate supported older versions in memory and rewrite only during an explicit mutation. Secrets and capability values are never copied into events, logs, JSON output, or fury definitions.
 
 ## Implementation tracker
 
@@ -609,8 +638,8 @@ Records carry a schema version. Readers migrate supported older versions in memo
 - `2.2` Add the durable event journal and event list/watch: `implemented and verified`
 - `3.1` Add durable, target-specific prompt dispatch and command inspection/wait/cancel: `implemented, review-hardened, and verified`
 - `4.1` Add capability-scoped parent/child delegation and tree cancellation: `implemented, review-hardened, and verified`
-- `5.1` Add swarm YAML parsing, validation, and dry-run planning: `implemented, review-hardened, and verified`
-- `5.2` Execute and recover a fixed DAG with structured completion and intentional human review gates: `pending`
+- `5.1` Add fury YAML parsing, validation, and dry-run planning: `implemented, review-hardened, and verified`
+- `5.2` Execute and recover an approved Fury DAG with structured completion and intentional human review gates: `implemented, Fury naming/sign-off and preview rollback/daemon safety hardened, and automated verification complete; isolated manual bug bash pending`
 - `5.3` Add guarded retry policies and conditional steps: `deferred`
 - `5.4` Add bounded `foreach` fan-out and dynamic delegation: `deferred`
 
@@ -622,15 +651,15 @@ Records carry a schema version. Readers migrate supported older versions in memo
 - `2.1` Verified by moving PTY activity snapshots and the `idle | working | ready | error` derivation into a domain-owned agent contract; keeping animation presentation in the UI; adding a shell-owned daemon protocol and activity adapter that observes, reconciles, and reconnects to the existing daemon without starting it as a read side effect; and exposing `agent list`, `agent status`, and `task wait` with versioned JSON results, global task filtering, per-tab selection, task roll-ups, duration parsing, timeout exit `6`, and distinct machine-readable `SIGINT` cancellation. The CLI and sidebar now call the same state and priority functions. Coverage includes all four states, multiple-agent task roll-up, ignored terminal tabs, correctly scoped durable startup failure, successful and non-zero exits, absent daemon behavior with preview disabled, workspace-wide listing from inside a task worktree, missing or cross-task tabs, subscription-before-snapshot race prevention, the shell-owned daemon client's snapshot and connection-loss behavior, timeout, cancellation, and parser/JSON contracts. Automated verification passed with 552 tests via `pnpm test`, including the PTY daemon and real-terminal E2E suites, plus `pnpm typecheck`, `pnpm lint`, `pnpm build`, `pnpm build:npm`, `pnpm package:audit`, and `pnpm package:smoke`.
 - `2.2` Verified by adding a generic domain-owned, workspace-scoped event contract and fsynced append-only JSONL segments under `.craig/events/`; serializing appenders with a crash-recoverable workspace lock; enforcing monotonic sequences, record limits, sensitive-field redaction, deterministic idempotency, atomic rotation, bounded segment retention, replay by sequence or event id, glob/task filters, cursor expiration details, truncated-active-tail repair, and hard failure for all other corruption. A shell reconciler emits coalesced `task.created | updated | closed`, `task.pr.linked | unlinked | refreshed`, and `agent.state.changed` transitions, using a compact atomic checkpoint to prevent retained-history rotation from manufacturing duplicate lifecycle events while deterministic ids repair append/checkpoint crash gaps. `events list` returns versioned JSON envelopes; `events watch` supports resumable human or JSONL streams without a read/subscribe race; and preview-enabled `task wait` advances the same cursor while retaining its stable Phase `2.1` contract when the preview is disabled. The new `agentOrchestration` preview gates event commands. Coverage includes concurrent append, sequence monotonicity, idempotency, replay, filtering, rotation, retention, redaction, sequence and event-id expiration, truncated-tail recovery, corruption, concurrent reconciliation, checkpoint survival across retention, semantic task/PR/agent transitions, preview gating, parser/JSON/JSONL contracts, cursor-backed wait, and a real daemon-backed watch through working, connection-loss error, daemon restart, and working-again transitions. Automated verification passed with 564 tests via `pnpm test`, including PTY daemon and real-terminal E2E coverage, plus `pnpm typecheck`, `pnpm lint`, `pnpm build`, `pnpm build:npm`, `pnpm package:audit`, and `pnpm package:smoke`.
 - `3.1` Verified by adding domain-owned, versioned prompt command records under `.craig/commands/` with crash-safe atomic persistence, a workspace command lock, bounded prompt/idempotency/timeout validation, path-safe identifiers, idempotent creation, explicit state transitions, queued-only cancellation, stable not-found/invalid/conflict errors, and partial-result reporting when durable mutation succeeds but event append fails. `craig agent send` accepts inline, file, or stdin prompts with default `when-ready` and explicit `immediate` delivery; `craig command show`, `list`, `wait`, and `cancel` inspect and control durable work even after preview disablement. The heartbeat implementation now lives in the shell layer, and the daemon hosts a single-leader orchestration supervisor that wakes on mutations, reconciles missed signals and deadlines, keeps activity observation alive independently of TUI subscribers, targets a concrete task/tab without using foreground selection, and never replays an interrupted `delivering` command. Runner-aware shell encoding uses bracketed paste plus one submit, while the PTY runtime exposes only a target-specific write port. Command event reconciliation repairs record/event crash gaps without recreating retained history, and journal retention preserves segments referenced by live commands. Coverage includes preview gating, JSON contracts, inline/file/stdin parsing, idempotency conflicts, unsafe bytes, hard limits, path traversal, corrupted event partial results, wait timeout/cancellation states, leader contention, busy-to-ready delivery, closed and expired targets, transport exceptions, uncertain restart recovery, cancellation conflicts, retained live-command events, protocol compatibility, and a real-node-PTY stub proving exactly one prompt reaches the requested background task/tab while the foreground tab receives nothing. Automated verification passed with 585 tests via `pnpm test`, plus `pnpm typecheck`, `pnpm lint`, `pnpm build`, `pnpm build:npm`, `pnpm package:audit`, and `pnpm package:smoke`.
-- `4.1` Verified by adding orchestration-domain capability issuance, validation, expiry, revocation, actor audit, and restrictive `0700`/`0600` workspace-local persistence; preview-enabled root and interactive agent launches receive an opaque bearer token through scoped PTY environment context while task records retain only a non-authorizing capability reference. Task records now carry normalized parent/root/depth, idempotency, and optional swarm lineage without introducing orchestration or UI imports into the task domain. `craig task create-child`, `task children`, and `task cancel-tree` expose bounded child creation, durable direct-child inspection, and serialized top-down idempotent cancellation; capability targets are limited to the owning task subtree, repo targets are limited to the parent task's repo scope, and creation is capped by prompt bytes, depth, total children, and concurrent children. The TUI uses one state-owned ordering contract for both sidebar rendering and keyboard navigation, grouping every visible descendant beneath its root while flattening all delegation depths to exactly one visual child level; task dots remain scoped to each task's own agent tabs. A crash-recoverable delegation lock closes idempotency and cancellation races, partial launch failures retain a replayable draft child, capability revocation follows tree cancellation, lineage cycles fail closed, daemon- and tmux-owned agent sessions are terminated, and mutation events retain the responsible actor with partial-result errors if audit persistence fails. Review hardening denies unscoped legacy agent sessions, keeps bearer values out of tmux commands through a private launch handoff, serializes issuance against stale snapshots, revokes orphaned task-bound capabilities, and keeps sidebar grouping and tree cancellation linear. New child creation is gated by `agentOrchestration`, while inspection and cancellation remain available after preview disablement for recovery. Coverage includes command-family permission denial, restrictive file modes, bearer/reference separation and non-exposure, missing agent capability denial, stale-snapshot issuance, orphan revocation, expiry, unrelated-target denial, descendant authorization, depth/count/concurrency limits, lineage, idempotent replay and conflict handling, partial launch failure, concurrent tree cancellation, preview gating, parser/JSON contracts, one-level child/grandchild rendering and navigation, scoped tmux and daemon PTY context, and existing real-terminal startup/delivery behavior. Automated verification passed with 616 tests via `pnpm test`, plus `pnpm typecheck`, `pnpm lint`, `pnpm build`, `pnpm build:npm`, `pnpm package:audit`, and `pnpm package:smoke`.
-- `5.1` Verified by adding a direct `yaml` dependency and an orchestration-domain version `1` definition contract for typed inputs, required static limits, agent steps, child-task targets, explicit output schemas, and intentional human-review checkpoints with optional feedback targets. `craig swarm validate` and `craig swarm plan` are gated by `agentOrchestration`; validation rejects duplicate keys, aliases, anchors, unknown fields, unsupported versions and runners, malformed templates, undeclared inputs and outputs, invalid or unrelated step references, missing dependencies, cycles, hybrid review/agent shapes, excessive limits, oversized definitions and prompts, deeply nested output schemas, and output paths absent from explicitly declared schema properties. Planning coerces declared inputs, rejects blank numeric values, reapplies non-empty and prompt-size constraints after input rendering, produces a normalized content hash, deterministic topological order and concurrency-bounded execution waves, retains deferred step-output expressions and output schemas for the executor, and explicitly reports an empty mutation set. No definition, run, task, command, event, capability, or review state is persisted during validation or planning. The npm build aliases the dependency's ESM implementation into the standalone bundle after package smoke exposed its default CommonJS dynamic-require shim. Coverage proves valid agent/review graphs, deterministic hashes and plans, syntax hazards, invalid graphs/references/shapes/limits/inputs, rendered-value constraints, declared output-path checks, file and schema bounds, concurrency batching, preview gating, CLI parser/JSON contracts, workspace snapshot equality before and after validate/plan, and packed `swarm validate`/`swarm plan` execution. Automated verification passed with 636 tests via `pnpm test`, plus `pnpm typecheck`, `pnpm lint`, `pnpm build`, `pnpm build:npm`, `pnpm package:audit`, and `pnpm package:smoke`.
-- `5.2` Not yet verified.
+- `4.1` Verified by adding orchestration-domain capability issuance, validation, expiry, revocation, actor audit, and restrictive `0700`/`0600` workspace-local persistence; preview-enabled root and interactive agent launches receive an opaque bearer token through scoped PTY environment context while task records retain only a non-authorizing capability reference. Task records now carry normalized parent/root/depth, idempotency, and optional fury lineage without introducing orchestration or UI imports into the task domain. `craig task create-child`, `task children`, and `task cancel-tree` expose bounded child creation, durable direct-child inspection, and serialized top-down idempotent cancellation; capability targets are limited to the owning task subtree, repo targets are limited to the parent task's repo scope, and creation is capped by prompt bytes, depth, total children, and concurrent children. The TUI uses one state-owned ordering contract for both sidebar rendering and keyboard navigation, grouping every visible descendant beneath its root while flattening all delegation depths to exactly one visual child level; task dots remain scoped to each task's own agent tabs. A crash-recoverable delegation lock closes idempotency and cancellation races, partial launch failures retain a replayable draft child, capability revocation follows tree cancellation, lineage cycles fail closed, daemon- and tmux-owned agent sessions are terminated, and mutation events retain the responsible actor with partial-result errors if audit persistence fails. Review hardening denies unscoped legacy agent sessions, keeps bearer values out of tmux commands through a private launch handoff, serializes issuance against stale snapshots, revokes orphaned task-bound capabilities, and keeps sidebar grouping and tree cancellation linear. New child creation is gated by `agentOrchestration`, while inspection and cancellation remain available after preview disablement for recovery. Coverage includes command-family permission denial, restrictive file modes, bearer/reference separation and non-exposure, missing agent capability denial, stale-snapshot issuance, orphan revocation, expiry, unrelated-target denial, descendant authorization, depth/count/concurrency limits, lineage, idempotent replay and conflict handling, partial launch failure, concurrent tree cancellation, preview gating, parser/JSON contracts, one-level child/grandchild rendering and navigation, scoped tmux and daemon PTY context, and existing real-terminal startup/delivery behavior. Automated verification passed with 616 tests via `pnpm test`, plus `pnpm typecheck`, `pnpm lint`, `pnpm build`, `pnpm build:npm`, `pnpm package:audit`, and `pnpm package:smoke`.
+- `5.1` Verified by adding a direct `yaml` dependency and an orchestration-domain version `1` definition contract for typed inputs, required static limits, agent steps, child-task targets, explicit output schemas, and intentional human-review checkpoints with optional feedback targets. Validation rejects duplicate keys, aliases, anchors, unknown fields, unsupported versions and runners, malformed templates, undeclared inputs and outputs, invalid or unrelated step references, missing dependencies, cycles, hybrid review/agent shapes, excessive limits, oversized definitions and prompts, deeply nested output schemas, and output paths absent from explicitly declared schema properties. The pure planning engine coerces declared inputs, rejects blank numeric values, reapplies non-empty and prompt-size constraints after input rendering, produces a normalized content hash, deterministic topological order and concurrency-bounded execution waves, and retains deferred step-output expressions and output schemas for the executor without creating task, command, run, capability, or review state. Phase `5.2` now wraps that engine in an immutable approval-plan record while `fury validate` remains read-only. The npm build aliases the dependency's ESM implementation into the standalone bundle after package smoke exposed its default CommonJS dynamic-require shim. Coverage proves valid agent/review graphs, deterministic hashes and plans, syntax hazards, invalid graphs/references/shapes/limits/inputs, rendered-value constraints, declared output-path checks, file and schema bounds, concurrency batching, preview gating, CLI parser/JSON contracts, pure-engine workspace snapshot equality, and packed `fury validate`/`fury plan` execution. Automated verification passed with 636 tests via `pnpm test`, plus `pnpm typecheck`, `pnpm lint`, `pnpm build`, `pnpm build:npm`, `pnpm package:audit`, and `pnpm package:smoke`.
+- `5.2` Automated verification passed for a preview-gated, restart-safe Fury runtime. The former swarm naming is removed from commands, domain types, directories, environment, events, and TUI language, with read-time migration for already-persisted task lineage and event journals. Authored YAML and content-addressed definitions, immutable resolved plans, human approvals, runs, and reviews live under `.craig/fury/`. Planning is capability-scoped to the planning agent's own task; concrete task targets are bound to that task; dynamic targets are limited to prior step task ids; plan content includes resolved inputs, root task, limits, runners, and steps; unchanged plans are idempotent; only the latest unapproved revision per source/root contributes TUI attention; only a human may approve the exact hash; tampering invalidates the record; and each approved plan creates at most one run under concurrent replay. Every Fury-created task is a direct child of the planning task even when DAG steps depend sequentially, while per-step runner selection remains independent. Versioned run, step, and review records use atomic writes and a crash-recoverable lock; the orchestration supervisor heartbeat reconciles claimed dispatches, prompt failures, deadlines, disappeared agent sessions, audit-event gaps, and ready work without replaying succeeded steps. Existing-task steps use durable prompt commands, child steps use bounded delegation with Fury lineage and launch environment, declared runners must match a concrete agent tab, and every mixed-runner agent tab receives its own scoped capability. Completion and failure are explicit and schema-validated; terminal silence never succeeds a step. Durable human checkpoints support human-only approve/reject/request-changes, scoped feedback delivery, attributable decision history, feedback-target resubmission, concurrent-decision serialization, timeouts, and downstream blocking. Run/status/watch/cancel/resume and review CLI surfaces are machine-readable; event retention preserves live Fury history; and one flat TUI attention row aggregates pending plan sign-offs and runtime reviews. The first manual bug-bash attempt exposed that an agent-context development TUI could silently attach to the live workspace, replace an incompatible daemon, and persist Fury command families into schema-version-1 capability records that stable Craig rejected. Recovery preserved task and token identity while removing only the incompatible grants. Hardening now persists only stable capability families, derives Fury authority from a valid task-scoped token after the preview gate, accepts well-formed future family names without granting them, requires an explicit workspace root for agent-launched interactive Craig, fails closed on live daemon protocol mismatch, and canonicalizes internal daemon paths so packaged smoke shuts down cleanly on macOS. Coverage includes the full agent-plan/human-approve/agent-run CLI path, definitions outside `.craig/fury/`, root-target containment, unsafe dynamic targets, unchanged/revised plan behavior, plan tampering, missing approval, agent self-approval denial, pending-plan attention, concurrent approval and single-run replay, sequential mixed-runner direct-child hierarchy, claimed-dispatch recovery, duplicate-command prevention, concurrent completion, invalid output, legacy-state migration, stable-only capability persistence, forward-compatible capability reads, explicit interactive workspace selection, incompatible-daemon non-eviction, per-tab capabilities, request-changes/resubmit, concurrent review decisions, run and review timeout, event retention, preview gating, sidebar rendering, and packed approval/runtime execution and cleanup. Automated verification passed with 656 tests across 67 files via `pnpm test`, plus `pnpm typecheck`, `pnpm lint`, `pnpm build`, `pnpm build:npm`, `pnpm package:audit`, and `pnpm package:smoke`. Manual verification remains open for the conversational planning-agent flow, a real mixed-runner multi-task Fury run, and an intentional human-review checkpoint driven through the TUI/CLI in an isolated workspace.
 - `5.3` Deferred until fixed-DAG execution has production use.
 - `5.4` Deferred until limits and cancellation are proven under fixed DAGs.
 
 ### Next resume point
 
-Resume at `5.2`. Treat the verified Phase `5.1` normalized definition hash, typed input resolution, strict references, output schemas, deterministic concurrency-bounded plan, and zero-mutation guarantee as immutable executor input. Persist run and review state only after validation and planning succeed; schedule agent steps exclusively through the verified child-creation and prompt-dispatch boundaries, require explicit schema-validated completion, surface intentional human-review checkpoints, and make every transition restart-safe and idempotent.
+Resume at the Phase `5.2` manual bug bash in a new explicitly selected isolated workspace, never through implicit agent-context inheritance. First confirm that starting and stopping the development TUI leaves the live Craig workspace and daemon untouched and that stable Craig can still load its state after preview use. From a fresh planning task in the isolated workspace, have the agent write YAML under `.craig/fury/`, validate it, create the immutable plan, and present its resolved waves/hash for sign-off. Approve the plan as a human, let the planning agent start it, and confirm mixed-runner child tasks appear as direct siblings beneath the planning task. Exercise status/watch, request-changes/resubmit, approval, cancellation, and a Craig restart while work or review is pending; record UX or contract adjustments before marking `5.2` verified. Do not begin `5.3` retries or conditions until this approved fixed-DAG flow is accepted in use.
 
 ### Skipped and deferred work
 
@@ -638,7 +667,7 @@ Resume at `5.2`. Treat the verified Phase `5.1` normalized definition hash, type
 - Fork-origin PR import is deferred beyond `1.3`.
 - Remote/network control is out of scope.
 - Agent semantic acknowledgements are optional follow-up after reliable delivery.
-- Swarm retries, conditions, fan-out, and recursive delegation remain deferred through `5.2`.
+- Fury retries, conditions, fan-out, and recursive delegation remain deferred through `5.2`.
 
 ### Phase execution and verification policy
 
@@ -675,8 +704,8 @@ interface TaskRecord {
   parentTaskId?: string | null;
   rootTaskId?: string;
   delegationDepth?: number;
-  swarmRunId?: string | null;
-  swarmStepId?: string | null;
+  furyRunId?: string | null;
+  furyStepId?: string | null;
 }
 ```
 
@@ -684,7 +713,7 @@ Existing records read as `worktreeOwnership: "craig"`, `taskOrigin: { type: "cre
 
 `CraigPaths` gains `commandsDir`, `eventsDir`, and `orchestrationDir`. `CraigConfig` gains the `agentOrchestration` preview plus bounded orchestration settings. New command and event result types live in `domain/orchestration/types.ts`; PR association/import results remain in `domain/task/types.ts`.
 
-Daemon protocol additions are internal, versioned transport contracts. A protocol mismatch triggers the existing compatible-daemon restart path. Persisted schemas and the public JSON envelope are versioned independently from the daemon protocol.
+Daemon protocol additions are internal, versioned transport contracts. A client may reuse a compatible live daemon, but an incompatible live daemon fails closed and is never shut down or replaced implicitly. Persisted schemas and the public JSON envelope are versioned independently from the daemon protocol.
 
 ## Edge cases and failure modes
 
@@ -700,9 +729,10 @@ Daemon protocol additions are internal, versioned transport contracts. A protoco
 - A target tab closed while a prompt is queued fails the command without selecting another tab implicitly.
 - Cancellation races resolve through terminal-state idempotency; success already persisted wins over later cancellation.
 - Importing an externally owned worktree never grants Craig cleanup ownership.
-- Duplicate swarm run idempotency keys return the original run.
-- Invalid YAML, unknown fields, cycles, missing references, excessive limits, and unresolved templates fail during `validate`/`plan` before mutations.
-- A swarm restart resumes from durable run and command state; it does not re-run succeeded steps.
+- Repeating `fury run` for the same approved plan returns the original run and cannot create a second task tree.
+- Invalid YAML, unknown fields, cycles, missing references, excessive limits, unresolved templates, definitions outside `.craig/fury/`, and concrete task targets outside the planning task fail before approval or execution.
+- Editing a plan record, resolved input, runner, root task, limit, or step invalidates its content hash and blocks approval/run.
+- A Fury restart resumes from durable run and command state; it does not re-run succeeded steps.
 - A restart preserves pending human review, its deadline, review round, decision history, and blocked downstream steps.
 - Review mutations require the expected record version and use compare-after-lock semantics. The first valid write wins; stale concurrent decisions return a conflict, and approve/reject are terminal.
 - Requesting changes without a configured feedback target returns a conflict and leaves the review waiting. If a configured target becomes unavailable after the decision is persisted, the review remains `changes_requested`, records the delivery failure, and requires human intervention; it never releases downstream work.
@@ -714,14 +744,16 @@ Daemon protocol additions are internal, versioned transport contracts. A protoco
 
 - All control remains local to the user account and workspace.
 - Capability files use restrictive filesystem permissions and contain opaque random values.
+- Base capability records persist only stable delegation families. Fury authorization is derived from the same valid task-scoped token under each command's preview and durable-recovery policy and never makes the record unreadable to stable Craig.
 - Agent capabilities default to the current task and its children; cross-task prompt injection is opt-in.
 - Agent capabilities never include human-review approve, reject, or request-changes permissions. A feedback-target capability may only read and resubmit its assigned review.
+- Agent capabilities may create a plan only for their own task and may run it only after a separate human approval. Agents cannot approve Fury plans.
 - Human review mutations require an interactive human CLI/TUI context without an agent capability. This is a workflow boundary, not a hard security boundary against a malicious process with unrestricted access to the same OS user and workspace.
 - `--json` changes review-command output but does not waive the interactive human-context check. Non-interactive and remote approvals are out of scope.
 - Prompt size, event payload size, output size, task count, depth, concurrency, and runtime duration have hard limits.
 - Control characters are rejected or encoded by runner-specific prompt delivery.
 - YAML cannot execute shell commands, read arbitrary environment variables, or reference undeclared files.
-- `--prompt-file` and `--output-file` resolve explicitly supplied paths; swarm templates cannot perform path traversal.
+- `--prompt-file` and `--output-file` resolve explicitly supplied paths; fury templates cannot perform path traversal.
 - Capability values, environment secrets, raw terminal buffers, and full prompts are excluded from event payloads by default.
 - Human-readable audit history records actor, target, command type, timestamps, and disposition.
 - PR link/import always verifies GitHub state through authenticated tooling rather than trusting caller-provided metadata.
@@ -733,9 +765,10 @@ Daemon protocol additions are internal, versioned transport contracts. A protoco
 - JSON errors expose stable codes, retryability, and safe details.
 - `craig events watch` is the canonical diagnostic stream for orchestration.
 - `craig command show` explains delivery attempts and the last safe error.
-- `craig swarm status` reports each step, dependency blockers, target task, command id, timestamps, and output-validation state.
-- Human review emits `swarm.review.requested`, `swarm.review.changes_requested`, `swarm.review.resubmitted`, `swarm.review.approved`, `swarm.review.rejected`, `swarm.review.timed_out`, and `swarm.review.cancelled` with review id, round, actor, and safe reason metadata.
-- The TUI surfaces waiting reviews as an explicit attention state with review title, run/step context, elapsed time, and available human actions; it does not disguise a review gate as agent failure or completion.
+- `fury.plan.created` and `fury.plan.approved` events record the exact plan id/hash, planning task, and attributable actor.
+- `craig fury status` reports each step, dependency blockers, target task, command id, timestamps, and output-validation state.
+- Human review emits `fury.review.requested`, `fury.review.changes_requested`, `fury.review.resubmitted`, `fury.review.approved`, `fury.review.rejected`, `fury.review.timed_out`, and `fury.review.cancelled` with review id, round, actor, and safe reason metadata.
+- The TUI surfaces pending plan sign-offs and waiting reviews through one flat Fury attention state; it does not add nested navigation or disguise an approval gate as agent failure or completion.
 - Heartbeat reconciliation logs job id, scanned count, repaired count, duration, and failures without logging prompt bodies.
 - Event journal corruption, cursor expiration, uncertain prompt delivery, capability denial, and orphaned runtime sessions are surfaced as explicit events and error log entries.
 
@@ -745,8 +778,9 @@ Daemon protocol additions are internal, versioned transport contracts. A protoco
 - `1.3` ships as an explicit command with same-repository limitations documented; it does not alter normal task creation.
 - `2.1` keeps the TUI dots behind the existing `agentActivityIndicators` preview. The additive read-only CLI commands ship stable because the TUI and CLI now derive their states from the same domain contract.
 - `2.2`, `3.1`, `4.1`, and `5.x` are gated by a new `agentOrchestration` feature preview during initial use.
-- Read-only validation, planning, status, and event inspection may be enabled before mutating swarm execution.
+- Read-only validation, status, and event inspection may be enabled before mutating Fury execution. Planning persists only an immutable approval request and cannot create tasks, commands, or runs.
 - Preview disablement stops new dispatch/run creation but does not abandon existing durable commands or runs; Craig continues status, cancellation, and safe reconciliation.
+- Interactive Craig launched from agent context requires an explicit workspace root, preventing a development TUI from silently attaching to live state; an explicit different directory provides an isolated test workspace.
 - The daemon supervisor is introduced dormant: it performs no orchestration work until the preview is enabled or unfinished durable work already exists.
 - Each shipping sub-phase gets its own `craig-cli` Changeset and PR so value is collected independently.
 - Promotion out of preview requires no unresolved uncertain-delivery bug, restart recovery tests, capability denial tests, human-review authorization and recovery tests, and successful real use across multiple tasks.
@@ -908,7 +942,11 @@ Daemon protocol additions are internal, versioned transport contracts. A protoco
 
 #### Implementation
 
-- persist swarm runs and fixed-DAG step state
+- use Fury consistently in the CLI, domain, persistence, events, environment, and TUI language
+- store authored definitions and durable plan/approval/run state under `.craig/fury/`
+- bind each immutable resolved plan to its planning task and require attributable human approval of the exact plan hash before run creation
+- make approved plans single-run and create every Fury child directly beneath the planning task regardless of DAG dependency depth
+- persist fury runs and fixed-DAG step state
 - schedule ready steps within limits through child creation and prompt dispatch
 - add explicit schema-validated step complete/fail
 - persist human review checkpoints and decision history, including approve, reject, request-changes, feedback delivery, and resubmit
@@ -918,13 +956,15 @@ Daemon protocol additions are internal, versioned transport contracts. A protoco
 
 #### Verification
 
+- cover definitions outside `.craig/fury/`, unrelated root targets, plan tampering, missing approval, agent self-approval denial, concurrent approval/run, and single-run replay
+- prove sequentially dependent `create_child` steps remain direct siblings beneath the planning task
 - cover dependency ordering, parallel limits, success/failure/cancel/timeout, output validation, restart at every transition boundary, and no replay of succeeded steps
 - cover approve/reject/request-changes/resubmit, feedback delivery failure, human-versus-agent authorization, concurrent decisions, review timeout, restart while waiting, and downstream blocking
-- run a real multi-task swarm with stub agents and then one manual Codex swarm containing at least one human review checkpoint
+- run a real multi-task fury with stub agents and then one manual Codex fury containing at least one human review checkpoint
 
 #### Tracking update
 
-- keep `5.2` open if terminal silence is treated as success, restart can duplicate a step, or downstream work can bypass an unapproved human checkpoint
+- keep `5.2` open if terminal silence is treated as success, restart can duplicate a step, a plan can run without exact human sign-off, or downstream work can bypass an unapproved human checkpoint
 - keep `5.2` open if a feedback-target agent can approve/reject its own review or review history is not durable and attributable
 - leave retries, conditions, fan-out, and recursive delegation deferred unless separately approved
 
@@ -937,6 +977,6 @@ Daemon protocol additions are internal, versioned transport contracts. A protoco
 - `[2.2]` Consumers can resume a filtered event stream from a cursor without a read/subscribe race.
 - `[3.1]` A prompt can be durably and exactly targeted to another task's agent tab, inspected, waited on, and cancelled without relying on foreground selection.
 - `[4.1]` An agent can create bounded child work with durable lineage while capabilities prevent unrelated or unbounded mutations.
-- `[5.1]` A swarm YAML file, including human review gates and feedback targets, can be validated and planned with zero runtime mutations.
+- `[5.1]` A Fury YAML file, including human review gates and feedback targets, can be validated and resolved without creating tasks, commands, runs, capabilities, or reviews.
 - `[5.2]` A bounded fixed DAG can execute, report structured outputs, cancel, and recover from restart without inferring success from terminal silence or duplicating completed work.
-- `[5.2]` A swarm can pause at a durable human review checkpoint, route requested changes back to a declared agent target, and release downstream work only after an attributable human approval.
+- `[5.2]` A fury can pause at a durable human review checkpoint, route requested changes back to a declared agent target, and release downstream work only after an attributable human approval.

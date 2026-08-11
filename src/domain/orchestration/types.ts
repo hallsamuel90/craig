@@ -11,8 +11,8 @@ export interface CraigEvent<TType extends string = string, TData = unknown> {
   taskId: string | null;
   agentTabId: string | null;
   commandId: string | null;
-  swarmRunId: string | null;
-  swarmStepId: string | null;
+  furyRunId: string | null;
+  furyStepId: string | null;
   type: TType;
   occurredAt: string;
   actor: CraigActor;
@@ -25,8 +25,8 @@ export interface CraigEventInput<TType extends string = string, TData = unknown>
   taskId?: string | null;
   agentTabId?: string | null;
   commandId?: string | null;
-  swarmRunId?: string | null;
-  swarmStepId?: string | null;
+  furyRunId?: string | null;
+  furyStepId?: string | null;
   type: TType;
   occurredAt?: string;
   actor: CraigActor;

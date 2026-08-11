@@ -87,13 +87,14 @@ export async function createChildTask(paths: CraigPaths, input: CreateChildInput
         rootTaskId: parent.rootTaskId,
         delegationDepth: parent.delegationDepth + 1,
         delegationIdempotencyKey: key,
-        swarmRunId: parent.swarmRunId,
-        swarmStepId: null,
+        furyRunId: input.fury?.runId ?? parent.furyRunId,
+        furyStepId: input.fury?.stepId ?? null,
       },
       onProvisioned: async (task) => ({
         CRAIG_WORKSPACE_ROOT: paths.workspaceRoot,
         CRAIG_TASK_ID: task.id,
         CRAIG_AGENT_TAB_ID: task.ptyTabs.find((tab) => tab.kind === "agent")?.id ?? "",
+        ...(input.fury ? { CRAIG_FURY_RUN_ID: input.fury.runId, CRAIG_FURY_STEP_ID: input.fury.stepId } : {}),
         ...await ensureTaskCapabilities(paths, task, actor),
       }),
     });

@@ -814,11 +814,12 @@ describe("PTY daemon", () => {
     }
   }, DAEMON_TEST_TIMEOUT_MS);
 
-  test("leaves an incompatible daemon running when its live-session state is unknown", async () => {
+  test("incompatible live daemon fails closed without shutdown or replacement", async () => {
     const root = await createWorkspace();
     const paths = getCraigPaths(root);
     const endpoint = getDaemonEndpointForTest(root);
     await writeFile(endpoint.pidPath, "999999", "utf8");
+    let shutdownRequested = false;
     const legacyServer = createServer((socket) => {
       let buffer = "";
       socket.setEncoding("utf8");
@@ -831,36 +832,36 @@ describe("PTY daemon", () => {
 
         const request = JSON.parse(buffer.slice(0, newlineIndex)) as { id: number; type: string };
         socket.write(`${JSON.stringify({ id: request.id, ok: true })}\n`);
-        if (request.type === "shutdown") {
-          socket.end();
-          legacyServer.close();
-        }
+        shutdownRequested ||= request.type === "shutdown";
       });
     });
     await new Promise<void>((resolve, reject) => {
       legacyServer.once("error", reject);
       legacyServer.listen(endpoint.socketPath, resolve);
     });
+    const spawnDaemon = vi.fn();
     try {
       await expect(createDaemonPtyRuntime({
         paths,
         workspaceRoot: root,
         resolveSessionSpec: () => ({ cwd: root, command: [] }),
-        spawnDaemon: vi.fn(),
-      })).rejects.toThrow("was left running to preserve live sessions");
+        spawnDaemon,
+      })).rejects.toThrow(/will not replace a live workspace daemon/);
+      expect(spawnDaemon).not.toHaveBeenCalled();
+      expect(shutdownRequested).toBe(false);
       expect(JSON.parse((await readFile(paths.logFile, "utf8")).trim())).toMatchObject({
         level: "warn",
         component: "daemon",
         event: "upgrade.blocked",
       });
     } finally {
-      await requestDaemonShutdown(paths);
       await new Promise<void>((resolve) => legacyServer.close(() => resolve()));
+      await rm(endpoint.socketPath, { force: true });
       await rm(root, { recursive: true, force: true });
     }
   }, DAEMON_TEST_TIMEOUT_MS);
 
-  test("keeps a compatible daemon running and preserves events newer than its activity snapshot", async () => {
+  test.each([6, 7, 8])("keeps protocol %i daemon running and preserves newer activity events", async (protocolVersion) => {
     const root = await createWorkspace();
     const endpoint = getDaemonEndpointForTest(root);
     let shutdownRequested = false;
@@ -877,7 +878,7 @@ describe("PTY daemon", () => {
           const response = {
             id: request.id,
             ok: true,
-            ...(request.type === "ping" ? { protocolVersion: 8 } : {}),
+            ...(request.type === "ping" ? { protocolVersion } : {}),
             ...(request.type === "getActivitySnapshots"
               ? {
                   activities: [{

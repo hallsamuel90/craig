@@ -137,6 +137,7 @@ export interface WorkspaceShellModel {
   inspection: TaskLocalInspection | null;
   agentCapabilityTokens?: Record<string, string>;
   enabledRunnerIds?: RunnerType[];
+  furyApprovalCount?: number;
 }
 
 export interface DiffPathRange {
@@ -249,6 +250,9 @@ function buildLeftTree(
   activity: AgentActivityPresentation | undefined,
 ): ShellTreeRow[] {
   const rows: ShellTreeRow[] = [{ text: "WORKSPACES", muted: true, panelHeader: true, focused: state.focusedRegion === "tasks" }];
+  if ((model.furyApprovalCount ?? 0) > 0) {
+    rows.push({ text: `● ${model.furyApprovalCount} Fury approval${model.furyApprovalCount === 1 ? "" : "s"} waiting`, indent: 1, status: "pending" });
+  }
 
   if (!model.workspaces) {
     return buildLegacyRepoLeftTree(rows, state, model.repos, model.tasks, activity);

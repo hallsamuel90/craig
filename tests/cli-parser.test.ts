@@ -35,8 +35,9 @@ describe("CLI argument parsing", () => {
     [["task", "wait", "task_1", "--state", "ready,error"], "waitTask"],
     [["events", "list", "--type", "agent.*"], "listEvents"],
     [["events", "watch", "--format", "jsonl"], "watchEvents"],
-    [["swarm", "validate", "swarm.yaml"], "validateSwarm"],
-    [["swarm", "plan", "swarm.yaml", "--input", "task_id=task_1"], "planSwarm"],
+    [["fury", "validate", "fury.yaml"], "validateFury"],
+    [["fury", "plan", "fury.yaml", "--input", "task_id=task_1"], "planFury"],
+    [["fury", "approve", "fury_plan_1"], "approveFury"],
     [["task", "attach", "task_1"], "attachTask"],
     [["task", "logs", "task_1"], "streamTaskLogs"],
     [["task", "diff", "task_1"], "showTaskDiff"],
@@ -79,21 +80,36 @@ describe("CLI argument parsing", () => {
     });
   });
 
-  test("parses swarm validation and repeated named plan inputs", () => {
-    expect(parseArgv(["swarm", "validate", "flow.yaml"]).command).toEqual({
-      kind: "validateSwarm",
+  test("parses fury validation and repeated named plan inputs", () => {
+    expect(parseArgv(["fury", "validate", "flow.yaml"]).command).toEqual({
+      kind: "validateFury",
       file: "flow.yaml",
     });
     expect(parseArgv([
-      "swarm", "plan", "flow.yaml", "--input", "task_id=task_1", "--input", "strict=true",
+      "fury", "plan", "flow.yaml", "--root-task", "task_1", "--input", "task_id=task_1", "--input", "strict=true",
     ]).command).toEqual({
-      kind: "planSwarm",
+      kind: "planFury",
       file: "flow.yaml",
       inputs: { task_id: "task_1", strict: "true" },
+      rootTaskId: "task_1",
     });
-    expect(() => parseArgv(["swarm", "plan", "flow.yaml", "--input", "task_id=one", "--input", "task_id=two"]))
+    expect(() => parseArgv(["fury", "plan", "flow.yaml", "--input", "task_id=one", "--input", "task_id=two"]))
       .toThrow(/only be provided once/);
-    expect(() => parseArgv(["swarm", "plan", "--input", "broken"])).toThrow(/key=value/);
+    expect(() => parseArgv(["fury", "plan", "--input", "broken"])).toThrow(/key=value/);
+  });
+
+  test("parses fury runtime, step, and review commands", () => {
+    expect(parseArgv(["fury", "approve", "fury_plan_1"]).command)
+      .toEqual({ kind: "approveFury", planId: "fury_plan_1" });
+    expect(parseArgv(["fury", "run", "fury_plan_1"]).command)
+      .toEqual({ kind: "runFury", planId: "fury_plan_1" });
+    expect(parseArgv(["fury", "status", "fury_1"]).command).toEqual({ kind: "showFury", runId: "fury_1" });
+    expect(parseArgv(["fury", "step", "complete", "--run", "fury_1", "--step", "inspect", "--output", "{\"ok\":true}"]).command)
+      .toMatchObject({ kind: "completeFuryStep", runId: "fury_1", stepId: "inspect" });
+    expect(parseArgv(["fury", "review", "request-changes", "review_1", "--reason", "Fix it"]).command)
+      .toEqual({ kind: "actFuryReview", reviewId: "review_1", action: "request_changes", message: "Fix it" });
+    expect(parseArgv(["fury", "reviews", "list", "--run", "fury_1", "--state", "waiting_for_review"]).command)
+      .toEqual({ kind: "listFuryReviews", runId: "fury_1", state: "waiting_for_review" });
   });
 
   test("supports context commands and optional task show context", () => {

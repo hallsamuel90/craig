@@ -3,6 +3,7 @@ import { mkdir, open, readdir, readFile, rm, stat } from "node:fs/promises";
 import path from "node:path";
 
 import type { CraigPaths } from "../../../state/craig-paths.js";
+import { furyDirs } from "../fury/runtime-store.js";
 import { CraigError } from "../../error/index.js";
 import { withEventJournalLock } from "../adapters/event-lock.js";
 import type {
@@ -56,8 +57,8 @@ export async function appendEvent<TType extends string, TData>(
       taskId: input.taskId ?? null,
       agentTabId: input.agentTabId ?? null,
       commandId: input.commandId ?? null,
-      swarmRunId: input.swarmRunId ?? null,
-      swarmStepId: input.swarmStepId ?? null,
+      furyRunId: input.furyRunId ?? null,
+      furyStepId: input.furyStepId ?? null,
       type: input.type,
       occurredAt: input.occurredAt ?? new Date().toISOString(),
       actor: input.actor,
@@ -199,9 +200,10 @@ async function pruneSegments(paths: CraigPaths, maxSegments: number): Promise<vo
   const segments = await listSegmentFiles(paths);
   let removeCount = Math.max(0, segments.length - maxSegments);
   const liveCommandIds = await readLiveCommandIds(paths);
-  if (liveCommandIds === null) return;
+  const liveFuryRunIds = await readLiveFuryRunIds(paths);
+  if (liveCommandIds === null || liveFuryRunIds === null) return;
   for (let index = 0; index < removeCount; index += 1) {
-    if (await segmentReferencesCommands(segments[index]!.path, liveCommandIds)) {
+    if (await segmentReferencesLiveWork(segments[index]!.path, liveCommandIds, liveFuryRunIds)) {
       removeCount = index;
       break;
     }
@@ -211,6 +213,26 @@ async function pruneSegments(paths: CraigPaths, maxSegments: number): Promise<vo
     await rm(segment.path, { force: true });
   }
   if (removed.length > 0) await syncDirectory(paths.eventsDir);
+}
+
+async function readLiveFuryRunIds(paths: CraigPaths): Promise<Set<string> | null> {
+  const runsDir = furyDirs(paths).runs;
+  const names = await readdir(runsDir).catch((error: unknown) => {
+    if (isMissing(error)) return [];
+    throw error;
+  });
+  const ids = new Set<string>();
+  for (const name of names.filter((candidate) => candidate.endsWith(".json"))) {
+    try {
+      const value = JSON.parse(await readFile(path.join(runsDir, name), "utf8")) as { id?: unknown; state?: unknown };
+      if (typeof value.id === "string" && ["pending", "running", "waiting_for_review"].includes(String(value.state))) {
+        ids.add(value.id);
+      }
+    } catch {
+      return null;
+    }
+  }
+  return ids;
 }
 
 async function readLiveCommandIds(paths: CraigPaths): Promise<Set<string> | null> {
@@ -239,14 +261,19 @@ async function readLiveCommandIds(paths: CraigPaths): Promise<Set<string> | null
   return ids;
 }
 
-async function segmentReferencesCommands(segmentPath: string, commandIds: Set<string>): Promise<boolean> {
-  if (commandIds.size === 0) return false;
+async function segmentReferencesLiveWork(
+  segmentPath: string,
+  commandIds: Set<string>,
+  furyRunIds: Set<string>,
+): Promise<boolean> {
+  if (commandIds.size === 0 && furyRunIds.size === 0) return false;
   const payload = await readFile(segmentPath, "utf8");
   for (const line of payload.split("\n")) {
     if (!line) continue;
     try {
-      const value = JSON.parse(line) as { commandId?: unknown };
+      const value = JSON.parse(line) as { commandId?: unknown; furyRunId?: unknown };
       if (typeof value.commandId === "string" && commandIds.has(value.commandId)) return true;
+      if (typeof value.furyRunId === "string" && furyRunIds.has(value.furyRunId)) return true;
     } catch {
       return true;
     }
@@ -323,7 +350,18 @@ function validateEvent(value: unknown, segment: string, line: number): CraigEven
   if (typeof value !== "object" || value === null || Array.isArray(value)) {
     throw corruption(segment, `record at line ${line} is not an object`);
   }
-  const event = value as Partial<CraigEvent>;
+  const legacy = value as Record<string, unknown>;
+  const normalized: Record<string, unknown> = {
+    ...legacy,
+    furyRunId: legacy.furyRunId ?? legacy.swarmRunId ?? null,
+    furyStepId: legacy.furyStepId ?? legacy.swarmStepId ?? null,
+    type: typeof legacy.type === "string" && legacy.type.startsWith("swarm.")
+      ? `fury.${legacy.type.slice("swarm.".length)}`
+      : legacy.type,
+  };
+  delete normalized.swarmRunId;
+  delete normalized.swarmStepId;
+  const event = normalized as Partial<CraigEvent>;
   if (
     event.schemaVersion !== 1 ||
     typeof event.id !== "string" || event.id.length === 0 || event.id.length > 256 ||
@@ -334,8 +372,8 @@ function validateEvent(value: unknown, segment: string, line: number): CraigEven
     !isNullableString(event.taskId) ||
     !isNullableString(event.agentTabId) ||
     !isNullableString(event.commandId) ||
-    !isNullableString(event.swarmRunId) ||
-    !isNullableString(event.swarmStepId) ||
+    !isNullableString(event.furyRunId) ||
+    !isNullableString(event.furyStepId) ||
     !isActor(event.actor) ||
     !("data" in event)
   ) {

@@ -2,11 +2,11 @@ import { isAlias, parseDocument, visit } from "yaml";
 
 import { CraigError } from "../../error/index.js";
 
-export const MAX_SWARM_DEFINITION_BYTES = 1024 * 1024;
+export const MAX_FURY_DEFINITION_BYTES = 1024 * 1024;
 
-export function parseSwarmYaml(source: string, sourceName: string): unknown {
-  if (Buffer.byteLength(source) > MAX_SWARM_DEFINITION_BYTES) {
-    invalid(sourceName, [`Definition exceeds ${MAX_SWARM_DEFINITION_BYTES} bytes.`]);
+export function parseFuryYaml(source: string, sourceName: string): unknown {
+  if (Buffer.byteLength(source) > MAX_FURY_DEFINITION_BYTES) {
+    invalid(sourceName, [`Definition exceeds ${MAX_FURY_DEFINITION_BYTES} bytes.`]);
   }
   const document = parseDocument(source, {
     schema: "core",
@@ -35,7 +35,7 @@ export function parseSwarmYaml(source: string, sourceName: string): unknown {
 }
 
 function invalid(sourceName: string, issues: string[]): never {
-  throw new CraigError("SWARM_DEFINITION_INVALID", `Swarm definition ${sourceName} is invalid: ${issues[0]}`, {
+  throw new CraigError("FURY_DEFINITION_INVALID", `Fury definition ${sourceName} is invalid: ${issues[0]}`, {
     details: { file: sourceName, issues: [...new Set(issues)] },
   });
 }

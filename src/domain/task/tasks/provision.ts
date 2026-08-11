@@ -30,8 +30,8 @@ export interface TaskLineageInput {
   rootTaskId?: string;
   delegationDepth: number;
   delegationIdempotencyKey?: string | null;
-  swarmRunId?: string | null;
-  swarmStepId?: string | null;
+  furyRunId?: string | null;
+  furyStepId?: string | null;
 }
 
 const PROJECT_BUNDLE_GUIDE_FILENAME = ["AGENTS", "md"].join(".");
@@ -469,8 +469,8 @@ const resolveLineage = (taskId: string, lineage?: TaskLineageInput) => ({
   rootTaskId: lineage?.rootTaskId ?? taskId,
   delegationDepth: lineage?.delegationDepth ?? 0,
   delegationIdempotencyKey: lineage?.delegationIdempotencyKey ?? null,
-  swarmRunId: lineage?.swarmRunId ?? null,
-  swarmStepId: lineage?.swarmStepId ?? null,
+  furyRunId: lineage?.furyRunId ?? null,
+  furyStepId: lineage?.furyStepId ?? null,
 });
 
 const resolveWorkspaceForRepo = async (paths: CraigPaths, repoId: string) => {
