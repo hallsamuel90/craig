@@ -34,6 +34,35 @@ export async function disposeDaemonSessions(paths: CraigPaths, tabIds: string[])
   }
 }
 
+export async function ensureDaemonAgentSession(
+  paths: CraigPaths,
+  input: {
+    taskId: string;
+    tabId: string;
+    cwd: string;
+    command: string[];
+    env?: Record<string, string>;
+  },
+): Promise<void> {
+  const socket = await connect(getPtyDaemonEndpoint(paths).socketPath).catch(() => null);
+  if (!socket) throw new Error("Craig PTY daemon is unavailable for delegated agent startup.");
+  try {
+    const ping = await request(socket, { type: "ping" });
+    if (ping.protocolVersion !== PTY_DAEMON_PROTOCOL_VERSION) {
+      throw new Error("Craig PTY daemon protocol mismatch during delegated agent startup.");
+    }
+    await request(socket, {
+      type: "ensureSession",
+      taskId: input.taskId,
+      tabId: input.tabId,
+      size: { columns: 120, rows: 36 },
+      spec: { cwd: input.cwd, command: input.command, ...(input.env ? { env: input.env } : {}) },
+    });
+  } finally {
+    socket.end();
+  }
+}
+
 interface Response {
   id: number;
   ok: boolean;
@@ -45,7 +74,14 @@ let requestId = 1;
 
 function request(socket: Socket, input:
   | { type: "ping" | "wakeOrchestration" }
-  | { type: "disposeSession"; tabId: string },
+  | { type: "disposeSession"; tabId: string }
+  | {
+      type: "ensureSession";
+      taskId: string;
+      tabId: string;
+      size: { columns: number; rows: number };
+      spec: { cwd: string; command: string[]; env?: Record<string, string> };
+    },
 ): Promise<Response> {
   const id = requestId++;
   return new Promise((resolve, reject) => {

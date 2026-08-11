@@ -2,7 +2,13 @@ import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 
-import { afterEach, describe, expect, test } from "vitest";
+import { afterEach, describe, expect, test, vi } from "vitest";
+
+vi.mock("../src/shell/pty-daemon-orchestration.js", () => ({
+  disposeDaemonSessions: vi.fn(async () => true),
+  ensureDaemonAgentSession: vi.fn(async () => undefined),
+  wakeOrchestrationSupervisor: vi.fn(async () => false),
+}));
 
 import { configService } from "../src/domain/config/index.js";
 import { taskService } from "../src/domain/task/index.js";
