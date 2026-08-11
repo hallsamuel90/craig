@@ -1,28 +1,41 @@
-import { describe, it, expect } from "vitest";
-import { readErrorLog, readRecentErrorLines } from "./error-store.js";
-import type { CraigPaths } from "../../../state/craig-paths.js";
+import { mkdtemp, readFile, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+
+import { describe, expect, it } from "vitest";
+
 import { getCraigPaths } from "../../../state/craig-paths.js";
+import { appendLog, readLog } from "./error-store.js";
 
-const makePaths = (): CraigPaths => getCraigPaths("/workspace");
-
-describe("readRecentErrorLines", () => {
-  it("delegates to readErrorLog behavior", async () => {
-    const paths = makePaths();
-    const nonExistentPaths = { ...paths, errorLogFile: "/tmp/craig-test-nonexistent-rrl.log" };
-    const snapshot = await readRecentErrorLines(nonExistentPaths);
-    expect(snapshot.empty).toBe(true);
-    expect(snapshot.lines).toEqual([]);
+describe("application log", () => {
+  it("returns an empty snapshot when the log does not exist", async () => {
+    const paths = getCraigPaths("/workspace");
+    const missing = { ...paths, logFile: "/tmp/craig-test-nonexistent-log.jsonl" };
+    const snapshot = await readLog(missing);
+    expect(snapshot).toEqual({ path: missing.logFile, lines: [], empty: true });
   });
-});
 
-describe("readErrorLog", () => {
-  it("returns an empty snapshot when file does not exist", async () => {
-    const paths = makePaths();
-    // Override the errorLogFile to a non-existent path
-    const nonExistentPaths = { ...paths, errorLogFile: "/tmp/craig-test-nonexistent-error-log-xyz.log" };
-    const snapshot = await readErrorLog(nonExistentPaths);
-    expect(snapshot.empty).toBe(true);
-    expect(snapshot.lines).toEqual([]);
-    expect(snapshot.path).toBe(nonExistentPaths.errorLogFile);
+  it("stores structured entries and formats their levels for display", async () => {
+    const root = await mkdtemp(join(tmpdir(), "craig-log-test-"));
+    const paths = getCraigPaths(root);
+    try {
+      await appendLog(paths, {
+        level: "warn",
+        component: "daemon",
+        event: "upgrade.blocked",
+        message: "Preserved live sessions.",
+        details: { protocolVersion: 5 },
+      });
+      expect(JSON.parse(await readFile(paths.logFile, "utf8"))).toMatchObject({
+        level: "warn",
+        component: "daemon",
+        event: "upgrade.blocked",
+      });
+      expect((await readLog(paths)).lines[0]).toContain(
+        "WARN  daemon.upgrade.blocked — Preserved live sessions.",
+      );
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
   });
 });

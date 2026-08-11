@@ -28,7 +28,7 @@ export type OptionsMenuKeyResult =
   | { kind: "back" }
   | { kind: "runners" }
   | { kind: "previews" }
-  | { kind: "error-log" }
+  | { kind: "logs" }
   | { kind: "help" }
   | { kind: "noop"; menuIndex: number }
   | { kind: "render"; menuIndex: number };
@@ -39,7 +39,7 @@ export type PreviewOptionsKeyResult =
   | { kind: "render"; state: PreviewOptionsState }
   | { kind: "save-enabled"; feature: PreviewFeatureId; enabled: boolean; state: PreviewOptionsState };
 
-export const OPTIONS_MENU_ITEMS = ["Runners", "Feature Previews", "Error Log", "Help"];
+export const OPTIONS_MENU_ITEMS = ["Runners", "Feature Previews", "Logs", "Help"];
 
 const PREVIEW_LABELS: Record<PreviewFeatureId, string> = {
   agentActivityIndicators: "Agent activity indicators",
@@ -110,7 +110,7 @@ export function reduceOptionsMenuKey(menuIndex: number, key: string): OptionsMen
   }
 
   if (menuIndex === 2) {
-    return { kind: "error-log" };
+    return { kind: "logs" };
   }
 
   return { kind: "help" };

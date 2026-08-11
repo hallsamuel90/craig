@@ -22,8 +22,8 @@ export interface RenderOptions {
   centerOnly?: boolean;
   versionText?: string | null;
   updateText?: string | null;
-  errorLogPath?: string;
-  errorLogLines?: string[];
+  logPath?: string;
+  logLines?: string[];
   focusFlashActive?: boolean;
 }
 
@@ -69,7 +69,7 @@ interface PaletteColor {
 interface SurfaceLine {
   text: string;
   segments?: TerminalRowSegment[];
-  tone?: "default" | "muted" | "selected" | "focused";
+  tone?: "default" | "muted" | "selected" | "focused" | "info" | "warning" | "error";
   fullBleed?: boolean;
   rightAlign?: boolean;
 }
@@ -184,16 +184,16 @@ export function renderHelpOverlayFrame(viewport: Viewport, options: Pick<RenderO
   return lines.join("\n");
 }
 
-export function renderErrorLogOverlayFrame(
+export function renderLogsOverlayFrame(
   viewport: Viewport,
-  options: Pick<RenderOptions, "color" | "errorLogPath" | "errorLogLines"> = {},
+  options: Pick<RenderOptions, "color" | "logPath" | "logLines"> = {},
 ): string {
   const color = options.color ?? true;
   const bg = PALETTE.overlay;
   const lines = new Array<string>(viewport.height).fill(fillSurface(" ".repeat(viewport.width), color, bg));
-  const title = "Error Log";
-  const pathLabel = options.errorLogPath ?? "";
-  const logLines = options.errorLogLines ?? [];
+  const title = "Logs";
+  const pathLabel = options.logPath ?? "";
+  const logLines = options.logLines ?? [];
   const bodyWidth = Math.max(20, viewport.width - 8);
   const leftPad = Math.max(0, Math.floor((viewport.width - bodyWidth) / 2));
   const content: SurfaceLine[] = [
@@ -201,8 +201,8 @@ export function renderErrorLogOverlayFrame(
     { text: pathLabel, tone: "muted" },
     emptyLine(),
     ...(logLines.length > 0
-      ? logLines.map((line) => ({ text: line }))
-      : [{ text: "No Craig errors have been logged.", tone: "muted" as const }]),
+      ? logLines.map((line) => ({ text: line, tone: getLogTone(line) }))
+      : [{ text: "No Craig activity has been logged.", tone: "muted" as const }]),
     emptyLine(),
     { text: "Esc returns to Options.", tone: "muted" },
   ];
@@ -216,6 +216,12 @@ export function renderErrorLogOverlayFrame(
     const text = `${" ".repeat(leftPad)}${clipStringToWidth(entry.text, bodyWidth)}`;
     const palette = entry.tone === "selected"
       ? PALETTE.overlayMenuSelected
+      : entry.tone === "info"
+        ? { ...PALETTE.overlay, fg: PALETTE.accent.fg }
+        : entry.tone === "warning"
+          ? { ...PALETTE.overlay, fg: PALETTE.pending.fg }
+          : entry.tone === "error"
+            ? { ...PALETTE.overlay, fg: PALETTE.error.fg }
       : entry.tone === "muted"
         ? PALETTE.overlay
         : PALETTE.panelBg;
@@ -223,6 +229,13 @@ export function renderErrorLogOverlayFrame(
   }
 
   return lines.join("\n");
+}
+
+function getLogTone(line: string): NonNullable<SurfaceLine["tone"]> {
+  if (line.includes(" ERROR ")) return "error";
+  if (line.includes(" WARN  ")) return "warning";
+  if (line.includes(" INFO  ")) return "info";
+  return "muted";
 }
 
 export function renderMainShellFrame(

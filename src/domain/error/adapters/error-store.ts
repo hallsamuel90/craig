@@ -3,49 +3,69 @@ import path from "node:path";
 
 import type { CraigPaths } from "../../../state/craig-paths.js";
 
+export type CraigLogLevel = "debug" | "info" | "warn" | "error";
+
+export interface CraigLogEntry {
+  level: CraigLogLevel;
+  component: string;
+  event: string;
+  message: string;
+  taskId?: string;
+  tabId?: string;
+  details?: string | Record<string, unknown> | null;
+}
+
+export interface CraigLogRecord extends CraigLogEntry {
+  timestamp: string;
+}
+
+export interface CraigLogSnapshot {
+  path: string;
+  lines: string[];
+  empty: boolean;
+}
+
 export interface CraigErrorLogEntry {
   context: string;
   message: string;
   details?: string | null;
 }
 
-export interface CraigErrorLogSnapshot {
-  path: string;
-  lines: string[];
-  empty: boolean;
-}
+export type CraigErrorLogSnapshot = CraigLogSnapshot;
 
 const DEFAULT_RECENT_LINE_COUNT = 80;
 
-export const appendErrorLog = async (paths: CraigPaths, entry: CraigErrorLogEntry): Promise<void> => {
-  await mkdir(path.dirname(paths.errorLogFile), { recursive: true });
-  await appendFile(paths.errorLogFile, formatErrorLogEntry(entry), "utf8");
+export const appendLog = async (paths: CraigPaths, entry: CraigLogEntry): Promise<void> => {
+  await mkdir(path.dirname(paths.logFile), { recursive: true });
+  const record: CraigLogRecord = { timestamp: new Date().toISOString(), ...entry };
+  await appendFile(paths.logFile, `${JSON.stringify(record)}\n`, "utf8");
 };
 
-export const appendErrorLogBestEffort = async (paths: CraigPaths, entry: CraigErrorLogEntry): Promise<void> => {
+export const appendLogBestEffort = async (paths: CraigPaths, entry: CraigLogEntry): Promise<void> => {
   try {
-    await appendErrorLog(paths, entry);
+    await appendLog(paths, entry);
   } catch {
-    // Error logging must never break the TUI recovery path.
+    // Logging must never break the operation being observed.
   }
 };
 
-export const readErrorLog = async (
+export const readLog = async (
   paths: CraigPaths,
   lineCount = DEFAULT_RECENT_LINE_COUNT,
-): Promise<CraigErrorLogSnapshot> => {
+): Promise<CraigLogSnapshot> => {
   try {
-    const contents = await readFile(paths.errorLogFile, "utf8");
-    const lines = contents.trimEnd().split("\n").filter((line) => line.length > 0);
+    const contents = await readFile(paths.logFile, "utf8");
+    const records = contents.trimEnd().split("\n").filter((line) => line.length > 0);
+    const lines = records.map(formatLogLine);
     return {
-      path: paths.errorLogFile,
+      path: paths.logFile,
       lines: lines.slice(Math.max(0, lines.length - lineCount)),
       empty: lines.length === 0,
     };
   } catch (error) {
     if (isFileMissingError(error)) {
       return {
-        path: paths.errorLogFile,
+        path: paths.logFile,
         lines: [],
         empty: true,
       };
@@ -55,24 +75,43 @@ export const readErrorLog = async (
   }
 };
 
+export const appendErrorLog = async (paths: CraigPaths, entry: CraigErrorLogEntry): Promise<void> =>
+  appendLog(paths, {
+    level: "error",
+    component: "application",
+    event: normalizeEvent(entry.context),
+    message: entry.message,
+    ...(entry.details ? { details: entry.details } : {}),
+  });
+
+export const appendErrorLogBestEffort = async (paths: CraigPaths, entry: CraigErrorLogEntry): Promise<void> => {
+  try {
+    await appendErrorLog(paths, entry);
+  } catch {
+    // Error logging must never break the TUI recovery path.
+  }
+};
+
+export const readErrorLog = readLog;
+
 export const readRecentErrorLines = async (
   paths: CraigPaths,
   lineCount = DEFAULT_RECENT_LINE_COUNT,
-): Promise<CraigErrorLogSnapshot> => readErrorLog(paths, lineCount);
+): Promise<CraigErrorLogSnapshot> => readLog(paths, lineCount);
 
-function formatErrorLogEntry(entry: CraigErrorLogEntry): string {
-  const timestamp = new Date().toISOString();
-  const lines = [
-    `[${timestamp}] ${entry.context}`,
-    `message: ${entry.message}`,
-  ];
-
-  if (entry.details && entry.details.trim().length > 0) {
-    lines.push("details:");
-    lines.push(...entry.details.trimEnd().split("\n").map((line) => `  ${line}`));
+function formatLogLine(line: string): string {
+  try {
+    const record = JSON.parse(line) as Partial<CraigLogRecord>;
+    if (!record.timestamp || !record.level || !record.component || !record.event || !record.message) return line;
+    const target = [record.taskId, record.tabId].filter(Boolean).join("/");
+    return `[${record.timestamp}] ${record.level.toUpperCase().padEnd(5)} ${record.component}.${record.event}${target ? ` ${target}` : ""} — ${record.message}`;
+  } catch {
+    return line;
   }
+}
 
-  return `${lines.join("\n")}\n\n`;
+function normalizeEvent(context: string): string {
+  return context.trim().toLowerCase().replace(/[^a-z0-9]+/g, ".").replace(/^\.+|\.+$/g, "") || "error";
 }
 
 function isFileMissingError(error: unknown): error is { code: string } {

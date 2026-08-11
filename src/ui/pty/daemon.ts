@@ -28,7 +28,7 @@ import {
 } from "./runtime.js";
 
 const DAEMON_PROTOCOL_VERSION = PTY_DAEMON_PROTOCOL_VERSION;
-const COMPATIBLE_DAEMON_PROTOCOL_VERSIONS = new Set([DAEMON_PROTOCOL_VERSION]);
+const COMPATIBLE_DAEMON_PROTOCOL_VERSIONS = new Set([6, 7, 8, DAEMON_PROTOCOL_VERSION]);
 const INCREMENTAL_VIEW_UPDATE_INTERVAL_MS = 16;
 const ACTIVITY_UPDATE_INTERVAL_MS = 250;
 
@@ -43,6 +43,7 @@ type DaemonRequest =
   | { id: number; type: "resize"; size: PtySize }
   | { id: number; type: "detach" }
   | { id: number; type: "disposeSession"; tabId: string }
+  | { id: number; type: "setViewUpdateMode"; mode: "incremental" }
   | { id: number; type: "setActivityEnabled"; enabled: boolean }
   | { id: number; type: "subscribeView"; tabId: string | null }
   | { id: number; type: "getViewState"; tabId: string | null }
@@ -52,7 +53,7 @@ type DaemonRequest =
   | { id: number; type: "shutdown" };
 
 type DaemonResponse =
-  | { id: number; ok: true; protocolVersion?: number; view?: TerminalViewState; activities?: PtyActivitySnapshot[] }
+  | { id: number; ok: true; protocolVersion?: number; sessionCount?: number; view?: TerminalViewState; activities?: PtyActivitySnapshot[] }
   | { id: number; ok: false; error: string };
 type DaemonOkResponse = Extract<DaemonResponse, { ok: true }>;
 
@@ -65,6 +66,7 @@ interface TerminalViewPatch {
 }
 
 type DaemonEvent =
+  | { type: "update"; tabId: string; view: TerminalViewState }
   | { type: "update"; tabId: string; patch: TerminalViewPatch }
   | { type: "activity"; snapshot: PtyActivitySnapshot }
   | { type: "activityRemoved"; tabId: string }
@@ -116,6 +118,13 @@ export async function servePtyDaemon(paths: CraigPaths, options: PtyDaemonServer
     await daemon.start();
     await listen(server, endpoint.socketPath);
     await writeFile(endpoint.pidPath, String(process.pid), "utf8");
+    await errorService.appendLogBestEffort(paths, {
+      level: "info",
+      component: "daemon",
+      event: "started",
+      message: `PTY daemon started with protocol ${DAEMON_PROTOCOL_VERSION}.`,
+      details: { pid: process.pid, protocolVersion: DAEMON_PROTOCOL_VERSION },
+    });
 
     await new Promise<void>((resolve) => {
       let closing = false;
@@ -134,7 +143,23 @@ export async function servePtyDaemon(paths: CraigPaths, options: PtyDaemonServer
       process.once("SIGTERM", close);
       process.once("SIGINT", close);
     });
+  } catch (error) {
+    await errorService.appendLogBestEffort(paths, {
+      level: "error",
+      component: "daemon",
+      event: "failed",
+      message: error instanceof Error ? error.message : String(error),
+      details: { pid: process.pid },
+    });
+    throw error;
   } finally {
+    await errorService.appendLogBestEffort(paths, {
+      level: "info",
+      component: "daemon",
+      event: "stopped",
+      message: "PTY daemon stopped and disposed its remaining sessions.",
+      details: { pid: process.pid, remainingSessionCount: daemon.sessionCount() },
+    });
     daemon.onShutdown = null;
     await rm(endpoint.socketPath, { force: true });
     await rm(endpoint.pidPath, { force: true });
@@ -170,6 +195,7 @@ export class DaemonPtyRuntimeClient {
   private tasksChangedHandler: ((taskIds: string[]) => void) | undefined;
   private buffer = "";
   private closed = false;
+  private protocolVersion = DAEMON_PROTOCOL_VERSION;
   private readonly options: DaemonPtyRuntimeOptions;
 
   constructor(private readonly socket: Socket, options: DaemonPtyRuntimeOptions) {
@@ -193,6 +219,10 @@ export class DaemonPtyRuntimeClient {
     const response = await this.send({ type: "ping" });
     if (!isCompatibleDaemonProtocol(response.protocolVersion)) {
       throw new Error("Craig PTY daemon protocol mismatch.");
+    }
+    this.protocolVersion = response.protocolVersion!;
+    if (this.protocolVersion <= 8) {
+      await this.send({ type: "setViewUpdateMode", mode: "incremental" });
     }
     await this.send({ type: "setActivityEnabled", enabled: this.activityEnabled });
     if (this.activityEnabled) {
@@ -222,6 +252,15 @@ export class DaemonPtyRuntimeClient {
         const response = await this.send({ type: "hydrateSession", tabId });
         if (response.view) {
           this.viewCache.set(tabId, response.view);
+          if (response.view.status === "idle") {
+            void errorService.appendLogBestEffort(this.options.paths, {
+              level: "debug",
+              component: "pty",
+              event: "hydration.missing",
+              message: "No live PTY session was found for the persisted tab.",
+              tabId,
+            });
+          }
         }
       } catch (error) {
         const message = error instanceof Error ? error.message : String(error);
@@ -408,6 +447,11 @@ export class DaemonPtyRuntimeClient {
     }
 
     if (message.type === "update") {
+      if ("view" in message) {
+        this.viewCache.set(message.tabId, message.view);
+        if (this.viewedTabId === message.tabId) this.notifyFullUpdate(message.tabId);
+        return;
+      }
       const current = this.viewCache.get(message.tabId) ?? { status: "idle" as const, rows: [], error: null, scrolledBack: false };
       const metadataChanged = hasPatchMetadataChanged(current, message.patch);
       const rows = current.rows.slice(0, message.patch.rowCount);
@@ -661,6 +705,10 @@ class PtyDaemonServer {
     this.runtime.disposeAll();
   }
 
+  sessionCount(): number {
+    return this.runtime.sessionTabIds().length;
+  }
+
   closeClients(): void {
     for (const client of this.clients) {
       client.destroy();
@@ -688,7 +736,9 @@ class PtyDaemonServer {
       writeMessage(socket, {
         id: request.id,
         ok: true,
-        ...(request.type === "ping" ? { protocolVersion: DAEMON_PROTOCOL_VERSION } : {}),
+        ...(request.type === "ping"
+          ? { protocolVersion: DAEMON_PROTOCOL_VERSION, sessionCount: this.runtime.sessionTabIds().length }
+          : {}),
         ...(request.type === "getActivitySnapshots" ? { activities: this.runtime.getActivitySnapshots() } : {}),
         ...(view ? { view } : {}),
       });
@@ -703,8 +753,22 @@ class PtyDaemonServer {
       case "ping":
         return null;
       case "ensureSession":
-        this.attachedTabId = request.tabId;
-        return this.subscribe(socket, request.tabId, this.runtime.ensureSession(request.taskId, request.tabId, request.size, request.spec));
+        {
+          const existed = this.runtime.hasRunningSession(request.tabId);
+          const view = this.runtime.ensureSession(request.taskId, request.tabId, request.size, request.spec);
+          if (!existed) {
+            this.log({
+              level: "info",
+              component: "pty",
+              event: "spawned",
+              message: "PTY session spawned.",
+              taskId: request.taskId,
+              tabId: request.tabId,
+            });
+          }
+          this.attachedTabId = request.tabId;
+          return this.subscribe(socket, request.tabId, view);
+        }
       case "hydrateSession":
         return this.runtime.getViewState(request.tabId);
       case "write":
@@ -720,15 +784,34 @@ class PtyDaemonServer {
         this.runtime.resize(request.size);
         return this.runtime.getViewState(this.attachedTabId);
       case "detach":
+        if (this.attachedTabId) {
+          this.log({
+            level: "debug",
+            component: "pty",
+            event: "detached",
+            message: "Client detached from PTY session.",
+            tabId: this.attachedTabId,
+          });
+        }
         this.runtime.detach();
         this.attachedTabId = null;
         return null;
       case "disposeSession":
+        this.log({
+          level: "info",
+          component: "pty",
+          event: "disposed",
+          message: "PTY session disposed because its tab was closed.",
+          tabId: request.tabId,
+          details: { reason: "tab_closed" },
+        });
         this.runtime.disposeSession(request.tabId);
         if (this.attachedTabId === request.tabId) {
           this.attachedTabId = null;
         }
         return null;
+      case "setViewUpdateMode":
+        return this.runtime.getViewState(this.attachedTabId);
       case "setActivityEnabled":
         this.setActivityEnabled(socket, request.enabled);
         return null;
@@ -742,6 +825,14 @@ class PtyDaemonServer {
         ]);
         for (const tabId of knownTabIds) {
           if (!keep.has(tabId)) {
+            this.log({
+              level: "info",
+              component: "pty",
+              event: "disposed",
+              message: "PTY session disposed because its tab is no longer active.",
+              tabId,
+              details: { reason: "stale_tab" },
+            });
             this.runtime.disposeSession(tabId);
             if (this.attachedTabId === tabId) {
               this.attachedTabId = null;
@@ -762,6 +853,13 @@ class PtyDaemonServer {
         await this.orchestrationSupervisor!.wake();
         return null;
       case "shutdown":
+        this.log({
+          level: "warn",
+          component: "daemon",
+          event: "shutdown.requested",
+          message: "PTY daemon shutdown was explicitly requested.",
+          details: { liveSessionCount: this.runtime.sessionTabIds().length },
+        });
         setTimeout(() => this.onShutdown?.(), 0);
         return null;
       default:
@@ -819,6 +917,17 @@ class PtyDaemonServer {
   }
 
   private handleActivityUpdate(snapshot: PtyActivitySnapshot): void {
+    if (snapshot.sessionState !== "running") {
+      this.log({
+        level: snapshot.sessionState === "failed" || snapshot.exitCode !== 0 ? "error" : "info",
+        component: "pty",
+        event: "exited",
+        message: snapshot.sessionState === "failed" ? "PTY session failed." : "PTY process exited.",
+        taskId: snapshot.taskId,
+        tabId: snapshot.tabId,
+        details: { sessionState: snapshot.sessionState, exitCode: snapshot.exitCode, error: snapshot.error },
+      });
+    }
     this.pullRequestSyncSupervisor?.notifyActivity(snapshot);
     if (!this.hasActivitySubscribers()) {
       return;
@@ -901,6 +1010,10 @@ class PtyDaemonServer {
       this.pullRequestEventReconciliationEnabled ||
       this.hasActivitySubscribers(),
     );
+  }
+
+  private log(entry: Parameters<typeof errorService.appendLogBestEffort>[1]): void {
+    void errorService.appendLogBestEffort(this.paths, entry);
   }
 
   private scheduleBroadcastUpdate(tabId: string): void {
@@ -994,6 +1107,21 @@ async function ensureDaemonRunning(
   }
 
   if (await canConnect(endpoint.socketPath)) {
+    const status = await requestDaemonPing(endpoint.socketPath).catch(() => null);
+    if (!status?.ok || status.sessionCount !== 0) {
+      const protocol = status?.ok ? status.protocolVersion ?? "unknown" : "unknown";
+      await errorService.appendLogBestEffort(paths, {
+        level: "warn",
+        component: "daemon",
+        event: "upgrade.blocked",
+        message: `Left incompatible protocol ${protocol} daemon running to preserve possible live PTYs.`,
+        details: { protocolVersion: protocol },
+      });
+      throw new Error(
+        `Craig PTY daemon protocol ${protocol} is incompatible and was left running to preserve live sessions. ` +
+        "Finish or close those sessions before restarting the daemon.",
+      );
+    }
     await shutdownDaemonSocket(endpoint.socketPath);
     await waitForDisconnect(endpoint.socketPath, 1000);
   }
@@ -1003,7 +1131,7 @@ async function ensureDaemonRunning(
     await waitForDisconnect(endpoint.socketPath, 1000);
   }
 
-  await cleanupStaleEndpoint(endpoint);
+  await cleanupStaleEndpoint(endpoint, paths);
   const workspaceRoot = paths.workspaceRoot;
   if (spawnDaemon) {
     spawnDaemon(workspaceRoot);
@@ -1071,13 +1199,23 @@ function getDaemonSpawnCommand(workspaceRoot: string): { command: string; args: 
   };
 }
 
-async function cleanupStaleEndpoint(endpoint: { socketPath: string; pidPath: string }): Promise<void> {
+async function cleanupStaleEndpoint(
+  endpoint: { socketPath: string; pidPath: string },
+  paths: CraigPaths,
+): Promise<void> {
   const pidText = await readFile(endpoint.pidPath, "utf8").catch(() => null);
   if (pidText) {
     const pid = Number(pidText.trim());
     if (Number.isInteger(pid) && pid > 0 && isProcessAlive(pid)) {
       return;
     }
+    await errorService.appendLogBestEffort(paths, {
+      level: "warn",
+      component: "daemon",
+      event: "previous_exit.unclean",
+      message: "Found stale daemon state from a process that is no longer running.",
+      details: { previousPid: Number.isInteger(pid) ? pid : null },
+    });
   }
 
   await rm(endpoint.socketPath, { force: true });

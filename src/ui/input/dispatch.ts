@@ -461,21 +461,21 @@ function handleOptionsMenuKey(ctx: AppContext, key: string): void {
     return;
   }
 
-  if (result.kind === "error-log") {
+  if (result.kind === "logs") {
     const parentVariant = ctx.state.parentVariant;
-    void openErrorLogOverlay(ctx, parentVariant);
+    void openLogsOverlay(ctx, parentVariant);
   }
 }
 
-async function openErrorLogOverlay(ctx: AppContext, parentVariant: "boot" | "pause" | undefined): Promise<void> {
-  let errorLog;
+async function openLogsOverlay(ctx: AppContext, parentVariant: "boot" | "pause" | undefined): Promise<void> {
+  let log;
   try {
-    errorLog = await errorService.readRecentErrorLines(ctx.paths);
+    log = await errorService.readLog(ctx.paths);
   } catch (error) {
-    const message = reportRecoverableError(ctx, "open error log", error, "Failed to read Craig error log.");
-    errorLog = {
-      path: ctx.paths.errorLogFile,
-      lines: [`Unable to read error log: ${message}`],
+    const message = reportRecoverableError(ctx, "open logs", error, "Failed to read Craig logs.");
+    log = {
+      path: ctx.paths.logFile,
+      lines: [`Unable to read logs: ${message}`],
       empty: false,
     };
   }
@@ -486,11 +486,11 @@ async function openErrorLogOverlay(ctx: AppContext, parentVariant: "boot" | "pau
 
   ctx.state = {
     mode: "overlay",
-    variant: "error-log",
+    variant: "logs",
     menuIndex: 0,
     optionsMessage: null,
     shell: ctx.state.shell,
-    errorLog,
+    log,
     ...(parentVariant !== undefined ? { parentVariant } : {}),
   };
   ctx.pendingClear = true;
@@ -940,7 +940,7 @@ export function onKey(ctx: AppContext, name: unknown): void {
     return;
   }
 
-  if (ctx.state.variant === "error-log") {
+  if (ctx.state.variant === "logs") {
     if (key === "ESCAPE" || isEnterKey(key)) {
       const parentVariant = ctx.state.parentVariant;
       ctx.state = {

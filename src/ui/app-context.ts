@@ -1,7 +1,7 @@
 import type { CraigConfig, RunnerType } from "../domain/config/index.js";
 import type { CraigUiRuntime } from "../state/ui-runtime.js";
 import type { CraigPaths } from "../state/craig-paths.js";
-import type { CraigErrorLogSnapshot } from "../domain/error/index.js";
+import type { CraigLogSnapshot } from "../domain/error/index.js";
 import type { WorkspaceShellModel } from "./shell/data.js";
 import type { PreviewOptionsState, RunnerOptionsState } from "./options.js";
 import type { PtySize } from "./pty/runtime.js";
@@ -9,7 +9,7 @@ import type { ControlShellState } from "./state.js";
 import type { PtyActivitySnapshot } from "../domain/agent/index.js";
 import type { GitHubPollView } from "../shell/github-poll-coordinator.js";
 
-type OverlayVariant = "boot" | "pause" | "help" | "options" | "runners" | "previews" | "error-log";
+type OverlayVariant = "boot" | "pause" | "help" | "options" | "runners" | "previews" | "logs";
 
 export type AppState =
   | {
@@ -22,7 +22,7 @@ export type AppState =
       viaOptions?: boolean;
       runnerOptions?: RunnerOptionsState;
       previewOptions?: PreviewOptionsState;
-      errorLog?: CraigErrorLogSnapshot;
+      log?: CraigLogSnapshot;
     }
   | { mode: "main"; shell: ControlShellState };
 

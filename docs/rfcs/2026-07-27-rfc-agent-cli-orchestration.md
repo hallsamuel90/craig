@@ -259,7 +259,7 @@ type AgentRuntimeState = "idle" | "working" | "ready" | "error";
 - `ready`: the process is live but quiet, or exited successfully and needs attention
 - `error`: startup failed, the daemon lost a running session unexpectedly, or the process exited non-zero
 
-Task roll-up priority remains `error > ready > working > idle`, matching the sidebar indicator. Agent-tab status remains independently visible.
+Task roll-up priority is `error > working > ready > idle`, so a task remains visibly active while any agent tab is working. Agent-tab status remains independently visible.
 
 This state is an observation signal, not workflow completion. A quiet agent may still be reasoning, and `ready` never means that a swarm step succeeded.
 

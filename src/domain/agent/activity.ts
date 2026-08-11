@@ -10,8 +10,8 @@ export const AGENT_READY_AFTER_MS = 5_000;
 
 const ACTIVITY_PRIORITY: Record<AgentRuntimeState, number> = {
   idle: 0,
-  working: 1,
-  ready: 2,
+  ready: 1,
+  working: 2,
   error: 3,
 };
 
