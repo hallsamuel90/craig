@@ -1807,20 +1807,20 @@ describe("terminal app PTY attach flow", () => {
       expect(frame).toContain("gh auth failed");
       expect(frame).toContain("✗ gh auth failed");
     });
-    await vi.waitFor(async () => expect(await readFile(paths.errorLogFile, "utf8")).toContain("refresh PR checks"));
-    expect(await readFile(paths.errorLogFile, "utf8")).toContain("message: gh auth failed");
+    await vi.waitFor(async () => expect(await readFile(paths.logFile, "utf8")).toContain("refresh.pr.checks"));
+    expect(await readFile(paths.logFile, "utf8")).toContain("gh auth failed");
     terminal.emitKey("ESCAPE"); // pause
     terminal.emitKey("DOWN"); // Options
     terminal.emitKey("ENTER");
-    await vi.waitFor(() => expect(stripAnsi(terminal.frames.at(-1) ?? "")).toContain("Error Log"));
+    await vi.waitFor(() => expect(stripAnsi(terminal.frames.at(-1) ?? "")).toContain("Logs"));
     terminal.emitKey("DOWN"); // Feature Previews
-    terminal.emitKey("DOWN"); // Error Log
+    terminal.emitKey("DOWN"); // Logs
     terminal.emitKey("ENTER");
     await vi.waitFor(() => {
       const frame = stripAnsi(terminal.frames.at(-1) ?? "");
-      expect(frame).toContain("Error Log");
+      expect(frame).toContain("Logs");
       expect(frame).toContain("gh auth failed");
-      expect(frame).toContain(paths.errorLogFile);
+      expect(frame).toContain(paths.logFile);
     });
     terminal.emitKey("ESCAPE"); // Options
     terminal.emitKey("ESCAPE"); // Pause

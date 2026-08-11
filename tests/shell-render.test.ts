@@ -5,7 +5,7 @@ import type { ProjectTaskRepoTarget } from "../src/domain/task/index.js";
 import { getMockShellData } from "../src/ui/mock-data.js";
 import { MIN_VIEWPORT } from "../src/ui/layout.js";
 import { OPTIONS_MENU_ITEMS } from "../src/ui/options.js";
-import { renderBootOverlayFrame, renderErrorLogOverlayFrame, renderMainShellFrame, renderMainShellPresentation, renderOptionsOverlayFrame, renderPauseOverlayFrame } from "../src/ui/render.js";
+import { renderBootOverlayFrame, renderLogsOverlayFrame, renderMainShellFrame, renderMainShellPresentation, renderOptionsOverlayFrame, renderPauseOverlayFrame } from "../src/ui/render.js";
 import { createInitialShellState, getLeftItemIds } from "../src/ui/state.js";
 import { buildShellData } from "../src/ui/shell/data.js";
 import { buildTaskRecord } from "./test-helpers.js";
@@ -36,31 +36,31 @@ describe("terminal shell renderer", () => {
     expect(frame).toContain("  Exit");
   });
 
-  test("renders error log overlay entries", () => {
-    const frame = renderErrorLogOverlayFrame(MIN_VIEWPORT, {
+  test("renders leveled log overlay entries", () => {
+    const frame = renderLogsOverlayFrame(MIN_VIEWPORT, {
       color: false,
-      errorLogPath: "/tmp/craig/.craig/logs/errors.log",
-      errorLogLines: ["[2026-06-09T00:00:00.000Z] refresh PR checks", "message: gh auth failed"],
+      logPath: "/tmp/craig/.craig/logs/craig.jsonl",
+      logLines: ["[2026-06-09T00:00:00.000Z] ERROR application.refresh.pr.checks — gh auth failed"],
     });
 
-    expect(frame).toContain("Error Log");
-    expect(frame).toContain("/tmp/craig/.craig/logs/errors.log");
-    expect(frame).toContain("refresh PR checks");
-    expect(frame).toContain("message: gh auth failed");
+    expect(frame).toContain("Logs");
+    expect(frame).toContain("/tmp/craig/.craig/logs/craig.jsonl");
+    expect(frame).toContain("refresh.pr.checks");
+    expect(frame).toContain("gh auth failed");
     expect(frame).toContain("Esc returns to Options.");
   });
 
-  test("renders empty error log overlay state", () => {
-    const frame = renderErrorLogOverlayFrame(MIN_VIEWPORT, {
+  test("renders empty log overlay state", () => {
+    const frame = renderLogsOverlayFrame(MIN_VIEWPORT, {
       color: false,
-      errorLogPath: "/tmp/craig/.craig/logs/errors.log",
-      errorLogLines: [],
+      logPath: "/tmp/craig/.craig/logs/craig.jsonl",
+      logLines: [],
     });
 
-    expect(frame).toContain("No Craig errors have been logged.");
+    expect(frame).toContain("No Craig activity has been logged.");
   });
 
-  test("renders options overlay with error log entry", () => {
+  test("renders options overlay with logs entry", () => {
     const frame = renderOptionsOverlayFrame(MIN_VIEWPORT, {
       color: false,
       optionsMenuItems: OPTIONS_MENU_ITEMS,
@@ -69,7 +69,7 @@ describe("terminal shell renderer", () => {
 
     expect(frame).toContain("  Runners");
     expect(frame).toContain("  Feature Previews");
-    expect(frame).toContain("> Error Log");
+    expect(frame).toContain("> Logs");
     expect(frame).toContain("  Help");
   });
 
@@ -295,6 +295,21 @@ describe("terminal shell renderer", () => {
       title: "observe agents",
       repoId: "repo_activity",
       workspaceId: "workspace_activity",
+      ptyTabs: [{
+        id: "task_activity:agent",
+        kind: "agent",
+        title: "Codex",
+        command: ["codex"],
+        createdAt: "2026-04-21T00:00:00.000Z",
+        updatedAt: "2026-04-21T00:00:00.000Z",
+      }, {
+        id: "task_activity:agent-2",
+        kind: "agent",
+        title: "Codex 2",
+        command: ["codex"],
+        createdAt: "2026-04-21T00:00:00.000Z",
+        updatedAt: "2026-04-21T00:00:00.000Z",
+      }],
     });
     const state = {
       ...createInitialShellState(null),
@@ -318,13 +333,20 @@ describe("terminal shell renderer", () => {
       lastActivityAt: 9_999,
       exitCode: null,
       error: null,
+    }, {
+      taskId: task.id,
+      tabId: task.ptyTabs[1]!.id,
+      sessionState: "exited" as const,
+      lastActivityAt: 9_000,
+      exitCode: 0,
+      error: null,
     }];
     const first = buildShellData(state, model, { snapshots, now: 10_000, animationFrame: 0 });
     const bright = buildShellData(state, model, { snapshots, now: 10_000, animationFrame: 3 });
 
     expect(first.leftTree.find((row) => row.taskId === task.id)?.activity).toBe("working");
     expect(first.tabs.find((tab) => tab.id === task.ptyTabs[0]!.id)?.activity).toBe("working");
-    expect(first.tabs.find((tab) => tab.id === task.ptyTabs[1]!.id)?.activity).toBeUndefined();
+    expect(first.tabs.find((tab) => tab.id === task.ptyTabs[1]!.id)?.activity).toBe("ready");
     expect(renderMainShellFrame(MIN_VIEWPORT, first, { color: false })).toContain("▸ ● observe agents");
     expect(renderMainShellFrame(MIN_VIEWPORT, first, { color: false })).toContain("CODEX ●");
     expect(renderMainShellFrame(MIN_VIEWPORT, first, { color: true })).toContain("38;2;61;89;161");

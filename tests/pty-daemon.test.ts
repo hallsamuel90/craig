@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto";
 import { createServer } from "node:net";
-import { mkdir, mkdtemp, rm, symlink, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, rm, symlink, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 
@@ -14,7 +14,6 @@ import { configService } from "../src/domain/config/index.js";
 import { taskService } from "../src/domain/task/index.js";
 import { readAllEvents } from "../src/domain/orchestration/index.js";
 import { watchWorkspaceEvents } from "../src/shell/events.js";
-import { PTY_DAEMON_PROTOCOL_VERSION } from "../src/shell/pty-daemon-protocol.js";
 import { disposeDaemonSessions } from "../src/shell/pty-daemon-orchestration.js";
 import { runCommand } from "../src/shared/exec.js";
 import { createCraigState, createGitRepo, createStubCommands, writeTaskRecord } from "./test-helpers.js";
@@ -264,6 +263,13 @@ describe("PTY daemon", () => {
 
       await expect(disposeDaemonSessions(paths, ["task_1:terminal"])).resolves.toBe(true);
       await vi.waitFor(() => expect(firstPty.kill).toHaveBeenCalledTimes(1));
+      await vi.waitFor(async () => {
+        const records = (await readFile(paths.logFile, "utf8")).trim().split("\n").map((line) => JSON.parse(line));
+        expect(records).toEqual(expect.arrayContaining([
+          expect.objectContaining({ level: "info", component: "pty", event: "spawned", tabId: "task_1:terminal" }),
+          expect.objectContaining({ level: "info", component: "pty", event: "disposed", tabId: "task_1:terminal" }),
+        ]));
+      });
       await new Promise((resolveWait) => setTimeout(resolveWait, 350));
       expect(client.getActivitySnapshots().some((snapshot) => snapshot.tabId === "task_1:terminal")).toBe(false);
 
@@ -834,7 +840,6 @@ describe("PTY daemon", () => {
       legacyServer.listen(endpoint.socketPath, resolve);
     });
     const spawnDaemon = vi.fn();
-
     try {
       await expect(createDaemonPtyRuntime({
         paths,
@@ -844,6 +849,11 @@ describe("PTY daemon", () => {
       })).rejects.toThrow(/will not replace a live workspace daemon/);
       expect(spawnDaemon).not.toHaveBeenCalled();
       expect(shutdownRequested).toBe(false);
+      expect(JSON.parse((await readFile(paths.logFile, "utf8")).trim())).toMatchObject({
+        level: "warn",
+        component: "daemon",
+        event: "upgrade.blocked",
+      });
     } finally {
       await new Promise<void>((resolve) => legacyServer.close(() => resolve()));
       await rm(endpoint.socketPath, { force: true });
@@ -851,7 +861,7 @@ describe("PTY daemon", () => {
     }
   }, DAEMON_TEST_TIMEOUT_MS);
 
-  test("keeps a compatible daemon running and preserves events newer than its activity snapshot", async () => {
+  test.each([6, 7, 8])("keeps protocol %i daemon running and preserves newer activity events", async (protocolVersion) => {
     const root = await createWorkspace();
     const endpoint = getDaemonEndpointForTest(root);
     let shutdownRequested = false;
@@ -868,7 +878,7 @@ describe("PTY daemon", () => {
           const response = {
             id: request.id,
             ok: true,
-            ...(request.type === "ping" ? { protocolVersion: PTY_DAEMON_PROTOCOL_VERSION } : {}),
+            ...(request.type === "ping" ? { protocolVersion } : {}),
             ...(request.type === "getActivitySnapshots"
               ? {
                   activities: [{

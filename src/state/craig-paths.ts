@@ -17,7 +17,7 @@ export interface CraigPaths {
   eventsDir: string;
   orchestrationDir: string;
   logsDir: string;
-  errorLogFile: string;
+  logFile: string;
   artifactsDir: string;
   worktreesDir: string;
   configFile: string;
@@ -42,7 +42,7 @@ export function getCraigPaths(workspaceRoot: string): CraigPaths {
     eventsDir: path.join(craigDir, "events"),
     orchestrationDir: path.join(craigDir, "orchestration"),
     logsDir: path.join(craigDir, "logs"),
-    errorLogFile: path.join(craigDir, "logs", "errors.log"),
+    logFile: path.join(craigDir, "logs", "craig.jsonl"),
     artifactsDir: path.join(craigDir, "artifacts"),
     worktreesDir: path.join(craigDir, "worktrees"),
     configFile: path.join(craigDir, "config.json"),

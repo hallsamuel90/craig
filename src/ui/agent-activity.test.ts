@@ -21,7 +21,7 @@ describe("agent activity", () => {
     expect(getAgentTabActivity("agent", [snapshot({ sessionState: "failed", error: "spawn failed" })], NOW)).toBe("error");
   });
 
-  test("rolls agent tabs up by attention priority and ignores terminal tabs", () => {
+  test("keeps a task working while any agent tab is active and ignores terminal tabs", () => {
     const task = {
       ptyTabs: [
         { id: "task:agent", kind: "agent" as const },
@@ -34,7 +34,7 @@ describe("agent activity", () => {
       snapshot({ tabId: "task:agent", lastActivityAt: NOW - 1 }),
       snapshot({ tabId: "task:agent-2", lastActivityAt: NOW - AGENT_READY_AFTER_MS }),
       snapshot({ tabId: "task:terminal", sessionState: "failed" }),
-    ], NOW)).toBe("ready");
+    ], NOW)).toBe("working");
 
     expect(getTaskAgentActivity(task, [
       snapshot({ tabId: "task:agent", lastActivityAt: NOW - 1 }),

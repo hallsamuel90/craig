@@ -12,7 +12,7 @@ import { buildTaskRecord } from "./test-helpers.js";
 const NOW = 10_000;
 
 describe("agent status domain", () => {
-  test("uses the same per-tab states and attention roll-up as the sidebar", () => {
+  test("uses the same per-tab states and active-work roll-up as the sidebar", () => {
     const task = buildTaskRecord("/tmp/craig-agent-status", {
       id: "task_1",
       ptyTabs: [
@@ -33,7 +33,7 @@ describe("agent status domain", () => {
     ]);
     expect(statuses.tasks).toEqual([{
       taskId: "task_1",
-      state: "ready",
+      state: "working",
       agentTabIds: ["task_1:agent", "task_1:agent-2"],
     }]);
   });

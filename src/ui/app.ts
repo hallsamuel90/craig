@@ -12,8 +12,8 @@ import type { PtyRuntimeOptions, PtyViewInvalidation } from "./pty/runtime.js";
 import { createDaemonPtyRuntime } from "./pty/daemon.js";
 import {
   renderBootOverlayFrame,
-  renderErrorLogOverlayFrame,
   renderHelpOverlayFrame,
+  renderLogsOverlayFrame,
   renderMainShellPresentation,
   renderOptionsOverlayFrame,
   renderPauseOverlayFrame,
@@ -441,10 +441,10 @@ export async function startTerminalApp(options: TerminalAppOptions = {}): Promis
                       optionsMessage: getPreviewSubmenuMessage(getPreviewOptionsState(renderState)),
                       optionsSubtitle: "Feature Previews - Experimental",
                     })
-                : renderState.variant === "error-log"
-                  ? renderErrorLogOverlayFrame(viewport, {
-                      errorLogPath: renderState.errorLog?.path ?? paths.errorLogFile,
-                      errorLogLines: renderState.errorLog?.lines ?? [],
+                : renderState.variant === "logs"
+                  ? renderLogsOverlayFrame(viewport, {
+                      logPath: renderState.log?.path ?? paths.logFile,
+                      logLines: renderState.log?.lines ?? [],
                     })
                   : renderHelpOverlayFrame(viewport);
         lastShellData = null;
