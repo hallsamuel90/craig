@@ -167,8 +167,8 @@ export interface TaskRecord {
   rootTaskId: string;
   delegationDepth: number;
   delegationIdempotencyKey: string | null;
-  swarmRunId: string | null;
-  swarmStepId: string | null;
+  furyRunId: string | null;
+  furyStepId: string | null;
   repoRoot: string;
   worktreePath: string;
   branch: string;

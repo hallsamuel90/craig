@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 
 import { execFile } from "node:child_process";
-import { chmod, mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
+import { access, chmod, mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { promisify } from "node:util";
@@ -54,6 +54,7 @@ const tempRoot = await mkdtemp(join(tmpdir(), "craig-package-smoke-"));
 const packDir = join(tempRoot, "pack");
 const projectDir = join(tempRoot, "project");
 const npmCacheDir = join(tempRoot, "npm-cache");
+let craigBin = null;
 
 try {
   await mkdir(packDir, { recursive: true });
@@ -75,7 +76,7 @@ try {
   await execFileAsync("npm", ["init", "-y"], { cwd: projectDir, env: { ...process.env, npm_config_cache: npmCacheDir }, maxBuffer: 1024 * 1024 * 10 });
   await execFileAsync("npm", ["install", tarball], { cwd: projectDir, env: { ...process.env, npm_config_cache: npmCacheDir }, maxBuffer: 1024 * 1024 * 20 });
 
-  const craigBin = join(projectDir, "node_modules", ".bin", "craig");
+  craigBin = join(projectDir, "node_modules", ".bin", "craig");
   await execFileAsync(craigBin, ["repo", "list"], { cwd: projectDir, maxBuffer: 1024 * 1024 * 10 });
   const jsonResult = await execFileAsync(craigBin, ["--json", "repo", "list"], {
     cwd: projectDir,
@@ -106,8 +107,26 @@ try {
     `${JSON.stringify({ previews: { agentOrchestration: true } }, null, 2)}\n`,
     "utf8",
   );
-  const swarmFile = join(projectDir, "swarm-smoke.yaml");
-  await writeFile(swarmFile, [
+  const codexStubDir = join(tempRoot, "bin");
+  await mkdir(codexStubDir, { recursive: true });
+  const codexStub = join(codexStubDir, "codex");
+  await writeFile(codexStub, "#!/usr/bin/env node\nprocess.stdout.write('codex_smoke_stub_ready\\n'); setInterval(() => {}, 1000);\n", "utf8");
+  await chmod(codexStub, 0o755);
+  const packedEnv = { ...process.env, PATH: `${codexStubDir}:${process.env.PATH ?? ""}` };
+  const registered = await execFileAsync(craigBin, ["--json", "repo", "list"], { cwd: projectDir, env: packedEnv });
+  const repoId = expectJsonSuccess(registered.stdout, "repo.list", "listRepos").data?.repos?.[0]?.id;
+  if (typeof repoId !== "string") throw new Error(`Packed CLI did not return a registered repo: ${registered.stdout}`);
+  const taskResult = await execFileAsync(
+    craigBin,
+    ["--json", "task", "new", "--repo", repoId, "--runner", "codex", "Fury package smoke root"],
+    { cwd: projectDir, env: packedEnv, maxBuffer: 1024 * 1024 * 10 },
+  );
+  const taskId = expectJsonSuccess(taskResult.stdout, "task.new", "createTask").data?.taskId;
+  if (typeof taskId !== "string") throw new Error(`Packed CLI did not create a task: ${taskResult.stdout}`);
+
+  const furyFile = join(projectDir, ".craig", "fury", "package-smoke.yaml");
+  await mkdir(join(projectDir, ".craig", "fury"), { recursive: true });
+  await writeFile(furyFile, [
     "version: 1",
     "name: package-smoke",
     "limits: { max_concurrency: 1, max_tasks: 1, timeout: 1h }",
@@ -120,30 +139,50 @@ try {
     "    prompt: Inspect the task.",
     "",
   ].join("\n"), "utf8");
-  const validateResult = await execFileAsync(craigBin, ["--json", "swarm", "validate", swarmFile], {
+  const validateResult = await execFileAsync(craigBin, ["--json", "fury", "validate", furyFile], {
     cwd: projectDir,
     maxBuffer: 1024 * 1024 * 10,
   });
-  expectJsonSuccess(validateResult.stdout, "swarm.validate", "validateSwarm");
+  expectJsonSuccess(validateResult.stdout, "fury.validate", "validateFury");
   const planResult = await execFileAsync(
     craigBin,
-    ["--json", "swarm", "plan", swarmFile, "--input", "task_id=task_smoke"],
+    ["--json", "fury", "plan", furyFile, "--root-task", taskId, "--input", `task_id=${taskId}`],
     { cwd: projectDir, maxBuffer: 1024 * 1024 * 10 },
   );
-  const planEnvelope = expectJsonSuccess(planResult.stdout, "swarm.plan", "planSwarm");
-  if (planEnvelope.data?.steps?.[0]?.target?.task !== "task_smoke" || planEnvelope.data?.mutations?.length !== 0) {
-    throw new Error(`Packed CLI returned an invalid swarm plan: ${planResult.stdout}`);
+  const planEnvelope = expectJsonSuccess(planResult.stdout, "fury.plan", "planFury");
+  const planId = planEnvelope.data?.plan?.id;
+  if (typeof planId !== "string" || planEnvelope.data?.plan?.steps?.[0]?.target?.task !== taskId) {
+    throw new Error(`Packed CLI returned an invalid fury plan: ${planResult.stdout}`);
   }
-
-  const codexStubDir = join(tempRoot, "bin");
-  await mkdir(codexStubDir, { recursive: true });
-  const codexStub = join(codexStubDir, "codex");
-  await writeFile(codexStub, "#!/usr/bin/env node\nprocess.stdout.write('codex_smoke_stub_ready\\n'); setInterval(() => {}, 1000);\n", "utf8");
-  await chmod(codexStub, 0o755);
+  await expectJsonFailure(craigBin, ["--json", "fury", "run", planId], projectDir, {
+    exitCode: 4,
+    command: "fury.run",
+    errorCode: "FURY_APPROVAL_REQUIRED",
+  });
+  const approvalResult = await execFileAsync(craigBin, ["--json", "fury", "approve", planId], {
+    cwd: projectDir, env: packedEnv, maxBuffer: 1024 * 1024 * 10,
+  });
+  expectJsonSuccess(approvalResult.stdout, "fury.approve", "approveFury");
+  const runResult = await execFileAsync(craigBin, ["--json", "fury", "run", planId], {
+    cwd: projectDir, env: packedEnv, maxBuffer: 1024 * 1024 * 10,
+  });
+  const runId = expectJsonSuccess(runResult.stdout, "fury.run", "runFury").data?.run?.id;
+  if (typeof runId !== "string") throw new Error(`Packed CLI did not start Fury: ${runResult.stdout}`);
+  await execFileAsync(craigBin, ["--json", "fury", "cancel", runId], { cwd: projectDir, env: packedEnv });
+  await execFileAsync(craigBin, ["--json", "task", "cancel-tree", taskId], { cwd: projectDir, env: packedEnv });
+  await expectJsonFailure(craigBin, ["--json", "fury", "status", "fury_missing"], projectDir, {
+    exitCode: 3,
+    command: "fury.status",
+    errorCode: "FURY_RUN_NOT_FOUND",
+  });
 
   await waitForCraigBoot(craigBin, projectDir, codexStubDir);
   process.stdout.write(`Package smoke passed for ${packResult.filename}\n`);
 } finally {
+  if (craigBin !== null) {
+    await execFileAsync(craigBin, ["__craig-daemon-shutdown", projectDir], { cwd: projectDir }).catch(() => undefined);
+    await waitForRemoval(join(projectDir, ".craig", "runtime", "pty-daemon.pid"), 5000);
+  }
   await rm(tempRoot, { recursive: true, force: true });
 }
 
@@ -176,12 +215,39 @@ async function waitForCraigBoot(craigBin, cwd, stubDir) {
   });
 
   child.onData((chunk) => output.append(chunk));
+  const exited = new Promise((resolveExit) => child.onExit(resolveExit));
 
   try {
     await output.waitFor("> Start", 10000);
   } finally {
     child.kill();
+    await Promise.race([exited, delay(2000)]);
   }
+}
+
+async function waitForRemoval(file, timeoutMs) {
+  const started = Date.now();
+  while (Date.now() - started < timeoutMs) {
+    if (!await exists(file)) {
+      await delay(100);
+      return;
+    }
+    await delay(50);
+  }
+  throw new Error(`Timed out waiting for cleanup of ${file}.`);
+}
+
+async function exists(file) {
+  try {
+    await access(file);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+function delay(ms) {
+  return new Promise((resolveDelay) => setTimeout(resolveDelay, ms));
 }
 
 async function expectJsonFailure(craigBin, args, cwd, expected) {

@@ -1,5 +1,7 @@
 #!/usr/bin/env node
 
+import { realpath } from "node:fs/promises";
+
 import { getCraigPaths } from "./state/craig-paths.js";
 import { runCli } from "./commands/run.js";
 import { startTerminalApp } from "./ui/app.js";
@@ -7,14 +9,14 @@ import { requestDaemonShutdown, servePtyDaemon } from "./ui/pty/daemon.js";
 async function main(): Promise<number> {
   try {
     if (process.argv[2] === "__craig-daemon") {
-      const workspaceRoot = process.argv[3] ?? process.cwd();
+      const workspaceRoot = await canonicalWorkspaceRoot(process.argv[3] ?? process.cwd());
       const paths = getCraigPaths(workspaceRoot);
       await servePtyDaemon(paths);
       return 0;
     }
 
     if (process.argv[2] === "__craig-daemon-shutdown") {
-      const workspaceRoot = process.argv[3] ?? process.cwd();
+      const workspaceRoot = await canonicalWorkspaceRoot(process.argv[3] ?? process.cwd());
       const paths = getCraigPaths(workspaceRoot);
       await requestDaemonShutdown(paths);
       return 0;
@@ -45,6 +47,10 @@ async function main(): Promise<number> {
         workspaceRoot,
       }),
   });
+}
+
+async function canonicalWorkspaceRoot(value: string): Promise<string> {
+  return realpath(value);
 }
 
 const exitCode = await main();

@@ -1,7 +1,17 @@
 import type { RunnerType, TaskRecord } from "../../task/index.js";
 import type { CraigActor } from "../types.js";
 
-export type DelegationCommandFamily = "task.create-child" | "task.children" | "task.cancel-tree";
+export type DelegationCommandFamily =
+  | "task.create-child"
+  | "task.children"
+  | "task.cancel-tree"
+  | "fury.step.complete"
+  | "fury.step.fail"
+  | "fury.plan"
+  | "fury.run"
+  | "fury.cancel"
+  | "fury.resume"
+  | "fury.review.resubmit";
 
 export interface AgentCapabilityRecord {
   schemaVersion: 1;
@@ -9,7 +19,9 @@ export interface AgentCapabilityRecord {
   token: string;
   taskId: string;
   agentTabId: string;
-  allowedCommandFamilies: DelegationCommandFamily[];
+  // Persisted command families are extensible so older readers can safely ignore
+  // newer names while authorization still requires an exact known family.
+  allowedCommandFamilies: string[];
   targetPolicy: "children-only";
   limits: {
     maxChildren: number;
@@ -31,6 +43,7 @@ export interface CreateChildInput {
   runner?: RunnerType;
   idempotencyKey?: string;
   capabilityId?: string;
+  fury?: { runId: string; stepId: string };
 }
 
 export interface CommandCreateChildResult {

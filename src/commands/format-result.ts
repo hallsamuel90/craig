@@ -68,21 +68,45 @@ export function formatCommandResult(result: CommandResult): string {
         : ["ID\tSTATUS\tDEPTH\tTITLE", ...result.children.map((task) => `${task.id}\t${task.status}\t${task.delegationDepth}\t${task.title}`)].join("\n");
     case "cancelTaskTree":
       return [`Cancelled task tree ${result.taskId}`, ...result.cancelled.map((task) => `${task.taskId}: ${task.disposition}`)].join("\n");
-    case "validateSwarm":
+    case "validateFury":
       return [
-        `Valid swarm ${result.name}`,
+        `Valid fury ${result.name}`,
         `Definition: ${result.definitionHash}`,
         `Steps: ${result.stepCount}`,
         `Order: ${result.order.join(" -> ")}`,
       ].join("\n");
-    case "planSwarm":
+    case "planFury":
       return [
-        `Planned swarm ${result.name}`,
-        `Definition: ${result.definitionHash}`,
-        `Steps: ${result.steps.length}`,
-        ...result.waves.map((wave, index) => `Wave ${index}: ${wave.join(", ")}`),
-        "Mutations: none",
+        `Planned fury ${result.plan.name}`,
+        `Plan: ${result.plan.id}`,
+        `Root task: ${result.plan.rootTaskId}`,
+        `Hash: ${result.plan.planHash}`,
+        `Steps: ${result.plan.steps.length}`,
+        ...result.plan.waves.map((wave, index) => `Wave ${index}: ${wave.join(", ")}`),
+        `Approval required: craig fury approve ${result.plan.id} --json`,
       ].join("\n");
+    case "approveFury":
+      return `${result.created ? "Approved" : "Already approved"} fury plan ${result.plan.id}: ${result.plan.planHash}`;
+    case "runFury":
+      return `${result.created ? "Started" : "Found"} fury ${result.run.id}: ${result.run.state}`;
+    case "showFury":
+    case "cancelFury":
+    case "resumeFury":
+      return formatFuryRun(result.run);
+    case "completeFuryStep":
+    case "failFuryStep":
+      return `${result.run.id} step ${result.step.id}: ${result.step.state}`;
+    case "listFuryReviews":
+      return result.reviews.length === 0
+        ? "No fury reviews found."
+        : ["ID\tRUN\tSTEP\tSTATE\tROUND\tTITLE", ...result.reviews.map((review) =>
+            `${review.id}\t${review.runId}\t${review.stepId}\t${review.state}\t${review.round}\t${review.title}`)].join("\n");
+    case "showFuryReview":
+      return formatFuryReview(result.review);
+    case "actFuryReview":
+      return `${formatFuryReview(result.review)}\nRun: ${result.run.state}`;
+    case "watchFury":
+      return "";
     case "attachTask":
       return `Attached to task ${result.taskId} via session ${result.sessionId}`;
     case "addTaskLink":
@@ -210,6 +234,30 @@ export function formatCommandResult(result: CommandResult): string {
     default:
       return assertNever(result);
   }
+}
+
+function formatFuryRun(run: Extract<CommandResult, { kind: "showFury" }>["run"]): string {
+  return [
+    `${run.id}: ${run.state}`,
+    `Definition: ${run.name} (${run.definitionHash})`,
+    `Root task: ${run.rootTaskId}`,
+    ...run.order.map((id) => {
+      const step = run.stepRuns[id]!;
+      return `${id}: ${step.state}${step.taskId ? ` (${step.taskId})` : ""}${step.error ? ` - ${step.error}` : ""}`;
+    }),
+  ].join("\n");
+}
+
+function formatFuryReview(review: Extract<CommandResult, { kind: "showFuryReview" }>["review"]): string {
+  return [
+    `${review.id}: ${review.state}`,
+    `Run: ${review.runId}`,
+    `Step: ${review.stepId}`,
+    `Round: ${review.round}`,
+    `Title: ${review.title}`,
+    `Summary: ${review.summary}`,
+    `Deadline: ${review.deadlineAt}`,
+  ].join("\n");
 }
 
 function formatPromptCommand(command: Extract<CommandResult, { kind: "showPromptCommand" }>["command"]): string {

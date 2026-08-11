@@ -12,6 +12,7 @@ import { Heartbeat } from "./heartbeat.js";
 import { acquireOrchestrationLeader, type OrchestrationLeaderLease } from "./orchestration-leader.js";
 import { encodeRunnerPrompt } from "./prompt-delivery.js";
 import { reconcilePromptCommandEvents } from "./command-event-reconciliation.js";
+import { reconcileFuryRuns } from "./fury-runtime.js";
 
 export interface OrchestrationDeliveryRuntime {
   getActivitySnapshots(): PtyActivitySnapshot[];
@@ -78,6 +79,7 @@ export class OrchestrationSupervisor {
   }
 
   private async reconcileCommands(): Promise<void> {
+    await reconcileFuryRuns(this.paths, { isAgentAvailable: (tabId) => this.runtime.hasRunningSession(tabId) });
     await reconcilePromptCommandEvents(this.paths);
     const commands = await listPromptCommands(this.paths);
     for (const command of commands) {
@@ -93,6 +95,7 @@ export class OrchestrationSupervisor {
       if (command.state !== "queued") continue;
       await this.reconcileCommand(command);
     }
+    await reconcileFuryRuns(this.paths, { isAgentAvailable: (tabId) => this.runtime.hasRunningSession(tabId) });
   }
 
   private async reconcileCommand(command: PromptDispatch): Promise<void> {

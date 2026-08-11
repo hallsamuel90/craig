@@ -1,4 +1,5 @@
 import path from "node:path";
+import { readFile } from "node:fs/promises";
 
 import type { CommandResult, AppCommand } from "./types.js";
 import type { CraigPaths } from "../state/craig-paths.js";
@@ -11,11 +12,12 @@ import { listWorkspaceRecords, workspaceService } from "../domain/workspace/inde
 import { agentStatusService } from "../shell/agent-status.js";
 import { eventService } from "../shell/events.js";
 import { promptCommandShellService } from "../shell/prompt-commands.js";
-import type { CraigEvent } from "../domain/orchestration/index.js";
-import { createChildTask, createRootTask, listTaskChildren, planSwarmFile, validateSwarmFile } from "../domain/orchestration/index.js";
+import type { CraigActor, CraigEvent } from "../domain/orchestration/index.js";
+import { createChildTask, createRootTask, listTaskChildren, validateFuryFile } from "../domain/orchestration/index.js";
 import { cancelTaskTreeAndSessions } from "../shell/delegation.js";
 import { configService } from "../domain/config/index.js";
 import { CraigError } from "../domain/error/index.js";
+import { furyRuntimeService } from "../shell/fury-runtime.js";
 
 export interface CommandContext {
   paths: CraigPaths;
@@ -124,12 +126,61 @@ export async function executeCommand(
         command.taskId ?? requireResolvedTaskContext(context).task.id,
         context.agentCapabilityId,
       );
-    case "validateSwarm":
-      await assertSwarmPreview(context);
-      return validateSwarmFile(path.resolve(context.cwd ?? process.cwd(), command.file));
-    case "planSwarm":
-      await assertSwarmPreview(context);
-      return planSwarmFile(path.resolve(context.cwd ?? process.cwd(), command.file), command.inputs);
+    case "validateFury":
+      await assertFuryPreview(context);
+      return validateFuryFile(path.resolve(context.cwd ?? process.cwd(), command.file));
+    case "planFury":
+      await assertFuryPreview(context);
+      return furyRuntimeService.plan(
+        context.paths,
+        path.resolve(context.cwd ?? process.cwd(), command.file),
+        command.inputs,
+        command.rootTaskId ?? requireResolvedTaskContext(context).task.id,
+        commandActor(context),
+        context.agentCapabilityId,
+      );
+    case "approveFury":
+      return furyRuntimeService.approve(context.paths, command.planId, commandActor(context));
+    case "runFury":
+      assertScopedAgent(context);
+      return furyRuntimeService.run(
+        context.paths,
+        command.planId,
+        commandActor(context),
+        context.agentCapabilityId,
+      );
+    case "showFury":
+      return furyRuntimeService.show(context.paths, command.runId);
+    case "watchFury":
+      return furyRuntimeService.watch(context.paths, command.runId, command.after, {
+        ...(context.signal ? { signal: context.signal } : {}),
+        onEvent: context.emitEvent ?? (() => undefined),
+      });
+    case "cancelFury":
+      return furyRuntimeService.cancel(context.paths, command.runId, commandActor(context), context.agentCapabilityId);
+    case "resumeFury":
+      return furyRuntimeService.resume(context.paths, command.runId, commandActor(context), context.agentCapabilityId);
+    case "completeFuryStep":
+      assertScopedAgent(context);
+      return furyRuntimeService.completeStep(
+        context.paths, command.runId, command.stepId, await resolveFuryOutput(command.output, context),
+        commandActor(context), context.agentCapabilityId,
+      );
+    case "failFuryStep":
+      assertScopedAgent(context);
+      return furyRuntimeService.failStep(
+        context.paths, command.runId, command.stepId, command.reason, commandActor(context), context.agentCapabilityId,
+      );
+    case "listFuryReviews":
+      return furyRuntimeService.listReviews(context.paths, command.runId, command.state);
+    case "showFuryReview":
+      return furyRuntimeService.showReview(context.paths, command.reviewId);
+    case "actFuryReview":
+      assertScopedAgent(context);
+      return furyRuntimeService.actOnReview(
+        context.paths, command.reviewId, command.action, command.message ?? null,
+        commandActor(context), context.agentCapabilityId,
+      );
     case "listTasks":
       return command.repoId || command.workspaceId
         ? taskService.listTasks(context.paths, { ...(command.repoId ? { repoId: command.repoId } : {}), ...(command.workspaceId ? { workspaceId: command.workspaceId } : {}) })
@@ -316,14 +367,42 @@ function assertScopedAgent(context: CommandContext): void {
   );
 }
 
-async function assertSwarmPreview(context: CommandContext): Promise<void> {
+async function assertFuryPreview(context: CommandContext): Promise<void> {
   const config = await configService.load(context.paths);
   if (configService.previews.isEnabled(config, "agentOrchestration")) return;
   throw new CraigError(
     "CLI_USAGE",
-    "Swarm planning is a feature preview. Enable agentOrchestration before validating or planning a swarm.",
+    "Fury planning is a feature preview. Enable agentOrchestration before validating or planning a fury.",
     { details: { preview: "agentOrchestration" } },
   );
+}
+
+function commandActor(context: CommandContext): CraigActor {
+  if (!context.agentContext) return { type: "human", source: "cli", processId: process.pid };
+  const task = requireResolvedTaskContext(context);
+  if (!context.agentCapabilityId || !task.agentTabId) {
+    throw new CraigError("CAPABILITY_DENIED", "This agent session has no scoped capability.", {});
+  }
+  return {
+    type: "agent", taskId: task.task.id, agentTabId: task.agentTabId,
+    capabilityId: context.agentCapabilityId.split(".", 1)[0]!,
+  };
+}
+
+async function resolveFuryOutput(
+  input: Extract<AppCommand, { kind: "completeFuryStep" }>["output"],
+  context: CommandContext,
+): Promise<unknown> {
+  if (!input) return null;
+  let text: string;
+  if (input.source === "inline") text = input.text;
+  else if (input.source === "file") text = await readFile(path.resolve(context.cwd ?? process.cwd(), input.path), "utf8");
+  else {
+    if (!context.readStdin) throw new CraigError("INPUT_REQUIRED", "Fury output from stdin is unavailable.", {});
+    text = await context.readStdin();
+  }
+  try { return JSON.parse(text) as unknown; }
+  catch (error) { throw new CraigError("FURY_OUTPUT_INVALID", "Fury step output must be valid JSON.", { cause: error }); }
 }
 
 async function selectWorkspaceInUi(paths: CraigPaths, workspaceId: string, selectedRepoId: string | null): Promise<void> {

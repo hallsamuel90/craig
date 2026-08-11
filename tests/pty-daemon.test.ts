@@ -808,11 +808,12 @@ describe("PTY daemon", () => {
     }
   }, DAEMON_TEST_TIMEOUT_MS);
 
-  test("incompatible live daemon is shut down and replaced", async () => {
+  test("incompatible live daemon fails closed without shutdown or replacement", async () => {
     const root = await createWorkspace();
     const paths = getCraigPaths(root);
     const endpoint = getDaemonEndpointForTest(root);
     await writeFile(endpoint.pidPath, "999999", "utf8");
+    let shutdownRequested = false;
     const legacyServer = createServer((socket) => {
       let buffer = "";
       socket.setEncoding("utf8");
@@ -825,35 +826,27 @@ describe("PTY daemon", () => {
 
         const request = JSON.parse(buffer.slice(0, newlineIndex)) as { id: number; type: string };
         socket.write(`${JSON.stringify({ id: request.id, ok: true })}\n`);
-        if (request.type === "shutdown") {
-          socket.end();
-          legacyServer.close();
-        }
+        shutdownRequested ||= request.type === "shutdown";
       });
     });
     await new Promise<void>((resolve, reject) => {
       legacyServer.once("error", reject);
       legacyServer.listen(endpoint.socketPath, resolve);
     });
-    let daemon: Promise<void> | null = null;
-
-    const client = await createDaemonPtyRuntime({
-      paths,
-      workspaceRoot: root,
-      resolveSessionSpec: () => ({ cwd: root, command: [] }),
-      spawnDaemon: () => {
-        daemon = servePtyDaemon(paths, { shell: "/bin/zsh", env: { TERM: "xterm-256color" }, spawn: vi.fn(() => createFakePty()) });
-      },
-    });
+    const spawnDaemon = vi.fn();
 
     try {
-      await client.ready();
+      await expect(createDaemonPtyRuntime({
+        paths,
+        workspaceRoot: root,
+        resolveSessionSpec: () => ({ cwd: root, command: [] }),
+        spawnDaemon,
+      })).rejects.toThrow(/will not replace a live workspace daemon/);
+      expect(spawnDaemon).not.toHaveBeenCalled();
+      expect(shutdownRequested).toBe(false);
     } finally {
-      client.disposeAll();
-      await requestDaemonShutdown(paths);
-      if (daemon) {
-        await daemon;
-      }
+      await new Promise<void>((resolve) => legacyServer.close(() => resolve()));
+      await rm(endpoint.socketPath, { force: true });
       await rm(root, { recursive: true, force: true });
     }
   }, DAEMON_TEST_TIMEOUT_MS);
