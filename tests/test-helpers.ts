@@ -3,7 +3,7 @@ import os from "node:os";
 import path from "node:path";
 
 import { getCraigPaths } from "../src/state/craig-paths.js";
-import type { SessionRecord, TaskRecord } from "../src/domain/task/index.js";
+import type { TaskRecord } from "../src/domain/task/index.js";
 import type { RepoRecord, WorkspaceRecord } from "../src/domain/workspace/index.js";
 import { taskService } from "../src/domain/task/index.js";
 const { createDefaultTaskPtyTabs } = taskService;
@@ -22,7 +22,6 @@ export async function createCraigState(repoRoot: string, taskIds: string[] = [])
     mkdir(paths.runtimeDir, { recursive: true }),
     mkdir(paths.reposDir, { recursive: true }),
     mkdir(paths.workspacesDir, { recursive: true }),
-    mkdir(paths.sessionsDir, { recursive: true }),
     mkdir(paths.tasksDir, { recursive: true }),
     mkdir(paths.jobsDir, { recursive: true }),
     mkdir(paths.commandsDir, { recursive: true }),
@@ -90,17 +89,6 @@ export async function writeTaskRecord(repoRoot: string, task: Partial<TaskRecord
   return record;
 }
 
-export async function writeSessionRecord(
-  workspaceRoot: string,
-  session: Partial<SessionRecord> & { id: string; taskId: string },
-) {
-  const paths = getCraigPaths(workspaceRoot);
-  const record = buildSessionRecord(workspaceRoot, session);
-
-  await writeFile(`${paths.sessionsDir}/${record.id}.json`, JSON.stringify(record, null, 2), "utf8");
-
-  return record;
-}
 
 export function buildTaskRecord(
   repoRoot: string,
@@ -120,7 +108,6 @@ export function buildTaskRecord(
     runner,
     repoId: task.repoId ?? "repo_test",
     workspaceId: task.workspaceId ?? "workspace_repo_test",
-    sessionId: task.sessionId ?? `session_${task.id}`,
     selectedPtyTabId: task.selectedPtyTabId ?? ptyTabs[0]?.id ?? null,
     linkedRepoIds: task.linkedRepoIds ?? [],
     parentTaskId: task.parentTaskId ?? null,
@@ -164,7 +151,6 @@ export function buildTaskRecord(
       prStatusPath: `.craig/artifacts/${task.id}/pr-status.json`,
     },
     cleanup: task.cleanup ?? {
-      paneClosedAt: null,
       worktreeRemovedAt: null,
       preservedWorktree: false,
       warning: null,
@@ -177,54 +163,11 @@ export function buildTaskRecord(
   };
 }
 
-export function buildSessionRecord(
-  workspaceRoot: string,
-  session: Partial<SessionRecord> & { id: string; taskId: string },
-): SessionRecord {
-  const paths = getCraigPaths(workspaceRoot);
-  const now = "2026-04-21T00:00:00.000Z";
-
-  return {
-    id: session.id,
-    taskId: session.taskId,
-    repoId: session.repoId ?? "repo_test",
-    workspaceId: session.workspaceId ?? "workspace_repo_test",
-    substrate: "tmux",
-    sessionName: session.sessionName ?? `craig-test-${session.taskId}`,
-    paneId: session.paneId ?? "%42",
-    windowTarget: session.windowTarget ?? "@1",
-    worktreePath: session.worktreePath ?? path.join(paths.worktreesDir, session.taskId),
-    logPath: session.logPath ?? `.craig/logs/${session.taskId}.log`,
-    command: session.command ?? ["codex", "test task"],
-    status: session.status ?? "running",
-    startedAt: session.startedAt ?? now,
-    exitedAt: session.exitedAt ?? null,
-    exitCode: session.exitCode ?? null,
-    lastAttachedAt: session.lastAttachedAt ?? null,
-    attach: session.attach ?? {
-      detachChord: "ctrl+]",
-      lastSize: {
-        columns: 160,
-        rows: 48,
-      },
-    },
-    snapshot: session.snapshot ?? {
-      paneId: session.paneId ?? "%42",
-      windowTarget: session.windowTarget ?? "@1",
-      alive: true,
-      capturedAt: now,
-    },
-    createdAt: session.createdAt ?? now,
-    updatedAt: session.updatedAt ?? now,
-  };
-}
-
 export async function createStubCommands(root: string): Promise<string> {
   const stubDir = path.join(root, "stubs");
   await mkdir(stubDir, { recursive: true });
 
   const gitScript = path.join(stubDir, "git-stub.sh");
-  const tmuxScript = path.join(stubDir, "tmux-stub.sh");
   const cursorScript = path.join(stubDir, "cursor-stub.sh");
   const codexScript = path.join(stubDir, "codex-stub.sh");
   const claudeScript = path.join(stubDir, "claude-stub.sh");
@@ -254,78 +197,6 @@ if [ "$1" = "worktree" ] && [ "$2" = "add" ] && [ "$3" = "-b" ]; then
   exit 0
 fi
 echo "unsupported git stub invocation: $*" >&2
-exit 1
-`,
-    "utf8",
-  );
-
-  await writeFile(
-    tmuxScript,
-    `#!/bin/sh
-set -eu
-state_file="\${CRAIG_TEST_TMUX_STATE_FILE:-}"
-command_log="\${CRAIG_TEST_TMUX_COMMAND_LOG:-}"
-session_name="\${CRAIG_TEST_TMUX_SESSION_NAME:-craig-test-task_1}"
-window_target="\${CRAIG_TEST_TMUX_WINDOW_TARGET:-@0}"
-pane_id="\${CRAIG_TEST_TMUX_PANE_ID:-%42}"
-if [ "\${CRAIG_TEST_TMUX_FAIL:-0}" = "1" ]; then
-  echo "tmux failure" >&2
-  exit 1
-fi
-if [ -n "$command_log" ]; then
-  printf "%s\\n" "$*" >> "$command_log"
-fi
-case "$1" in
-  has-session)
-    [ -n "$state_file" ] && [ -f "$state_file" ] && exit 0
-    exit 1
-    ;;
-  new-session)
-    [ -n "$state_file" ] && : > "$state_file"
-    if [ "$4" = "-F" ]; then
-      echo "$session_name $window_target $pane_id"
-    fi
-    exit 0
-    ;;
-  list-panes)
-    echo "$pane_id"
-    exit 0
-    ;;
-  pipe-pane)
-    exit 0
-    ;;
-  set-option)
-    exit 0
-    ;;
-  set-window-option)
-    exit 0
-    ;;
-  select-window)
-    exit 0
-    ;;
-  select-pane)
-    exit 0
-    ;;
-  switch-client)
-    exit 0
-    ;;
-  attach-session)
-    exit 0
-    ;;
-  resize-window)
-    exit 0
-    ;;
-  kill-session)
-    exit 0
-    ;;
-  kill-pane)
-    exit 0
-    ;;
-  send-keys)
-    exit 0
-    ;;
-esac
-echo "unsupported tmux stub invocation: $*" >&2
 exit 1
 `,
     "utf8",
@@ -460,7 +331,6 @@ exit 1
   );
 
   await chmod(gitScript, 0o755);
-  await chmod(tmuxScript, 0o755);
   await chmod(cursorScript, 0o755);
   await chmod(codexScript, 0o755);
   await chmod(claudeScript, 0o755);
@@ -468,7 +338,6 @@ exit 1
   await chmod(scriptLog, 0o755);
 
   await symlink("git-stub.sh", path.join(stubDir, "git"));
-  await symlink("tmux-stub.sh", path.join(stubDir, "tmux"));
   await symlink("cursor-stub.sh", path.join(stubDir, "cursor"));
   await symlink("cursor-stub.sh", path.join(stubDir, "cursor-agent"));
   await symlink("codex-stub.sh", path.join(stubDir, "codex"));

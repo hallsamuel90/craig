@@ -15,7 +15,6 @@ import { allocateProjectTaskId, allocateTaskIdForRepo } from "./id.js";
 export interface ProvisionedTask {
   repoId: string;
   repoRoot: string;
-  sessionId: string | null;
   workspaceId: string;
   task: TaskRecord;
 }
@@ -40,14 +39,13 @@ export const provisionTask = async (
   paths: CraigPaths,
   repoId: string,
   prompt: string,
-  options: { sessionId?: string | null; runner?: RunnerType; config?: CraigConfig; workspaceId?: string; lineage?: TaskLineageInput } = {},
+  options: { runner?: RunnerType; config?: CraigConfig; workspaceId?: string; lineage?: TaskLineageInput } = {},
 ): Promise<ProvisionedTask> => {
   const repo = await readRepo(paths, repoId);
   const [workspace, taskId] = await Promise.all([
     resolveWorkspaceForRepo(paths, repo.id, options.workspaceId),
     allocateTaskIdForRepo(paths, repo.rootPath),
   ]);
-  const sessionId = options.sessionId ?? null;
   const branch = `craig/${taskId}`;
   const worktreePath = path.join(paths.worktreesDir, repo.id, taskId);
   const logPath = path.join(paths.logsDir, `${taskId}.log`);
@@ -63,7 +61,6 @@ export const provisionTask = async (
     taskId,
     repoId: repo.id,
     workspaceId: workspace.id,
-    sessionId,
     repoRoot: repo.rootPath,
     prompt,
     runner: options.runner ?? "codex",
@@ -80,7 +77,6 @@ export const provisionTask = async (
   return {
     repoId: repo.id,
     repoRoot: repo.rootPath,
-    sessionId,
     workspaceId: workspace.id,
     task: draftTask,
   };
@@ -90,7 +86,7 @@ export const provisionProjectTask = async (
   paths: CraigPaths,
   workspaceId: string,
   prompt: string,
-  options: { sessionId?: string | null; runner?: RunnerType; config?: CraigConfig; lineage?: TaskLineageInput } = {},
+  options: { runner?: RunnerType; config?: CraigConfig; lineage?: TaskLineageInput } = {},
 ): Promise<ProvisionedProjectTask> => {
   const workspace = (await listWorkspaceRecords(paths)).find((entry) => entry.id === workspaceId && entry.status === "active");
   if (!workspace) {
@@ -116,7 +112,6 @@ export const provisionProjectTask = async (
   const taskId = await allocateProjectTaskId(paths);
   const timestamp = new Date().toISOString();
   const runner = options.runner ?? "codex";
-  const sessionId = options.sessionId ?? null;
   const branch = `craig/${taskId}`;
   const bundlePath = path.join(paths.craigDir, "task-bundles", taskId);
   const logPath = path.join(paths.logsDir, `${taskId}.log`);
@@ -179,7 +174,6 @@ export const provisionProjectTask = async (
     runner,
     repoId: readyTarget.repoId,
     workspaceId: workspace.id,
-    sessionId,
     selectedPtyTabId: ptyTabs[0]?.id ?? null,
     linkedRepoIds: repoIds.filter((repoId) => repoId !== readyTarget.repoId),
     ...resolveLineage(taskId, options.lineage),
@@ -225,7 +219,6 @@ export const provisionProjectTask = async (
   return {
     repoId: readyTarget.repoId,
     repoRoot: bundlePath,
-    sessionId,
     workspaceId: workspace.id,
     task,
     bundlePath,
@@ -275,7 +268,6 @@ const buildDraftTask = (paths: CraigPaths, input: DraftTaskInput): TaskRecord =>
     runner: input.runner,
     repoId: input.repoId,
     workspaceId: input.workspaceId,
-    sessionId: input.sessionId,
     selectedPtyTabId: ptyTabs[0]?.id ?? null,
     linkedRepoIds: [],
     ...resolveLineage(input.taskId, input.lineage),
@@ -443,7 +435,6 @@ const buildDefaultPullRequest = (): TaskPullRequest => {
 
 const buildDefaultCleanup = (): TaskCleanup => {
   return {
-    paneClosedAt: null,
     worktreeRemovedAt: null,
     preservedWorktree: false,
     warning: null,
@@ -454,7 +445,6 @@ interface DraftTaskInput {
   taskId: string;
   repoId: string;
   workspaceId: string;
-  sessionId: string | null;
   repoRoot: string;
   prompt: string;
   runner: RunnerType;

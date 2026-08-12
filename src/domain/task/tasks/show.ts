@@ -1,6 +1,5 @@
 import type { CommandShowTaskResult } from "../types.js";
 import type { CraigPaths } from "../../../state/craig-paths.js";
-import { readSession } from "../adapters/session.js";
 import { buildTaskInspection, getTask } from "./inspect.js";
 import { discoverOrRefreshAllProjectPullRequests, refreshTrackedPullRequest } from "../prs/open.js";
 
@@ -19,12 +18,9 @@ export const showTask = async (paths: CraigPaths, taskId: string): Promise<Comma
   }
 
   const inspection = await buildTaskInspection(paths, task);
-  const session = task.sessionId ? await readSession(paths, task.sessionId).catch(() => null) : null;
-
   return {
     kind: "showTask",
     task,
     inspection,
-    session,
   };
 };

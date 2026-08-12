@@ -137,7 +137,7 @@ describe("CLI execution contract", () => {
     tempRoots.push(root);
     await mkdir(worktree, { recursive: true });
     await createCraigState(root, ["task_1"]);
-    await writeTaskRecord(root, { id: "task_1", worktreePath: worktree, sessionId: null });
+    await writeTaskRecord(root, { id: "task_1", worktreePath: worktree });
     const output = createOutput();
 
     const exitCode = await runCli(

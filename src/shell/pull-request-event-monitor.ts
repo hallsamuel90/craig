@@ -1,4 +1,4 @@
-import { watch, type FSWatcher } from "node:fs";
+import { watch, type FSWatcher, type WatchListener } from "node:fs";
 
 import {
   AGENT_READY_AFTER_MS,
@@ -26,7 +26,7 @@ export class PullRequestEventMonitor {
   private readonly readyAfterMs: number;
   private readonly agentStates = new Map<string, AgentRuntimeState>();
   private readonly readinessTimers = new Map<string, ReturnType<typeof setTimeout>>();
-  private watcher: FSWatcher | null = null;
+  private readonly watchers: FSWatcher[] = [];
   private debounceTimer: ReturnType<typeof setTimeout> | null = null;
   private reconciliation: Promise<void> | null = null;
   private dirty = false;
@@ -48,16 +48,11 @@ export class PullRequestEventMonitor {
     if (this.running) return;
     this.running = true;
     this.baselineComplete = false;
-    try {
-      this.watcher = watch(this.paths.tasksDir, { persistent: false }, () => {
-        this.schedule(this.taskDebounceMs);
-      });
-      this.watcher.on("error", (error) => {
-        void this.reportError(error);
-      });
-    } catch (error) {
-      void this.reportError(error);
-    }
+    this.watchPath(this.paths.tasksDir, () => this.schedule(this.taskDebounceMs));
+    this.watchPath(this.paths.craigDir, (_eventType, filename) => {
+      const name = filename === null ? "" : String(filename);
+      if (name === "index.json" || name.startsWith(".index.json.")) this.schedule(this.taskDebounceMs);
+    });
     this.schedule(0);
   }
 
@@ -80,8 +75,7 @@ export class PullRequestEventMonitor {
   async stop(): Promise<void> {
     if (!this.running) return;
     this.running = false;
-    this.watcher?.close();
-    this.watcher = null;
+    for (const watcher of this.watchers.splice(0)) watcher.close();
     if (this.debounceTimer) clearTimeout(this.debounceTimer);
     this.debounceTimer = null;
     for (const timer of this.readinessTimers.values()) clearTimeout(timer);
@@ -99,6 +93,16 @@ export class PullRequestEventMonitor {
       this.agentStates.set(snapshot.tabId, "ready");
       this.schedule(0);
     }, delay + 1));
+  }
+
+  private watchPath(target: string, listener: WatchListener<string>): void {
+    try {
+      const watcher = watch(target, { persistent: false }, listener);
+      watcher.on("error", (error) => void this.reportError(error));
+      this.watchers.push(watcher);
+    } catch (error) {
+      void this.reportError(error);
+    }
   }
 
   private clearReadinessTimer(tabId: string): void {

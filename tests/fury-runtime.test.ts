@@ -36,7 +36,6 @@ const originalPath = process.env.PATH ?? "";
 
 afterEach(async () => {
   process.env.PATH = originalPath;
-  delete process.env.CRAIG_TEST_TMUX_COMMAND_LOG;
   await Promise.all(roots.splice(0).map((root) => rm(root, { recursive: true, force: true })));
 });
 
@@ -274,7 +273,6 @@ async function setupChildGraph() {
   await configService.save(paths, { previews: { agentOrchestration: true } });
   const stubDir = await createStubCommands(root);
   process.env.PATH = `${stubDir}:${originalPath}`;
-  process.env.CRAIG_TEST_TMUX_COMMAND_LOG = path.join(root, "tmux.log");
   const file = path.join(root, ".craig", "fury", "children.yaml");
   await mkdir(path.dirname(file), { recursive: true });
   await writeFile(file, `

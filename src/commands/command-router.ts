@@ -13,8 +13,8 @@ import { agentStatusService } from "../shell/agent-status.js";
 import { eventService } from "../shell/events.js";
 import { promptCommandShellService } from "../shell/prompt-commands.js";
 import type { CraigActor, CraigEvent } from "../domain/orchestration/index.js";
-import { createRootTask, listTaskChildren, validateFuryFile } from "../domain/orchestration/index.js";
-import { cancelTaskTreeAndSessions, createChildTaskAndSession } from "../shell/delegation.js";
+import { listTaskChildren, validateFuryFile } from "../domain/orchestration/index.js";
+import { cancelTaskTreeAndSessions, createChildTaskAndSession, createRootTaskAndSession } from "../shell/delegation.js";
 import { configService } from "../domain/config/index.js";
 import { CraigError } from "../domain/error/index.js";
 import { furyRuntimeService } from "../shell/fury-runtime.js";
@@ -87,7 +87,7 @@ export async function executeCommand(
     case "removeWorkspace":
       return workspaceService.removeWorkspace(context.paths, command.workspaceId, { listTasks: taskService.listTasks });
     case "createTask":
-      return createRootTask(
+      return createRootTaskAndSession(
         context.paths,
         command.repoId ?? command.workspaceId ?? "",
         command.prompt,
@@ -197,8 +197,6 @@ export async function executeCommand(
         },
       };
     }
-    case "attachTask":
-      return taskService.attachTask(context.paths, command.taskId);
     case "addTaskLink":
       return taskService.addTaskLink(context.paths, command.taskId, command.repoId);
     case "listTaskLinks":
@@ -316,10 +314,6 @@ export async function executeCommand(
       return taskService.showTaskDiff(context.paths, command.taskId);
     case "showSelectedTaskDiff":
       return taskService.showTaskDiff(context.paths, requireSelectedTaskId(context, "diff"));
-    case "focusTask":
-      return taskService.focusTask(context.paths, command.taskId);
-    case "focusSelectedTask":
-      return taskService.focusTask(context.paths, requireSelectedTaskId(context, "focus"));
     case "openTask":
       return taskService.openTask(context.paths, command.taskId);
     case "openSelectedTask":

@@ -38,10 +38,8 @@ describe("CLI argument parsing", () => {
     [["fury", "validate", "fury.yaml"], "validateFury"],
     [["fury", "plan", "fury.yaml", "--input", "task_id=task_1"], "planFury"],
     [["fury", "approve", "fury_plan_1"], "approveFury"],
-    [["task", "attach", "task_1"], "attachTask"],
     [["task", "logs", "task_1"], "streamTaskLogs"],
     [["task", "diff", "task_1"], "showTaskDiff"],
-    [["task", "focus", "task_1"], "focusTask"],
     [["task", "open", "task_1"], "openTask"],
     [["task", "check", "task_1"], "runChecks"],
     [["task", "commit", "task_1"], "commitTask"],
@@ -57,6 +55,10 @@ describe("CLI argument parsing", () => {
       command: { kind: expectedKind },
       options: { json: true },
     });
+  });
+
+  test.each(["attach", "focus"])("rejects removed tmux-era task %s commands", (command) => {
+    expect(() => parseArgv(["task", command, "task_1"])).toThrow("Unsupported command");
   });
 
   test("accepts global options before, between, and after command tokens", () => {

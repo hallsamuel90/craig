@@ -35,12 +35,23 @@ describe("event journal", () => {
     expect(event).not.toHaveProperty("swarmRunId");
 
     const current = buildTaskRecord(paths.workspaceRoot, { id: "task_legacy" });
-    const legacyTask = { ...current, swarmRunId: "swarm_legacy", swarmStepId: "inspect" } as Record<string, unknown>;
+    const legacyTask = {
+      ...current,
+      sessionId: "session_task_legacy",
+      tmuxTarget: "%42",
+      tmuxWindowTarget: "@7",
+      cleanup: { ...current.cleanup, paneClosedAt: "2026-08-12T00:00:00.000Z" },
+      swarmRunId: "swarm_legacy",
+      swarmStepId: "inspect",
+    } as Record<string, unknown>;
     delete legacyTask.furyRunId;
     delete legacyTask.furyStepId;
     const task = validateTaskRecord(legacyTask, "legacy-task.json");
     expect(task).toMatchObject({ furyRunId: "swarm_legacy", furyStepId: "inspect" });
     expect(task).not.toHaveProperty("swarmRunId");
+    expect(task).not.toHaveProperty("sessionId");
+    expect(task).not.toHaveProperty("tmuxTarget");
+    expect(task.cleanup).not.toHaveProperty("paneClosedAt");
   });
 
   test("serializes concurrent appends with monotonic sequences and idempotent ids", async () => {

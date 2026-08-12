@@ -1453,7 +1453,7 @@ describe("terminal shell renderer", () => {
         lastSyncedAt: repoId === "repo_alpha" ? "2026-05-04T00:00:00.000Z" : null,
         lastSyncedHeadSha: null,
       },
-      cleanup: { paneClosedAt: null, worktreeRemovedAt: null, preservedWorktree: false, warning: null },
+      cleanup: { worktreeRemovedAt: null, preservedWorktree: false, warning: null },
     });
     const task = buildTaskRecord("/tmp/projects", {
       id: "task_proj_01",
@@ -1538,7 +1538,7 @@ describe("terminal shell renderer", () => {
         lastSyncedAt: "2026-05-04T00:00:00.000Z",
         lastSyncedHeadSha: null,
       },
-      cleanup: { paneClosedAt: null, worktreeRemovedAt: null, preservedWorktree: false, warning: null },
+      cleanup: { worktreeRemovedAt: null, preservedWorktree: false, warning: null },
     });
     const task = buildTaskRecord("/tmp/projects", {
       id: "task_proj_01",

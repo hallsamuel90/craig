@@ -47,7 +47,7 @@ export function formatCommandResult(result: CommandResult): string {
         `Created task ${result.taskId}`,
         `Repo: ${result.repoId}`,
         `Workspace: ${result.workspaceId}`,
-        `Session: ${result.sessionId}`,
+        `Agent tab: ${result.agentTabId}`,
         `Status: ${result.status}`,
         `Branch: ${result.branch}`,
         `Worktree: ${result.worktreePath}`,
@@ -108,8 +108,6 @@ export function formatCommandResult(result: CommandResult): string {
       return `${formatFuryReview(result.review)}\nRun: ${result.run.state}`;
     case "watchFury":
       return "";
-    case "attachTask":
-      return `Attached to task ${result.taskId} via session ${result.sessionId}`;
     case "addTaskLink":
       return `Linked repo ${result.repoId} to task ${result.taskId}: ${result.linkedRepoIds.join(", ")}`;
     case "listTaskLinks":
@@ -150,8 +148,7 @@ export function formatCommandResult(result: CommandResult): string {
         `Workspace: ${result.task.workspaceId}`,
         `Branch: ${result.task.branch}`,
         `Worktree: ${result.task.worktreePath}`,
-        `Session: ${result.task.sessionId ?? "<missing>"}`,
-        `tmux: ${result.session?.paneId ?? "<missing>"}`,
+        `Agent tab: ${result.task.ptyTabs.find((tab) => tab.kind === "agent")?.id ?? "<missing>"}`,
         `Linked repos: ${result.task.linkedRepoIds.length > 0 ? result.task.linkedRepoIds.join(", ") : "none"}`,
         `Prompt: ${result.task.prompt.source} ${JSON.stringify(result.task.prompt.value)}`,
         `Runner command: ${result.inspection.runnerCommandText || "<none>"}`,
@@ -217,8 +214,6 @@ export function formatCommandResult(result: CommandResult): string {
       return `Streaming logs for ${result.taskId} from ${result.logPath}`;
     case "showTaskDiff":
       return result.isEmpty ? `Task ${result.taskId} has no uncommitted diff.` : result.diffText;
-    case "focusTask":
-      return `Focused task ${result.taskId} on ${result.tmuxTarget}`;
     case "openTask":
       return result.launched
         ? `Opened task ${result.taskId} at ${result.worktreePath}`

@@ -154,17 +154,11 @@ export function parseArgv(argv: string[]): ParsedArgvCommand {
     case "fury:review":
       command = parseFuryReview(args);
       break;
-    case "task:attach":
-      command = { kind: "attachTask", taskId: requireSingleValue(args, "Task id") };
-      break;
     case "task:logs":
       command = { kind: "streamTaskLogs", taskId: requireSingleValue(args, "Task id") };
       break;
     case "task:diff":
       command = { kind: "showTaskDiff", taskId: requireSingleValue(args, "Task id") };
-      break;
-    case "task:focus":
-      command = { kind: "focusTask", taskId: requireSingleValue(args, "Task id") };
       break;
     case "task:open":
       command = { kind: "openTask", taskId: requireSingleValue(args, "Task id") };
@@ -261,7 +255,6 @@ export function getCommandName(command: AppCommand): string {
     waitTask: "task.wait",
     listEvents: "events.list",
     watchEvents: "events.watch",
-    attachTask: "task.attach",
     addTaskLink: "link.add",
     listTaskLinks: "link.list",
     refreshInteractiveState: "interactive.refresh",
@@ -270,8 +263,6 @@ export function getCommandName(command: AppCommand): string {
     streamSelectedTaskLogs: "task.logs",
     showTaskDiff: "task.diff",
     showSelectedTaskDiff: "task.diff",
-    focusTask: "task.focus",
-    focusSelectedTask: "task.focus",
     openTask: "task.open",
     openSelectedTask: "task.open",
     runChecks: "task.check",
@@ -332,8 +323,6 @@ export function getHelpText(): string {
     "  craig fury review show|approve|reject|request-changes|resubmit <review-id>",
     "  craig task logs <id>     Stream Craig-managed logs for a task",
     "  craig task diff <id>     Show the current worktree diff for a task",
-    "  craig task attach <id>   Attach to a live task session",
-    "  craig task focus <id>    Focus the tmux pane for a task",
     "  craig task open <id>     Open the task worktree or print its path",
     "  craig task check <id>    Run configured checks for a task",
     "  craig task commit <id>   Commit all task worktree changes",

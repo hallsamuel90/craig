@@ -8,7 +8,6 @@ export interface CraigPaths {
   indexFile: string;
   reposDir: string;
   workspacesDir: string;
-  sessionsDir: string;
   runtimeDir: string;
   uiStateFile: string;
   tasksDir: string;
@@ -33,7 +32,6 @@ export function getCraigPaths(workspaceRoot: string): CraigPaths {
     indexFile: path.join(craigDir, "index.json"),
     reposDir: path.join(craigDir, "repos"),
     workspacesDir: path.join(craigDir, "workspaces"),
-    sessionsDir: path.join(craigDir, "sessions"),
     runtimeDir: path.join(craigDir, "runtime"),
     uiStateFile: path.join(craigDir, "runtime", "ui-state.json"),
     tasksDir: path.join(craigDir, "tasks"),

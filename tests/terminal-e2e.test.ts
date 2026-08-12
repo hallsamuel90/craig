@@ -14,6 +14,15 @@ import { configService } from "../src/domain/config/index.js";
 import { taskService } from "../src/domain/task/index.js";
 import { createChildTaskAndSession } from "../src/shell/delegation.js";
 
+function withoutAgentContext(): Record<string, string | undefined> {
+  const environment = { ...process.env };
+  delete environment.CRAIG_AGENT_CAPABILITY;
+  delete environment.CRAIG_AGENT_TAB_ID;
+  delete environment.CRAIG_TASK_ID;
+  delete environment.CRAIG_WORKSPACE_ROOT;
+  return environment;
+}
+
 describe("Craig terminal mode E2E", () => {
   test("enters terminal mode and supports detach and reattach", async () => {
     const repoRoot = process.cwd();
@@ -59,7 +68,7 @@ describe("Craig terminal mode E2E", () => {
       cols: 120,
       rows: 36,
       env: {
-        ...process.env,
+        ...withoutAgentContext(),
         CI: "",
         SHELL: process.env.SHELL ?? "/bin/zsh",
         TERM: "xterm-256color",
@@ -140,7 +149,7 @@ describe("Craig terminal mode E2E", () => {
       cols: 120,
       rows: 36,
       env: {
-        ...process.env,
+        ...withoutAgentContext(),
         CI: "",
         PATH: `${codexStubDir}:${process.env.PATH ?? ""}`,
         SHELL: process.env.SHELL ?? "/bin/zsh",
@@ -213,7 +222,7 @@ describe("Craig terminal mode E2E", () => {
       cols: 120,
       rows: 36,
       env: {
-        ...process.env,
+        ...withoutAgentContext(),
         CI: "",
         PATH: `${codexStubDir}:${process.env.PATH ?? ""}`,
         SHELL: process.env.SHELL ?? "/bin/zsh",
@@ -299,7 +308,7 @@ describe("Craig terminal mode E2E", () => {
       cols: 120,
       rows: 36,
       env: {
-        ...process.env,
+        ...withoutAgentContext(),
         CI: "",
         PATH: `${stubDir}:${process.env.PATH ?? ""}`,
         SHELL: process.env.SHELL ?? "/bin/zsh",
@@ -373,7 +382,7 @@ describe("Craig terminal mode E2E", () => {
       cols: 120,
       rows: 36,
       env: {
-        ...process.env,
+        ...withoutAgentContext(),
         CI: "",
         PATH: `${codexStubDir}:${process.env.PATH ?? ""}`,
         SHELL: process.env.SHELL ?? "/bin/zsh",
@@ -484,7 +493,6 @@ setInterval(() => {}, 1000);
         rootTaskId: parent.id,
         delegationDepth: 1,
         status: "running",
-        sessionId: null,
       });
 
       const marker = "prompt_for_unselected_child";
@@ -497,7 +505,7 @@ setInterval(() => {}, 1000);
         "--prompt", marker,
         "--delivery", "immediate",
         "--json",
-      ], { cwd: repoRoot, env: { ...process.env, CI: "1" } });
+      ], { cwd: repoRoot, env: { ...withoutAgentContext(), CI: "1" } });
 
       const sendResult = JSON.parse(execution.stdout);
       expect(sendResult).toMatchObject({
@@ -516,7 +524,7 @@ setInterval(() => {}, 1000);
         "--workspace-root", workspaceRoot,
         "command", "show", sendResult.data.command.id,
         "--json",
-      ], { cwd: repoRoot, env: { ...process.env, CI: "1" } });
+      ], { cwd: repoRoot, env: { ...withoutAgentContext(), CI: "1" } });
       expect(JSON.parse(inspection.stdout)).toMatchObject({
         data: { command: { state: "delivered", attempts: 1 } },
       });
@@ -579,7 +587,7 @@ setInterval(() => {}, 1000);
         cols: 120,
         rows: 36,
         env: {
-          ...process.env,
+          ...withoutAgentContext(),
           CI: "",
           CODEX_STUB_LAUNCH_FILE: launchFile,
           PATH: `${codexStubDir}:${process.env.PATH ?? ""}`,
@@ -602,7 +610,7 @@ setInterval(() => {}, 1000);
         cols: 120,
         rows: 36,
         env: {
-          ...process.env,
+          ...withoutAgentContext(),
           CI: "",
           CODEX_STUB_LAUNCH_FILE: launchFile,
           PATH: `${codexStubDir}:${process.env.PATH ?? ""}`,

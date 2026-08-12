@@ -6,6 +6,7 @@ import { getCraigPaths } from "../state/craig-paths.js";
 import {
   PullRequestSyncSupervisor,
   getPullRequestSyncWakeTaskIds,
+  getTaskLifecycleEventTaskIds,
   type PullRequestSyncDependencies,
 } from "./pull-request-sync-supervisor.js";
 
@@ -153,6 +154,17 @@ describe("PullRequestSyncSupervisor", () => {
       event("task.updated", "task_commit", { changedFields: ["checksStatus"] }),
     ])).toEqual(["task_created", "task_commit", "task_unlinked", "task_ready"]);
   });
+
+  test("coalesces task lifecycle events into TUI invalidations", () => {
+    expect(getTaskLifecycleEventTaskIds([
+      event("task.created", "task_created", {}),
+      event("task.updated", "task_created", { changedFields: ["status"] }),
+      event("task.updated", "task_updated", { changedFields: ["title"] }),
+      event("task.closed", "task_closed", {}),
+      event("task.pr.refreshed", "task_pr", {}),
+      event("agent.state.changed", "task_agent", { state: "ready" }),
+    ])).toEqual(["task_created", "task_updated", "task_closed"]);
+  });
 });
 
 function event(type: string, taskId: string, data: unknown): CraigEvent {
@@ -197,7 +209,6 @@ function buildTask(
     runner: "codex",
     repoId: "repo",
     workspaceId: "workspace",
-    sessionId: null,
     selectedPtyTabId: null,
     linkedRepoIds: [],
     parentTaskId: null,
@@ -252,7 +263,6 @@ function buildTask(
       : [],
     artifacts: { logPath: null, checkSummaryPath: null, prDraftPath: null, prStatusPath: null },
     cleanup: {
-      paneClosedAt: null,
       worktreeRemovedAt: null,
       preservedWorktree: false,
       warning: null,

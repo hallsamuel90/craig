@@ -124,7 +124,6 @@ function task(
     runner: "codex",
     repoId: "repo",
     workspaceId: "workspace",
-    sessionId: null,
     selectedPtyTabId: null,
     linkedRepoIds: [],
     parentTaskId: null,
@@ -179,7 +178,6 @@ function task(
       : [],
     artifacts: { logPath: null, checkSummaryPath: null, prDraftPath: null, prStatusPath: null },
     cleanup: {
-      paneClosedAt: null,
       worktreeRemovedAt: null,
       preservedWorktree: false,
       warning: null,

@@ -8,6 +8,7 @@ export { provisionTask, provisionProjectTask, createDefaultTaskPtyTabs } from ".
 export type { TaskLineageInput } from "./provision.js";
 export type { ProvisionedTask, ProvisionedProjectTask } from "./provision.js";
 export { createTask } from "./create.js";
+export type { TaskCreationOptions } from "./create.js";
 export { showTask } from "./show.js";
 export { showTaskDiff } from "./diff.js";
 export { prepareTaskLogs, streamTaskLogs } from "./logs.js";
@@ -16,8 +17,6 @@ export { commitTask } from "./commit.js";
 export { closeTask } from "./close.js";
 export { cleanupTask } from "./cleanup.js";
 export { addTaskLink, listTaskLinks } from "./links.js";
-export { attachTask } from "./attach.js";
-export { focusTask } from "./focus.js";
 export { openTask } from "./open.js";
 export { markRunnerFailed, recordStartupFailure, markTaskStarted } from "./lifecycle.js";
 export { resolveTaskContext } from "./context.js";

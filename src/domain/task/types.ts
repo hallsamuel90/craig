@@ -130,7 +130,6 @@ export interface TaskLastCommit {
 }
 
 export interface TaskCleanup {
-  paneClosedAt: string | null;
   worktreeRemovedAt: string | null;
   preservedWorktree: boolean;
   warning: string | null;
@@ -160,7 +159,6 @@ export interface TaskRecord {
   runner: RunnerType;
   repoId: string;
   workspaceId: string;
-  sessionId: string | null;
   selectedPtyTabId: string | null;
   linkedRepoIds: string[];
   parentTaskId: string | null;
@@ -204,7 +202,7 @@ export interface CommandCreateTaskResult {
   taskId: string;
   repoId: string;
   workspaceId: string;
-  sessionId: string;
+  agentTabId: string;
   status: string;
   branch: string;
   worktreePath: string;
@@ -216,13 +214,6 @@ export interface CommandListResult {
   tasks: TaskRecord[];
   missingTaskIds: string[];
   repoId: string | null;
-}
-
-export interface CommandAttachTaskResult {
-  kind: "attachTask";
-  taskId: string;
-  sessionId: string;
-  disposition: "attached";
 }
 
 export interface CommandAddTaskLinkResult {
@@ -242,7 +233,6 @@ export interface CommandShowTaskResult {
   kind: "showTask";
   task: TaskRecord;
   inspection: TaskInspection;
-  session: SessionRecord | null;
 }
 
 export type TaskContextSource = "explicit" | "environment" | "cwd";
@@ -294,12 +284,6 @@ export interface CommandDiffResult {
   isEmpty: boolean;
 }
 
-export interface CommandFocusResult {
-  kind: "focusTask";
-  taskId: string;
-  tmuxTarget: string;
-}
-
 export interface CommandOpenResult {
   kind: "openTask";
   taskId: string;
@@ -321,47 +305,4 @@ export interface CommandCommitResult {
   status: string;
   commitSha: string;
   message: string;
-}
-
-export type SessionSubstrate = "tmux";
-export type SessionStatus = "starting" | "running" | "exited" | "failed";
-
-export interface SessionTerminalSize {
-  columns: number;
-  rows: number;
-}
-
-export interface SessionSnapshot {
-  paneId: string;
-  windowTarget: string | null;
-  alive: boolean;
-  capturedAt: string;
-}
-
-export interface SessionAttachState {
-  detachChord: "ctrl+]";
-  lastSize: SessionTerminalSize | null;
-}
-
-export interface SessionRecord {
-  id: string;
-  taskId: string;
-  repoId: string;
-  workspaceId: string;
-  substrate: SessionSubstrate;
-  sessionName: string;
-  paneId: string;
-  windowTarget: string | null;
-  worktreePath: string;
-  logPath: string | null;
-  command: string[];
-  status: SessionStatus;
-  startedAt: string | null;
-  exitedAt: string | null;
-  exitCode: number | null;
-  lastAttachedAt: string | null;
-  attach: SessionAttachState;
-  snapshot: SessionSnapshot | null;
-  createdAt: string;
-  updatedAt: string;
 }

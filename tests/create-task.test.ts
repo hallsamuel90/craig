@@ -1,290 +1,108 @@
-import { mkdir, readFile, readdir, rm, stat, writeFile } from "node:fs/promises";
+import { mkdir, readFile, rm } from "node:fs/promises";
 import path from "node:path";
 
-import { afterEach, describe, expect, test } from "vitest";
+import { afterEach, describe, expect, test, vi } from "vitest";
 
 import { taskService } from "../src/domain/task/index.js";
-import { getSessionNameForTask } from "../src/domain/task/adapters/tmux.js";
-import { readSession } from "../src/domain/task/adapters/session.js";
-import { readTask } from "../src/domain/task/index.js";
 import { configService } from "../src/domain/config/index.js";
 import { createRootTask } from "../src/domain/orchestration/index.js";
-import {
-  createCraigState,
-  createRepoRoot,
-  createStubCommands,
-  getDateSegment,
-  writeRepoRecord,
-} from "./test-helpers.js";
+import { createCraigState, createRepoRoot, createStubCommands, getDateSegment, writeRepoRecord } from "./test-helpers.js";
 
-const tempRoots: string[] = [];
-const originalPath = process.env.PATH ?? "";
-const originalStdoutColumns = Object.getOwnPropertyDescriptor(process.stdout, "columns");
-const originalStdoutRows = Object.getOwnPropertyDescriptor(process.stdout, "rows");
-const originalEnv = {
-  CRAIG_TEST_GIT_EXISTING_BRANCHES: process.env.CRAIG_TEST_GIT_EXISTING_BRANCHES,
-  CRAIG_TEST_GIT_WORKTREE_FAIL: process.env.CRAIG_TEST_GIT_WORKTREE_FAIL,
-  CRAIG_TEST_TMUX_FAIL: process.env.CRAIG_TEST_TMUX_FAIL,
-  CRAIG_TEST_TMUX_STATE_FILE: process.env.CRAIG_TEST_TMUX_STATE_FILE,
-  CRAIG_TEST_TMUX_COMMAND_LOG: process.env.CRAIG_TEST_TMUX_COMMAND_LOG,
-  CRAIG_TEST_TMUX_WINDOW_TARGET: process.env.CRAIG_TEST_TMUX_WINDOW_TARGET,
-  CRAIG_TEST_TMUX_SESSION_NAME: process.env.CRAIG_TEST_TMUX_SESSION_NAME,
-};
+const roots: string[] = [];
+const originalPath = process.env.PATH;
 
 afterEach(async () => {
-  await Promise.all(tempRoots.splice(0).map(async (root) => rm(root, { recursive: true, force: true })));
   process.env.PATH = originalPath;
-  restoreStreamDimension(process.stdout, "columns", originalStdoutColumns);
-  restoreStreamDimension(process.stdout, "rows", originalStdoutRows);
-  for (const [name, value] of Object.entries(originalEnv)) restoreEnvironmentVariable(name, value);
+  await Promise.all(roots.splice(0).map((root) => rm(root, { recursive: true, force: true })));
 });
 
-function restoreEnvironmentVariable(name: string, value: string | undefined): void {
-  if (value === undefined) delete process.env[name];
-  else process.env[name] = value;
-}
-
 describe("taskService.createTask", () => {
-  test("launches preview-enabled agents with a restrictive scoped capability", async () => {
-    const workspaceRoot = await createRepoRoot("craig-create-capability-");
-    const { paths, repoId } = await setupRegisteredRepo(workspaceRoot, "repo-a");
-    const stubDir = await createStubCommands(workspaceRoot);
-    const tmuxCommandLog = `${workspaceRoot}/tmux-commands.log`;
-    process.env.PATH = `${stubDir}:${originalPath}`;
-    process.env.CRAIG_TEST_TMUX_STATE_FILE = `${workspaceRoot}/tmux-state`;
-    process.env.CRAIG_TEST_TMUX_COMMAND_LOG = tmuxCommandLog;
-    await configService.save(paths, { previews: { agentOrchestration: true } });
+  test("launches a task through the injected PTY daemon boundary", async () => {
+    const { paths, repoId, workspaceId } = await setup("craig-create-daemon-");
+    const launch = vi.fn(async () => undefined);
 
-    const result = await createRootTask(paths, repoId, "delegate safely");
-    const task = await readTask(paths, result.taskId);
-    const tab = task.ptyTabs.find((candidate) => candidate.kind === "agent")!;
-    const capabilityId = tab.capabilityId!;
-    const commands = await readFile(tmuxCommandLog, "utf8");
-    const capabilityFile = path.join(paths.orchestrationDir, "capabilities", `${capabilityId}.json`);
-    const capability = JSON.parse(await readFile(capabilityFile, "utf8")) as { token: string };
+    const result = await taskService.createTask(paths, repoId, "refactor auth", { launchProvisioned: launch });
+    const task = await taskService.getTask(paths, result.taskId);
 
-    expect(capabilityId).toMatch(/^capability_[a-f0-9-]+$/);
-    expect(capability.token).not.toBe(capabilityId);
-    expect(commands).not.toContain(capability.token);
-    expect(commands).toContain(".launch-environment");
-    const launchEnvironmentDir = path.join(paths.logsDir, ".launch-environment");
-    const launchEnvironmentFiles = await readdir(launchEnvironmentDir);
-    expect(launchEnvironmentFiles).toHaveLength(1);
-    const launchEnvironmentFile = path.join(launchEnvironmentDir, launchEnvironmentFiles[0]!);
-    const launchEnvironment = await readFile(launchEnvironmentFile, "utf8");
-    expect(launchEnvironment).toContain(`CRAIG_TASK_ID='${task.id}'`);
-    expect(launchEnvironment).toContain(`CRAIG_AGENT_TAB_ID='${tab.id}'`);
-    expect(launchEnvironment).toContain(`CRAIG_AGENT_CAPABILITY='${capability.token}'`);
-    expect((await stat(launchEnvironmentFile)).mode & 0o777).toBe(0o600);
-    expect((await stat(capabilityFile)).mode & 0o777).toBe(0o600);
+    expect(result).toMatchObject({ kind: "createTask", repoId, workspaceId, agentTabId: `${task.id}:agent` });
+    expect(task).toMatchObject({ status: "running" });
+    expect(task.runnerSession).toMatchObject({ command: ["codex", "refactor auth"], lastKnownState: "running" });
+    expect(launch).toHaveBeenCalledWith(expect.objectContaining({ id: task.id }), undefined);
   });
 
-  test("creates a running task with a hidden per-task tmux session", async () => {
-    const workspaceRoot = await createRepoRoot("craig-create-");
-    const { paths, repoRoot, repoId, workspaceId } = await setupRegisteredRepo(workspaceRoot, "repo-a");
-    const stubDir = await createStubCommands(workspaceRoot);
-    const tmuxStateFile = `${workspaceRoot}/tmux-state`;
-    const tmuxCommandLog = `${workspaceRoot}/tmux-commands.log`;
-    const expectedSessionName = getSessionNameForTask(repoRoot, `task_${getDateSegment()}_01`);
+  test("passes a scoped capability only through the daemon launch environment", async () => {
+    const { paths, repoId } = await setup("craig-create-capability-");
+    await configService.save(paths, { previews: { agentOrchestration: true } });
+    const launch = vi.fn(async () => undefined);
 
-    process.env.PATH = `${stubDir}:${originalPath}`;
-    process.env.CRAIG_TEST_TMUX_STATE_FILE = tmuxStateFile;
-    process.env.CRAIG_TEST_TMUX_COMMAND_LOG = tmuxCommandLog;
-    process.env.CRAIG_TEST_TMUX_SESSION_NAME = expectedSessionName;
+    const result = await createRootTask(paths, repoId, "delegate safely", { launchProvisioned: launch });
+    const task = await taskService.getTask(paths, result.taskId);
+    const tab = task.ptyTabs.find((candidate) => candidate.kind === "agent")!;
+    const capabilityFile = path.join(paths.orchestrationDir, "capabilities", `${tab.capabilityId}.json`);
+    const capability = JSON.parse(await readFile(capabilityFile, "utf8")) as { token: string };
 
-    const result = await taskService.createTask(paths, repoId, "refactor auth");
-    const task = await readTask(paths, result.taskId);
-    const session = await readSession(paths, result.sessionId);
-    const tmuxCommands = await readFile(tmuxCommandLog, "utf8");
-
-    expect(result.kind).toBe("createTask");
-    expect(task.status).toBe("running");
-    expect(task.repoId).toBe(repoId);
-    expect(task.workspaceId).toBe(workspaceId);
-    expect(task.sessionId).toBe(result.sessionId);
-    expect(task.runnerSession.command).toEqual(["codex", "refactor auth"]);
-    expect(task.runnerSession.lastKnownState).toBe("running");
-    expect(task.worktreePath).toBe(path.join(paths.worktreesDir, repoId, result.taskId));
-    expect(session.repoId).toBe(repoId);
-    expect(session.taskId).toBe(result.taskId);
-    expect(session.sessionName).toBe(expectedSessionName);
-    expect(session.paneId).toBe("%42");
-    expect(session.windowTarget).toBe("@0");
-    expect(session.attach.detachChord).toBe("ctrl+]");
-    expect(tmuxCommands).toContain(`new-session -d -P -F #{session_name} #{window_id} #{pane_id} -s ${expectedSessionName} -n runner -c`);
-    expect(tmuxCommands).toContain(`set-option -t ${expectedSessionName} status off`);
-    expect(tmuxCommands).toContain(`set-window-option -t ${expectedSessionName} pane-border-status off`);
-    expect(tmuxCommands).toContain("send-keys -t %42");
-    expect(tmuxCommands).toContain(`'${path.join(stubDir, "codex")}' 'refactor auth'`);
+    expect(launch).toHaveBeenCalledWith(expect.objectContaining({ id: task.id }), expect.objectContaining({
+      CRAIG_TASK_ID: task.id,
+      CRAIG_AGENT_TAB_ID: tab.id,
+      CRAIG_AGENT_CAPABILITY: capability.token,
+    }));
   });
 
   test.each([
     ["cursor", "cursor-agent", "Cursor"],
     ["claude", "claude", "Claude"],
-  ] as const)("creates a %s task with runner-specific command metadata", async (runner, executable, title) => {
-    const workspaceRoot = await createRepoRoot(`craig-create-${runner}-`);
-    const { paths, repoId } = await setupRegisteredRepo(workspaceRoot, "repo-a");
-    const stubDir = await createStubCommands(workspaceRoot);
-    const tmuxStateFile = `${workspaceRoot}/tmux-state`;
-    const tmuxCommandLog = `${workspaceRoot}/tmux-commands.log`;
-
-    process.env.PATH = `${stubDir}:${originalPath}`;
-    process.env.CRAIG_TEST_TMUX_STATE_FILE = tmuxStateFile;
-    process.env.CRAIG_TEST_TMUX_COMMAND_LOG = tmuxCommandLog;
-
-    const result = await taskService.createTask(paths, repoId, `${runner} task`, { runner });
-    const task = await readTask(paths, result.taskId);
-    const tmuxCommands = await readFile(tmuxCommandLog, "utf8");
+  ] as const)("keeps %s runner metadata independent of the session substrate", async (runner, executable, title) => {
+    const { paths, repoId } = await setup(`craig-create-${runner}-`);
+    const result = await taskService.createTask(paths, repoId, `${runner} task`, {
+      runner,
+      launchProvisioned: async () => undefined,
+    });
+    const task = await taskService.getTask(paths, result.taskId);
 
     expect(result.runner).toBe(runner);
-    expect(task.runner).toBe(runner);
     expect(task.runnerSession.command).toEqual([executable, `${runner} task`]);
-    expect(task.ptyTabs.find((tab) => tab.kind === "agent")).toMatchObject({
-      title,
-      command: [executable],
-    });
-    expect(tmuxCommands).toContain(`'${path.join(stubDir, executable)}' '${runner} task'`);
-  });
-
-  test("uses enabled runner config and custom executable paths", async () => {
-    const workspaceRoot = await createRepoRoot("craig-create-runner-config-");
-    const { paths, repoId } = await setupRegisteredRepo(workspaceRoot, "repo-a");
-    const stubDir = await createStubCommands(workspaceRoot);
-    const tmuxStateFile = `${workspaceRoot}/tmux-state`;
-    const tmuxCommandLog = `${workspaceRoot}/tmux-commands.log`;
-    const cursorPath = path.join(stubDir, "cursor-agent");
-
-    await writeFile(
-      paths.configFile,
-      JSON.stringify({
-        runners: {
-          codex: { enabled: false },
-          cursor: { enabled: true, path: cursorPath },
-          claude: { enabled: false },
-        },
-      }),
-      "utf8",
-    );
-    process.env.PATH = `${stubDir}:${originalPath}`;
-    process.env.CRAIG_TEST_TMUX_STATE_FILE = tmuxStateFile;
-    process.env.CRAIG_TEST_TMUX_COMMAND_LOG = tmuxCommandLog;
-
-    const result = await taskService.createTask(paths, repoId, "use cursor");
-    const task = await readTask(paths, result.taskId);
-    const tmuxCommands = await readFile(tmuxCommandLog, "utf8");
-
-    expect(result.runner).toBe("cursor");
-    expect(task.runnerSession.command).toEqual([cursorPath, "use cursor"]);
-    expect(task.ptyTabs.find((tab) => tab.kind === "agent")?.command).toEqual([cursorPath]);
-    expect(tmuxCommands).toContain(`'${cursorPath}' 'use cursor'`);
-    await expect(taskService.createTask(paths, repoId, "use codex", { runner: "codex" })).rejects.toThrow(/disabled/);
-  });
-
-  test("sizes a detached task session from the current terminal when available", async () => {
-    const workspaceRoot = await createRepoRoot("craig-create-session-size-");
-    const { paths, repoId, repoRoot } = await setupRegisteredRepo(workspaceRoot, "repo-a");
-    const stubDir = await createStubCommands(workspaceRoot);
-    const tmuxStateFile = `${workspaceRoot}/tmux-state`;
-    const tmuxCommandLog = `${workspaceRoot}/tmux-commands.log`;
-    const expectedSessionName = getSessionNameForTask(repoRoot, `task_${getDateSegment()}_01`);
-
-    Object.defineProperty(process.stdout, "columns", { value: 211, configurable: true });
-    Object.defineProperty(process.stdout, "rows", { value: 61, configurable: true });
-
-    process.env.PATH = `${stubDir}:${originalPath}`;
-    process.env.CRAIG_TEST_TMUX_STATE_FILE = tmuxStateFile;
-    process.env.CRAIG_TEST_TMUX_COMMAND_LOG = tmuxCommandLog;
-    process.env.CRAIG_TEST_TMUX_SESSION_NAME = expectedSessionName;
-
-    await taskService.createTask(paths, repoId, "session sizing");
-
-    const tmuxCommands = await readFile(tmuxCommandLog, "utf8");
-
-    expect(tmuxCommands).toContain(
-      `new-session -d -P -F #{session_name} #{window_id} #{pane_id} -s ${expectedSessionName} -n runner -x 211 -y 61 -c`,
-    );
+    expect(task.ptyTabs.find((tab) => tab.kind === "agent")).toMatchObject({ title, command: [executable] });
   });
 
   test("allocates the next task id when the first branch already exists", async () => {
-    const workspaceRoot = await createRepoRoot("craig-create-collision-");
-    const { paths, repoId } = await setupRegisteredRepo(workspaceRoot, "repo-a");
-    const stubDir = await createStubCommands(workspaceRoot);
-    const tmuxStateFile = `${workspaceRoot}/tmux-state`;
-    const dateSegment = getDateSegment();
-
-    process.env.PATH = `${stubDir}:${originalPath}`;
-    process.env.CRAIG_TEST_TMUX_STATE_FILE = tmuxStateFile;
-    process.env.CRAIG_TEST_GIT_EXISTING_BRANCHES = `refs/heads/craig/task_${dateSegment}_01`;
-
-    const result = await taskService.createTask(paths, repoId, "branch collision");
-
-    expect(result.taskId).toBe(`task_${dateSegment}_02`);
+    const { paths, repoId } = await setup("craig-create-collision-");
+    process.env.CRAIG_TEST_GIT_EXISTING_BRANCHES = `refs/heads/craig/task_${getDateSegment()}_01`;
+    try {
+      const result = await taskService.createTask(paths, repoId, "branch collision", { launchProvisioned: async () => undefined });
+      expect(result.taskId).toBe(`task_${getDateSegment()}_02`);
+    } finally {
+      delete process.env.CRAIG_TEST_GIT_EXISTING_BRANCHES;
+    }
   });
 
-  test("keeps a durable draft task when session provisioning fails", async () => {
-    const workspaceRoot = await createRepoRoot("craig-create-fail-");
-    const { paths, repoId } = await setupRegisteredRepo(workspaceRoot, "repo-a");
-    const stubDir = await createStubCommands(workspaceRoot);
+  test("keeps a durable draft task when daemon launch fails", async () => {
+    const { paths, repoId } = await setup("craig-create-fail-");
+    await expect(taskService.createTask(paths, repoId, "daemon unavailable", {
+      launchProvisioned: async () => { throw new Error("PTY daemon unavailable"); },
+    })).rejects.toThrow("PTY daemon unavailable");
 
-    process.env.PATH = `${stubDir}:${originalPath}`;
-    process.env.CRAIG_TEST_TMUX_FAIL = "1";
-
-    await expect(taskService.createTask(paths, repoId, "tmux missing")).rejects.toThrow(/tmux/);
-
-    const tasks = await taskService.listTasks(paths);
-    expect(tasks.tasks).toHaveLength(1);
-    const failedTask = tasks.tasks[0];
-
-    expect(failedTask).toBeDefined();
-    expect(failedTask?.status).toBe("draft");
-    expect(failedTask?.runnerSession.lastKnownState).toBe("failed");
-    expect(failedTask?.lastFailureReason).toMatch(/tmux/);
+    const failed = (await taskService.listTasks(paths)).tasks[0]!;
+    expect(failed).toMatchObject({ status: "draft", lastFailureReason: "PTY daemon unavailable" });
+    expect(failed.runnerSession.lastKnownState).toBe("failed");
   });
 });
 
-async function setupRegisteredRepo(workspaceRoot: string, repoName: string) {
-  tempRoots.push(workspaceRoot);
-  const paths = await createCraigState(workspaceRoot);
-  const repoRoot = path.join(workspaceRoot, repoName);
+async function setup(prefix: string) {
+  const root = await createRepoRoot(prefix);
+  roots.push(root);
+  const paths = await createCraigState(root);
+  const stubDir = await createStubCommands(root);
+  process.env.PATH = `${stubDir}:${originalPath ?? ""}`;
+  const repoRoot = path.join(root, "repo-a");
   await mkdir(repoRoot, { recursive: true });
-  const repoId = `repo_${repoName}`;
-  const workspaceId = `workspace_${repoId}`;
-  const timestamp = "2026-04-24T00:00:00.000Z";
-
-  await writeRepoRecord(
-    workspaceRoot,
-    {
-      id: repoId,
-      name: repoName,
-      rootPath: repoRoot,
-      defaultBranch: "main",
-      createdAt: timestamp,
-      updatedAt: timestamp,
-    },
-    {
-      id: workspaceId,
-      primaryRepoId: repoId,
-      branch: "main",
-      status: "active",
-      linkedRepoIds: [],
-      archivedAt: null,
-      createdAt: timestamp,
-      updatedAt: timestamp,
-    },
-  );
-
-  return { paths, repoRoot, repoId, workspaceId };
-}
-
-function restoreStreamDimension(
-  stream: typeof process.stdout,
-  key: "columns" | "rows",
-  descriptor: PropertyDescriptor | undefined,
-): void {
-  if (descriptor) {
-    Object.defineProperty(stream, key, descriptor);
-    return;
-  }
-
-  delete (stream as typeof process.stdout & Partial<Record<"columns" | "rows", number>>)[key];
+  const repoId = "repo_a";
+  const workspaceId = "workspace_repo_a";
+  const timestamp = "2026-08-12T00:00:00.000Z";
+  await writeRepoRecord(root, {
+    id: repoId, name: "repo-a", rootPath: repoRoot, defaultBranch: "main", createdAt: timestamp, updatedAt: timestamp,
+  }, {
+    id: workspaceId, primaryRepoId: repoId, branch: "main", status: "active", linkedRepoIds: [],
+    archivedAt: null, createdAt: timestamp, updatedAt: timestamp,
+  });
+  return { paths, repoId, workspaceId };
 }

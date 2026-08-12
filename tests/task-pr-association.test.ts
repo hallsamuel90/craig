@@ -423,7 +423,6 @@ function buildProjectTarget(
       lastSyncedHeadSha: null,
     },
     cleanup: {
-      paneClosedAt: null,
       worktreeRemovedAt: null,
       preservedWorktree: false,
       warning: null,
