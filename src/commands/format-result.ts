@@ -59,6 +59,7 @@ export function formatCommandResult(result: CommandResult): string {
         `Parent: ${result.parentTaskId}`,
         `Root: ${result.rootTaskId}`,
         `Depth: ${result.delegationDepth}`,
+        `Target: ${result.targetType} ${result.targetId}`,
         `Status: ${result.status}`,
         `Worktree: ${result.worktreePath}`,
       ].join("\n");

@@ -201,11 +201,14 @@ describe("Craig terminal mode E2E", () => {
         updatedAt: "2026-05-04T00:00:00.000Z",
       },
     );
+    await configService.save(getCraigPaths(workspaceRoot), { previews: { agentOrchestration: true } });
     const codexStubDir = await createCodexHarnessStub(workspaceRoot);
     await writeRepoUiState(workspaceRoot);
     const output = new PtyOutputBuffer();
 
-    const child = spawn(resolveTestTsxBin(repoRoot), [resolve(repoRoot, "src/cli.ts")], {
+    const child = spawn(resolveTestTsxBin(repoRoot), [
+      resolve(repoRoot, "src/cli.ts"), "--workspace-root", workspaceRoot,
+    ], {
       cwd: workspaceRoot,
       cols: 120,
       rows: 36,
@@ -235,6 +238,7 @@ describe("Craig terminal mode E2E", () => {
       expect(frame).toContain("codex_stub_started");
       expect(frame).toContain("codex_stub_task_dir:task_");
       expect(frame).toContain("codex_stub_prompt:");
+      expect(frame).toContain("codex_stub_capability:present");
       expect(frame).not.toContain("[process exited");
     } finally {
       child.kill();
@@ -761,6 +765,7 @@ const maybeAdvance = () => {
     process.stdout.write(\`codex_stub_cwd:\${process.cwd()}\\n\`);
     process.stdout.write(\`codex_stub_task_dir:\${process.cwd().split("/").pop()}\\n\`);
     process.stdout.write(\`codex_stub_prompt:\${process.argv.slice(2).join(" ")}\\n\`);
+    process.stdout.write(\`codex_stub_capability:\${process.env.CRAIG_AGENT_CAPABILITY ? "present" : "missing"}\\n\`);
     const rows = Number(process.stdout.rows || 0);
     if (rows > 0) {
       process.stdout.write(\`\\u001B[\${rows};1H\\u001B[48;2;42;42;42;38;2;229;229;229mcodex_stub_bottom_bar\\u001B[0m\`);

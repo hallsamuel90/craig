@@ -2504,6 +2504,7 @@ describe("terminal app PTY attach flow", () => {
     const root = await mkdtemp(join(tmpdir(), "craig-ui-app-"));
     tempRoots.push(root);
     const paths = await setupWorkspace(root);
+    await configService.save(paths, { previews: { agentOrchestration: true } });
     const stubDir = await createStubCommands(root);
     process.env.PATH = `${stubDir}:${originalPath}`;
     const terminal = new FakeTerminal();
@@ -2528,10 +2529,11 @@ describe("terminal app PTY attach flow", () => {
     const createdTaskId = String(ptyRuntime.ensureSession.mock.calls[0]?.[0] ?? "");
     expect(createdTaskId).toMatch(/^task_/);
     expect(ptyRuntime.ensureSession.mock.calls[0]?.[1]).toBe(`${createdTaskId}:agent`);
-    expect(listTasksSpy).not.toHaveBeenCalled();
+    expect(listTasksSpy).toHaveBeenCalled();
     listTasksSpy.mockRestore();
     const task = await readTask(paths, createdTaskId);
     expect(task.prompt.value).toBe("fix busted task launch");
+    expect(task.ptyTabs.find((tab) => tab.kind === "agent")?.capabilityId).toMatch(/^capability_/);
   });
 
   test("creating a task from the left pane uses the selected runner profile", async () => {

@@ -27,11 +27,18 @@ async function createDaemonOwnedTask(
   const config = await configService.load(paths);
   const runner = options.runner ?? configService.runners.getDefault(config);
   configService.runners.assertEnabled(runner, config);
-  const provisioned = await taskService.provisionTask(paths, repoId, prompt, {
-    runner,
-    config,
-    ...(options.lineage ? { lineage: options.lineage } : {}),
-  });
+  const provisioned = options.workspaceId
+    ? await taskService.provisionProjectTask(paths, options.workspaceId, prompt, {
+        runner,
+        config,
+        ...(options.lineage ? { lineage: options.lineage } : {}),
+      })
+    : await taskService.provisionTask(paths, repoId, prompt, {
+        runner,
+        config,
+        ...(options.owningWorkspaceId ? { workspaceId: options.owningWorkspaceId } : {}),
+        ...(options.lineage ? { lineage: options.lineage } : {}),
+      });
   try {
     const launchEnvironment = await options.onProvisioned?.(provisioned.task);
     const task = await taskService.getTask(paths, provisioned.task.id);

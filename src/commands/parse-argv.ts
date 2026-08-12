@@ -300,7 +300,7 @@ export function getHelpText(): string {
     "  craig workspace remove <id>  Remove an archived workspace",
     "  craig task new --repo <repo-id> [--runner codex|cursor|claude] <prompt>",
     "  craig task new --workspace <workspace-id> [--runner codex|cursor|claude] <prompt>",
-    "  craig task create-child --parent <task-id> --repo <repo-id> [--runner codex|cursor|claude] [--idempotency-key <key>] <prompt>",
+    "  craig task create-child [--parent <task-id>] [--repo <repo-id> | --workspace <workspace-id>] [--runner codex|cursor|claude] [--idempotency-key <key>] <prompt>",
     "  craig task children [<task-id>]  List direct child tasks",
     "  craig task cancel-tree [<task-id>]  Cancel a task and all descendants",
     "  craig task list [--repo <repo-id>]  List known Craig tasks",
@@ -488,6 +488,7 @@ function parseTaskNew(args: string[]): AppCommand {
 function parseTaskCreateChild(args: string[]): AppCommand {
   let parentTaskId: string | undefined;
   let repoId: string | undefined;
+  let workspaceId: string | undefined;
   let runner: ReturnType<typeof configService.runners.parse> | undefined;
   let idempotencyKey: string | undefined;
   const promptParts: string[] = [];
@@ -498,7 +499,7 @@ function parseTaskCreateChild(args: string[]): AppCommand {
       parseOptions = false;
       continue;
     }
-    if (!parseOptions || !["--parent", "--repo", "--runner", "--idempotency-key"].includes(token)) {
+    if (!parseOptions || !["--parent", "--repo", "--workspace", "--runner", "--idempotency-key"].includes(token)) {
       if (parseOptions && token.startsWith("--")) throw usageError(`Unsupported task create-child option: ${token}`);
       promptParts.push(token);
       continue;
@@ -512,6 +513,9 @@ function parseTaskCreateChild(args: string[]): AppCommand {
     } else if (token === "--repo") {
       if (repoId) throw usageError("Task option --repo may only be provided once.");
       repoId = requireNonEmpty(value, "Repo id");
+    } else if (token === "--workspace") {
+      if (workspaceId) throw usageError("Task option --workspace may only be provided once.");
+      workspaceId = requireNonEmpty(value, "Workspace id");
     } else if (token === "--runner") {
       if (runner) throw usageError("Task option --runner may only be provided once.");
       try { runner = configService.runners.parse(value); } catch (error) {
@@ -522,11 +526,12 @@ function parseTaskCreateChild(args: string[]): AppCommand {
       idempotencyKey = requireNonEmpty(value, "Idempotency key");
     }
   }
-  if (!repoId) throw usageError("Child task creation requires '--repo <repo-id>'.");
+  if (repoId && workspaceId) throw usageError("Child task creation accepts only one of --repo or --workspace.");
   return {
     kind: "createChildTask",
     ...(parentTaskId ? { parentTaskId } : {}),
-    repoId,
+    ...(repoId ? { repoId } : {}),
+    ...(workspaceId ? { workspaceId } : {}),
     prompt: requireNonEmpty(promptParts.join(" "), "Child task prompt"),
     ...(runner ? { runner } : {}),
     ...(idempotencyKey ? { idempotencyKey } : {}),

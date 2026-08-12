@@ -105,7 +105,8 @@ export async function executeCommand(
       assertScopedAgent(context);
       return createChildTaskAndSession(context.paths, {
         parentTaskId: command.parentTaskId ?? requireResolvedTaskContext(context).task.id,
-        repoId: command.repoId,
+        ...(command.repoId ? { repoId: command.repoId } : {}),
+        ...(command.workspaceId ? { workspaceId: command.workspaceId } : {}),
         prompt: command.prompt,
         ...(command.runner ? { runner: command.runner } : {}),
         ...(command.idempotencyKey ? { idempotencyKey: command.idempotencyKey } : {}),
