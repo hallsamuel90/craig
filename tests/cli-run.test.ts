@@ -8,7 +8,7 @@ import { CRAIG_EXIT_CODE_BY_ERROR } from "../src/domain/error/index.js";
 import { createCraigState, createGitRepo, createRepoRoot, writeTaskRecord } from "./test-helpers.js";
 import { runCommand } from "../src/shared/exec.js";
 import { configService } from "../src/domain/config/index.js";
-import { ensureTaskCapabilities } from "../src/domain/orchestration/index.js";
+import { ensureTaskCapabilities, promptCommandService } from "../src/domain/orchestration/index.js";
 import { taskService } from "../src/domain/task/index.js";
 
 const tempRoots: string[] = [];
@@ -385,22 +385,33 @@ describe("CLI execution contract", () => {
       "agent", "send", "--task", task.id, "--stdin", "--idempotency-key", "cli-send-1", "--json",
     ], sendOutput);
     sendOptions.readStdin = async () => "continue from stdin";
-    expect(await runCli(sendOptions)).toBe(0);
-    const sent = JSON.parse(sendOutput.stdout[0]!).data;
-    expect(sent).toMatchObject({
-      kind: "sendAgentPrompt",
-      created: true,
-      command: {
-        taskId: task.id,
-        prompt: { source: "stdin", text: "continue from stdin" },
-        state: "queued",
-      },
+    expect(await runCli(sendOptions)).toBe(7);
+    expect(JSON.parse(sendOutput.stderr[0]!)).toMatchObject({
+      command: "agent.send",
+      error: { code: "PARTIAL_RESULT", details: { durableState: "failed" } },
+    });
+    expect((await promptCommandService.list(paths, task.id)).commands).toMatchObject([{
+      taskId: task.id,
+      prompt: { source: "stdin", text: "continue from stdin" },
+      state: "failed",
+      attempts: 0,
+      lastError: { code: "ORCHESTRATION_UNAVAILABLE" },
+    }]);
+
+    const queued = await promptCommandService.create(paths, {
+      taskId: task.id,
+      agentTabId: `${task.id}:agent`,
+      prompt: { source: "inline", text: "inspect and cancel" },
+      delivery: "when-ready",
+      timeoutMs: 60_000,
+      idempotencyKey: "cli-cancel-1",
+      actor: { type: "human", source: "cli", processId: process.pid },
     });
 
-    const commandId = sent.command.id as string;
+    const commandId = queued.command.id;
     const listOutput = createOutput();
     expect(await runCli(createOptions(root, ["command", "list", "--task", task.id, "--json"], listOutput))).toBe(0);
-    expect(JSON.parse(listOutput.stdout[0]!).data.commands).toHaveLength(1);
+    expect(JSON.parse(listOutput.stdout[0]!).data.commands).toHaveLength(2);
 
     const waitOutput = createOutput();
     expect(await runCli(createOptions(root, [

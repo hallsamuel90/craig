@@ -587,6 +587,7 @@ class PtyDaemonServer {
   private readonly runtime: PtyRuntime;
   private readonly paths: CraigPaths;
   private orchestrationSupervisor: OrchestrationSupervisor | null = null;
+  private orchestrationSupervisorStartup: Promise<OrchestrationSupervisor> | null = null;
   private pullRequestSyncSupervisor: PullRequestSyncSupervisor | null = null;
   private pullRequestEventReconciliationEnabled = false;
   private readonly pullRequestSyncOptions: false | PullRequestSyncSupervisorOptions | undefined;
@@ -994,15 +995,38 @@ class PtyDaemonServer {
 
   private async ensureOrchestrationSupervisor(): Promise<void> {
     if (this.orchestrationSupervisor) return;
+    if (!this.orchestrationSupervisorStartup) {
+      this.orchestrationSupervisorStartup = this.startOrchestrationSupervisor().finally(() => {
+        this.orchestrationSupervisorStartup = null;
+      });
+    }
+    this.orchestrationSupervisor = await this.orchestrationSupervisorStartup;
+    this.updateRuntimeActivityEnabled();
+  }
+
+  private async startOrchestrationSupervisor(): Promise<OrchestrationSupervisor> {
     const supervisor = new OrchestrationSupervisor(this.paths, this.runtime, {
       onError: (error) => errorService.appendErrorLogBestEffort(this.paths, {
         context: "orchestration supervisor",
         message: error instanceof Error ? error.message : String(error),
       }),
     });
-    await supervisor.start();
-    this.orchestrationSupervisor = supervisor;
-    this.updateRuntimeActivityEnabled();
+    try {
+      await supervisor.start();
+      await errorService.appendLogBestEffort(this.paths, {
+        level: "info",
+        component: "orchestration",
+        event: "supervisor.started",
+        message: "Orchestration supervisor is ready.",
+      });
+      return supervisor;
+    } catch (error) {
+      await errorService.appendErrorLogBestEffort(this.paths, {
+        context: "orchestration supervisor startup",
+        message: error instanceof Error ? error.message : String(error),
+      });
+      throw error;
+    }
   }
 
   private updateRuntimeActivityEnabled(): void {

@@ -7,7 +7,7 @@ import { afterEach, describe, expect, test, vi } from "vitest";
 vi.mock("../src/shell/pty-daemon-orchestration.js", () => ({
   disposeDaemonSessions: vi.fn(async () => true),
   ensureDaemonAgentSession: vi.fn(async () => undefined),
-  wakeOrchestrationSupervisor: vi.fn(async () => false),
+  wakeOrchestrationSupervisor: vi.fn(async () => true),
 }));
 
 import { configService } from "../src/domain/config/index.js";

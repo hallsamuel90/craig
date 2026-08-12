@@ -69,8 +69,32 @@ export async function sendAgentPrompt(
     await wakeOrchestrationSupervisor(paths);
     throw error;
   }
-  await wakeOrchestrationSupervisor(paths);
+  await requirePromptCommandWake(paths, result.command.id);
   return result;
+}
+
+export async function requirePromptCommandWake(paths: CraigPaths, commandId: string): Promise<void> {
+  const current = (await promptCommandService.show(paths, commandId)).command;
+  if (current.state === "delivered") return;
+  if (await wakeOrchestrationSupervisor(paths)) return;
+  const command = (await promptCommandService.show(paths, commandId)).command;
+  if (command.state === "delivered") return;
+  const failed = command.state === "queued"
+    ? await promptCommandService.fail(paths, command.id, {
+        code: "ORCHESTRATION_UNAVAILABLE",
+        message: "Craig could not wake the workspace orchestration supervisor.",
+        retryable: true,
+        deliveryUncertain: false,
+      })
+    : command;
+  throw new CraigError(
+    "PARTIAL_RESULT",
+    `Command ${command.id} was persisted as ${failed.state}, but Craig could not start prompt delivery.`,
+    {
+      retryable: true,
+      details: { commandId: command.id, durableState: failed.state },
+    },
+  );
 }
 
 export async function showPromptCommand(paths: CraigPaths, commandId: string): Promise<CommandShowPromptResult> {

@@ -39,11 +39,17 @@ export const provisionTask = async (
   paths: CraigPaths,
   repoId: string,
   prompt: string,
-  options: { runner?: RunnerType; config?: CraigConfig; workspaceId?: string; lineage?: TaskLineageInput } = {},
+  options: {
+    runner?: RunnerType;
+    config?: CraigConfig;
+    workspaceId?: string;
+    allowLinkedProjectRepo?: boolean;
+    lineage?: TaskLineageInput;
+  } = {},
 ): Promise<ProvisionedTask> => {
   const repo = await readRepo(paths, repoId);
   const [workspace, taskId] = await Promise.all([
-    resolveWorkspaceForRepo(paths, repo.id, options.workspaceId),
+    resolveWorkspaceForRepo(paths, repo.id, options.workspaceId, options.allowLinkedProjectRepo ?? false),
     allocateTaskIdForRepo(paths, repo.rootPath),
   ]);
   const branch = `craig/${taskId}`;
@@ -463,12 +469,19 @@ const resolveLineage = (taskId: string, lineage?: TaskLineageInput) => ({
   furyStepId: lineage?.furyStepId ?? null,
 });
 
-const resolveWorkspaceForRepo = async (paths: CraigPaths, repoId: string, workspaceId?: string) => {
+const resolveWorkspaceForRepo = async (
+  paths: CraigPaths,
+  repoId: string,
+  workspaceId?: string,
+  allowLinkedProjectRepo = false,
+) => {
   const workspaces = await listWorkspaceRecords(paths);
   const workspace = workspaceId
     ? workspaces.find((entry) =>
         entry.id === workspaceId && entry.status === "active" &&
-        (entry.kind === "project" ? entry.discoveredRepoIds?.includes(repoId) : entry.primaryRepoId === repoId))
+        (entry.kind === "project"
+          ? allowLinkedProjectRepo || entry.discoveredRepoIds?.includes(repoId)
+          : entry.primaryRepoId === repoId))
     : workspaces.find((entry) => entry.kind !== "project" && entry.primaryRepoId === repoId && entry.status === "active");
 
   if (!workspace) {
