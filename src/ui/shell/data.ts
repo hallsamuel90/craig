@@ -20,7 +20,13 @@ import { getTaskPrimaryPr } from "../../domain/task/index.js";
 import type { RepoRecord, WorkspaceRecord } from "../../domain/workspace/index.js";
 import { configService } from "../../domain/config/index.js";
 import type { RunnerType } from "../../domain/config/index.js";
-import { INSPECTION_TAB_ID, isTaskLeftItemId, orderTasksForSidebar } from "../state.js";
+import {
+  getTasksForRepo,
+  getTasksForWorkspace,
+  INSPECTION_TAB_ID,
+  isTaskLeftItemId,
+  orderTasksForSidebar,
+} from "../state.js";
 import type { TerminalCellStyle, TerminalRowSegment } from "../terminal-emulator.js";
 import {
   getTaskAgentActivity,
@@ -272,7 +278,7 @@ function buildLeftTree(
         focused: workspaceSelected && state.focusedRegion === "tasks",
       });
       const workspaceRepoIds = workspace.kind === "project" ? workspace.discoveredRepoIds ?? [] : [workspace.primaryRepoId];
-      const repoTasks = model.tasks.filter((task) => task.workspaceId === workspace.id);
+      const repoTasks = getTasksForWorkspace(model.tasks, workspace.id);
 
       if (repoTasks.length === 0) {
         rows.push({ text: "  · no tasks yet", indent: 0, muted: true });
@@ -369,7 +375,7 @@ function buildLegacyRepoLeftTree(
         selected: repoSelected,
         focused: repoSelected && state.focusedRegion === "tasks",
       });
-      const repoTasks = tasks.filter((task) => task.repoId === repo.id);
+      const repoTasks = getTasksForRepo(tasks, repo.id);
 
       if (repoTasks.length === 0) {
         rows.push({ text: "  · no tasks yet", indent: 0, muted: true });

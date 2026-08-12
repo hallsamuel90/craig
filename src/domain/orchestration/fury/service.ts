@@ -59,7 +59,12 @@ export async function planFuryFile(file: string, rawInputs: Record<string, strin
         ? { type: "task", task: renderRequired(step.task, inputs, `$.steps.${id}.task`) }
         : {
             type: "create_child",
-            repo: renderRequired(step.createChild!.repo, inputs, `$.steps.${id}.create_child.repo`),
+            ...(step.createChild?.repo
+              ? { repo: renderRequired(step.createChild.repo, inputs, `$.steps.${id}.create_child.repo`) }
+              : {}),
+            ...(step.createChild?.workspace
+              ? { workspace: renderRequired(step.createChild.workspace, inputs, `$.steps.${id}.create_child.workspace`) }
+              : {}),
           },
       runner: step.runner ?? null,
       prompt: renderPrompt(step.prompt, inputs, id),

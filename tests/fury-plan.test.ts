@@ -89,6 +89,19 @@ describe("fury definition validation and planning", () => {
     expect(first.definitionHash).toMatch(/^[a-f0-9]{64}$/);
   });
 
+  test("plans child steps that inherit parent scope or explicitly target a workspace", async () => {
+    const inheritedFile = await fixture("inherited-child.yaml", VALID.replace("      repo: craig", "      {}"));
+    const workspaceFile = await fixture(
+      "workspace-child.yaml",
+      VALID.replace("      repo: craig", "      workspace: workspace_project"),
+    );
+
+    expect((await planFuryFile(inheritedFile, { task_id: "task_1" })).steps[1]?.target)
+      .toEqual({ type: "create_child" });
+    expect((await planFuryFile(workspaceFile, { task_id: "task_1" })).steps[1]?.target)
+      .toEqual({ type: "create_child", workspace: "workspace_project" });
+  });
+
   test.each([
     ["unknown field", VALID.replace("name: review-and-fix", "name: review-and-fix\nshell: echo unsafe"), "$.shell is not supported"],
     ["cycle", VALID.replace("needs: [inspect]", "needs: [publish]"), "acyclic"],
@@ -98,6 +111,7 @@ describe("fury definition validation and planning", () => {
     ["invalid feedback target", VALID.replace("steps.fix.task_id }}\"\n      timeout", "steps.human_review.task_id }}\"\n      timeout"), "without depending"],
     ["excessive limits", VALID.replace("max_concurrency: 3", "max_concurrency: 17"), "1 through 16"],
     ["undeclared output", VALID.replace("    output:\n      schema:\n        type: object\n        required: [issues]\n", ""), "without a declared output schema"],
+    ["multiple child targets", VALID.replace("      repo: craig", "      repo: craig\n      workspace: workspace_project"), "only one of repo or workspace"],
   ])("rejects %s", (_name, yaml, message) => {
     expect(() => validateFuryDefinition(parseFuryYaml(yaml, "fixture.yaml"), "fixture.yaml")).toThrow(message);
   });

@@ -306,7 +306,12 @@ async function scheduleAgentStep(paths: CraigPaths, run: FuryRun, step: FuryStep
     if (current.plan.target?.type === "create_child") {
       const created = await createChildTaskAndSession(paths, {
         parentTaskId: run.rootTaskId,
-        repoId: resolveReferences(current.plan.target.repo, run),
+        ...(current.plan.target.repo
+          ? { repoId: resolveReferences(current.plan.target.repo, run) }
+          : {}),
+        ...(current.plan.target.workspace
+          ? { workspaceId: resolveReferences(current.plan.target.workspace, run) }
+          : {}),
         prompt,
         ...(current.plan.runner ? { runner: current.plan.runner } : {}),
         idempotencyKey: `fury:${run.id}:${step.id}`,

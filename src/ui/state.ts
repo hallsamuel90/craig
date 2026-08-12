@@ -223,10 +223,14 @@ export function restoreShellState(
 ): ControlShellState {
   const selectedLeftItemId = resolveLeftItemId(state, model);
   const leftSelection = parseLeftItemId(selectedLeftItemId);
+  const leftTask = leftSelection?.kind === "task"
+    ? model.tasks.find((task) => task.id === leftSelection.id) ?? null
+    : null;
+  const leftTaskVisualRoot = leftTask ? visualRoot(model.tasks, leftTask) : null;
   const selectedWorkspace =
     (leftSelection?.kind === "workspace" ? model.workspaces?.find((workspace) => workspace.id === leftSelection.id) ?? null : null) ??
-    (leftSelection?.kind === "task"
-      ? model.workspaces?.find((workspace) => workspace.id === model.tasks.find((task) => task.id === leftSelection.id)?.workspaceId) ?? null
+    (leftTaskVisualRoot
+      ? model.workspaces?.find((workspace) => workspace.id === leftTaskVisualRoot.workspaceId) ?? null
       : null) ??
     model.workspaces?.find((workspace) => workspace.id === state.selectedWorkspaceId) ??
     model.workspaces?.[0] ??
@@ -234,8 +238,8 @@ export function restoreShellState(
   const selectedRepo =
     (leftSelection?.kind === "repo"
       ? model.repos.find((repo) => repo.id === leftSelection.id) ?? null
-      : leftSelection?.kind === "task"
-        ? model.repos.find((repo) => repo.id === model.tasks.find((task) => task.id === leftSelection.id)?.repoId) ?? null
+      : leftTaskVisualRoot
+        ? model.repos.find((repo) => repo.id === leftTaskVisualRoot.repoId) ?? null
         : null) ??
     (selectedWorkspace?.kind === "project"
       ? model.repos.find((repo) => repo.id === state.selectedRepoId && selectedWorkspace.discoveredRepoIds?.includes(repo.id)) ?? null
@@ -246,9 +250,9 @@ export function restoreShellState(
     null;
   const repoId = selectedRepo?.id ?? null;
   const repoTasks = selectedWorkspace
-    ? model.tasks.filter((task) => task.workspaceId === selectedWorkspace.id)
+    ? getTasksForWorkspace(model.tasks, selectedWorkspace.id)
     : repoId
-      ? model.tasks.filter((task) => task.repoId === repoId)
+      ? getTasksForRepo(model.tasks, repoId)
       : [];
   const selectedTask =
     (leftSelection?.kind === "task" ? repoTasks.find((task) => task.id === leftSelection.id) ?? null : null) ??
@@ -534,7 +538,7 @@ export function getLeftItemIds(model: { workspaces?: WorkspaceRecord[]; repos: R
   if (model.workspaces?.length) {
     for (const workspace of model.workspaces) {
       itemIds.push(`workspace:${workspace.id}`);
-      for (const { task } of orderTasksForSidebar(model.tasks.filter((entry) => entry.workspaceId === workspace.id))) {
+      for (const { task } of orderTasksForSidebar(getTasksForWorkspace(model.tasks, workspace.id))) {
         itemIds.push(`task:${task.id}`);
       }
       if (workspace.kind === "project") {
@@ -547,7 +551,7 @@ export function getLeftItemIds(model: { workspaces?: WorkspaceRecord[]; repos: R
   } else {
     for (const repo of model.repos) {
       itemIds.push(`repo:${repo.id}`);
-      for (const { task } of orderTasksForSidebar(model.tasks.filter((entry) => entry.repoId === repo.id))) {
+      for (const { task } of orderTasksForSidebar(getTasksForRepo(model.tasks, repo.id))) {
         itemIds.push(`task:${task.id}`);
       }
       itemIds.push(`new-task:${repo.id}`);
@@ -556,6 +560,27 @@ export function getLeftItemIds(model: { workspaces?: WorkspaceRecord[]; repos: R
 
   itemIds.push("new-workspace");
   return itemIds;
+}
+
+export function getTasksForWorkspace(tasks: TaskRecord[], workspaceId: string): TaskRecord[] {
+  return filterTasksByVisualRoot(tasks, (root) => root.workspaceId === workspaceId);
+}
+
+export function getTasksForRepo(tasks: TaskRecord[], repoId: string): TaskRecord[] {
+  return filterTasksByVisualRoot(tasks, (root) => root.repoId === repoId);
+}
+
+function visualRoot(tasks: TaskRecord[], task: TaskRecord): TaskRecord {
+  if (task.rootTaskId === task.id) return task;
+  return tasks.find((candidate) => candidate.id === task.rootTaskId) ?? task;
+}
+
+function filterTasksByVisualRoot(
+  tasks: TaskRecord[],
+  predicate: (root: TaskRecord) => boolean, // eslint-disable-line no-unused-vars
+): TaskRecord[] {
+  const taskById = new Map(tasks.map((task) => [task.id, task]));
+  return tasks.filter((task) => predicate(taskById.get(task.rootTaskId) ?? task));
 }
 
 export interface SidebarTaskEntry {

@@ -384,6 +384,15 @@ describe("terminal shell renderer", () => {
       repoId: root.repoId,
       workspaceId: root.workspaceId,
     });
+    const legacyCrossWorkspaceChild = buildTaskRecord("/tmp/craig", {
+      id: "task_legacy_cross_workspace_child",
+      title: "legacy cross workspace child",
+      repoId: "repo_other",
+      workspaceId: "workspace_other",
+      parentTaskId: root.id,
+      rootTaskId: root.id,
+      delegationDepth: 1,
+    });
     const crossWorkspaceChild = buildTaskRecord("/tmp/craig", {
       id: "task_cross_workspace_child",
       title: "cross workspace child",
@@ -408,9 +417,17 @@ describe("terminal shell renderer", () => {
     };
     const model = {
       workspaceRoot: "/tmp/craig",
-      workspaces: [workspace],
-      repos: [{ id: root.repoId, name: "nested", rootPath: "/tmp/craig", defaultBranch: "main", createdAt: "", updatedAt: "" }],
-      tasks: [root, child, grandchild, independent, crossWorkspaceChild],
+      workspaces: [workspace, {
+        ...workspace,
+        id: "workspace_other",
+        name: "other",
+        primaryRepoId: "repo_other",
+      }],
+      repos: [
+        { id: root.repoId, name: "nested", rootPath: "/tmp/craig", defaultBranch: "main", createdAt: "", updatedAt: "" },
+        { id: "repo_other", name: "other", rootPath: "/tmp/other", defaultBranch: "main", createdAt: "", updatedAt: "" },
+      ],
+      tasks: [root, child, grandchild, independent, legacyCrossWorkspaceChild, crossWorkspaceChild],
       inspection: null,
     };
     const data = buildShellData({
@@ -427,18 +444,22 @@ describe("terminal shell renderer", () => {
       root.id,
       child.id,
       grandchild.id,
+      legacyCrossWorkspaceChild.id,
       independent.id,
       crossWorkspaceChild.id,
     ]);
-    expect(taskRows.map((row) => row.indent)).toEqual([2, 4, 4, 2, 2]);
+    expect(taskRows.map((row) => row.indent)).toEqual([2, 4, 4, 4, 2, 2]);
     expect(getLeftItemIds(model)).toEqual([
       `workspace:${workspace.id}`,
       `task:${root.id}`,
       `task:${child.id}`,
       `task:${grandchild.id}`,
+      `task:${legacyCrossWorkspaceChild.id}`,
       `task:${independent.id}`,
       `task:${crossWorkspaceChild.id}`,
       `new-task:${root.repoId}`,
+      "workspace:workspace_other",
+      "new-task:repo_other",
       "new-workspace",
     ]);
   });

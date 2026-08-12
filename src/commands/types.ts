@@ -70,7 +70,7 @@ export type AppCommand =
   | { kind: "restoreWorkspace"; workspaceId: string }
   | { kind: "removeWorkspace"; workspaceId: string }
   | { kind: "createTask"; repoId?: string; workspaceId?: string; prompt: string; runner?: RunnerType }
-  | { kind: "createChildTask"; parentTaskId?: string; repoId: string; prompt: string; runner?: RunnerType; idempotencyKey?: string }
+  | { kind: "createChildTask"; parentTaskId?: string; repoId?: string; workspaceId?: string; prompt: string; runner?: RunnerType; idempotencyKey?: string }
   | { kind: "listTaskChildren"; taskId?: string }
   | { kind: "cancelTaskTree"; taskId?: string }
   | { kind: "validateFury"; file: string }

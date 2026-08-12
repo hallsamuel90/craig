@@ -19,6 +19,7 @@ export const createTask = async (
   options: {
     runner?: RunnerType;
     workspaceId?: string;
+    owningWorkspaceId?: string;
     lineage?: TaskLineageInput;
     onProvisioned?: (task: TaskRecord) => Promise<Record<string, string> | void>;
   } = {},
@@ -37,7 +38,12 @@ export const createTask = async (
   }
   const provisioned = options.workspaceId
     ? await provisionProjectTask(paths, options.workspaceId, trimmedPrompt, { runner, config, ...(options.lineage ? { lineage: options.lineage } : {}) })
-    : await provisionTask(paths, repoIdOrWorkspaceId, trimmedPrompt, { runner, config, ...(options.lineage ? { lineage: options.lineage } : {}) });
+    : await provisionTask(paths, repoIdOrWorkspaceId, trimmedPrompt, {
+        runner,
+        config,
+        ...(options.owningWorkspaceId ? { workspaceId: options.owningWorkspaceId } : {}),
+        ...(options.lineage ? { lineage: options.lineage } : {}),
+      });
   const draftTask = provisioned.task;
   const runnerCommand = configService.runners.buildCommand(runner, trimmedPrompt, config);
   const sessionId = `session_${draftTask.id}`;

@@ -126,11 +126,21 @@ function validateAgentStep(id: string, step: Record<string, unknown>, needs: str
   const hasChild = step.create_child !== undefined;
   if (hasTask === hasChild) issues.push(`$.steps.${id} must define exactly one of task or create_child.`);
   const task = hasTask ? nonEmptyString(step.task, `$.steps.${id}.task`, issues) : undefined;
-  let createChild: { repo: string } | undefined;
+  let createChild: FuryAgentStep["createChild"];
   if (hasChild) {
     const child = object(step.create_child, `$.steps.${id}.create_child`, issues);
-    unknownFields(child, ["repo"], `$.steps.${id}.create_child`, issues);
-    createChild = { repo: nonEmptyString(child.repo, `$.steps.${id}.create_child.repo`, issues) };
+    unknownFields(child, ["repo", "workspace"], `$.steps.${id}.create_child`, issues);
+    if (child.repo !== undefined && child.workspace !== undefined) {
+      issues.push(`$.steps.${id}.create_child accepts only one of repo or workspace.`);
+    }
+    createChild = {
+      ...(child.repo !== undefined
+        ? { repo: nonEmptyString(child.repo, `$.steps.${id}.create_child.repo`, issues) }
+        : {}),
+      ...(child.workspace !== undefined
+        ? { workspace: nonEmptyString(child.workspace, `$.steps.${id}.create_child.workspace`, issues) }
+        : {}),
+    };
   }
   let runner: FuryAgentStep["runner"];
   if (step.agent !== undefined) {

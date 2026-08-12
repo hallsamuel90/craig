@@ -13,7 +13,7 @@ import { readWorkspace } from "../src/domain/workspace/adapters/workspace-store.
 import { createCraigState, createGitRepo, createRepoRoot } from "./test-helpers.js";
 import { runCommand } from "../src/shared/exec.js";
 import { taskService } from "../src/domain/task/index.js";
-const { provisionProjectTask } = taskService;
+const { provisionProjectTask, provisionTask } = taskService;
 
 const tempRoots: string[] = [];
 
@@ -224,6 +224,34 @@ describe("command routing", () => {
     expect(agentsGuide).toContain("Run repo Git commands from a repo worktree directory, not from the bundle root.");
     expect(agentsGuide).toContain("`repo-a/`");
     expect(agentsGuide).toContain("`repo-b/`");
+  });
+
+  test("provisions a repo task inside its project workspace without a standalone repo workspace", async () => {
+    const workspaceRoot = await createRepoRoot("craig-router-project-repo-child-");
+    tempRoots.push(workspaceRoot);
+    await createCraigState(workspaceRoot);
+    const paths = getCraigPaths(workspaceRoot);
+    const repoRoot = path.join(workspaceRoot, "repo-a");
+    await mkdir(repoRoot, { recursive: true });
+    await createGitRepo(repoRoot);
+    await writeFile(path.join(repoRoot, "README.md"), "repo-a\n", "utf8");
+    await runCommand("git", ["add", "README.md"], { cwd: repoRoot });
+    await runCommand("git", ["commit", "-m", "seed"], { cwd: repoRoot });
+
+    const project = await executeCommand({ kind: "addWorkspace", path: "." }, { paths });
+    if (project.kind !== "createWorkspace") throw new Error("Expected project workspace.");
+    const repo = project.repos[0]!;
+    const provisioned = await provisionTask(paths, repo.id, "repo-only child", {
+      workspaceId: project.workspace.id,
+    });
+
+    expect(provisioned.task).toMatchObject({
+      type: "repo",
+      repoId: repo.id,
+      workspaceId: project.workspace.id,
+    });
+    await expect(readFile(path.join(provisioned.task.worktreePath, "README.md"), "utf8"))
+      .resolves.toContain("repo-a");
   });
 
   test("project task provisioning uses each repo default branch instead of requiring main", async () => {

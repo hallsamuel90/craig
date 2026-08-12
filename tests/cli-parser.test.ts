@@ -136,6 +136,20 @@ describe("CLI argument parsing", () => {
     });
     expect(parseArgv(["task", "children"]).command).toEqual({ kind: "listTaskChildren" });
     expect(parseArgv(["task", "cancel-tree"]).command).toEqual({ kind: "cancelTaskTree" });
+    expect(parseArgv(["task", "create-child", "inherit", "parent", "scope"]).command).toEqual({
+      kind: "createChildTask",
+      prompt: "inherit parent scope",
+    });
+    expect(parseArgv([
+      "task", "create-child", "--workspace", "workspace_project", "project", "phase",
+    ]).command).toEqual({
+      kind: "createChildTask",
+      workspaceId: "workspace_project",
+      prompt: "project phase",
+    });
+    expect(() => parseArgv([
+      "task", "create-child", "--repo", "repo_a", "--workspace", "workspace_project", "invalid",
+    ])).toThrow("only one of --repo or --workspace");
   });
 
   test("parses PR repair commands with optional task and repo targets", () => {

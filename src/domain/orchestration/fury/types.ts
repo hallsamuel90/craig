@@ -19,7 +19,7 @@ export interface FuryAgentStep {
   id: string;
   needs: string[];
   task?: string;
-  createChild?: { repo: string };
+  createChild?: { repo?: string; workspace?: string };
   runner?: RunnerType;
   prompt: string;
   outputSchema?: Record<string, unknown>;
@@ -50,7 +50,7 @@ export interface FuryPlanStep {
   kind: FuryStep["kind"];
   needs: string[];
   wave: number;
-  target: { type: "task"; task: string } | { type: "create_child"; repo: string } | null;
+  target: { type: "task"; task: string } | { type: "create_child"; repo?: string; workspace?: string } | null;
   runner: RunnerType | null;
   prompt: string | null;
   outputSchema: Record<string, unknown> | null;

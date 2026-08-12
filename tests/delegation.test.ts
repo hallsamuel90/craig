@@ -31,6 +31,8 @@ vi.mock("../src/domain/task/index.js", () => ({
       listTasks: vi.fn(async () => ({ kind: "listTasks", tasks: [...mocks.tasks], missingTaskIds: [], repoId: null })),
       createTask: vi.fn(async (_paths: CraigPaths, repoId: string, prompt: string, options: {
         runner?: TaskRecord["runner"];
+        workspaceId?: string;
+        owningWorkspaceId?: string;
         lineage?: {
           parentTaskId: string | null;
           rootTaskId?: string;
@@ -43,7 +45,9 @@ vi.mock("../src/domain/task/index.js", () => ({
       }) => {
         const id = `child_${mocks.nextId++}`;
         const task = taskRecord(id, {
-          repoId,
+          type: options.workspaceId ? "project" : "repo",
+          repoId: options.workspaceId ? "repo_project_primary" : repoId,
+          workspaceId: options.workspaceId ?? options.owningWorkspaceId ?? `workspace_${repoId}`,
           title: prompt,
           runner: options.runner ?? "codex",
           parentTaskId: options.lineage?.parentTaskId ?? null,
@@ -228,6 +232,60 @@ describe("capability-scoped delegation", () => {
     expect(mocks.tasks).toHaveLength(2);
   });
 
+  test("inherits project scope and keeps explicit repo children in the project workspace", async () => {
+    parent.type = "project";
+    parent.workspaceId = "workspace_project";
+    parent.repoTargets = [{
+      repoId: "repo_secondary", repoRoot: "/repo-secondary", worktreePath: "/worktree-secondary",
+      branch: "craig/parent", status: "ready", failureReason: null, checks: parent.checks,
+      lastCommit: null,
+      pullRequest: {
+        provider: "github", number: null, url: null, baseBranch: null, headBranch: null,
+        status: null, mergeable: false, mergeStateStatus: null, requiredChecks: [],
+        lastSyncedAt: null, lastSyncedHeadSha: null,
+      },
+      cleanup: parent.cleanup,
+    }];
+    const capabilityId = await capabilityToken(paths, parent);
+
+    const inherited = await createChildTask(paths, {
+      parentTaskId: parent.id,
+      prompt: "inherit the whole project",
+      capabilityId,
+    });
+    expect(inherited).toMatchObject({
+      targetType: "workspace",
+      targetId: "workspace_project",
+      workspaceId: "workspace_project",
+    });
+    expect(mocks.tasks.find((task) => task.id === inherited.taskId)).toMatchObject({ type: "project" });
+
+    const repoChild = await createChildTask(paths, {
+      parentTaskId: parent.id,
+      repoId: "repo_secondary",
+      prompt: "work only in the secondary repo",
+      capabilityId,
+    });
+    expect(repoChild).toMatchObject({
+      targetType: "repo",
+      targetId: "repo_secondary",
+      repoId: "repo_secondary",
+      workspaceId: "workspace_project",
+    });
+    expect(mocks.tasks.find((task) => task.id === repoChild.taskId)).toMatchObject({ type: "repo" });
+  });
+
+  test("rejects an explicit workspace outside the project parent", async () => {
+    parent.type = "project";
+    parent.workspaceId = "workspace_project";
+    await expect(createChildTask(paths, {
+      parentTaskId: parent.id,
+      workspaceId: "workspace_other",
+      prompt: "escape the project",
+      capabilityId: await capabilityToken(paths, parent),
+    })).rejects.toMatchObject({ code: "CAPABILITY_DENIED" });
+  });
+
   test("recovers an idempotent child after a partial launch failure", async () => {
     const input = {
       parentTaskId: parent.id,
@@ -325,11 +383,11 @@ function taskRecord(id: string, overrides: Partial<TaskRecord> = {}): TaskRecord
     id,
     title: overrides.title ?? id,
     slug: id,
-    type: "repo",
+    type: overrides.type ?? "repo",
     status: overrides.status ?? "running",
     runner: overrides.runner ?? "codex",
     repoId: overrides.repoId ?? "repo_test",
-    workspaceId: "workspace_test",
+    workspaceId: overrides.workspaceId ?? "workspace_test",
     sessionId: `session_${id}`,
     selectedPtyTabId: `${id}:agent`,
     linkedRepoIds: [],

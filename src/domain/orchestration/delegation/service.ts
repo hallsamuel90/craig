@@ -65,14 +65,15 @@ export async function createChildTask(
       : null;
     const actor: CraigActor = authorization?.actor ?? { type: "human", source: "cli", processId: process.pid };
     const limits = authorization?.capability.limits ?? HUMAN_LIMITS;
+    const target = resolveChildTarget(parent, input);
     const prompt = input.prompt.trim();
     if (prompt.length === 0) throw new CraigError("CLI_USAGE", "Child task prompt cannot be empty.", {});
     if (Buffer.byteLength(prompt) > limits.maxPromptBytes) limit("prompt bytes", limits.maxPromptBytes);
     if (parent.delegationDepth + 1 > limits.maxDepth) limit("delegation depth", limits.maxDepth);
-    const allowedRepoIds = new Set([parent.repoId, ...parent.linkedRepoIds, ...(parent.repoTargets ?? []).map((target) => target.repoId)]);
-    if (!allowedRepoIds.has(input.repoId)) {
-      throw new CraigError("CAPABILITY_DENIED", `Repo ${input.repoId} is outside parent task ${parent.id}.`, {
-        details: { parentTaskId: parent.id, repoId: input.repoId },
+    const allowedRepoIds = new Set([parent.repoId, ...parent.linkedRepoIds, ...(parent.repoTargets ?? []).map((entry) => entry.repoId)]);
+    if (target.type === "repo" && !allowedRepoIds.has(target.id)) {
+      throw new CraigError("CAPABILITY_DENIED", `Repo ${target.id} is outside parent task ${parent.id}.`, {
+        details: { parentTaskId: parent.id, repoId: target.id },
       });
     }
 
@@ -83,7 +84,7 @@ export async function createChildTask(
       if (key.length > 256) throw new CraigError("CLI_USAGE", "Idempotency key exceeds 256 characters.", {});
       const existing = children.find((task) => task.delegationIdempotencyKey === key);
       if (existing) {
-        if (existing.repoId !== input.repoId || existing.prompt.value !== prompt || (input.runner && existing.runner !== input.runner)) {
+        if (!matchesChildTarget(existing, target) || existing.prompt.value !== prompt || (input.runner && existing.runner !== input.runner)) {
           throw new CraigError("COMMAND_STATE_CONFLICT", `Idempotency key "${key}" is already used by child ${existing.id}.`, {
             details: { idempotencyKey: key, taskId: existing.id },
           });
@@ -95,8 +96,11 @@ export async function createChildTask(
     const activeChildren = children.filter((task) => task.status !== "closed" && task.status !== "merged");
     if (activeChildren.length >= limits.maxConcurrentChildren) limit("concurrent children", limits.maxConcurrentChildren);
 
-    const created = await (ports.createTask ?? taskService.createTask)(paths, input.repoId, prompt, {
+    const created = await (ports.createTask ?? taskService.createTask)(paths, target.id, prompt, {
       ...(input.runner ? { runner: input.runner } : {}),
+      ...(target.type === "workspace"
+        ? { workspaceId: target.id }
+        : { owningWorkspaceId: parent.workspaceId }),
       lineage: {
         parentTaskId: parent.id,
         rootTaskId: parent.rootTaskId,
@@ -121,7 +125,13 @@ export async function createChildTask(
         agentTabId: actor.type === "agent" ? actor.agentTabId : null,
         type: "task.child.created",
         actor,
-        data: { parentTaskId: parent.id, rootTaskId: child.rootTaskId, delegationDepth: child.delegationDepth },
+        data: {
+          parentTaskId: parent.id,
+          rootTaskId: child.rootTaskId,
+          delegationDepth: child.delegationDepth,
+          targetType: target.type,
+          targetId: target.id,
+        },
       });
     } catch (error) {
       throw new CraigError("PARTIAL_RESULT", `Child ${child.id} was created, but its audit event could not be recorded.`, {
@@ -218,12 +228,15 @@ export async function cancelTaskTree(
 }
 
 function childResult(task: TaskRecord, idempotentReplay: boolean): CommandCreateChildResult {
+  const targetType = task.type === "project" ? "workspace" : "repo";
   return {
     kind: "createChildTask",
     taskId: task.id,
     parentTaskId: task.parentTaskId!,
     rootTaskId: task.rootTaskId,
     delegationDepth: task.delegationDepth,
+    targetType,
+    targetId: targetType === "workspace" ? task.workspaceId : task.repoId,
     repoId: task.repoId,
     workspaceId: task.workspaceId,
     sessionId: task.sessionId,
@@ -233,6 +246,32 @@ function childResult(task: TaskRecord, idempotentReplay: boolean): CommandCreate
     runner: task.runner,
     idempotentReplay,
   };
+}
+
+type ChildTarget = { type: "repo" | "workspace"; id: string };
+
+function resolveChildTarget(parent: TaskRecord, input: CreateChildInput): ChildTarget {
+  if (input.repoId && input.workspaceId) {
+    throw new CraigError("CLI_USAGE", "Child task creation accepts only one of repoId or workspaceId.", {});
+  }
+  if (input.workspaceId) {
+    if (parent.type !== "project" || input.workspaceId !== parent.workspaceId) {
+      throw new CraigError("CAPABILITY_DENIED", `Workspace ${input.workspaceId} is outside parent task ${parent.id}.`, {
+        details: { parentTaskId: parent.id, workspaceId: input.workspaceId },
+      });
+    }
+    return { type: "workspace", id: input.workspaceId };
+  }
+  if (input.repoId) return { type: "repo", id: input.repoId };
+  return parent.type === "project"
+    ? { type: "workspace", id: parent.workspaceId }
+    : { type: "repo", id: parent.repoId };
+}
+
+function matchesChildTarget(task: TaskRecord, target: ChildTarget): boolean {
+  return target.type === "workspace"
+    ? task.type === "project" && task.workspaceId === target.id
+    : task.type === "repo" && task.repoId === target.id;
 }
 
 function limit(name: string, maximum: number): never {

@@ -283,7 +283,7 @@ name: direct-children
 limits: { max_concurrency: 1, max_tasks: 2, timeout: 1h }
 steps:
   first:
-    create_child: { repo: repo_a }
+    create_child: {}
     agent: { runner: codex }
     prompt: First phase.
   second:
