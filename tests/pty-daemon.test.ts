@@ -238,7 +238,7 @@ describe("PTY daemon", () => {
       const client = await createDaemonPtyRuntime({
         paths,
         workspaceRoot: root,
-        resolveSessionSpec: () => ({ cwd: root, command: ["cursor-agent"] }),
+        resolveSessionSpec: () => ({ cwd: root, command: ["/bin/sh"] }),
       });
       await Promise.all(taskIds.map((taskId) =>
         client.ensureSession(taskId, `${taskId}:agent`, { columns: 80, rows: 24 })));
