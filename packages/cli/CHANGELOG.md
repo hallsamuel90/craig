@@ -1,5 +1,15 @@
 # craig-cli
 
+## 0.14.0
+
+### Minor Changes
+
+- 452c559: Remove the legacy tmux execution substrate and the obsolete `task attach` and `task focus` commands. CLI-created tasks now launch directly into their durable Craig PTY daemon agent tab, matching TUI and delegated task behavior without requiring tmux to be installed. Connected TUIs also refresh automatically when another process creates, updates, or closes a task.
+
+### Patch Changes
+
+- 4ffa373: Let delegated and Fury child tasks inherit project scope, keep repo-specific children inside project workspaces, preserve root nesting in the sidebar, and launch newly created TUI agents with their delegation capability.
+
 ## 0.13.5
 
 ### Patch Changes
