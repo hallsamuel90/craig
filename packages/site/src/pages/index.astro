@@ -98,7 +98,7 @@ const structuredData = {
       <button
         class="text-[#565f89] hover:text-[#c0caf5] transition-colors ml-1 text-base"
         title="Copy"
-        onclick="navigator.clipboard.writeText('npm install -g craig-cli').then(() => { this.textContent = '✓'; setTimeout(() => this.textContent = '⎘', 1200) })"
+        onclick="navigator.clipboard.writeText('npm install -g craig-cli').then(() => { window.gtag?.('event', 'install_command_copy', { method: 'npm', placement: 'homepage_hero' }); this.textContent = '✓'; setTimeout(() => this.textContent = '⎘', 1200) })"
       >⎘</button>
     </div>
     <p class="text-[#3b4261] text-xs">Node 22+ · MIT · No account required</p>
