@@ -254,6 +254,43 @@ describe("command routing", () => {
       .resolves.toContain("repo-a");
   });
 
+  test("provisions an explicitly linked repo child inside its parent project workspace", async () => {
+    const workspaceRoot = await createRepoRoot("craig-router-linked-project-child-");
+    tempRoots.push(workspaceRoot);
+    await createCraigState(workspaceRoot);
+    const paths = getCraigPaths(workspaceRoot);
+    const projectRepoRoot = path.join(workspaceRoot, "project", "repo-a");
+    const linkedRepoRoot = path.join(workspaceRoot, "linked-repo");
+    for (const repoRoot of [projectRepoRoot, linkedRepoRoot]) {
+      await mkdir(repoRoot, { recursive: true });
+      await createGitRepo(repoRoot);
+      await writeFile(path.join(repoRoot, "README.md"), `${path.basename(repoRoot)}\n`, "utf8");
+      await runCommand("git", ["add", "README.md"], { cwd: repoRoot });
+      await runCommand("git", ["commit", "-m", "seed"], { cwd: repoRoot });
+    }
+
+    const project = await executeCommand({ kind: "addWorkspace", path: path.join(workspaceRoot, "project") }, { paths });
+    const linked = await executeCommand({ kind: "addWorkspace", path: linkedRepoRoot }, { paths });
+    if (project.kind !== "createWorkspace" || linked.kind !== "createWorkspace") {
+      throw new Error("Expected registered workspaces.");
+    }
+    const linkedRepo = linked.repos[0]!;
+
+    await expect(provisionTask(paths, linkedRepo.id, "linked child", {
+      workspaceId: project.workspace.id,
+    })).rejects.toThrow(`Repo ${linkedRepo.id} is not available in active workspace ${project.workspace.id}.`);
+
+    const provisioned = await provisionTask(paths, linkedRepo.id, "linked child", {
+      workspaceId: project.workspace.id,
+      allowLinkedProjectRepo: true,
+    });
+    expect(provisioned.task).toMatchObject({
+      type: "repo",
+      repoId: linkedRepo.id,
+      workspaceId: project.workspace.id,
+    });
+  });
+
   test("project task provisioning uses each repo default branch instead of requiring main", async () => {
     const workspaceRoot = await createRepoRoot("craig-router-project-trunk-");
     tempRoots.push(workspaceRoot);

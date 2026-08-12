@@ -100,7 +100,12 @@ export async function createChildTask(
       ...(input.runner ? { runner: input.runner } : {}),
       ...(target.type === "workspace"
         ? { workspaceId: target.id }
-        : { owningWorkspaceId: parent.workspaceId }),
+        : {
+            owningWorkspaceId: parent.workspaceId,
+            ...(parent.type === "project" && parent.linkedRepoIds.includes(target.id)
+              ? { allowLinkedProjectRepo: true }
+              : {}),
+          }),
       lineage: {
         parentTaskId: parent.id,
         rootTaskId: parent.rootTaskId,

@@ -7,11 +7,14 @@ import type { RunnerType } from "../../config/index.js";
 import { provisionProjectTask, provisionTask } from "./provision.js";
 import type { TaskLineageInput } from "./provision.js";
 import { markTaskStarted, recordStartupFailure } from "./lifecycle.js";
+import { getTask } from "./inspect.js";
 
 export interface TaskCreationOptions {
   runner?: RunnerType;
   workspaceId?: string;
   owningWorkspaceId?: string;
+  allowLinkedProjectRepo?: boolean;
+  markStartedAfterLaunch?: boolean;
   lineage?: TaskLineageInput;
   onProvisioned?: (task: TaskRecord) => Promise<Record<string, string> | void>;
   launchProvisioned?: (task: TaskRecord, environment?: Record<string, string>) => Promise<void>;
@@ -40,7 +43,10 @@ export const createTask = async (
     : await provisionTask(paths, repoIdOrWorkspaceId, trimmedPrompt, {
         runner,
         config,
-        ...(options.owningWorkspaceId ? { workspaceId: options.owningWorkspaceId } : {}),
+        ...(options.owningWorkspaceId ? {
+          workspaceId: options.owningWorkspaceId,
+          allowLinkedProjectRepo: options.allowLinkedProjectRepo ?? false,
+        } : {}),
         ...(options.lineage ? { lineage: options.lineage } : {}),
       });
   const draftTask = provisioned.task;
@@ -48,19 +54,21 @@ export const createTask = async (
     const launchEnvironment = await options.onProvisioned?.(draftTask);
     if (!options.launchProvisioned) throw new Error("Craig task creation requires the PTY daemon launcher.");
     await options.launchProvisioned(draftTask, launchEnvironment || undefined);
-    const runningTask = await markTaskStarted(paths, draftTask.id);
-    const agentTab = runningTask.ptyTabs.find((tab) => tab.kind === "agent")!;
+    const launchedTask = options.markStartedAfterLaunch === false
+      ? await getTask(paths, draftTask.id)
+      : await markTaskStarted(paths, draftTask.id);
+    const agentTab = launchedTask.ptyTabs.find((tab) => tab.kind === "agent")!;
 
     return {
       kind: "createTask",
-      taskId: runningTask.id,
-      repoId: runningTask.repoId,
-      workspaceId: runningTask.workspaceId,
+      taskId: launchedTask.id,
+      repoId: launchedTask.repoId,
+      workspaceId: launchedTask.workspaceId,
       agentTabId: agentTab.id,
-      status: runningTask.status,
-      branch: runningTask.branch,
-      worktreePath: runningTask.worktreePath,
-      runner: runningTask.runner,
+      status: launchedTask.status,
+      branch: launchedTask.branch,
+      worktreePath: launchedTask.worktreePath,
+      runner: launchedTask.runner,
     };
   } catch (error) {
     await recordStartupFailure(paths, draftTask.id, error instanceof Error ? error.message : "Unknown Craig error");

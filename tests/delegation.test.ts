@@ -12,6 +12,7 @@ const mocks = vi.hoisted(() => ({
   order: [] as string[],
   nextId: 1,
   failNextLaunch: false,
+  lastCreateOptions: null as null | { allowLinkedProjectRepo?: boolean },
 }));
 
 vi.mock("../src/domain/task/index.js", () => ({
@@ -33,6 +34,7 @@ vi.mock("../src/domain/task/index.js", () => ({
         runner?: TaskRecord["runner"];
         workspaceId?: string;
         owningWorkspaceId?: string;
+        allowLinkedProjectRepo?: boolean;
         lineage?: {
           parentTaskId: string | null;
           rootTaskId?: string;
@@ -43,6 +45,7 @@ vi.mock("../src/domain/task/index.js", () => ({
         };
         onProvisioned?: (task: TaskRecord) => Promise<Record<string, string> | void>;
       }) => {
+        mocks.lastCreateOptions = options;
         const id = `child_${mocks.nextId++}`;
         const task = taskRecord(id, {
           type: options.workspaceId ? "project" : "repo",
@@ -105,6 +108,7 @@ describe("capability-scoped delegation", () => {
     mocks.order.length = 0;
     mocks.nextId = 1;
     mocks.failNextLaunch = false;
+    mocks.lastCreateOptions = null;
     const root = await mkdtemp(path.join(os.tmpdir(), "craig-delegation-"));
     paths = getCraigPaths(root);
     await Promise.all([
@@ -234,6 +238,7 @@ describe("capability-scoped delegation", () => {
   test("inherits project scope and keeps explicit repo children in the project workspace", async () => {
     parent.type = "project";
     parent.workspaceId = "workspace_project";
+    parent.linkedRepoIds = ["repo_secondary"];
     parent.repoTargets = [{
       repoId: "repo_secondary", repoRoot: "/repo-secondary", worktreePath: "/worktree-secondary",
       branch: "craig/parent", status: "ready", failureReason: null, checks: parent.checks,
@@ -270,6 +275,10 @@ describe("capability-scoped delegation", () => {
       targetId: "repo_secondary",
       repoId: "repo_secondary",
       workspaceId: "workspace_project",
+    });
+    expect(mocks.lastCreateOptions).toMatchObject({
+      owningWorkspaceId: "workspace_project",
+      allowLinkedProjectRepo: true,
     });
     expect(mocks.tasks.find((task) => task.id === repoChild.taskId)).toMatchObject({ type: "repo" });
   });

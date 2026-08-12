@@ -3,6 +3,7 @@ import { mkdir, readdir, rm, writeFile } from "node:fs/promises";
 import { afterEach, describe, expect, test, vi } from "vitest";
 
 import { configService } from "../src/domain/config/index.js";
+import { taskService } from "../src/domain/task/index.js";
 import {
   promptCommandService,
   listEvents,
@@ -20,7 +21,7 @@ afterEach(async () => {
 });
 
 describe("prompt command admission", () => {
-  test("allows merged tasks to receive follow-up prompts but rejects closed tasks", async () => {
+  test("fails a persisted prompt explicitly when no orchestration daemon is available and rejects closed tasks", async () => {
     const root = await createRepoRoot("craig-prompt-admission-");
     roots.push(root);
     const paths = await createCraigState(root, ["task_merged", "task_closed"]);
@@ -28,13 +29,21 @@ describe("prompt command admission", () => {
     const closed = await writeTaskRecord(root, { id: "task_closed", status: "closed" });
     await configService.save(paths, { previews: { agentOrchestration: true } });
 
-    const accepted = await promptCommandShellService.send(paths, {
+    await expect(promptCommandShellService.send(paths, {
       taskId: merged.id,
       prompt: { source: "inline", text: "start the next pull request" },
       delivery: "when-ready",
       timeoutMs: 60_000,
+    })).rejects.toMatchObject({
+      code: "PARTIAL_RESULT",
+      details: { durableState: "failed" },
     });
-    expect(accepted.command).toMatchObject({ taskId: merged.id, state: "queued" });
+    expect((await promptCommandService.list(paths, merged.id)).commands).toMatchObject([{
+      taskId: merged.id,
+      state: "failed",
+      attempts: 0,
+      lastError: { code: "ORCHESTRATION_UNAVAILABLE", retryable: true },
+    }]);
 
     await expect(promptCommandShellService.send(paths, {
       taskId: closed.id,
@@ -171,6 +180,52 @@ describe("orchestration supervisor", () => {
         .toMatchObject({ state: "delivered", attempts: 1 });
       await supervisor.wake();
       expect(runtime.writeToSession).toHaveBeenCalledTimes(2);
+    } finally {
+      await supervisor.stop();
+    }
+  });
+
+  test("promotes a task only after its durable initial prompt is submitted", async () => {
+    const { paths, input, tabId } = await setupCommand();
+    await writeTaskRecord(paths.repoRoot, { id: input.taskId, status: "draft" });
+    const created = await promptCommandService.create(paths, {
+      ...input,
+      idempotencyKey: `task-start:${input.taskId}`,
+    });
+    const runtime = createRuntime(tabId, Date.now() - 10_000);
+    const supervisor = new OrchestrationSupervisor(paths, runtime, { intervalMs: 10_000 });
+    try {
+      expect((await taskService.getTask(paths, input.taskId)).status).toBe("draft");
+      await supervisor.start();
+      expect((await promptCommandService.show(paths, created.command.id)).command)
+        .toMatchObject({ state: "delivered", attempts: 1 });
+      expect((await taskService.getTask(paths, input.taskId))).toMatchObject({
+        status: "running",
+        runnerSession: { lastKnownState: "running" },
+      });
+    } finally {
+      await supervisor.stop();
+    }
+  });
+
+  test("repairs a delivered initial prompt whose task promotion was interrupted", async () => {
+    const { paths, input, tabId } = await setupCommand();
+    await writeTaskRecord(paths.repoRoot, { id: input.taskId, status: "draft" });
+    const created = await promptCommandService.create(paths, {
+      ...input,
+      idempotencyKey: `task-start:${input.taskId}`,
+    });
+    await promptCommandService.beginDelivery(paths, created.command.id);
+    await promptCommandService.completeDelivery(paths, created.command.id);
+    const supervisor = new OrchestrationSupervisor(paths, createRuntime(tabId, Date.now() - 10_000), {
+      intervalMs: 10_000,
+    });
+    try {
+      await supervisor.start();
+      expect((await taskService.getTask(paths, input.taskId))).toMatchObject({
+        status: "running",
+        runnerSession: { lastKnownState: "running" },
+      });
     } finally {
       await supervisor.stop();
     }

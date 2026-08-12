@@ -13,9 +13,9 @@ import { ensureCraigState } from "../src/domain/workspace/workspaces/ensure.js";
 import { configService } from "../src/domain/config/index.js";
 import { taskService } from "../src/domain/task/index.js";
 import { appendTaskId } from "../src/domain/task/adapters/task-store.js";
-import { readAllEvents } from "../src/domain/orchestration/index.js";
+import { promptCommandService, readAllEvents } from "../src/domain/orchestration/index.js";
 import { watchWorkspaceEvents } from "../src/shell/events.js";
-import { disposeDaemonSessions } from "../src/shell/pty-daemon-orchestration.js";
+import { disposeDaemonSessions, wakeOrchestrationSupervisor } from "../src/shell/pty-daemon-orchestration.js";
 import { runCommand } from "../src/shared/exec.js";
 import { createCraigState, createGitRepo, createStubCommands, writeTaskRecord } from "./test-helpers.js";
 
@@ -212,6 +212,60 @@ describe("PTY daemon", () => {
       await appendTaskId(paths, "task_child");
 
       await vi.waitFor(() => expect(onTasksChanged).toHaveBeenCalledWith(["task_child"]), { timeout: 2_500 });
+      client.disposeAll();
+    } finally {
+      await requestDaemonShutdown(paths);
+      await daemon;
+      await rm(root, { recursive: true, force: true });
+    }
+  }, DAEMON_TEST_TIMEOUT_MS);
+
+  test("submits four concurrent durable initial prompts before promoting their tasks", async () => {
+    const root = await mkdtemp(join(tmpdir(), "craig-concurrent-agent-startup-"));
+    const taskIds = ["task_1", "task_2", "task_3", "task_4"];
+    const paths = await createCraigState(root, taskIds);
+    await configService.save(paths, { previews: { agentOrchestration: true } });
+    await Promise.all(taskIds.map((id) => writeTaskRecord(root, { id, status: "draft", runner: "cursor" })));
+    const ptys = taskIds.map(() => createFakePty());
+    const spawn = vi.fn(() => ptys.shift()!);
+    const daemon = servePtyDaemon(paths, {
+      shell: "/bin/zsh",
+      env: { TERM: "xterm-256color" },
+      spawn,
+    });
+
+    try {
+      const client = await createDaemonPtyRuntime({
+        paths,
+        workspaceRoot: root,
+        resolveSessionSpec: () => ({ cwd: root, command: ["cursor-agent"] }),
+      });
+      await Promise.all(taskIds.map((taskId) =>
+        client.ensureSession(taskId, `${taskId}:agent`, { columns: 80, rows: 24 })));
+      const commands = await Promise.all(taskIds.map(async (taskId) =>
+        (await promptCommandService.create(paths, {
+          taskId,
+          agentTabId: `${taskId}:agent`,
+          prompt: { source: "inline", text: `initial prompt for ${taskId}` },
+          delivery: "when-ready",
+          timeoutMs: 10_000,
+          idempotencyKey: `task-start:${taskId}`,
+          actor: { type: "system", component: "orchestration-supervisor" },
+        })).command));
+      expect(await Promise.all(taskIds.map(() => wakeOrchestrationSupervisor(paths))))
+        .toEqual(taskIds.map(() => true));
+      expect((await Promise.all(taskIds.map((id) => taskService.getTask(paths, id))))
+        .every((task) => task.status === "draft")).toBe(true);
+
+      await vi.waitFor(async () => {
+        const settled = await Promise.all(commands.map((command) => promptCommandService.show(paths, command.id)));
+        expect(settled.map((result) => result.command.state)).toEqual(taskIds.map(() => "delivered"));
+      }, { timeout: 8_000 });
+      await vi.waitFor(async () => {
+        expect((await Promise.all(taskIds.map((id) => taskService.getTask(paths, id))))
+          .every((task) => task.status === "running")).toBe(true);
+      });
+      expect(spawn).toHaveBeenCalledTimes(4);
       client.disposeAll();
     } finally {
       await requestDaemonShutdown(paths);

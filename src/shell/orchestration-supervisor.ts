@@ -85,8 +85,9 @@ export class OrchestrationSupervisor {
     await reconcilePromptCommandEvents(this.paths);
     const commands = await listPromptCommands(this.paths);
     for (const command of commands) {
+      await this.reconcileInitialPromptTask(command);
       if (command.state === "delivering") {
-        await promptCommandService.fail(this.paths, command.id, commandError(
+        await this.failCommand(command, commandError(
           "PROMPT_DELIVERY_UNCERTAIN",
           "Craig resumed after prompt delivery began; the prompt was not replayed.",
           false,
@@ -102,7 +103,7 @@ export class OrchestrationSupervisor {
 
   private async reconcileCommand(command: PromptDispatch): Promise<void> {
     if (Date.now() >= Date.parse(command.expiresAt)) {
-      await promptCommandService.fail(this.paths, command.id, commandError(
+      await this.failCommand(command, commandError(
         "PROMPT_DELIVERY_TIMEOUT",
         `Prompt delivery timed out after ${command.timeoutMs}ms.`,
         false,
@@ -117,7 +118,7 @@ export class OrchestrationSupervisor {
     });
     const tab = task?.ptyTabs.find((candidate) => candidate.id === command.agentTabId);
     if (!task || !tab || tab.kind !== "agent" || task.status === "closed") {
-      await promptCommandService.fail(this.paths, command.id, commandError(
+      await this.failCommand(command, commandError(
         "PROMPT_TARGET_UNAVAILABLE",
         `Agent tab ${command.agentTabId} is no longer available in task ${command.taskId}.`,
         false,
@@ -128,7 +129,7 @@ export class OrchestrationSupervisor {
 
     const snapshot = this.runtime.getActivitySnapshots().find((candidate) => candidate.tabId === command.agentTabId);
     if (snapshot && snapshot.sessionState !== "running") {
-      await promptCommandService.fail(this.paths, command.id, commandError(
+      await this.failCommand(command, commandError(
         "PROMPT_TARGET_UNAVAILABLE",
         `Agent tab ${command.agentTabId} is no longer running.`,
         false,
@@ -149,7 +150,7 @@ export class OrchestrationSupervisor {
       await wait(submission.submitDelayMs);
       this.runtime.writeToSession(command.agentTabId, submission.submit);
     } catch (error) {
-      await promptCommandService.fail(this.paths, command.id, commandError(
+      await this.failCommand(command, commandError(
         "PROMPT_DELIVERY_UNCERTAIN",
         error instanceof Error ? error.message : "Prompt delivery failed after it began.",
         false,
@@ -157,9 +158,40 @@ export class OrchestrationSupervisor {
       ));
       return;
     }
-    await promptCommandService.completeDelivery(this.paths, command.id);
+    const delivered = await promptCommandService.completeDelivery(this.paths, command.id);
+    await this.reconcileInitialPromptTask(delivered);
+  }
+
+  private async failCommand(command: PromptDispatch, error: PromptCommandError): Promise<void> {
+    const failed = await promptCommandService.fail(this.paths, command.id, error);
+    await this.reconcileInitialPromptTask(failed);
+  }
+
+  private async reconcileInitialPromptTask(command: PromptDispatch): Promise<void> {
+    if (!isInitialPrompt(command) || command.state === "queued" || command.state === "delivering") return;
+    const task = await taskService.getTask(this.paths, command.taskId).catch((error: unknown) => {
+      if (error instanceof CraigError && error.code === "TASK_NOT_FOUND") return null;
+      throw error;
+    });
+    if (!task || task.status === "closed") return;
+    if (command.state === "delivered") {
+      if (task.status === "draft" || task.runnerSession.lastKnownState === "starting") {
+        await taskService.markTaskStarted(this.paths, task.id);
+      }
+      return;
+    }
+    if (task.runnerSession.lastKnownState !== "failed") {
+      await taskService.recordStartupFailure(
+        this.paths,
+        task.id,
+        command.lastError?.message ?? `Initial prompt ${command.state}.`,
+      );
+    }
   }
 }
+
+const isInitialPrompt = (command: PromptDispatch): boolean =>
+  command.idempotencyKey === `task-start:${command.taskId}`;
 
 const commandError = (
   code: string,

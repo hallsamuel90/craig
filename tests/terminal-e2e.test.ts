@@ -2,7 +2,7 @@ import { chmod, mkdir, mkdtemp, readFile, realpath, rm, writeFile } from "node:f
 import { join, resolve } from "node:path";
 import { tmpdir } from "node:os";
 
-import { describe, expect, test } from "vitest";
+import { describe, expect, test, vi } from "vitest";
 import { spawn } from "node-pty";
 
 import { createCraigState, createGitRepo, writeRepoRecord, writeTaskRecord } from "./test-helpers.js";
@@ -473,7 +473,11 @@ setInterval(() => {}, 1000);
       });
       const childTask = await taskService.getTask(paths, created.taskId);
       const childTab = childTask.ptyTabs.find((tab) => tab.kind === "agent")!.id;
-      await waitForFileText(launchLog, initialPrompt);
+      await waitForFileText(accepted, "submitted", 8_000);
+      expect((await readFile(launchLog, "utf8")).trim().split("\n")).toEqual([
+        JSON.stringify([]),
+      ]);
+      expect(await readFile(input, "utf8")).toBe(`\u001b[200~${initialPrompt}\u001b[201~\r`);
 
       client = await createDaemonPtyRuntime({
         paths,
@@ -485,10 +489,12 @@ setInterval(() => {}, 1000);
         }),
       });
       await client.ensureSession(childTask.id, childTab, { columns: 80, rows: 24 });
-      expect((await readFile(launchLog, "utf8")).trim().split("\n")).toEqual([
-        JSON.stringify([initialPrompt]),
-      ]);
-      expect(childTask).toMatchObject({
+      expect((await readFile(launchLog, "utf8")).trim().split("\n")).toEqual([JSON.stringify([])]);
+      await vi.waitFor(async () => {
+        expect(await taskService.getTask(paths, childTask.id)).toMatchObject({ status: "running" });
+      });
+      const runningChildTask = await taskService.getTask(paths, childTask.id);
+      expect(runningChildTask).toMatchObject({
         parentTaskId: parent.id,
         rootTaskId: parent.id,
         delegationDepth: 1,
@@ -514,10 +520,15 @@ setInterval(() => {}, 1000);
         data: { command: { taskId: childTask.id, agentTabId: childTab, state: "queued" } },
       });
       await waitForFileText(input, marker);
-      await waitForFileText(accepted, "submitted");
+      await vi.waitFor(async () => {
+        expect((await readFile(accepted, "utf8")).trim().split("\n")).toHaveLength(2);
+      });
       const captured = await readFile(input, "utf8");
       expect(captured.match(new RegExp(marker, "g"))).toHaveLength(1);
-      expect(captured).toBe(`\u001b[200~${marker}\u001b[201~\r`);
+      expect(captured).toBe(
+        `\u001b[200~${initialPrompt}\u001b[201~\r` +
+        `\u001b[200~${marker}\u001b[201~\r`,
+      );
       expect((await readFile(launchLog, "utf8")).trim().split("\n")).toHaveLength(1);
       const inspection = await runCommand(resolveTestTsxBin(repoRoot), [
         resolve(repoRoot, "src/cli.ts"),
