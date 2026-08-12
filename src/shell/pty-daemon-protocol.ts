@@ -5,6 +5,11 @@ import path from "node:path";
 import type { CraigPaths } from "../state/craig-paths.js";
 
 export const PTY_DAEMON_PROTOCOL_VERSION = 9;
+const COMPATIBLE_PTY_DAEMON_PROTOCOL_VERSIONS = new Set([6, 7, 8, PTY_DAEMON_PROTOCOL_VERSION]);
+
+export function isCompatiblePtyDaemonProtocol(version: number | undefined): boolean {
+  return version !== undefined && COMPATIBLE_PTY_DAEMON_PROTOCOL_VERSIONS.has(version);
+}
 
 export function getPtyDaemonEndpoint(paths: CraigPaths): { socketPath: string; pidPath: string } {
   const workspaceHash = createHash("sha256").update(paths.workspaceRoot).digest("hex").slice(0, 16);

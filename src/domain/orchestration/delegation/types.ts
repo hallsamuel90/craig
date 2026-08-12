@@ -57,7 +57,7 @@ export interface CommandCreateChildResult {
   targetId: string;
   repoId: string;
   workspaceId: string;
-  sessionId: string | null;
+  agentTabId: string;
   status: string;
   branch: string;
   worktreePath: string;

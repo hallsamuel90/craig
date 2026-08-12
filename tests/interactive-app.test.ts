@@ -20,6 +20,10 @@ describe("cli terminal startup", () => {
       env: {
         ...process.env,
         CI: undefined,
+        CRAIG_AGENT_CAPABILITY: undefined,
+        CRAIG_AGENT_TAB_ID: undefined,
+        CRAIG_TASK_ID: undefined,
+        CRAIG_WORKSPACE_ROOT: undefined,
       },
       stdin: {
         ...process.stdin,

@@ -10,6 +10,7 @@ import type { PtyActivitySnapshot } from "../src/ui/agent-activity.js";
 import { listRepos } from "../src/domain/workspace/adapters/repo-store.js";
 import { runCommand, runCommandAllowingFailure } from "../src/shared/exec.js";
 import { readTask, taskService, writeTask } from "../src/domain/task/index.js";
+import { appendTaskId } from "../src/domain/task/adapters/task-store.js";
 import { configService } from "../src/domain/config/index.js";
 import { createCraigState, createGitRepo, createStubCommands, writeRepoRecord, writeTaskRecord } from "./test-helpers.js";
 
@@ -1721,6 +1722,37 @@ describe("terminal app PTY attach flow", () => {
     terminal.emitKey("q");
     await expect(app).resolves.toBe(0);
     pollSpy.mockRestore();
+  });
+
+  test("daemon task invalidation renders an agent-created child without user input", async () => {
+    const root = await mkdtemp(join(tmpdir(), "craig-ui-app-"));
+    tempRoots.push(root);
+    const paths = await setupWorkspace(root);
+    const terminal = new FakeTerminal();
+    const ptyRuntime = new FakePtyRuntime({ managesPullRequestSync: true });
+    const app = startTerminalApp({ terminal, ptyRuntime, uiStateFile: paths.uiStateFile, workspaceRoot: root });
+    await vi.waitFor(() => expect(terminal.hasKeyListener()).toBe(true));
+    terminal.emitKey("\r");
+    await vi.waitFor(() => expect(stripAnsi(terminal.frames.at(-1) ?? "")).toContain("test task"));
+
+    const child = await writeTaskRecord(root, {
+      id: "task_agent_child",
+      title: "agent-created child",
+      repoId: "repo_a",
+      workspaceId: "workspace_repo_a",
+      parentTaskId: "task_20260430_02",
+      rootTaskId: "task_20260430_02",
+      delegationDepth: 1,
+    });
+    await appendTaskId(paths, child.id);
+    const frameCount = terminal.frames.length;
+    ptyRuntime.emitTasksChanged([child.id]);
+
+    await vi.waitFor(() => expect(stripAnsi(terminal.frames.at(-1) ?? "")).toContain("agent-created child"));
+    expect(terminal.frames.length).toBeGreaterThan(frameCount);
+
+    terminal.emitKey("q");
+    await expect(app).resolves.toBe(0);
   });
 
   test("polling refreshes unselected task badges without navigation", async () => {

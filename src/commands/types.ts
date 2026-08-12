@@ -2,7 +2,6 @@ import type { RunnerType } from "../domain/task/index.js";
 import type {
   CommandCreateTaskResult,
   CommandListResult,
-  CommandAttachTaskResult,
   CommandAddTaskLinkResult,
   CommandListTaskLinksResult,
   CommandShowTaskResult,
@@ -10,7 +9,6 @@ import type {
   CommandTaskPrResult,
   CommandLogsResult,
   CommandDiffResult,
-  CommandFocusResult,
   CommandOpenResult,
   CommandChecksResult,
   CommandCommitResult,
@@ -88,7 +86,6 @@ export type AppCommand =
   | { kind: "actFuryReview"; reviewId: string; action: "approve" | "reject" | "request_changes" | "resubmit"; message?: string }
   | { kind: "listTasks"; repoId?: string; workspaceId?: string }
   | { kind: "currentTask" }
-  | { kind: "attachTask"; taskId: string }
   | { kind: "addTaskLink"; taskId: string; repoId: string }
   | { kind: "listTaskLinks"; taskId: string }
   | { kind: "refreshInteractiveState" }
@@ -114,8 +111,6 @@ export type AppCommand =
   | { kind: "streamSelectedTaskLogs" }
   | { kind: "showTaskDiff"; taskId: string }
   | { kind: "showSelectedTaskDiff" }
-  | { kind: "focusTask"; taskId: string }
-  | { kind: "focusSelectedTask" }
   | { kind: "openTask"; taskId: string }
   | { kind: "openSelectedTask" }
   | { kind: "runChecks"; taskId: string }
@@ -138,7 +133,6 @@ export interface CommandExitResult {
 export type {
   CommandCreateTaskResult,
   CommandListResult,
-  CommandAttachTaskResult,
   CommandAddTaskLinkResult,
   CommandListTaskLinksResult,
   CommandShowTaskResult,
@@ -146,7 +140,6 @@ export type {
   CommandTaskPrResult,
   CommandLogsResult,
   CommandDiffResult,
-  CommandFocusResult,
   CommandOpenResult,
   CommandChecksResult,
   CommandCommitResult,
@@ -212,7 +205,6 @@ export type CommandResult =
   | CommandShowFuryReviewResult
   | CommandActFuryReviewResult
   | CommandWatchFuryResult
-  | CommandAttachTaskResult
   | CommandAddTaskLinkResult
   | CommandListTaskLinksResult
   | CommandHelpResult
@@ -234,7 +226,6 @@ export type CommandResult =
   | CommandShowContextResult
   | CommandLogsResult
   | CommandDiffResult
-  | CommandFocusResult
   | CommandOpenResult
   | CommandChecksResult
   | CommandCommitResult;

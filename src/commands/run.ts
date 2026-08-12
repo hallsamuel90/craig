@@ -225,13 +225,11 @@ function assertTaskOptionApplies(
 function getPositionalTaskId(command: AppCommand): string | undefined {
   switch (command.kind) {
     case "showTask":
-    case "attachTask":
     case "listTaskLinks":
     case "listTaskChildren":
     case "cancelTaskTree":
     case "streamTaskLogs":
     case "showTaskDiff":
-    case "focusTask":
     case "openTask":
     case "runChecks":
     case "commitTask":

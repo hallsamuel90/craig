@@ -29,14 +29,17 @@ export const normalizeLegacyTaskRecord = (value: unknown): unknown => {
   const normalizedBase = { ...legacy };
   delete normalizedBase.swarmRunId;
   delete normalizedBase.swarmStepId;
+  delete normalizedBase.tmuxWindowTarget;
+  delete normalizedBase.tmuxPage;
+  delete normalizedBase.tmuxTarget;
+  delete normalizedBase.layoutSlot;
+  delete normalizedBase.sessionId;
 
   return {
     ...normalizedBase,
     runner: normalizeRunner(candidate.runner),
     repoId: typeof candidate.repoId === "string" ? candidate.repoId : "legacy_repo",
     workspaceId: typeof candidate.workspaceId === "string" ? candidate.workspaceId : "legacy_workspace",
-    sessionId:
-      typeof candidate.sessionId === "string" || candidate.sessionId === null ? candidate.sessionId : null,
     selectedPtyTabId:
       typeof candidate.selectedPtyTabId === "string" || candidate.selectedPtyTabId === null
         ? candidate.selectedPtyTabId
@@ -107,7 +110,6 @@ const isTaskRecord = (value: unknown): value is TaskRecord => {
     configService.runners.isRunnerType(candidate.runner ?? "") &&
     typeof candidate.repoId === "string" &&
     typeof candidate.workspaceId === "string" &&
-    (typeof candidate.sessionId === "string" || candidate.sessionId === null) &&
     (typeof candidate.selectedPtyTabId === "string" || candidate.selectedPtyTabId === null) &&
     Array.isArray(candidate.linkedRepoIds) &&
     candidate.linkedRepoIds.every((entry) => typeof entry === "string") &&
@@ -345,7 +347,6 @@ const isCleanup = (value: TaskRecord["cleanup"] | undefined): boolean => {
   return (
     typeof value === "object" &&
     value !== null &&
-    (typeof value.paneClosedAt === "string" || value.paneClosedAt === null) &&
     (typeof value.worktreeRemovedAt === "string" || value.worktreeRemovedAt === null) &&
     typeof value.preservedWorktree === "boolean" &&
     (typeof value.warning === "string" || value.warning === null)
@@ -510,12 +511,10 @@ const normalizeLegacyArtifacts = (candidate: Partial<TaskRecord>): TaskRecord["a
 };
 
 const normalizeLegacyCleanup = (candidate: Partial<TaskRecord>): TaskRecord["cleanup"] => {
-  return (
-    candidate.cleanup ?? {
-      paneClosedAt: null,
-      worktreeRemovedAt: null,
-      preservedWorktree: false,
-      warning: null,
-    }
-  );
+  const cleanup = candidate.cleanup as (TaskRecord["cleanup"] & { paneClosedAt?: string | null }) | undefined;
+  return {
+    worktreeRemovedAt: cleanup?.worktreeRemovedAt ?? null,
+    preservedWorktree: cleanup?.preservedWorktree ?? false,
+    warning: cleanup?.warning ?? null,
+  };
 };

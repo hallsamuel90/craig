@@ -62,7 +62,6 @@ vi.mock("../src/domain/task/index.js", () => ({
         if (mocks.failNextLaunch) {
           mocks.failNextLaunch = false;
           task.status = "draft";
-          task.sessionId = null;
           throw new Error("simulated launch failure");
         }
         return {
@@ -70,7 +69,7 @@ vi.mock("../src/domain/task/index.js", () => ({
           taskId: id,
           repoId,
           workspaceId: task.workspaceId,
-          sessionId: task.sessionId!,
+          agentTabId: `${task.id}:agent`,
           status: task.status,
           branch: task.branch,
           worktreePath: task.worktreePath,
@@ -299,7 +298,7 @@ describe("capability-scoped delegation", () => {
     await expect(createChildTask(paths, input)).resolves.toMatchObject({
       taskId: "child_1",
       status: "draft",
-      sessionId: null,
+      agentTabId: "child_1:agent",
       idempotentReplay: true,
     });
     expect(mocks.tasks).toHaveLength(2);
@@ -388,7 +387,6 @@ function taskRecord(id: string, overrides: Partial<TaskRecord> = {}): TaskRecord
     runner: overrides.runner ?? "codex",
     repoId: overrides.repoId ?? "repo_test",
     workspaceId: overrides.workspaceId ?? "workspace_test",
-    sessionId: `session_${id}`,
     selectedPtyTabId: `${id}:agent`,
     linkedRepoIds: [],
     parentTaskId: overrides.parentTaskId ?? null,
@@ -415,7 +413,7 @@ function taskRecord(id: string, overrides: Partial<TaskRecord> = {}): TaskRecord
     lastCommit: null,
     prs: [],
     artifacts: { logPath: null, checkSummaryPath: null, prDraftPath: null, prStatusPath: null },
-    cleanup: { paneClosedAt: null, worktreeRemovedAt: null, preservedWorktree: false, warning: null },
+    cleanup: { worktreeRemovedAt: null, preservedWorktree: false, warning: null },
     lastFailureReason: null,
     createdAt: timestamp,
     updatedAt: timestamp,

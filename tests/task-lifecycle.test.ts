@@ -28,7 +28,6 @@ const originalEnv = {
   CRAIG_TEST_GH_EXPECT_GRAPHQL_SELECTOR: process.env.CRAIG_TEST_GH_EXPECT_GRAPHQL_SELECTOR,
   CRAIG_GH_RATE_LIMIT_RETRY_BASE_MS: process.env.CRAIG_GH_RATE_LIMIT_RETRY_BASE_MS,
   CRAIG_TEST_GH_VIEW_FILE: process.env.CRAIG_TEST_GH_VIEW_FILE,
-  CRAIG_TEST_TMUX_STATE_FILE: process.env.CRAIG_TEST_TMUX_STATE_FILE,
 };
 
 afterEach(async () => {
@@ -42,7 +41,6 @@ afterEach(async () => {
   restoreOptionalEnv("CRAIG_TEST_GH_EXPECT_GRAPHQL_SELECTOR", originalEnv.CRAIG_TEST_GH_EXPECT_GRAPHQL_SELECTOR);
   process.env.CRAIG_GH_RATE_LIMIT_RETRY_BASE_MS = originalEnv.CRAIG_GH_RATE_LIMIT_RETRY_BASE_MS;
   process.env.CRAIG_TEST_GH_VIEW_FILE = originalEnv.CRAIG_TEST_GH_VIEW_FILE;
-  process.env.CRAIG_TEST_TMUX_STATE_FILE = originalEnv.CRAIG_TEST_TMUX_STATE_FILE;
 });
 
 function restoreOptionalEnv(name: string, value: string | undefined): void {
@@ -540,7 +538,7 @@ describe("task lifecycle services", () => {
             lastSyncedAt: null,
             lastSyncedHeadSha: null,
           },
-          cleanup: { paneClosedAt: null, worktreeRemovedAt: null, preservedWorktree: false, warning: null },
+          cleanup: { worktreeRemovedAt: null, preservedWorktree: false, warning: null },
         },
       ],
     });
@@ -610,7 +608,7 @@ describe("task lifecycle services", () => {
             lastSyncedAt: "2026-04-21T00:00:00.000Z",
             lastSyncedHeadSha: null,
           },
-          cleanup: { paneClosedAt: null, worktreeRemovedAt: null, preservedWorktree: false, warning: null },
+          cleanup: { worktreeRemovedAt: null, preservedWorktree: false, warning: null },
         },
       ],
     });
@@ -661,7 +659,7 @@ describe("task lifecycle services", () => {
             lastSyncedAt: "2026-04-21T00:00:00.000Z",
             lastSyncedHeadSha: null,
           },
-          cleanup: { paneClosedAt: null, worktreeRemovedAt: null, preservedWorktree: false, warning: null },
+          cleanup: { worktreeRemovedAt: null, preservedWorktree: false, warning: null },
         },
       ],
     });
@@ -752,7 +750,6 @@ describe("task lifecycle services", () => {
       status: "merged",
       worktreePath,
       cleanup: {
-        paneClosedAt: null,
         worktreeRemovedAt: null,
         preservedWorktree: false,
         warning: "previous warning",
@@ -801,7 +798,6 @@ describe("task lifecycle services", () => {
       status: "merged",
       worktreePath,
       cleanup: {
-        paneClosedAt: "2026-04-21T00:00:00.000Z",
         worktreeRemovedAt: "2026-04-21T00:00:01.000Z",
         preservedWorktree: false,
         warning: null,
@@ -1218,9 +1214,8 @@ async function createTrackedTaskRepo(repoRoot: string) {
   await runCommand("git", ["push", "-u", "origin", "craig/task_1"], { cwd: worktreePath });
 
   const fullStubDir = await createStubCommands(mainRepo);
-  const stubDir = await mkdtemp(path.join(os.tmpdir(), "craig-gh-tmux-"));
+  const stubDir = await mkdtemp(path.join(os.tmpdir(), "craig-gh-"));
   tempRoots.push(stubDir);
   await symlink(path.join(fullStubDir, "gh"), path.join(stubDir, "gh"));
-  await symlink(path.join(fullStubDir, "tmux"), path.join(stubDir, "tmux"));
   return { paths, worktreePath, stubDir, remoteRepo };
 }

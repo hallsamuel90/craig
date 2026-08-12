@@ -1,7 +1,7 @@
 import type { CraigPaths } from "../../../state/craig-paths.js";
 import { CraigError } from "../../error/index.js";
 import { configService } from "../../config/index.js";
-import { taskService, type CommandCreateTaskResult, type TaskRecord } from "../../task/index.js";
+import { taskService, type CommandCreateTaskResult, type TaskCreationOptions, type TaskRecord } from "../../task/index.js";
 import { appendEvent } from "../events/journal.js";
 import type { CraigActor } from "../types.js";
 import { withDelegationLock } from "../adapters/delegation-lock.js";
@@ -27,7 +27,7 @@ export interface ChildTaskCreationPorts {
     paths: CraigPaths,
     repoId: string,
     prompt: string,
-    options?: Parameters<typeof taskService.createTask>[3],
+    options?: TaskCreationOptions,
   ) => Promise<{ taskId: string }>;
 }
 /* eslint-enable no-unused-vars */
@@ -36,7 +36,7 @@ export async function createRootTask(
   paths: CraigPaths,
   repoIdOrWorkspaceId: string,
   prompt: string,
-  options: Parameters<typeof taskService.createTask>[3] = {},
+  options: TaskCreationOptions = {},
 ): Promise<CommandCreateTaskResult> {
   const config = await configService.load(paths);
   if (!configService.previews.isEnabled(config, "agentOrchestration")) {
@@ -229,6 +229,8 @@ export async function cancelTaskTree(
 
 function childResult(task: TaskRecord, idempotentReplay: boolean): CommandCreateChildResult {
   const targetType = task.type === "project" ? "workspace" : "repo";
+  const agentTab = task.ptyTabs.find((tab) => tab.kind === "agent");
+  if (!agentTab) throw new CraigError("TASK_RECORD_INVALID", `Child task ${task.id} has no agent tab.`, {});
   return {
     kind: "createChildTask",
     taskId: task.id,
@@ -239,7 +241,7 @@ function childResult(task: TaskRecord, idempotentReplay: boolean): CommandCreate
     targetId: targetType === "workspace" ? task.workspaceId : task.repoId,
     repoId: task.repoId,
     workspaceId: task.workspaceId,
-    sessionId: task.sessionId,
+    agentTabId: agentTab.id,
     status: task.status,
     branch: task.branch,
     worktreePath: task.worktreePath,

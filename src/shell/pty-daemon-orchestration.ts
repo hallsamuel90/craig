@@ -1,14 +1,17 @@
+import { mkdir, readFile, rm } from "node:fs/promises";
 import { createConnection, type Socket } from "node:net";
+import path from "node:path";
 
 import type { CraigPaths } from "../state/craig-paths.js";
-import { getPtyDaemonEndpoint, PTY_DAEMON_PROTOCOL_VERSION } from "./pty-daemon-protocol.js";
+import { getPtyDaemonEndpoint, isCompatiblePtyDaemonProtocol } from "./pty-daemon-protocol.js";
+import { spawnPtyDaemonProcess } from "./pty-daemon-process.js";
 
 export async function wakeOrchestrationSupervisor(paths: CraigPaths): Promise<boolean> {
   const socket = await connect(getPtyDaemonEndpoint(paths).socketPath).catch(() => null);
   if (!socket) return false;
   try {
     const ping = await request(socket, { type: "ping" });
-    if (ping.protocolVersion !== PTY_DAEMON_PROTOCOL_VERSION) return false;
+    if (!isCompatiblePtyDaemonProtocol(ping.protocolVersion)) return false;
     await request(socket, { type: "wakeOrchestration" });
     return true;
   } catch {
@@ -24,7 +27,7 @@ export async function disposeDaemonSessions(paths: CraigPaths, tabIds: string[])
   if (!socket) return false;
   try {
     const ping = await request(socket, { type: "ping" });
-    if (ping.protocolVersion !== PTY_DAEMON_PROTOCOL_VERSION) return false;
+    if (!isCompatiblePtyDaemonProtocol(ping.protocolVersion)) return false;
     for (const tabId of tabIds) await request(socket, { type: "disposeSession", tabId });
     return true;
   } catch {
@@ -44,11 +47,11 @@ export async function ensureDaemonAgentSession(
     env?: Record<string, string>;
   },
 ): Promise<void> {
-  const socket = await connect(getPtyDaemonEndpoint(paths).socketPath).catch(() => null);
-  if (!socket) throw new Error("Craig PTY daemon is unavailable for delegated agent startup.");
+  await ensureDaemonRunning(paths);
+  const socket = await connect(getPtyDaemonEndpoint(paths).socketPath);
   try {
     const ping = await request(socket, { type: "ping" });
-    if (ping.protocolVersion !== PTY_DAEMON_PROTOCOL_VERSION) {
+    if (!isCompatiblePtyDaemonProtocol(ping.protocolVersion)) {
       throw new Error("Craig PTY daemon protocol mismatch during delegated agent startup.");
     }
     await request(socket, {
@@ -61,6 +64,44 @@ export async function ensureDaemonAgentSession(
   } finally {
     socket.end();
   }
+}
+
+async function ensureDaemonRunning(paths: CraigPaths): Promise<void> {
+  const endpoint = getPtyDaemonEndpoint(paths);
+  const existing = await ping(endpoint.socketPath).catch(() => null);
+  if (isCompatiblePtyDaemonProtocol(existing?.protocolVersion)) return;
+  if (existing) {
+    throw new Error("A live Craig PTY daemon is using an incompatible protocol. Exit the other Craig instance and restart explicitly.");
+  }
+
+  await mkdir(paths.runtimeDir, { recursive: true });
+  const pidText = await readFile(endpoint.pidPath, "utf8").catch(() => null);
+  const pid = Number(pidText?.trim());
+  if (Number.isInteger(pid) && pid > 0 && isProcessAlive(pid)) {
+    throw new Error("A Craig PTY daemon process is still running but is not accepting connections. Stop it explicitly before starting another daemon.");
+  }
+  await Promise.all([rm(endpoint.socketPath, { force: true }), rm(endpoint.pidPath, { force: true })]);
+  spawnPtyDaemonProcess(paths);
+
+  const startedAt = Date.now();
+  while (Date.now() - startedAt < 5_000) {
+    const response = await ping(endpoint.socketPath).catch(() => null);
+    if (isCompatiblePtyDaemonProtocol(response?.protocolVersion)) return;
+    await new Promise((resolve) => setTimeout(resolve, 50));
+  }
+  const log = await readFile(path.join(paths.runtimeDir, "pty-daemon.log"), "utf8").catch(() => "");
+  throw new Error(`Craig PTY daemon did not start.${log ? `\n${log.slice(-2000)}` : ""}`);
+}
+
+async function ping(socketPath: string): Promise<Response> {
+  const socket = await connect(socketPath);
+  try { return await request(socket, { type: "ping" }); }
+  finally { socket.end(); }
+}
+
+function isProcessAlive(pid: number): boolean {
+  try { process.kill(pid, 0); return true; }
+  catch { return false; }
 }
 
 interface Response {
@@ -86,7 +127,11 @@ function request(socket: Socket, input:
   const id = requestId++;
   return new Promise((resolve, reject) => {
     let buffer = "";
-    const timeout = setTimeout(() => reject(new Error("Craig PTY daemon request timed out.")), 1_000);
+    const timeout = setTimeout(() => {
+      cleanup();
+      socket.destroy();
+      reject(new Error("Craig PTY daemon request timed out."));
+    }, 1_000);
     const onData = (chunk: Buffer | string) => {
       buffer += String(chunk);
       const newline = buffer.indexOf("\n");

@@ -1,28 +1,27 @@
 /* eslint-disable no-unused-vars */
-import path from "node:path";
-
 import type { CommandCreateTaskResult } from "../types.js";
 import type { TaskRecord } from "../types.js";
 import type { CraigPaths } from "../../../state/craig-paths.js";
 import { configService } from "../../config/index.js";
 import type { RunnerType } from "../../config/index.js";
-import { writeSession } from "../adapters/session.js";
-import { mutateTask } from "../adapters/task-store.js";
-import { commandRunnerAdapter, tmuxSessionManager } from "../adapters/runner.js";
 import { provisionProjectTask, provisionTask } from "./provision.js";
 import type { TaskLineageInput } from "./provision.js";
+import { markTaskStarted, recordStartupFailure } from "./lifecycle.js";
+
+export interface TaskCreationOptions {
+  runner?: RunnerType;
+  workspaceId?: string;
+  owningWorkspaceId?: string;
+  lineage?: TaskLineageInput;
+  onProvisioned?: (task: TaskRecord) => Promise<Record<string, string> | void>;
+  launchProvisioned?: (task: TaskRecord, environment?: Record<string, string>) => Promise<void>;
+}
 
 export const createTask = async (
   paths: CraigPaths,
   repoIdOrWorkspaceId: string,
   prompt: string,
-  options: {
-    runner?: RunnerType;
-    workspaceId?: string;
-    owningWorkspaceId?: string;
-    lineage?: TaskLineageInput;
-    onProvisioned?: (task: TaskRecord) => Promise<Record<string, string> | void>;
-  } = {},
+  options: TaskCreationOptions = {},
 ): Promise<CommandCreateTaskResult> => {
   const trimmedPrompt = prompt.trim();
   const config = await configService.load(paths);
@@ -45,79 +44,26 @@ export const createTask = async (
         ...(options.lineage ? { lineage: options.lineage } : {}),
       });
   const draftTask = provisioned.task;
-  const runnerCommand = configService.runners.buildCommand(runner, trimmedPrompt, config);
-  const sessionId = `session_${draftTask.id}`;
-  const logPath = draftTask.artifacts.logPath
-    ? path.resolve(paths.workspaceRoot, draftTask.artifacts.logPath)
-    : path.join(paths.logsDir, `${draftTask.id}.log`);
-
   try {
     const launchEnvironment = await options.onProvisioned?.(draftTask);
-    await commandRunnerAdapter.prepare(draftTask, { repoRoot: provisioned.repoRoot });
-
-    let session = await tmuxSessionManager.create(paths, {
-      sessionId,
-      taskId: draftTask.id,
-      repoId: provisioned.repoId,
-      workspaceId: provisioned.workspaceId,
-      repoRoot: provisioned.repoRoot,
-      worktreePath: draftTask.worktreePath,
-      logPath,
-      command: runnerCommand,
-    });
-    await commandRunnerAdapter.launch(draftTask, {
-      repoRoot: provisioned.repoRoot,
-      session,
-      ...(launchEnvironment ? { environment: launchEnvironment } : {}),
-    });
-
-    const startedAt = new Date().toISOString();
-    session = {
-      ...session,
-      status: "running",
-      startedAt,
-      command: runnerCommand,
-    };
-
-    const runningTask = await mutateTask(paths, draftTask.id, (current): TaskRecord => ({
-      ...current,
-      status: "running",
-      runner,
-      sessionId: session.id,
-      selectedPtyTabId: current.selectedPtyTabId,
-      runnerSession: {
-        command: session.command,
-        pid: null,
-        startedAt,
-        lastKnownState: "running",
-        exitCode: null,
-        exitedAt: null,
-      },
-    }));
-    await writeSession(paths, session);
+    if (!options.launchProvisioned) throw new Error("Craig task creation requires the PTY daemon launcher.");
+    await options.launchProvisioned(draftTask, launchEnvironment || undefined);
+    const runningTask = await markTaskStarted(paths, draftTask.id);
+    const agentTab = runningTask.ptyTabs.find((tab) => tab.kind === "agent")!;
 
     return {
       kind: "createTask",
       taskId: runningTask.id,
       repoId: runningTask.repoId,
       workspaceId: runningTask.workspaceId,
-      sessionId: session.id,
+      agentTabId: agentTab.id,
       status: runningTask.status,
       branch: runningTask.branch,
       worktreePath: runningTask.worktreePath,
       runner: runningTask.runner,
     };
   } catch (error) {
-    await mutateTask(paths, draftTask.id, (current): TaskRecord => ({
-      ...current,
-      sessionId: null,
-      status: "draft",
-      runnerSession: {
-        ...current.runnerSession,
-        lastKnownState: "failed",
-      },
-      lastFailureReason: error instanceof Error ? error.message : "Unknown Craig error",
-    }));
+    await recordStartupFailure(paths, draftTask.id, error instanceof Error ? error.message : "Unknown Craig error");
     throw error;
   }
 };

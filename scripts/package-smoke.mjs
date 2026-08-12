@@ -12,6 +12,10 @@ const execFileAsync = promisify(execFile);
 const repoRoot = resolve(import.meta.dirname, "..");
 const packageDir = resolve(repoRoot, "packages/cli");
 
+for (const key of ["CRAIG_AGENT_CAPABILITY", "CRAIG_AGENT_TAB_ID", "CRAIG_TASK_ID", "CRAIG_WORKSPACE_ROOT"]) {
+  delete process.env[key];
+}
+
 class PtyOutputBuffer {
   value = "";
   waiters = [];

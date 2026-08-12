@@ -73,6 +73,8 @@ export class PullRequestSyncSupervisor {
       ? new PullRequestEventMonitor(paths, {
           reconcileEvents: options.reconcileEvents,
           onEvents: async (events) => {
+            const changedTaskIds = getTaskLifecycleEventTaskIds(events);
+            if (changedTaskIds.length > 0) await this.onTasksChanged(changedTaskIds);
             const taskIds = getPullRequestSyncWakeTaskIds(events);
             if (taskIds.length > 0) await this.wake(taskIds);
           },
@@ -221,6 +223,18 @@ export function getPullRequestSyncWakeTaskIds(events: readonly CraigEvent[]): st
     }
   }
   return [...taskIds];
+}
+
+export function getTaskLifecycleEventTaskIds(events: readonly CraigEvent[]): string[] {
+  const taskIds = new Set<string>();
+  for (const event of events) {
+    if (event.taskId && isTaskLifecycleEvent(event)) taskIds.add(event.taskId);
+  }
+  return [...taskIds];
+}
+
+function isTaskLifecycleEvent(event: CraigEvent): boolean {
+  return event.type === "task.created" || event.type === "task.updated" || event.type === "task.closed";
 }
 
 const PR_WAKE_TASK_FIELDS = new Set(["branch", "lastCommitSha", "checksStatus", "checksLastRunAt"]);

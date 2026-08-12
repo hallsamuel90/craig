@@ -1,18 +1,20 @@
-import { spawn as spawnChild } from "node:child_process";
 import { createServer, createConnection, type Socket, type Server } from "node:net";
-import { openSync } from "node:fs";
 import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import path from "node:path";
 
 import type { CraigPaths } from "../../state/craig-paths.js";
-import { resolveExecutablePath } from "../../shared/command-path.js";
 import type { TerminalViewState } from "../state.js";
 import type { TerminalScreenRow } from "../terminal-emulator.js";
 import type { PtyActivitySnapshot } from "../../domain/agent/index.js";
 import { configService } from "../../domain/config/index.js";
 import { errorService } from "../../domain/error/index.js";
 import { listPromptCommands } from "../../domain/orchestration/index.js";
-import { getPtyDaemonEndpoint, PTY_DAEMON_PROTOCOL_VERSION } from "../../shell/pty-daemon-protocol.js";
+import {
+  getPtyDaemonEndpoint,
+  isCompatiblePtyDaemonProtocol,
+  PTY_DAEMON_PROTOCOL_VERSION,
+} from "../../shell/pty-daemon-protocol.js";
+import { spawnPtyDaemonProcess } from "../../shell/pty-daemon-process.js";
 import { OrchestrationSupervisor } from "../../shell/orchestration-supervisor.js";
 import { reconcileEvents } from "../../shell/event-reconciliation.js";
 import {
@@ -28,7 +30,6 @@ import {
 } from "./runtime.js";
 
 const DAEMON_PROTOCOL_VERSION = PTY_DAEMON_PROTOCOL_VERSION;
-const COMPATIBLE_DAEMON_PROTOCOL_VERSIONS = new Set([6, 7, 8, DAEMON_PROTOCOL_VERSION]);
 const INCREMENTAL_VIEW_UPDATE_INTERVAL_MS = 16;
 const ACTIVITY_UPDATE_INTERVAL_MS = 250;
 
@@ -1123,20 +1124,7 @@ async function ensureDaemonRunning(
   }
 
   await cleanupStaleEndpoint(endpoint, paths);
-  const workspaceRoot = paths.workspaceRoot;
-  if (spawnDaemon) {
-    spawnDaemon(workspaceRoot);
-  } else {
-    const { command, args } = getDaemonSpawnCommand(workspaceRoot);
-    const logFd = openSync(path.join(paths.runtimeDir, "pty-daemon.log"), "a");
-    const child = spawnChild(command, args, {
-      cwd: workspaceRoot,
-      detached: true,
-      stdio: ["ignore", logFd, logFd],
-      env: process.env,
-    });
-    child.unref();
-  }
+  spawnPtyDaemonProcess(paths, spawnDaemon);
 
   const started = Date.now();
   while (Date.now() - started < 5000) {
@@ -1157,7 +1145,7 @@ async function canConnectCompatible(socketPath: string): Promise<boolean> {
 }
 
 function isCompatibleDaemonProtocol(version: number | undefined): boolean {
-  return version !== undefined && COMPATIBLE_DAEMON_PROTOCOL_VERSIONS.has(version);
+  return isCompatiblePtyDaemonProtocol(version);
 }
 
 async function waitForCompatibleDaemon(socketPath: string, timeoutMs: number): Promise<boolean> {
@@ -1171,23 +1159,6 @@ async function waitForCompatibleDaemon(socketPath: string, timeoutMs: number): P
   }
 
   return false;
-}
-
-function getDaemonSpawnCommand(workspaceRoot: string): { command: string; args: string[] } {
-  const entrypoint = process.argv[1];
-  if (entrypoint?.endsWith(".ts")) {
-    const localTsx = path.resolve(path.dirname(entrypoint), "..", "node_modules", ".bin", "tsx");
-    return {
-      command: resolveExecutablePath("tsx") ?? localTsx,
-      args: [entrypoint, "__craig-daemon", workspaceRoot],
-    };
-  }
-
-  const argv = process.argv.slice(1);
-  return {
-    command: process.execPath,
-    args: [...process.execArgv, ...argv, "__craig-daemon", workspaceRoot],
-  };
 }
 
 async function cleanupStaleEndpoint(

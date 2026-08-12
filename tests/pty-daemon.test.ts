@@ -12,6 +12,7 @@ import { getCraigPaths } from "../src/state/craig-paths.js";
 import { ensureCraigState } from "../src/domain/workspace/workspaces/ensure.js";
 import { configService } from "../src/domain/config/index.js";
 import { taskService } from "../src/domain/task/index.js";
+import { appendTaskId } from "../src/domain/task/adapters/task-store.js";
 import { readAllEvents } from "../src/domain/orchestration/index.js";
 import { watchWorkspaceEvents } from "../src/shell/events.js";
 import { disposeDaemonSessions } from "../src/shell/pty-daemon-orchestration.js";
@@ -159,6 +160,58 @@ describe("PTY daemon", () => {
         resolveSessionSpec: () => ({ cwd: root, command: [] }),
       });
       await vi.waitFor(() => expect(onTasksChanged).toHaveBeenCalledWith(["task_1"]));
+      client.disposeAll();
+    } finally {
+      await requestDaemonShutdown(paths);
+      await daemon;
+      await rm(root, { recursive: true, force: true });
+    }
+  }, DAEMON_TEST_TIMEOUT_MS);
+
+  test("notifies connected TUIs when another process creates a task", async () => {
+    const root = await mkdtemp(join(tmpdir(), "craig-task-create-event-"));
+    const paths = await createCraigState(root, ["task_parent"]);
+    await writeTaskRecord(root, { id: "task_parent", title: "planning parent" });
+    const onTasksChanged = vi.fn();
+    const daemon = servePtyDaemon(paths, {
+      pullRequestSync: {
+        heartbeatIntervalMs: 100,
+        dependencies: {
+          listTasks: async () => (await taskService.listTasks(paths)).tasks,
+          syncTasks: async (_paths, tasks) => tasks,
+        },
+      },
+    });
+
+    try {
+      const client = await createDaemonPtyRuntime({
+        paths,
+        workspaceRoot: root,
+        onTasksChanged,
+        resolveSessionSpec: () => ({ cwd: root, command: [] }),
+      });
+      await vi.waitFor(async () => {
+        expect((await readAllEvents(paths))).toContainEqual(expect.objectContaining({
+          type: "task.created",
+          taskId: "task_parent",
+        }));
+      });
+      onTasksChanged.mockClear();
+
+      await writeTaskRecord(root, {
+        id: "task_child",
+        title: "agent-created child",
+        parentTaskId: "task_parent",
+        rootTaskId: "task_parent",
+        delegationDepth: 1,
+      });
+      // Let the task-directory notification reconcile before the authoritative
+      // workspace index changes. The index notification must trigger a second
+      // reconciliation so this write ordering cannot strand the new task.
+      await new Promise((resolveWait) => setTimeout(resolveWait, 100));
+      await appendTaskId(paths, "task_child");
+
+      await vi.waitFor(() => expect(onTasksChanged).toHaveBeenCalledWith(["task_child"]), { timeout: 2_500 });
       client.disposeAll();
     } finally {
       await requestDaemonShutdown(paths);

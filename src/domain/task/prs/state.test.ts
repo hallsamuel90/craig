@@ -43,7 +43,6 @@ const makeTaskWithPrs = (prs: TaskPR[]): TaskRecord => ({
   runner: "codex",
   repoId: "repo_1",
   workspaceId: "ws_1",
-  sessionId: null,
   selectedPtyTabId: null,
   linkedRepoIds: [],
   parentTaskId: null,
@@ -62,7 +61,7 @@ const makeTaskWithPrs = (prs: TaskPR[]): TaskRecord => ({
   lastCommit: null,
   prs,
   artifacts: { logPath: null, checkSummaryPath: null, prDraftPath: null, prStatusPath: null },
-  cleanup: { paneClosedAt: null, worktreeRemovedAt: null, preservedWorktree: false, warning: null },
+  cleanup: { worktreeRemovedAt: null, preservedWorktree: false, warning: null },
   createdAt: "2024-01-01T00:00:00.000Z",
   updatedAt: "2024-01-01T00:00:00.000Z",
 });

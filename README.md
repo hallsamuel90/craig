@@ -141,8 +141,6 @@ craig task new --workspace <workspace-id> [--runner codex|cursor|claude] "<task>
 craig task list
 craig task list --repo <repo-id>
 craig task show <task-id>
-craig task attach <task-id>
-craig task focus <task-id>
 craig task open <task-id>
 craig task logs <task-id>
 craig task diff <task-id>
