@@ -1,5 +1,11 @@
 # craig-cli
 
+## 0.14.1
+
+### Patch Changes
+
+- 3e13575: Harden preview child-agent startup by durably dispatching initial prompts after runner readiness, surfacing orchestration wake failures, serializing supervisor startup, and allowing explicitly linked repositories to remain owned by a project parent workspace.
+
 ## 0.14.0
 
 ### Minor Changes
