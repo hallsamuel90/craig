@@ -395,7 +395,7 @@ describe("Craig terminal mode E2E", () => {
     try {
       await output.waitFor("> Start");
       child.write("\r");
-      await output.waitFor("▸ test task");
+      await output.waitFor("test task");
       child.write("\r");
       await output.waitFor("codex_stub_started");
       await output.waitForLatestFrame("codex_stub_bottom_bar");

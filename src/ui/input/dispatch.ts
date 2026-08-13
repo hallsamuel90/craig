@@ -604,9 +604,6 @@ function handlePreviewsKey(ctx: AppContext, key: string): void {
         return;
       }
       ctx.config = nextConfig;
-      if (result.feature === "agentActivityIndicators") {
-        ctx.setAgentActivityEnabled(result.enabled);
-      }
       ctx.state = { ...ctx.state, previewOptions: result.state };
       ctx.render();
     })
