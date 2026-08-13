@@ -63,8 +63,7 @@ describe("terminal app PTY attach flow", () => {
 
     terminal.emitKey("\r");
     await vi.waitFor(() => expect(stripAnsi(terminal.frames.at(-1) ?? "")).toContain("CRAIG"));
-    expect(stripAnsi(terminal.frames.at(-1) ?? "")).toContain("▸ test task");
-    expect(stripAnsi(terminal.frames.at(-1) ?? "")).not.toContain("▸ ● test task");
+    expect(stripAnsi(terminal.frames.at(-1) ?? "")).toContain("▸ ● test task");
     terminal.emitKey("q");
     await expect(app).resolves.toBe(0);
   });
@@ -127,12 +126,12 @@ describe("terminal app PTY attach flow", () => {
     await expect(app).resolves.toBe(0);
   });
 
-  test("animates working agent dots from the shared heartbeat", async () => {
+  test("animates working agent dots even when the retired preview key is false", async () => {
     vi.useFakeTimers({ shouldAdvanceTime: true });
     const root = await mkdtemp(join(tmpdir(), "craig-ui-app-"));
     tempRoots.push(root);
     const paths = await setupWorkspace(root);
-    await configService.save(paths, { previews: { agentActivityIndicators: true } });
+    await configService.save(paths, { previews: { agentActivityIndicators: false } });
     const terminal = new FakeTerminal();
     const ptyRuntime = new FakePtyRuntime({
       activitySnapshots: [{
@@ -2455,12 +2454,12 @@ describe("terminal app PTY attach flow", () => {
     await vi.waitFor(() => expect(terminal.hasKeyListener()).toBe(true));
 
     terminal.emitKey("\r"); // boot start
-    await vi.waitFor(() => expect(stripAnsi(terminal.frames.at(-1) ?? "")).toContain("▸ second task"));
+    await vi.waitFor(() => expect(stripAnsi(terminal.frames.at(-1) ?? "")).toContain("▸ ● second task"));
     terminal.emitKey("X");
     await vi.waitFor(() => expect(stripAnsi(terminal.frames.at(-1) ?? "")).toContain("Archived task task_20260430_03"));
     const frame = stripAnsi(terminal.frames.at(-1) ?? "");
-    expect(frame).toContain("▸ test task");
-    expect(frame).not.toContain("▸ second task");
+    expect(frame).toContain("▸ ● test task");
+    expect(frame).not.toContain("▸ ● second task");
     terminal.emitKey("q");
 
     await expect(app).resolves.toBe(0);
@@ -2638,7 +2637,7 @@ describe("terminal app PTY attach flow", () => {
     await expect(app).resolves.toBe(0);
   });
 
-  test("feature previews are clearly experimental, persist locally, and apply immediately", async () => {
+  test("feature previews are clearly experimental and persist locally", async () => {
     const root = await mkdtemp(join(tmpdir(), "craig-ui-app-previews-"));
     tempRoots.push(root);
     const paths = await setupWorkspace(root);
@@ -2654,18 +2653,12 @@ describe("terminal app PTY attach flow", () => {
     await vi.waitFor(() => {
       const frame = stripAnsi(terminal.frames.at(-1) ?? "");
       expect(frame).toContain("Feature Previews - Experimental");
-      expect(frame).toContain("[ ] Agent activity indicators");
+      expect(frame).not.toContain("Agent activity indicators");
       expect(frame).toContain("[ ] Agent orchestration");
       expect(frame).not.toContain("Incremental center pane");
       expect(frame).toContain("may change or be removed");
     });
 
-    terminal.emitKey("ENTER");
-    await vi.waitFor(async () => expect((await configService.load(paths)).previews?.agentActivityIndicators).toBe(true));
-    await vi.waitFor(() => expect(stripAnsi(terminal.frames.at(-1) ?? "")).toContain("[x] Agent activity indicators"));
-    expect(ptyRuntime.setActivityEnabled).toHaveBeenLastCalledWith(true);
-
-    terminal.emitKey("DOWN");
     terminal.emitKey("ENTER");
     await vi.waitFor(async () => expect((await configService.load(paths)).previews?.agentOrchestration).toBe(true));
     await vi.waitFor(() => expect(stripAnsi(terminal.frames.at(-1) ?? "")).toContain("[x] Agent orchestration"));
@@ -2691,7 +2684,6 @@ describe("terminal app PTY attach flow", () => {
           cursor: { enabled: false },
           claude: { enabled: true },
         },
-        previews: { agentActivityIndicators: true },
       }),
       "utf8",
     );

@@ -2,6 +2,8 @@ import { RUNNER_IDS } from "../runners/runner-ids.js";
 import { PREVIEW_FEATURE_IDS } from "../previews/preview-ids.js";
 import type { CraigConfig } from "../types.js";
 
+const RETIRED_PREVIEW_FEATURE_IDS = ["incrementalCenterPane", "agentActivityIndicators"] as const;
+
 export const validate = (value: unknown, filePath: string): CraigConfig => {
   if (typeof value !== "object" || value === null) {
     throw new Error(`Craig config at ${filePath} is invalid. Expected a JSON object.`);
@@ -95,7 +97,10 @@ export const validate = (value: unknown, filePath: string): CraigConfig => {
     }
 
     for (const [feature, enabled] of Object.entries(candidate.previews)) {
-      if (feature !== "incrementalCenterPane" && !(PREVIEW_FEATURE_IDS as readonly string[]).includes(feature)) {
+      if (
+        !(RETIRED_PREVIEW_FEATURE_IDS as readonly string[]).includes(feature) &&
+        !(PREVIEW_FEATURE_IDS as readonly string[]).includes(feature)
+      ) {
         throw new Error(
           `Craig config at ${filePath} is invalid. "previews.${feature}" is not supported. Expected one of: ${PREVIEW_FEATURE_IDS.join(", ")}.`,
         );

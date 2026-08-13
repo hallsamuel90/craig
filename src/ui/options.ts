@@ -42,7 +42,6 @@ export type PreviewOptionsKeyResult =
 export const OPTIONS_MENU_ITEMS = ["Runners", "Feature Previews", "Logs", "Help"];
 
 const PREVIEW_LABELS: Record<PreviewFeatureId, string> = {
-  agentActivityIndicators: "Agent activity indicators",
   agentOrchestration: "Agent orchestration",
 };
 

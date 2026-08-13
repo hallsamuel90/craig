@@ -201,13 +201,12 @@ Optional workspace-local config at `.craig/config.json`:
     "watchIntervalSeconds": 5
   },
   "previews": {
-    "agentActivityIndicators": false,
     "agentOrchestration": false
   }
 }
 ```
 
-Feature previews are experimental, workspace-local, and off by default. They can also be toggled from Options > Feature Previews in the TUI.
+Agent activity indicators are enabled by default. Feature previews are experimental, workspace-local, and off by default. They can also be toggled from Options > Feature Previews in the TUI.
 
 ### Cursor workspace trust
 

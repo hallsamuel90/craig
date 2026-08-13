@@ -1,5 +1,5 @@
 export type RunnerType = "codex" | "cursor" | "claude";
-export type PreviewFeatureId = "agentActivityIndicators" | "agentOrchestration";
+export type PreviewFeatureId = "agentOrchestration";
 
 export interface RunnerConfig {
   enabled?: boolean;

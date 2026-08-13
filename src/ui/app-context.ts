@@ -104,6 +104,5 @@ export type AppContext = {
   render: () => void;
   renderTaskNavigation: () => boolean;
   exit: (_: number) => void;
-  setAgentActivityEnabled: (_: boolean) => void;
   /* eslint-enable no-unused-vars */
 };

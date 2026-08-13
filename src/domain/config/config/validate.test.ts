@@ -8,7 +8,7 @@ describe("validate", () => {
     expect(validate({}, FILE)).toEqual({});
   });
 
-  test("accepts current previews and the retired incremental center config key", () => {
+  test("accepts current previews and retired preview config keys", () => {
     expect(validate({ previews: { incrementalCenterPane: true, agentActivityIndicators: true, agentOrchestration: true } }, FILE)).toEqual({
       previews: { incrementalCenterPane: true, agentActivityIndicators: true, agentOrchestration: true },
     });

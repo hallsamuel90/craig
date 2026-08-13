@@ -685,7 +685,7 @@ describe("PTY daemon", () => {
     }
   }, DAEMON_TEST_TIMEOUT_MS);
 
-  test("does not stream activity until a client enables the preview subscription", async () => {
+  test("does not stream activity until a client enables the activity subscription", async () => {
     const root = await createWorkspace();
     const paths = getCraigPaths(root);
     const agentPty = createFakePty();
@@ -704,7 +704,7 @@ describe("PTY daemon", () => {
         onActivity,
       });
       await client.ensureSession("task_1", "task_1:agent", { columns: 80, rows: 24 });
-      agentPty.emitData("preview-disabled\r\n");
+      agentPty.emitData("activity-disabled\r\n");
       await new Promise((resolveWait) => setTimeout(resolveWait, 350));
       expect(client.getActivitySnapshots()).toEqual([]);
       expect(onActivity).not.toHaveBeenCalled();
@@ -717,7 +717,7 @@ describe("PTY daemon", () => {
       client.setActivityEnabled(false);
       expect(client.getActivitySnapshots()).toEqual([]);
       onActivity.mockClear();
-      agentPty.emitData("preview-disabled-again\r\n");
+      agentPty.emitData("activity-disabled-again\r\n");
       await new Promise((resolveWait) => setTimeout(resolveWait, 350));
       expect(client.getActivitySnapshots()).toEqual([]);
       expect(onActivity).not.toHaveBeenCalled();

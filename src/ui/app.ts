@@ -59,8 +59,6 @@ import {
 
 export type { TerminalRuntime, PtyRuntimePort, TerminalEventListener };
 
-const DEFAULT_HEARTBEAT_RESOLUTION_MS = 1_000;
-
 export interface TerminalAppOptions {
   uiStateFile?: string;
   workspaceRoot?: string;
@@ -139,7 +137,7 @@ export async function startTerminalApp(options: TerminalAppOptions = {}): Promis
     (await createDaemonPtyRuntime({
       ...ptyOptions,
       paths,
-      activityEnabled: configService.previews.isEnabled(config, "agentActivityIndicators"),
+      activityEnabled: true,
     }));
 
   return new Promise<number>((resolve) => {
@@ -159,9 +157,7 @@ export async function startTerminalApp(options: TerminalAppOptions = {}): Promis
         });
     let ctx!: AppContext;
     const heartbeat = new Heartbeat({
-      resolutionMs: configService.previews.isEnabled(config, "agentActivityIndicators")
-        ? AGENT_ACTIVITY_ANIMATION_INTERVAL_MS
-        : DEFAULT_HEARTBEAT_RESOLUTION_MS,
+      resolutionMs: AGENT_ACTIVITY_ANIMATION_INTERVAL_MS,
       onError: (jobId, error) => logBackgroundError(`heartbeat job "${jobId}"`, error, buildActionContext(ctx)),
     });
     ctx = {
@@ -213,14 +209,8 @@ export async function startTerminalApp(options: TerminalAppOptions = {}): Promis
       render: () => undefined,
       renderTaskNavigation: () => false,
       exit: (code: number) => resolve(code),
-      setAgentActivityEnabled: (enabled) => {
-        heartbeat.setResolutionMs(enabled
-          ? AGENT_ACTIVITY_ANIMATION_INTERVAL_MS
-          : DEFAULT_HEARTBEAT_RESOLUTION_MS);
-        ctx.ptyRuntime.setActivityEnabled?.(enabled);
-      },
     };
-    ctx.setAgentActivityEnabled(configService.previews.isEnabled(config, "agentActivityIndicators"));
+    ctx.ptyRuntime.setActivityEnabled?.(true);
 
     handlePtyUpdate = (invalidation) => {
       if (ctx.state.mode !== "main") {
@@ -274,7 +264,6 @@ export async function startTerminalApp(options: TerminalAppOptions = {}): Promis
     handlePtyActivity = (snapshot: PtyActivitySnapshot) => {
       if (
         ctx.state.mode === "main" &&
-        configService.previews.isEnabled(ctx.config, "agentActivityIndicators") &&
         isAgentTabId(snapshot.tabId) &&
         renderedAgentActivityByTabId.get(snapshot.tabId) !== getAgentTabActivity(snapshot.tabId, [snapshot], Date.now())
       ) {
@@ -285,7 +274,6 @@ export async function startTerminalApp(options: TerminalAppOptions = {}): Promis
     handlePtyActivityRemoved = (tabId: string) => {
       if (
         ctx.state.mode === "main" &&
-        configService.previews.isEnabled(ctx.config, "agentActivityIndicators") &&
         isAgentTabId(tabId) &&
         renderedAgentActivityByTabId.get(tabId) !== "idle"
       ) {
@@ -316,21 +304,18 @@ export async function startTerminalApp(options: TerminalAppOptions = {}): Promis
       renderState: Extract<AppState, { mode: "main" }>,
     ): { data: ShellData; presentation: MainShellPresentation } => {
       const viewport = getViewport(activeTerminal.width, activeTerminal.height);
-      const activityEnabled = configService.previews.isEnabled(ctx.config, "agentActivityIndicators");
-      const snapshots = activityEnabled ? ctx.ptyRuntime.getActivitySnapshots?.() ?? [] : [];
+      const snapshots = ctx.ptyRuntime.getActivitySnapshots?.() ?? [];
       const now = Date.now();
       const mainShellData = buildShellData(
         syncShell(ctx, renderState.shell),
         ctx.model,
-        activityEnabled ? { snapshots, now, animationFrame: agentActivityAnimationFrame } : undefined,
+        { snapshots, now, animationFrame: agentActivityAnimationFrame },
       );
       renderedAgentActivityByTabId.clear();
-      if (activityEnabled) {
-        for (const task of ctx.model.tasks) {
-          for (const tab of task.ptyTabs) {
-            if (tab.kind === "agent") {
-              renderedAgentActivityByTabId.set(tab.id, getAgentTabActivity(tab.id, snapshots, now));
-            }
+      for (const task of ctx.model.tasks) {
+        for (const tab of task.ptyTabs) {
+          if (tab.kind === "agent") {
+            renderedAgentActivityByTabId.set(tab.id, getAgentTabActivity(tab.id, snapshots, now));
           }
         }
       }
@@ -531,11 +516,6 @@ export async function startTerminalApp(options: TerminalAppOptions = {}): Promis
       id: "agent.activity-indicators",
       intervalMs: AGENT_ACTIVITY_ANIMATION_INTERVAL_MS,
       run: () => {
-        if (!configService.previews.isEnabled(ctx.config, "agentActivityIndicators")) {
-          agentActivityAnimationFrame = 0;
-          hadWorkingAgentActivity = false;
-          return;
-        }
         const now = Date.now();
         const working = hasWorkingAgentActivity(
           ctx.model.tasks,
