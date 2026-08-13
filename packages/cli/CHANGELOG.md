@@ -1,5 +1,11 @@
 # craig-cli
 
+## 0.15.1
+
+### Patch Changes
+
+- b0a4de2: Refresh the npm README and launch documentation.
+
 ## 0.15.0
 
 ### Minor Changes
