@@ -19,21 +19,23 @@ import "../../styles/global.css";
     <h2>2. Add a repo (first time only)</h2>
     <p>Select <strong>+ New Workspace</strong> from the left panel, or run:</p>
     <pre><code>craig workspace add /path/to/your/repo</code></pre>
+    <p>You can add one Git repository or a parent directory whose direct children are Git repositories.</p>
 
     <h2>3. Create a task</h2>
     <p>
       Press <kbd>n</kbd> from the TUI, type a short task description, and press <kbd>Enter</kbd>.
-      Craig creates a task record, branch, git worktree, and agent tab.
+      Craig creates a task record, branch, Git worktree, and agent tab, then opens the new agent session.
     </p>
     <p>
       The task text is stored as metadata on the task record — Craig doesn't paste it into the agent.
       Once the PTY opens, tell the runner what you want it to do.
     </p>
 
-    <h2>4. Watch the agent work</h2>
+    <h2>4. Work with the agent</h2>
     <p>
-      Press <kbd>Enter</kbd> on the agent tab to attach its live PTY.
-      Press <kbd>Ctrl+]</kbd> to return to Craig control mode.
+      The new task opens directly in its live agent PTY. Type your instructions there, then press
+      <kbd>Ctrl+]</kbd> to return to Craig control mode. To reattach later, select the task or agent tab and press
+      <kbd>Enter</kbd>.
     </p>
   </div>
   <div class="max-w-6xl mx-auto px-6 my-6"><div class="rounded-xl overflow-hidden border border-[#292e42]">
@@ -42,7 +44,7 @@ import "../../styles/global.css";
   <div class="max-w-3xl mx-auto px-10 prose">
     <h2>5. Review the work</h2>
     <p>
-      Use the <strong>Changes</strong> and <strong>Review</strong> panels to check the diff and PR status.
+      Use the <strong>Files</strong> and <strong>Review</strong> panels to inspect files, diffs, and PR status.
       Review is read-only — when you're ready to commit, push, or merge, do it in the agent PTY.
     </p>
     <p>

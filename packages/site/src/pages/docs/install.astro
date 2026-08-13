@@ -3,7 +3,7 @@ import Docs from "../../layouts/Docs.astro";
 import "../../styles/global.css";
 ---
 
-<Docs title="Install Craig CLI" description="Install the Craig CLI with npm and launch its local terminal UI for managing parallel AI coding agents.">
+<Docs title="Install Craig CLI" description="An agnostic orchestrator TUI, for the people.">
   <div class="max-w-3xl mx-auto px-10">
   <div class="prose">
     <h1>Install</h1>
@@ -13,21 +13,33 @@ import "../../styles/global.css";
     <ul>
       <li>Node.js 22 or newer</li>
       <li><code>git</code></li>
-      <li><code>gh</code> — authenticated with GitHub</li>
-      <li>At least one agent CLI: Claude Code, Codex, or Cursor</li>
+      <li>At least one installed and authenticated agent CLI: Claude Code, Codex, or Cursor</li>
+      <li><code>gh</code>, authenticated with GitHub, for pull request discovery and review status</li>
     </ul>
 
     <h2>Install Craig</h2>
     <pre><code>npm install -g craig-cli</code></pre>
 
     <h2>Start Craig</h2>
-    <p>Run Craig from the workspace root where you want <code>.craig/</code> state to live:</p>
+    <p>Run Craig from the workspace root where you want its local <code>.craig/</code> state to live:</p>
     <pre><code>cd path/to/your/workspace
 craig</code></pre>
 
     <p>
       The TUI opens with a boot overlay, then a full-screen workspace with task navigation,
       a center work area, and an inspector panel. Head to <a href="/docs/quickstart/">Quickstart</a> to run your first task.
+    </p>
+    <p>
+      Craig can run tasks without GitHub integration, but the Review panel needs <code>gh</code> to discover pull
+      requests and synchronize checks, reviews, and comments.
+    </p>
+
+    <h2>Local state</h2>
+    <p>
+      Craig keeps task records, worktrees, runtime data, logs, and configuration under the workspace's
+      <code>.craig/</code> directory. Do not commit it; ignore <code>.craig/</code> when the workspace root is a Git
+      repository. Craig has no hosted account or control plane, although each agent CLI continues to use its own
+      authentication and network services.
     </p>
   </div>
   </div>
