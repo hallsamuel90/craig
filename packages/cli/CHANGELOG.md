@@ -1,5 +1,11 @@
 # craig-cli
 
+## 0.15.0
+
+### Minor Changes
+
+- 776a11e: Enable agent activity indicators by default and retire their feature preview toggle while continuing to accept the old workspace config key as a no-op.
+
 ## 0.14.1
 
 ### Patch Changes
