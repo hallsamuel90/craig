@@ -20,7 +20,12 @@ import "../../styles/global.css";
     <p>
       Pick your runner while creating a task or adding an agent tab in the TUI. From the command line:
     </p>
-    <pre><code>craig task new --runner claude "your task prompt"</code></pre>
+    <pre><code>craig task new --repo &lt;repo-id&gt; --runner claude "your task prompt"</code></pre>
+    <p>
+      Task creation requires either <code>--repo &lt;repo-id&gt;</code> or
+      <code>--workspace &lt;workspace-id&gt;</code>. Use <code>craig repo list</code> or
+      <code>craig workspace list</code> to find the target id.
+    </p>
 
     <h2>Enabling / disabling runners</h2>
     <p>Configure which runners are available in <code>.craig/config.json</code>:</p>
@@ -44,6 +49,14 @@ import "../../styles/global.css";
     }
   }
 }`}</code></pre>
+
+    <h2>Cursor workspace trust</h2>
+    <p>
+      Cursor may ask whether to trust each Craig-managed worktree or project bundle. To establish trust once at a
+      common parent, open the Craig workspace's <code>.craig</code> directory in Cursor and approve its prompt. Only
+      do this if you are comfortable allowing Cursor agents to work throughout that local workspace. Craig does not
+      pass Cursor's <code>--trust</code> flag or weaken the runner's safety settings.
+    </p>
   </div>
   </div>
 </Docs>

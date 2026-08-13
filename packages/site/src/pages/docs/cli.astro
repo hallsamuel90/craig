@@ -4,83 +4,164 @@ import "../../styles/global.css";
 
 const groups = [
   {
-    name: "Launch",
+    name: "Launch and context",
     commands: [
       { cmd: "craig", desc: "Open the TUI" },
+      { cmd: "craig [--workspace-root <path>] [--task <id>] [--json] [--no-input] <command>", desc: "Run a command with explicit context and output controls" },
+      { cmd: "craig context show", desc: "Show the resolved workspace, task, and agent tab" },
     ],
   },
   {
-    name: "Repos",
+    name: "Repositories and workspaces",
     commands: [
-      { cmd: "craig repo add <path>", desc: "Register a repo with Craig" },
-      { cmd: "craig repo list", desc: "List registered repos" },
-      { cmd: "craig repo remove <repo-id>", desc: "Unregister a repo" },
-    ],
-  },
-  {
-    name: "Workspaces",
-    commands: [
+      { cmd: "craig repo add <path>", desc: "Register a repository" },
+      { cmd: "craig repo list", desc: "List registered repositories" },
+      { cmd: "craig repo remove <id>", desc: "Unregister a repository" },
       { cmd: "craig workspace add <path>", desc: "Register a repo or parent-directory workspace" },
-      { cmd: "craig workspace list", desc: "List workspaces" },
-      { cmd: "craig workspace list --archived", desc: "Include archived workspaces" },
-      { cmd: "craig workspace archive <id>", desc: "Archive a workspace" },
+      { cmd: "craig workspace list [--archived]", desc: "List workspaces" },
+      { cmd: "craig workspace archive <id>", desc: "Archive an active workspace" },
       { cmd: "craig workspace restore <id>", desc: "Restore an archived workspace" },
-      { cmd: "craig workspace remove <id>", desc: "Delete a workspace" },
+      { cmd: "craig workspace remove <id>", desc: "Remove an archived workspace with no task records" },
     ],
   },
   {
     name: "Tasks",
     commands: [
-      { cmd: 'craig task new --repo <id> "<prompt>"', desc: "Create a task (optionally with --runner)" },
-      { cmd: 'craig task new --workspace <id> "<prompt>"', desc: "Create a project workspace task" },
-      { cmd: "craig task list", desc: "List all tasks" },
-      { cmd: "craig task list --repo <id>", desc: "List tasks for a specific repo" },
-      { cmd: "craig task show <id>", desc: "Show task details" },
-      { cmd: "craig task open <id>", desc: "Open or print the task worktree path" },
-      { cmd: "craig task logs <id>", desc: "Stream task logs" },
-      { cmd: "craig task diff <id>", desc: "Show task diff" },
+      { cmd: 'craig task new --repo <id> [--runner <runner>] "<task>"', desc: "Create a repository task" },
+      { cmd: 'craig task new --workspace <id> [--runner <runner>] "<task>"', desc: "Create a workspace task" },
+      { cmd: "craig task list [--repo <id>]", desc: "List tasks" },
+      { cmd: "craig task current", desc: "Show the task resolved from context" },
+      { cmd: "craig task show [<id>]", desc: "Show task details" },
+      { cmd: "craig task open <id>", desc: "Open the task worktree or print its path" },
+      { cmd: "craig task logs <id>", desc: "Stream Craig-managed task logs" },
+      { cmd: "craig task diff <id>", desc: "Show the current worktree diff" },
       { cmd: "craig task check <id>", desc: "Run configured check commands" },
-      { cmd: "craig task commit <id>", desc: "Commit task changes" },
+      { cmd: "craig task commit <id>", desc: "Commit all current worktree changes" },
     ],
+  },
+  {
+    name: "Pull requests",
+    commands: [
+      { cmd: "craig task pr show [<id>] [--repo <id>]", desc: "Show the associated pull request" },
+      { cmd: "craig task pr discover [<id>] [--repo <id>]", desc: "Discover a PR by task branch" },
+      { cmd: "craig task pr link [<id>] --pr <url|number> [--repo <id>]", desc: "Associate an existing PR" },
+      { cmd: "craig task pr refresh [<id>] [--repo <id>]", desc: "Refresh PR, review, and check state" },
+      { cmd: "craig task pr unlink [<id>] --pr <url|number> [--repo <id>]", desc: "Remove a PR association" },
+    ],
+  },
+  {
+    name: "Agent status",
+    commands: [
+      { cmd: "craig agent list [--task <id>] --json", desc: "List agent-tab and task roll-up states" },
+      { cmd: "craig agent status [--task <id>] [--tab <id>] --json", desc: "Inspect one agent runtime" },
+      { cmd: "craig task wait [<id>] --state <states> [--tab <id>] [--timeout <duration>]", desc: "Wait for task or agent state" },
+    ],
+  },
+  {
+    name: "Agent orchestration",
+    commands: [
+      { cmd: "craig agent send --task <id> [--tab <id>] (--prompt <text> | --prompt-file <path> | --stdin) [--delivery when-ready|immediate] [--timeout <duration>] [--idempotency-key <key>]", desc: "Queue a durable prompt" },
+      { cmd: "craig events list [--task <id>] [--type <glob>] [--after <cursor>] --json", desc: "List workspace events" },
+      { cmd: "craig events watch [--task <id>] [--type <glob>] [--after <cursor>] [--format jsonl]", desc: "Watch workspace events" },
+    ],
+    preview: true,
+  },
+  {
+    name: "Durable prompt recovery",
+    commands: [
+      { cmd: "craig command show <command-id> --json", desc: "Show a durable prompt command" },
+      { cmd: "craig command list [--task <id>] --json", desc: "List durable prompt commands" },
+      { cmd: "craig command cancel <command-id> --json", desc: "Cancel a queued prompt command" },
+      { cmd: "craig command wait <command-id> [--state <states>] [--timeout <duration>] --json", desc: "Wait for command state" },
+    ],
+  },
+  {
+    name: "Delegation",
+    commands: [
+      { cmd: 'craig task create-child [--parent <id>] [--repo <id> | --workspace <id>] [--runner <runner>] [--idempotency-key <key>] "<task>" --json', desc: "Create a capability-scoped child task" },
+    ],
+    preview: true,
+  },
+  {
+    name: "Task lineage and cancellation",
+    commands: [
+      { cmd: "craig task children [<id>] --json", desc: "List direct child tasks" },
+      { cmd: "craig task cancel-tree [<id>] --json", desc: "Cancel a task and its descendants" },
+    ],
+  },
+  {
+    name: "Fury workflows",
+    commands: [
+      { cmd: "craig fury validate <file> --json", desc: "Validate a Fury definition" },
+      { cmd: "craig fury plan <file> [--root-task <id>] [--input key=value] --json", desc: "Create an immutable plan" },
+      { cmd: "craig fury approve <plan-id> --json", desc: "Approve an exact plan as a human" },
+      { cmd: "craig fury run <plan-id> --json", desc: "Start an approved plan" },
+      { cmd: "craig fury status <run-id> --json", desc: "Show run state" },
+      { cmd: "craig fury watch <run-id> [--after <cursor>] [--format jsonl]", desc: "Watch run events" },
+      { cmd: "craig fury cancel <run-id> --json", desc: "Cancel a run" },
+      { cmd: "craig fury resume <run-id> --json", desc: "Resume reconciliation for a run" },
+      { cmd: "craig fury step complete --run <id> --step <id> [--output <json> | --output-file <path> | --stdin] --json", desc: "Complete an agent step" },
+      { cmd: "craig fury step fail --run <id> --step <id> --reason <text> --json", desc: "Fail an agent step" },
+      { cmd: "craig fury reviews list [--run <id>] [--state <state>] --json", desc: "List human-review checkpoints" },
+      { cmd: "craig fury review show <review-id> --json", desc: "Show a review checkpoint" },
+      { cmd: "craig fury review approve <review-id> [--note <text>] --json", desc: "Approve a checkpoint as a human" },
+      { cmd: "craig fury review reject <review-id> --reason <text> --json", desc: "Reject a checkpoint as a human" },
+      { cmd: "craig fury review request-changes <review-id> --reason <text> --json", desc: "Return feedback to the target agent" },
+      { cmd: "craig fury review resubmit <review-id> [--summary <text>] --json", desc: "Resubmit a changes-requested checkpoint" },
+    ],
+    preview: true,
   },
   {
     name: "Links",
     commands: [
-      { cmd: "craig link add <task-id> <repo-id>", desc: "Link a task to an additional repo" },
-      { cmd: "craig link list <task-id>", desc: "List linked repos for a task" },
+      { cmd: "craig link add <task-id> <repo-id>", desc: "Link an additional repository to a task" },
+      { cmd: "craig link list <task-id>", desc: "List linked repositories" },
     ],
   },
 ];
 ---
 
-<Docs title="CLI reference" description="Reference for Craig CLI commands that manage AI agent tasks, repositories, workspaces, sessions, checks, and Git worktrees.">
+<Docs title="CLI reference" description="Reference for Craig commands that manage workspaces, tasks, agents, pull requests, and durable orchestration.">
   <div class="max-w-3xl mx-auto px-10">
-  <div class="prose">
-    <h1>CLI Reference</h1>
-    <p class="subtitle">Lower-level commands for automation, scripting, and agent-driven workflows.</p>
-
-    <p>
-      Most people live in the TUI. These commands exist so scripts and agents can manage tasks, repos,
-      and workspaces without touching the interface.
-    </p>
-  </div>
-
-  {groups.map(({ name, commands }) => (
-    <div class="mb-8">
-      <p class="text-[#c0caf5] font-bold text-sm mb-2">{name}</p>
-      <div class="border border-[#292e42] rounded-lg overflow-hidden">
-        <table class="w-full text-sm">
-          <tbody class="divide-y divide-[#1a1b26]">
-            {commands.map(({ cmd, desc }) => (
-              <tr class="hover:bg-[#06060f] transition-colors">
-                <td class="px-4 py-2.5 w-1/2"><code class="text-[#9ece6a] text-xs">{cmd}</code></td>
-                <td class="px-4 py-2.5 text-[#565f89] text-xs">{desc}</td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
+    <div class="prose">
+      <h1>CLI Reference</h1>
+      <p class="subtitle">The command surface behind Craig's TUI.</p>
+      <p>
+        The TUI and CLI use the same task model. Humans, scripts, and Craig-launched agents can inspect context
+        and operate tasks without automating the screen. Add <code>--json</code> for machine-readable commands and
+        <code>--no-input</code> when interactive input must be rejected.
+      </p>
+      <p>
+        Runner values are <code>codex</code>, <code>cursor</code>, and <code>claude</code>. Duration values use
+        <code>ms</code>, <code>s</code>, <code>m</code>, or <code>h</code>, such as <code>30s</code> or <code>10m</code>.
+        Agent states are <code>idle</code>, <code>working</code>, <code>ready</code>, and <code>error</code>. Durable
+        prompt-command states are <code>queued</code>, <code>delivering</code>, <code>delivered</code>,
+        <code>failed</code>, and <code>cancelled</code>.
+      </p>
+      <p>
+        Run <code>craig --help</code> for every option. Preview-gated orchestration commands are explained in
+        <a href="/docs/orchestration/">Agent Orchestration</a>.
+      </p>
     </div>
-  ))}
+
+    {groups.map(({ name, commands, preview }) => (
+      <div class="mb-8">
+        <p class="text-[#c0caf5] font-bold text-sm mb-2">
+          {name}{preview ? <span class="text-[#e0af68] font-normal"> · preview</span> : null}
+        </p>
+        <div class="border border-[#292e42] rounded-lg overflow-hidden">
+          <table class="w-full text-sm">
+            <tbody class="divide-y divide-[#1a1b26]">
+              {commands.map(({ cmd, desc }) => (
+                <tr class="hover:bg-[#06060f] transition-colors">
+                  <td class="px-4 py-2.5 w-3/5"><code class="text-[#9ece6a] text-xs">{cmd}</code></td>
+                  <td class="px-4 py-2.5 text-[#565f89] text-xs">{desc}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    ))}
   </div>
 </Docs>

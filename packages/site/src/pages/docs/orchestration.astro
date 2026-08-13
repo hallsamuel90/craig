@@ -1,0 +1,116 @@
+---
+import Docs from "../../layouts/Docs.astro";
+import "../../styles/global.css";
+---
+
+<Docs title="Agent orchestration" description="Use Craig's preview orchestration APIs for durable prompts, child-task delegation, events, and human-reviewed Fury workflows.">
+  <div class="max-w-3xl mx-auto px-10 prose">
+    <h1>Agent Orchestration</h1>
+    <p class="subtitle">Let agents operate Craig without surrendering the control plane.</p>
+
+    <blockquote>
+      Agent orchestration is an experimental workspace-local preview. Its commands and state formats may change.
+    </blockquote>
+
+    <p>Enable it in <code>.craig/config.json</code>:</p>
+    <pre><code>{`{
+  "previews": {
+    "agentOrchestration": true
+  }
+}`}</code></pre>
+
+    <h2>What the preview adds</h2>
+    <ul>
+      <li>A durable workspace event journal and event-backed agent waits.</li>
+      <li>Idempotent prompt delivery to a specific task and agent tab.</li>
+      <li>Capability-scoped child-task delegation with bounded depth and concurrency.</li>
+      <li>Fury: versioned YAML DAGs with explicit completion and human-review checkpoints.</li>
+    </ul>
+
+    <h2>Agent status and durable prompts</h2>
+    <pre><code>craig agent list --json
+craig agent status --task &lt;task-id&gt; --json
+craig agent send --task &lt;task-id&gt; --prompt "Review the latest CI failure" --json
+craig task wait &lt;task-id&gt; --state ready,error --timeout 10m --json</code></pre>
+    <p>
+      Agent listing, status, and task waits work without the preview. Durable prompt creation through
+      <code>agent send</code> requires it.
+    </p>
+    <p>
+      Prompt delivery defaults to <code>when-ready</code>. Use <code>--delivery immediate</code> only when the new
+      prompt should interrupt a busy target. A delivered command means the live PTY accepted the input; it does
+      not claim that the agent understood or completed the request.
+    </p>
+
+    <h2>Delegation and capabilities</h2>
+    <p>
+      Preview-enabled agent PTYs receive an opaque, workspace-local capability scoped to their own task. The
+      capability limits allowed command families, expiry, child count, depth, concurrency, and prompt size.
+      Agents cannot approve human-review checkpoints. After enabling the preview, create or restart an agent tab
+      so its PTY receives a capability.
+    </p>
+    <pre><code>craig task create-child --parent &lt;task-id&gt; --runner codex "Investigate the failing test" --json
+craig task children &lt;task-id&gt; --json
+craig task cancel-tree &lt;task-id&gt; --json</code></pre>
+    <p>
+      If no repository or workspace is supplied, the child inherits its parent's target. Disabling the preview
+      stops new prompt and child creation. Agent status and waits remain available, as do prompt-command
+      inspection, waiting, and cancellation plus task-lineage inspection and <code>cancel-tree</code>. Event queries
+      and Fury operations require the preview.
+    </p>
+
+    <h2>Fury workflows</h2>
+    <p>
+      Fury definitions are strict, versioned YAML DAGs. Keeping them under <code>.craig/fury/</code> is a useful
+      convention, but Craig accepts a definition file from any path. Planning resolves inputs and persists an
+      immutable content-hashed plan. A human must approve that exact plan before it can run.
+    </p>
+    <pre><code>{`version: 1
+name: inspect-and-review
+limits: { max_concurrency: 2, max_tasks: 4, timeout: 2h }
+inputs:
+  task_id: { type: string, required: true }
+steps:
+  inspect:
+    task: "\${{ inputs.task_id }}"
+    prompt: Inspect the task and submit structured findings.
+    output:
+      schema: { type: object, required: [findings] }
+  review:
+    needs: [inspect]
+    human_review:
+      title: Review findings
+      summary: Review the findings before execution continues.
+      feedback_target: { task: "\${{ steps.inspect.task_id }}" }
+      timeout: 1h`}</code></pre>
+    <pre><code>craig fury validate .craig/fury/inspect-and-review.yaml --json
+craig fury plan .craig/fury/inspect-and-review.yaml --root-task &lt;task-id&gt; --input task_id=&lt;task-id&gt; --json
+craig fury approve &lt;plan-id&gt; --json
+craig fury run &lt;plan-id&gt; --json
+craig fury watch &lt;run-id&gt; --format jsonl</code></pre>
+    <p>
+      Every agent step must explicitly report completion or failure. Terminal silence is never success. Declared
+      outputs are JSON-schema validated before dependents run, and human-review steps remain blocked until a human
+      approves, rejects, or requests changes.
+    </p>
+
+    <h2>Events and recovery</h2>
+    <pre><code>craig events watch --task &lt;task-id&gt; --format jsonl
+craig command list --task &lt;task-id&gt; --json
+craig fury status &lt;run-id&gt; --json
+craig fury resume &lt;run-id&gt; --json</code></pre>
+    <p>
+      The workspace daemon reconciles interrupted prompt dispatch, deadlines, missing sessions, pending reviews,
+      and unfinished Fury runs. All orchestration state remains local to the Craig workspace.
+    </p>
+
+    <h2>Workspace attachment</h2>
+    <p>
+      An interactive Craig launched from inside an agent session will not implicitly attach to that agent's live
+      workspace. Pass <code>--workspace-root &lt;live-root&gt;</code> to confirm the attachment. A client also refuses to
+      replace a live PTY daemon with an incompatible protocol; exit the other Craig instance before restarting it.
+    </p>
+
+    <p>See the <a href="/docs/cli/">CLI reference</a> for the command families available to humans and agents.</p>
+  </div>
+</Docs>

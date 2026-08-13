@@ -3,7 +3,7 @@ import Docs from "../../layouts/Docs.astro";
 import "../../styles/global.css";
 ---
 
-<Docs title="Configuration" description="Configure Craig's AI agent runners, repository checks, GitHub merge method, and pull request polling behavior.">
+<Docs title="Configuration" description="Configure Craig's AI agent runners, repository checks, worktree opener, pull request polling, and feature previews.">
   <div class="max-w-3xl mx-auto px-10">
   <div class="prose">
     <h1>Config</h1>
@@ -11,7 +11,7 @@ import "../../styles/global.css";
 
     <p>
       All config is optional — Craig works fine without it. Drop a <code>.craig/config.json</code> in your workspace
-      root to control runners, check commands, and GitHub polling.
+      root to control runners, check commands, worktree opening, GitHub polling, and feature previews.
     </p>
 
     <pre><code>{`{
@@ -23,8 +23,10 @@ import "../../styles/global.css";
   "checks": {
     "commands": ["pnpm test", "pnpm typecheck", "pnpm lint"]
   },
+  "open": {
+    "command": ["code"]
+  },
   "github": {
-    "mergeMethod": "squash",
     "watchIntervalSeconds": 5
   },
   "previews": {
@@ -41,12 +43,15 @@ import "../../styles/global.css";
     <h2>checks.commands</h2>
     <p>
       Run by <code>craig task check &lt;id&gt;</code>. Usually your test, typecheck, and lint commands.
-      Results are stored on the task record.
+      Craig runs them in order from the task worktree, stops on the first failure, and stores the results on the
+      task record.
     </p>
 
-    <h2>github.mergeMethod</h2>
+    <h2>open.command</h2>
     <p>
-      How Craig merges PRs. Accepts <code>squash</code>, <code>merge</code>, or <code>rebase</code>. Defaults to <code>squash</code>.
+      Optional executable and arguments used by <code>craig task open &lt;id&gt;</code>. Craig appends the task worktree
+      path to this array. Without it, the command prints the worktree path instead. For example,
+      <code>["code"]</code> opens the worktree in VS Code.
     </p>
 
     <h2>github.watchIntervalSeconds</h2>
@@ -58,9 +63,10 @@ import "../../styles/global.css";
 
     <h2>previews</h2>
     <p>
-      Agent activity indicators are enabled by default. The previews object enables experimental workspace-local
-      features such as agent orchestration. Feature previews are off by default and may change or be removed. You
-      can also toggle them from Options &gt; Feature Previews in the TUI.
+      Agent activity indicators are built in and enabled by default. The previews object enables experimental,
+      workspace-local features. <code>agentOrchestration</code> is off by default and may change or be removed. You
+      can also toggle it from Options &gt; Feature Previews in the TUI. See
+      <a href="/docs/orchestration/">Agent Orchestration</a> for the safety and recovery model.
     </p>
   </div>
   </div>
