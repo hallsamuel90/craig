@@ -10,8 +10,6 @@
   ░          ░░   ░   ░   ▒    ▒ ░░ ░   ░
   ░ ░         ░           ░  ░ ░        ░
 
-         crAIg is that you?
-
 </pre>
 
 **An agnostic orchestrator TUI, for the people.**
@@ -20,7 +18,7 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](https://github.com/hallsamuel90/craig/blob/main/LICENSE)
 [![Node 22+](https://img.shields.io/badge/node-22%2B-brightgreen)](https://nodejs.org)
 
-[Website](https://craig-cli.com) · [Quickstart](https://craig-cli.com/docs/quickstart/) · [Documentation](https://craig-cli.com/docs/) · [CLI reference](https://craig-cli.com/docs/cli/)
+[Website](https://craig-cli.com) · [Documentation](https://craig-cli.com/docs/) · [CLI reference](https://craig-cli.com/docs/cli/)
 
 </div>
 
@@ -53,21 +51,16 @@ Craig requires Node.js 22+ and `git`. Install and authenticate at least one supp
 
 ## Quick start
 
-```bash
-cd path/to/your/project
-craig
-```
+Run `craig` in a full-screen terminal, then work through the TUI:
 
-Then:
+1. Select **+ New Workspace** and choose a Git repository. You can also choose a parent directory to work across its direct-child repositories.
+2. Press `n`, name the task, and use `Ctrl+R` to choose Claude Code, Codex, or Cursor. Press `Enter` to create it.
+3. Craig creates an isolated branch and worktree, starts the runner there, and takes you directly into its live PTY. Tell the agent what you want it to do.
+4. Press `Ctrl+]` to return to Craig's control mode. Move between panels with `Tab`, navigate with the arrow keys or `hjkl`, and press `Enter` on a task to reattach to its agent.
+5. Press `n` again to start more tasks while the first agent keeps working. Each task remains isolated in its own worktree.
+6. Use **Files** to inspect the worktree and **Review** to follow diffs, pull requests, checks, and review state. Ask the agent to commit, push, create the PR, or merge from its PTY; Craig keeps the status in sync.
 
-1. Press `n`, describe the task, and choose a runner.
-2. Craig creates the branch, worktree, task record, and agent session.
-3. Work with the agent in its PTY. Press `Ctrl+]` to return to Craig control mode.
-4. Use **Files** and **Review** to inspect files and diffs, then follow the PR through checks and review.
-
-For a project spread across several repositories, launch Craig from their parent directory. A project task gets a coordinated worktree bundle while each repository keeps its own branch and PR state.
-
-Read the [Quickstart](https://craig-cli.com/docs/quickstart/) for the complete first-run walkthrough.
+See the [TUI reference](https://craig-cli.com/docs/tui/) for every panel and keyboard shortcut.
 
 ## Local by default
 
