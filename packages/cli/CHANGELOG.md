@@ -1,5 +1,11 @@
 # craig-cli
 
+## 0.15.2
+
+### Patch Changes
+
+- 8947799: Constrain vulnerable transitive dependencies to patched releases.
+
 ## 0.15.1
 
 ### Patch Changes
