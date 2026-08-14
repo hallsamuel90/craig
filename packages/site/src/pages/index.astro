@@ -32,9 +32,9 @@ const structuredData = {
 };
 ---
 
-<Base structuredData={structuredData}>
+<Base structuredData={structuredData} preloadHeroImage>
   <!-- Nav -->
-  <header class="border-b border-[#292e42] px-6 py-3 flex items-center justify-between">
+  <header class="border-b border-[#292e42] px-4 sm:px-6 py-3 flex items-center justify-between">
     <div class="flex items-center gap-2 group">
       <a href="/" class="text-[#9ece6a] font-bold text-base tracking-tight">craig</a>
       <a
@@ -61,13 +61,13 @@ const structuredData = {
         </svg>
       </a>
     </div>
-    <nav class="flex items-center gap-5 text-sm text-[#565f89]">
+    <nav class="flex items-center gap-3 sm:gap-5 text-sm text-[#7a82ad]">
       <a href="/docs/" class="hover:text-[#c0caf5] transition-colors">Docs</a>
-      <a href="https://github.com/hallsamuel90/craig" class="flex items-center gap-1.5 hover:text-[#c0caf5] transition-colors">
+      <a href="https://github.com/hallsamuel90/craig" class="flex items-center gap-1.5 hover:text-[#c0caf5] transition-colors" aria-label="GitHub">
         <svg class="w-4 h-4" fill="currentColor" viewBox="0 0 24 24">
           <path d="M12 0C5.374 0 0 5.373 0 12c0 5.302 3.438 9.8 8.207 11.387.599.111.793-.261.793-.577v-2.234c-3.338.726-4.033-1.416-4.033-1.416-.546-1.387-1.333-1.756-1.333-1.756-1.089-.745.083-.729.083-.729 1.205.084 1.839 1.237 1.839 1.237 1.07 1.834 2.807 1.304 3.492.997.107-.775.418-1.305.762-1.604-2.665-.305-5.467-1.334-5.467-5.931 0-1.311.469-2.381 1.236-3.221-.124-.303-.535-1.524.117-3.176 0 0 1.008-.322 3.301 1.23A11.509 11.509 0 0112 5.803c1.02.005 2.047.138 3.006.404 2.291-1.552 3.297-1.23 3.297-1.23.653 1.653.242 2.874.118 3.176.77.84 1.235 1.911 1.235 3.221 0 4.609-2.807 5.624-5.479 5.921.43.372.823 1.102.823 2.222v3.293c0 .319.192.694.801.576C20.566 21.797 24 17.3 24 12c0-6.627-5.373-12-12-12z"/>
         </svg>
-        GitHub
+        <span class="hidden sm:inline">GitHub</span>
       </a>
       <a href="/docs/install/" class="px-3 py-1.5 bg-[#9ece6a] text-[#0a0a0a] font-bold rounded hover:opacity-90 transition-opacity text-xs tracking-wide">
         Get Started
@@ -75,10 +75,11 @@ const structuredData = {
     </nav>
   </header>
 
-  <!-- Hero -->
-  <section class="max-w-4xl mx-auto px-6 pt-16 pb-10 text-center">
-    <h1 class="sr-only">Craig AI coding agent orchestrator</h1>
-    <pre aria-hidden="true" class="block w-fit mx-auto -translate-x-[5%] text-[#9ece6a] text-[0.45rem] sm:text-[0.55rem] md:text-[0.65rem] leading-tight mb-6 select-none opacity-90">
+  <main>
+    <!-- Hero -->
+    <section class="max-w-4xl mx-auto px-6 pt-16 pb-10 text-center">
+      <h1 class="sr-only">Craig AI coding agent orchestrator</h1>
+      <pre aria-hidden="true" class="block w-fit mx-auto -translate-x-[5%] text-[#9ece6a] text-[0.45rem] sm:text-[0.55rem] md:text-[0.65rem] leading-tight mb-6 select-none opacity-90">
   ▄████▄   ██▀███   ▄▄▄       ██▓  ▄████
   ▒██▀ ▀█  ▓██ ▒ ██▒▒████▄    ▓██▒ ██▒ ▀█▒
   ▒▓█    ▄ ▓██ ░▄█ ▒▒██  ▀█▄  ▒██▒▒██░▄▄▄░
@@ -89,51 +90,52 @@ const structuredData = {
   ░          ░░   ░   ░   ▒    ▒ ░░ ░   ░
   ░ ░         ░           ░  ░ ░        ░</pre>
 
-    <p class="text-[#9ece6a] text-sm font-bold tracking-widest uppercase mb-4">Have fun. Get shit done.</p>
-    <p class="text-[#a9adc4] text-base mb-8">An agnostic orchestrator TUI, for the people.</p>
+      <p class="text-[#9ece6a] text-sm font-bold tracking-widest uppercase mb-4">Have fun. Get shit done.</p>
+      <p class="text-[#a9adc4] text-base max-w-[22rem] sm:max-w-none mx-auto mb-8">An agnostic orchestrator TUI, for the people.</p>
 
-    <div class="inline-flex items-center gap-3 bg-[#06060f] border border-[#292e42] rounded-lg px-5 py-3 mb-3">
-      <span class="text-[#565f89] select-none">$</span>
-      <code class="text-[#9ece6a] text-sm tracking-wide">npm install -g craig-cli</code>
-      <button
-        class="text-[#565f89] hover:text-[#c0caf5] transition-colors ml-1 text-base"
-        title="Copy"
-        onclick="navigator.clipboard.writeText('npm install -g craig-cli').then(() => { window.gtag?.('event', 'install_command_copy', { method: 'npm', placement: 'homepage_hero' }); this.textContent = '✓'; setTimeout(() => this.textContent = '⎘', 1200) })"
-      >⎘</button>
-    </div>
-    <p class="text-[#3b4261] text-xs">Node 22+ · MIT · No account required</p>
-  </section>
+      <div class="inline-flex items-center gap-3 bg-[#06060f] border border-[#292e42] rounded-lg px-5 py-3 mb-3">
+        <span class="text-[#7a82ad] select-none">$</span>
+        <code class="text-[#9ece6a] text-sm tracking-wide">npm install -g craig-cli</code>
+        <button
+          class="text-[#7a82ad] hover:text-[#c0caf5] transition-colors ml-1 text-base"
+          title="Copy"
+          onclick="navigator.clipboard.writeText('npm install -g craig-cli').then(() => { window.gtag?.('event', 'install_command_copy', { method: 'npm', placement: 'homepage_hero' }); this.textContent = '✓'; setTimeout(() => this.textContent = '⎘', 1200) })"
+        >⎘</button>
+      </div>
+      <p class="text-[#737aa2] text-xs">Node 22+ · MIT · No account required</p>
+    </section>
 
-  <!-- Hero video -->
-  <section class="max-w-[1440px] mx-auto px-6 pb-8">
-    <div class="flex justify-center mb-5">
-      <p class="font-mono text-[#565f89] text-sm text-center" style="width:min(34rem,90vw)"><span id="hero-caption"></span><span id="hero-cursor">▌</span></p>
-    </div>
-    <div class="rounded-xl overflow-hidden border border-[#292e42]" style="aspect-ratio: 1440 / 694">
-      <video autoplay loop muted playsinline width="1440" height="694" poster="/screenshots/agent-working.png" class="w-full block">
-        <source src="/craig-hero.mp4?v=3" type="video/mp4" />
-      </video>
-    </div>
-  </section>
+    <!-- Hero video -->
+    <section class="max-w-[1440px] mx-auto px-6 pb-8">
+      <div class="flex justify-center mb-5">
+        <p class="font-mono text-[#7a82ad] text-sm text-center" style="width:min(34rem,90vw)"><span id="hero-caption"></span><span id="hero-cursor">▌</span></p>
+      </div>
+      <div class="rounded-xl overflow-hidden border border-[#292e42]" style="aspect-ratio: 1440 / 694">
+        <video autoplay loop muted playsinline width="1440" height="694" poster="/screenshots/agent-working.webp" class="w-full block">
+          <source src="/craig-hero.mp4?v=3" type="video/mp4" />
+        </video>
+      </div>
+    </section>
 
 
-  <!-- CTA -->
-  <section class="pt-10 pb-20 text-center">
-    <p class="text-[#9ece6a] text-xs font-bold tracking-widest uppercase mb-4">Open source · MIT · One command</p>
-    <h2 class="text-2xl font-bold text-[#c0caf5] mb-8">Your move.</h2>
-    <div class="flex flex-wrap items-center justify-center gap-3">
-      <a href="/docs/install/" class="px-5 py-2.5 bg-[#9ece6a] text-[#0a0a0a] font-bold rounded-lg hover:opacity-90 transition-opacity tracking-wide text-sm">
-        Get Started
-      </a>
-      <a href="https://github.com/hallsamuel90/craig" class="px-5 py-2.5 border border-[#292e42] text-[#565f89] rounded-lg hover:border-[#3b4261] hover:text-[#c0caf5] transition-colors text-sm">
-        View on GitHub
-      </a>
-    </div>
-  </section>
+    <!-- CTA -->
+    <section class="pt-10 pb-20 text-center">
+      <p class="text-[#9ece6a] text-xs font-bold tracking-widest uppercase mb-4">Open source · MIT · One command</p>
+      <h2 class="text-2xl font-bold text-[#c0caf5] mb-8">Your move.</h2>
+      <div class="flex flex-wrap items-center justify-center gap-3">
+        <a href="/docs/install/" class="px-5 py-2.5 bg-[#9ece6a] text-[#0a0a0a] font-bold rounded-lg hover:opacity-90 transition-opacity tracking-wide text-sm">
+          Get Started
+        </a>
+        <a href="https://github.com/hallsamuel90/craig" class="px-5 py-2.5 border border-[#292e42] text-[#7a82ad] rounded-lg hover:border-[#737aa2] hover:text-[#c0caf5] transition-colors text-sm">
+          View on GitHub
+        </a>
+      </div>
+    </section>
+  </main>
 
   <!-- Footer -->
-  <footer class="border-t border-[#292e42] px-6 py-6 text-center text-[#3b4261] text-xs">
-    MIT License · <a href="https://github.com/hallsamuel90/craig" class="hover:text-[#565f89] transition-colors">GitHub</a>
+  <footer class="border-t border-[#292e42] px-6 py-6 text-center text-[#737aa2] text-xs">
+    MIT License · <a href="https://github.com/hallsamuel90/craig" class="hover:text-[#c0caf5] transition-colors">GitHub</a>
   </footer>
 
 </Base>

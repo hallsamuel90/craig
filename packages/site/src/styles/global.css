@@ -6,27 +6,27 @@
   --color-craig-bg: #0a0a0a;
   --color-craig-overlay: #06060f;
   --color-craig-fg: #c0caf5;
-  --color-craig-muted: #565f89;
+  --color-craig-muted: #7a82ad;
   --color-craig-divider: #292e42;
   --color-craig-selected: #1a1b26;
-  --color-craig-disabled: #3b4261;
+  --color-craig-disabled: #737aa2;
 }
 
 /* Docs prose */
 .prose h1 { color: #c0caf5; font-size: 1.75rem; font-weight: 700; margin-bottom: 0.25rem; }
 .prose h2 { color: #c0caf5; font-size: 1rem; font-weight: 700; margin-top: 2rem; margin-bottom: 0.75rem; }
-.prose p { color: #565f89; font-size: 0.875rem; line-height: 1.7; margin-bottom: 1rem; }
+.prose p { color: #7a82ad; font-size: 0.875rem; line-height: 1.7; margin-bottom: 1rem; }
 .prose strong { color: #c0caf5; font-weight: 600; }
-.prose ul { color: #565f89; font-size: 0.875rem; list-style: disc; padding-left: 1.25rem; margin-bottom: 1.5rem; }
+.prose ul { color: #7a82ad; font-size: 0.875rem; list-style: disc; padding-left: 1.25rem; margin-bottom: 1.5rem; }
 .prose li { margin-bottom: 0.25rem; }
-.prose a { color: #9ece6a; text-decoration: none; }
+.prose a { color: #9ece6a; text-decoration: underline; text-underline-offset: 0.2em; }
 .prose a:hover { opacity: 0.8; }
 .prose code { color: #9ece6a; font-size: 0.8125rem; }
 .prose pre { background: #06060f; border: 1px solid #292e42; border-radius: 0.5rem; padding: 1rem 1.25rem; margin-bottom: 1.5rem; overflow-x: auto; }
 .prose pre code { color: #c0caf5; }
 .prose kbd { background: #1a1b26; border: 1px solid #292e42; border-radius: 0.25rem; padding: 0.1rem 0.4rem; font-size: 0.75rem; color: #c0caf5; }
 .prose table { width: 100%; font-size: 0.875rem; border-collapse: collapse; margin-bottom: 1.5rem; }
-.prose th { text-align: left; padding: 0.5rem 1rem; color: #565f89; font-weight: 500; border-bottom: 1px solid #292e42; background: #06060f; }
-.prose td { padding: 0.625rem 1rem; color: #565f89; border-bottom: 1px solid #1a1b26; }
+.prose th { text-align: left; padding: 0.5rem 1rem; color: #7a82ad; font-weight: 500; border-bottom: 1px solid #292e42; background: #06060f; }
+.prose td { padding: 0.625rem 1rem; color: #7a82ad; border-bottom: 1px solid #1a1b26; }
 .prose tr:hover td { background: #06060f; }
-.prose .subtitle { color: #565f89; font-size: 0.875rem; margin-bottom: 2rem; }
+.prose .subtitle { color: #7a82ad; font-size: 0.875rem; margin-bottom: 2rem; }
