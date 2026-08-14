@@ -3,11 +3,13 @@ interface Props {
   title?: string;
   description?: string;
   structuredData?: Record<string, unknown>;
+  preloadHeroImage?: boolean;
 }
 const {
   title = "Craig - An agnostic orchestrator TUI, for the people.",
   description = "An agnostic orchestrator TUI, for the people.",
   structuredData,
+  preloadHeroImage = false,
 } = Astro.props;
 const canonicalURL = new URL(Astro.url.pathname, Astro.site);
 const socialImageURL = new URL("/screenshots/agent-working.png", Astro.site);
@@ -16,6 +18,7 @@ const socialImageURL = new URL("/screenshots/agent-working.png", Astro.site);
 <html lang="en">
   <head>
     <meta charset="utf-8" />
+    {preloadHeroImage && <link rel="preload" href="/screenshots/agent-working.webp" as="image" type="image/webp" fetchpriority="high" />}
     <script async src="https://www.googletagmanager.com/gtag/js?id=G-6QSY1NHN41" is:inline></script>
     <script is:inline>
       window.dataLayer = window.dataLayer || [];

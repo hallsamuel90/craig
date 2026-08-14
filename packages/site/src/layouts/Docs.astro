@@ -44,14 +44,14 @@ const currentPath = Astro.url.pathname;
         </a>
       </div>
       <nav class="space-y-0.5">
-        <p class="text-xs text-[#565f89] uppercase tracking-widest mb-2">Docs</p>
+        <p class="text-xs text-[#7a82ad] uppercase tracking-widest mb-2">Docs</p>
         {nav.map((item) => (
           <a
             href={item.href}
             class={`block px-2.5 py-1.5 rounded text-sm transition-colors ${
               currentPath === item.href
                 ? "bg-[#1a1b26] text-[#c0caf5]"
-                : "text-[#565f89] hover:text-[#c0caf5] hover:bg-[#1a1b26]/50"
+                : "text-[#7a82ad] hover:text-[#c0caf5] hover:bg-[#1a1b26]/50"
             }`}
           >
             {item.label}
