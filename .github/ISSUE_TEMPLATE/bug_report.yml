@@ -1,0 +1,104 @@
+name: Bug report
+description: Report a reproducible Craig bug or installation problem
+title: "[Bug]: "
+labels:
+  - bug
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for taking the time to report a problem. Please keep private `.craig/` state, prompts, terminal logs, local paths, credentials, and repository content out of this issue.
+
+  - type: textarea
+    id: description
+    attributes:
+      label: What happened?
+      description: Describe the problem and what you were doing when it occurred.
+    validations:
+      required: true
+
+  - type: textarea
+    id: expected
+    attributes:
+      label: What did you expect?
+      description: Describe the behavior you expected instead.
+    validations:
+      required: true
+
+  - type: textarea
+    id: reproduction
+    attributes:
+      label: Reproduction
+      description: Provide the smallest safe set of steps that reproduces the problem.
+      placeholder: |
+        1. Run ...
+        2. Press ...
+        3. Observe ...
+    validations:
+      required: true
+
+  - type: input
+    id: operating-system
+    attributes:
+      label: Operating system
+      placeholder: macOS 15.6, Ubuntu 24.04, Windows 11, etc.
+    validations:
+      required: true
+
+  - type: input
+    id: terminal
+    attributes:
+      label: Terminal
+      placeholder: Ghostty 1.2, iTerm2 3.6, Windows Terminal, etc.
+    validations:
+      required: true
+
+  - type: input
+    id: node-version
+    attributes:
+      label: Node.js version
+      description: Run `node --version`.
+      placeholder: v22.18.0
+    validations:
+      required: true
+
+  - type: input
+    id: craig-version
+    attributes:
+      label: Craig version
+      description: Run `npm list -g craig-cli --depth=0`.
+      placeholder: 0.15.1
+    validations:
+      required: true
+
+  - type: dropdown
+    id: runner
+    attributes:
+      label: Agent runner
+      options:
+        - Claude Code
+        - Codex
+        - Cursor
+        - Multiple runners
+        - Not runner-specific
+    validations:
+      required: true
+
+  - type: textarea
+    id: additional-context
+    attributes:
+      label: Additional context
+      description: Add sanitized output, screenshots, or other context if it is safe to share.
+      render: shell
+
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: Before submitting
+      options:
+        - label: I searched existing issues and discussions for this problem.
+          required: true
+        - label: I removed private `.craig/` state, prompts, logs, paths, credentials, and repository content.
+          required: true
+        - label: This is a normal bug report, not a security vulnerability.
+          required: true
