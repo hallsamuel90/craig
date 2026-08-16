@@ -1,0 +1,11 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Ask a question
+    url: https://github.com/hallsamuel90/craig/discussions/categories/q-a
+    about: Get help with installation, configuration, and Craig workflows.
+  - name: Share an idea
+    url: https://github.com/hallsamuel90/craig/discussions/categories/ideas
+    about: Suggest a feature or workflow improvement.
+  - name: Report a security vulnerability
+    url: https://github.com/hallsamuel90/craig/security/policy
+    about: Follow the private reporting instructions in Craig's security policy.
