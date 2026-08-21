@@ -1,5 +1,11 @@
 # craig-cli
 
+## 0.15.3
+
+### Patch Changes
+
+- 291fa16: Add the Pi coding agent as an experimental runner gated by the workspace-local `piRunner` feature preview.
+
 ## 0.15.2
 
 ### Patch Changes
