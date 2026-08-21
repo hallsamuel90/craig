@@ -9,8 +9,8 @@ describe("validate", () => {
   });
 
   test("accepts current previews and retired preview config keys", () => {
-    expect(validate({ previews: { incrementalCenterPane: true, agentActivityIndicators: true, agentOrchestration: true } }, FILE)).toEqual({
-      previews: { incrementalCenterPane: true, agentActivityIndicators: true, agentOrchestration: true },
+    expect(validate({ previews: { incrementalCenterPane: true, agentActivityIndicators: true, agentOrchestration: true, piRunner: true } }, FILE)).toEqual({
+      previews: { incrementalCenterPane: true, agentActivityIndicators: true, agentOrchestration: true, piRunner: true },
     });
   });
 
@@ -26,7 +26,7 @@ describe("validate", () => {
 
   test("accepts a valid full config", () => {
     const config = {
-      runners: { codex: { enabled: true, path: "/usr/bin/codex" } },
+      runners: { codex: { enabled: true, path: "/usr/bin/codex" }, pi: { enabled: true, path: "/usr/bin/pi" } },
       checks: { commands: ["npm test"] },
       open: { command: ["code", "."] },
       github: { mergeMethod: "squash", watchIntervalSeconds: 30 },

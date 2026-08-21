@@ -43,10 +43,11 @@ export const OPTIONS_MENU_ITEMS = ["Runners", "Feature Previews", "Logs", "Help"
 
 const PREVIEW_LABELS: Record<PreviewFeatureId, string> = {
   agentOrchestration: "Agent orchestration",
+  piRunner: "Pi coding agent runner",
 };
 
 export function buildRunnersSubmenuItems(config: CraigConfig, state: RunnerOptionsState): string[] {
-  return RUNNER_IDS.map((runner) => {
+  return getRunnerOptionsIds(config).map((runner) => {
     const profile = configService.runners.getProfile(runner);
     const enabled = config.runners?.[runner]?.enabled !== false;
     const configuredPath = config.runners?.[runner]?.path?.trim();
@@ -176,7 +177,7 @@ export function reduceRunnerOptionsKey(
   }
 
   if (key === "e") {
-    const runner = RUNNER_IDS[state.menuIndex] ?? "codex";
+    const runner = getRunnerOptionsIds(config)[state.menuIndex] ?? "codex";
     return {
       kind: "render",
       state: { ...state, message: null, pathEdit: { runner, value: config.runners?.[runner]?.path ?? "" } },
@@ -187,7 +188,7 @@ export function reduceRunnerOptionsKey(
     return { kind: "noop", state };
   }
 
-  const runner = RUNNER_IDS[state.menuIndex] ?? "codex";
+  const runner = getRunnerOptionsIds(config)[state.menuIndex] ?? "codex";
   const enabled = config.runners?.[runner]?.enabled !== false;
   if (enabled && enabledRunnerIds.length <= 1) {
     return { kind: "render", state: { ...state, message: "At least one runner must stay enabled." } };
@@ -202,6 +203,10 @@ export function reduceRunnerOptionsKey(
       message: `${configService.runners.getProfile(runner).displayName} ${enabled ? "disabled" : "enabled"}.`,
     },
   };
+}
+
+function getRunnerOptionsIds(config: CraigConfig): readonly RunnerType[] {
+  return RUNNER_IDS.filter((runner) => runner !== "pi" || configService.previews.isEnabled(config, "piRunner"));
 }
 
 function reducePathEditKey(

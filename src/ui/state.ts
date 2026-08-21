@@ -1,5 +1,5 @@
 import { getDefaultUiState } from "../state/ui-state-store.js";
-import { configService, RUNNER_IDS } from "../domain/config/index.js";
+import { configService, RUNNER_IDS, STABLE_RUNNER_IDS } from "../domain/config/index.js";
 import type { CraigConfig, RunnerType } from "../domain/config/index.js";
 import type { TaskPtyTabKind, TaskRecord } from "../domain/task/index.js";
 import type { RepoRecord, WorkspaceRecord } from "../domain/workspace/index.js";
@@ -401,14 +401,14 @@ function getValidInputMode(value: string | null | undefined): InputMode {
 
 function getValidRunner(
   value: string | null | undefined,
-  enabledRunnerIds: RunnerType[] = [...RUNNER_IDS],
+  enabledRunnerIds: RunnerType[] = [...STABLE_RUNNER_IDS],
   fallback: RunnerType = "codex",
 ): RunnerType {
   return value && configService.runners.isRunnerType(value) && enabledRunnerIds.includes(value) ? value : fallback;
 }
 
-export function getNextRunner(runner: RunnerType, enabledRunnerIds: readonly RunnerType[] = RUNNER_IDS): RunnerType {
-  const runners = enabledRunnerIds.length > 0 ? enabledRunnerIds : RUNNER_IDS;
+export function getNextRunner(runner: RunnerType, enabledRunnerIds: readonly RunnerType[] = STABLE_RUNNER_IDS): RunnerType {
+  const runners = enabledRunnerIds.length > 0 ? enabledRunnerIds : STABLE_RUNNER_IDS;
   const index = runners.indexOf(runner);
   return runners[(index + 1) % runners.length] ?? runners[0] ?? "codex";
 }

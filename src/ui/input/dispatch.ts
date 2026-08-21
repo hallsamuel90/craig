@@ -604,7 +604,18 @@ function handlePreviewsKey(ctx: AppContext, key: string): void {
         return;
       }
       ctx.config = nextConfig;
-      ctx.state = { ...ctx.state, previewOptions: result.state };
+      ctx.enabledRunnerIds = configService.runners.getEnabled(ctx.config);
+      ctx.model = { ...ctx.model, enabledRunnerIds: ctx.enabledRunnerIds };
+      ctx.state = {
+        ...ctx.state,
+        shell: syncShell(ctx, {
+          ...ctx.state.shell,
+          selectedRunner: ctx.enabledRunnerIds.includes(ctx.state.shell.selectedRunner)
+            ? ctx.state.shell.selectedRunner
+            : configService.runners.getDefault(ctx.config),
+        }),
+        previewOptions: result.state,
+      };
       ctx.render();
     })
     .catch((error: unknown) => {

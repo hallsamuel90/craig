@@ -14,4 +14,11 @@ describe("getDefault", () => {
     const config = { runners: { codex: { enabled: false }, cursor: { enabled: false }, claude: { enabled: false } } };
     expect(() => getDefault(config)).toThrow("No runners are enabled");
   });
+
+  test("uses Pi when its preview is enabled and stable runners are disabled", () => {
+    expect(getDefault({
+      previews: { piRunner: true },
+      runners: { codex: { enabled: false }, cursor: { enabled: false }, claude: { enabled: false } },
+    })).toBe("pi");
+  });
 });

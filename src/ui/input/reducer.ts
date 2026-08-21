@@ -1,4 +1,4 @@
-import { RUNNER_IDS } from "../../domain/config/index.js";
+import { STABLE_RUNNER_IDS } from "../../domain/config/index.js";
 import type { RunnerType } from "../../domain/config/index.js";
 import type { TaskPtyTabKind } from "../../domain/task/index.js";
 import {
@@ -160,7 +160,7 @@ export function reduceMainKey(state: ControlShellState, key: string, options: Re
   }
 
   if (key === "r" && state.focusedRegion === "center" && state.selectedTaskId) {
-    const runners = options.enabledRunnerIds ?? (RUNNER_IDS as readonly RunnerType[]);
+    const runners = options.enabledRunnerIds ?? (STABLE_RUNNER_IDS as readonly RunnerType[]);
     const currentIndex = state.centerTabRunner ? runners.indexOf(state.centerTabRunner) : -1;
     const nextRunner: RunnerType | null = currentIndex === runners.length - 1 ? null : runners[currentIndex + 1]!;
     return result({

@@ -22,4 +22,8 @@ describe("buildCommand", () => {
   test("uses cursor-agent executable for cursor", () => {
     expect(buildCommand("cursor")).toEqual(["cursor-agent"]);
   });
+
+  test("uses the Pi interactive CLI with the task prompt", () => {
+    expect(buildCommand("pi", "fix the bug")).toEqual(["pi", "fix the bug"]);
+  });
 });

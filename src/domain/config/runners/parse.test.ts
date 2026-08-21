@@ -14,7 +14,7 @@ describe("parse", () => {
     expect(parse(undefined)).toBe("codex");
   });
 
-  test.each(["codex", "cursor", "claude"])("parses valid runner %s", (runner) => {
+  test.each(["codex", "cursor", "claude", "pi"])("parses valid runner %s", (runner) => {
     expect(parse(runner)).toBe(runner);
   });
 

@@ -19,4 +19,10 @@ export const RUNNER_PROFILES: Record<RunnerType, RunnerProfile> = {
     executable: "claude",
     defaultAgentTitle: "Claude",
   },
+  pi: {
+    id: "pi",
+    displayName: "Pi",
+    executable: "pi",
+    defaultAgentTitle: "Pi",
+  },
 };

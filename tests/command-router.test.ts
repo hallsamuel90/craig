@@ -59,6 +59,12 @@ describe("command routing", () => {
       prompt: "ship claude",
       runner: "claude",
     });
+    expect(parseArgv(["task", "new", "--repo", "repo_a", "--runner", "pi", "ship pi"]).command).toEqual({
+      kind: "createTask",
+      repoId: "repo_a",
+      prompt: "ship pi",
+      runner: "pi",
+    });
     expect(() => parseArgv(["task", "new", "--repo", "repo_a", "--runner", "vim", "ship"])).toThrow(/Unsupported runner/);
   });
 

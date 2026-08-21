@@ -2655,6 +2655,7 @@ describe("terminal app PTY attach flow", () => {
       expect(frame).toContain("Feature Previews - Experimental");
       expect(frame).not.toContain("Agent activity indicators");
       expect(frame).toContain("[ ] Agent orchestration");
+      expect(frame).toContain("[ ] Pi coding agent runner");
       expect(frame).not.toContain("Incremental center pane");
       expect(frame).toContain("may change or be removed");
     });
@@ -2663,8 +2664,18 @@ describe("terminal app PTY attach flow", () => {
     await vi.waitFor(async () => expect((await configService.load(paths)).previews?.agentOrchestration).toBe(true));
     await vi.waitFor(() => expect(stripAnsi(terminal.frames.at(-1) ?? "")).toContain("[x] Agent orchestration"));
 
-    terminal.emitKey("ESCAPE");
-    terminal.emitKey("ESCAPE");
+    terminal.emitKey("DOWN");
+    terminal.emitKey("ENTER");
+    await vi.waitFor(async () => expect((await configService.load(paths)).previews?.piRunner).toBe(true));
+    await vi.waitFor(() => expect(stripAnsi(terminal.frames.at(-1) ?? "")).toContain("[x] Pi coding agent runner"));
+
+    terminal.emitKey("ESCAPE"); // back to options menu
+    await vi.waitFor(() => expect(stripAnsi(terminal.frames.at(-1) ?? "")).toContain("Configuration"));
+    terminal.emitKey("UP"); // Runners
+    terminal.emitKey("ENTER"); // Runners submenu
+    await vi.waitFor(() => expect(stripAnsi(terminal.frames.at(-1) ?? "")).toContain("Pi  enabled  default (pi)"));
+    terminal.emitKey("ESCAPE"); // back to options menu
+    terminal.emitKey("ESCAPE"); // back to boot menu
     terminal.emitKey("DOWN");
     terminal.emitKey("ENTER");
     await expect(app).resolves.toBe(0);

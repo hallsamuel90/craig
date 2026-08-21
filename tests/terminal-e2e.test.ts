@@ -258,10 +258,14 @@ describe("Craig terminal mode E2E", () => {
   test.each([
     ["cursor", "cursor-agent"],
     ["claude", "claude"],
+    ["pi", "pi"],
   ] as const)("attaching the selected %s agent task starts the runner in that task worktree", async (runner, executable) => {
     const repoRoot = process.cwd();
     const workspaceRoot = await mkdtemp(join(tmpdir(), `craig-terminal-e2e-${runner}-`)).then((value) => realpath(value));
     await createCraigState(workspaceRoot, ["task_20260430_02"]);
+    if (runner === "pi") {
+      await configService.save(getCraigPaths(workspaceRoot), { previews: { piRunner: true } });
+    }
     const sourceRepo = join(workspaceRoot, "repo-a");
     await mkdir(sourceRepo, { recursive: true });
     await createGitRepo(sourceRepo);

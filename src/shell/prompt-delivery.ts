@@ -14,6 +14,7 @@ export function buildRunnerPromptSubmission(runner: RunnerType, prompt: string):
     case "codex": return terminalSubmission(prompt, 50);
     case "cursor": return terminalSubmission(prompt, 50);
     case "claude": return terminalSubmission(prompt, 50);
+    case "pi": return terminalSubmission(prompt, 50);
     default:
       return assertNever(runner);
   }

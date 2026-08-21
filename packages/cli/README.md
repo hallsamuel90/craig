@@ -49,6 +49,8 @@ npm install -g craig-cli
 
 Craig requires Node.js 22+ and `git`. Install and authenticate at least one supported runner: Claude Code, Codex, or Cursor. Pull request discovery and review status also require an authenticated `gh` CLI.
 
+The Pi coding agent is available as an opt-in feature preview under Options &gt; Feature Previews.
+
 ## Quick start
 
 Run `craig` in a full-screen terminal, then work through the TUI:
