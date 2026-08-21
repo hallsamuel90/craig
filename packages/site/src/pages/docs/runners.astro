@@ -3,7 +3,7 @@ import Docs from "../../layouts/Docs.astro";
 import "../../styles/global.css";
 ---
 
-<Docs title="AI agent runners" description="Configure Craig to launch Codex, Claude Code, or Cursor in managed terminal sessions and isolated Git worktrees.">
+<Docs title="AI agent runners" description="Configure Craig to launch Codex, Claude Code, Cursor, or the experimental Pi runner in managed terminal sessions and isolated Git worktrees.">
   <div class="max-w-3xl mx-auto px-10">
   <div class="prose">
     <h1>Runners</h1>
@@ -15,6 +15,18 @@ import "../../styles/global.css";
       Craig drops the runner into that task's worktree and starts it in a managed PTY. The task prompt is stored
       as metadata — Craig doesn't paste it into the runner for you.
     </p>
+
+    <h2>Experimental Pi runner</h2>
+    <p>
+      Craig can also launch the <a href="https://pi.dev/">Pi coding agent</a>. Install and authenticate Pi, then enable
+      <code>Pi coding agent runner</code> under Options &gt; Feature Previews. The preview is workspace-local and Pi
+      remains unavailable for new tasks and agent tabs while it is off.
+    </p>
+    <pre><code>{`{
+  "previews": {
+    "piRunner": true
+  }
+}`}</code></pre>
 
     <h2>Selecting a runner</h2>
     <p>
@@ -33,7 +45,8 @@ import "../../styles/global.css";
   "runners": {
     "codex":  { "enabled": true },
     "cursor": { "enabled": true },
-    "claude": { "enabled": false }
+    "claude": { "enabled": false },
+    "pi":    { "enabled": true }
   }
 }`}</code></pre>
 

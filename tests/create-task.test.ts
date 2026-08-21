@@ -51,8 +51,10 @@ describe("taskService.createTask", () => {
   test.each([
     ["cursor", "cursor-agent", "Cursor"],
     ["claude", "claude", "Claude"],
+    ["pi", "pi", "Pi"],
   ] as const)("keeps %s runner metadata independent of the session substrate", async (runner, executable, title) => {
     const { paths, repoId } = await setup(`craig-create-${runner}-`);
+    if (runner === "pi") await configService.save(paths, { previews: { piRunner: true } });
     const result = await taskService.createTask(paths, repoId, `${runner} task`, {
       runner,
       launchProvisioned: async () => undefined,
@@ -62,6 +64,15 @@ describe("taskService.createTask", () => {
     expect(result.runner).toBe(runner);
     expect(task.runnerSession.command).toEqual([executable, `${runner} task`]);
     expect(task.ptyTabs.find((tab) => tab.kind === "agent")).toMatchObject({ title, command: [executable] });
+  });
+
+  test("rejects Pi task creation until its feature preview is enabled", async () => {
+    const { paths, repoId } = await setup("craig-create-pi-disabled-");
+
+    await expect(taskService.createTask(paths, repoId, "pi task", {
+      runner: "pi",
+      launchProvisioned: async () => undefined,
+    })).rejects.toThrow("Enable the piRunner feature preview");
   });
 
   test("allocates the next task id when the first branch already exists", async () => {

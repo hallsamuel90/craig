@@ -4,7 +4,7 @@ import type { RunnerType } from "../src/domain/config/index.js";
 import { buildRunnerPromptSubmission } from "../src/shell/prompt-delivery.js";
 
 describe("runner prompt submission", () => {
-  test.each(["codex", "cursor", "claude"] satisfies RunnerType[])(
+  test.each(["codex", "cursor", "claude", "pi"] satisfies RunnerType[])(
     "keeps the %s paste and submit key in separate writes",
     (runner) => {
       const submission = buildRunnerPromptSubmission(runner, "review this\nthen report");

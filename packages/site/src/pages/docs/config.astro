@@ -18,7 +18,8 @@ import "../../styles/global.css";
   "runners": {
     "codex":  { "enabled": true },
     "cursor": { "enabled": true },
-    "claude": { "enabled": false }
+    "claude": { "enabled": false },
+    "pi":     { "enabled": true }
   },
   "checks": {
     "commands": ["pnpm test", "pnpm typecheck", "pnpm lint"]
@@ -30,7 +31,8 @@ import "../../styles/global.css";
     "watchIntervalSeconds": 5
   },
   "previews": {
-    "agentOrchestration": false
+    "agentOrchestration": false,
+    "piRunner": false
   }
 }`}</code></pre>
 
@@ -64,8 +66,9 @@ import "../../styles/global.css";
     <h2>previews</h2>
     <p>
       Agent activity indicators are built in and enabled by default. The previews object enables experimental,
-      workspace-local features. <code>agentOrchestration</code> is off by default and may change or be removed. You
-      can also toggle it from Options &gt; Feature Previews in the TUI. See
+      workspace-local features. <code>agentOrchestration</code> and <code>piRunner</code> are off by default and may
+      change or be removed. Enabling <code>piRunner</code> makes the Pi coding agent available in runner selectors.
+      You can toggle both from Options &gt; Feature Previews in the TUI. See
       <a href="/docs/orchestration/">Agent Orchestration</a> for the safety and recovery model.
     </p>
   </div>

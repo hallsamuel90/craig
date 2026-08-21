@@ -2,7 +2,7 @@ import { describe, expect, test } from "vitest";
 import { isRunnerType } from "./is-runner-type.js";
 
 describe("isRunnerType", () => {
-  test.each(["codex", "cursor", "claude"])("returns true for %s", (runner) => {
+  test.each(["codex", "cursor", "claude", "pi"])("returns true for %s", (runner) => {
     expect(isRunnerType(runner)).toBe(true);
   });
 

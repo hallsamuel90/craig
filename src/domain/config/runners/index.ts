@@ -1,4 +1,4 @@
-export { RUNNER_IDS } from "./runner-ids.js";
+export { RUNNER_IDS, STABLE_RUNNER_IDS } from "./runner-ids.js";
 export { getProfile } from "./get-profile.js";
 export { getConfiguredProfile } from "./get-configured-profile.js";
 export { getEnabled } from "./get-enabled.js";

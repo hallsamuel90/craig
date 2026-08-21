@@ -13,4 +13,9 @@ describe("assertEnabled", () => {
   test("throws when runner is explicitly disabled", () => {
     expect(() => assertEnabled("codex", { runners: { codex: { enabled: false } } })).toThrow('"codex" is disabled');
   });
+
+  test("requires the Pi runner feature preview", () => {
+    expect(() => assertEnabled("pi", { runners: { pi: { enabled: true } } })).toThrow("Enable the piRunner feature preview");
+    expect(() => assertEnabled("pi", { previews: { piRunner: true } })).not.toThrow();
+  });
 });

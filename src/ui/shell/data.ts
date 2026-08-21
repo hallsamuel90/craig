@@ -1592,7 +1592,7 @@ function countRunners(tasks: TaskRecord[]): Record<RunnerType, number> {
       counts[task.runner] += 1;
       return counts;
     },
-    { codex: 0, cursor: 0, claude: 0 },
+    { codex: 0, cursor: 0, claude: 0, pi: 0 },
   );
 }
 

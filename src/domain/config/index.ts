@@ -1,5 +1,5 @@
 export type { CraigConfig, PreviewFeatureId, RunnerConfig, RunnerProfile, RunnerType, VersionCheckResult } from "./types.js";
-export { RUNNER_IDS } from "./runners/index.js";
+export { RUNNER_IDS, STABLE_RUNNER_IDS } from "./runners/index.js";
 export { PREVIEW_FEATURE_IDS } from "./previews/index.js";
 
 import { load, save } from "./config/index.js";
