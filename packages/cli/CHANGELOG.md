@@ -1,5 +1,11 @@
 # craig-cli
 
+## 0.15.4
+
+### Patch Changes
+
+- cb22a89: Keep archived tasks out of the TUI when daemon task refreshes arrive after closing them.
+
 ## 0.15.3
 
 ### Patch Changes
