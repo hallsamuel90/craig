@@ -156,7 +156,10 @@ export async function reloadModel(ctx: AppContext): Promise<void> {
 export function upsertTaskInModel(ctx: AppContext, task: TaskRecord): void {
   ctx.model = {
     ...ctx.model,
-    tasks: [...ctx.model.tasks.filter((entry) => entry.id !== task.id), task]
+    tasks: [
+      ...ctx.model.tasks.filter((entry) => entry.id !== task.id),
+      ...(task.status === "closed" ? [] : [task]),
+    ]
       .sort((left, right) => left.id.localeCompare(right.id)),
   };
 }

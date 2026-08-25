@@ -2312,7 +2312,7 @@ describe("terminal app PTY attach flow", () => {
     expect(ptyRuntime.ensureSession).not.toHaveBeenCalled();
   });
 
-  test("left task row x archives an unmerged task, hides it, and disposes task sessions", async () => {
+  test("left task row x archives an unmerged task, keeps it hidden after daemon refresh, and disposes task sessions", async () => {
     const root = await mkdtemp(join(tmpdir(), "craig-ui-app-"));
     tempRoots.push(root);
     const paths = await setupWorkspace(root);
@@ -2331,6 +2331,10 @@ describe("terminal app PTY attach flow", () => {
     await vi.waitFor(() => expect(stripAnsi(terminal.frames.at(-1) ?? "")).toContain("Archived task task_20260430_02"));
     await vi.waitFor(async () => expect((await readTask(paths, task.id)).status).toBe("closed"), { timeout: 10000 });
     await vi.waitFor(() => expect(stripAnsi(terminal.frames.at(-1) ?? "")).toContain("· no tasks yet"));
+    const renderCount = terminal.hideCursor.mock.calls.length;
+    ptyRuntime.emitTasksChanged([task.id]);
+    await vi.waitFor(() => expect(terminal.hideCursor.mock.calls.length).toBeGreaterThan(renderCount));
+    expect(stripAnsi(terminal.frames.at(-1) ?? "")).toContain("· no tasks yet");
     terminal.emitKey("q");
 
     await expect(app).resolves.toBe(0);
