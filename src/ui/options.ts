@@ -43,6 +43,7 @@ export const OPTIONS_MENU_ITEMS = ["Runners", "Feature Previews", "Logs", "Help"
 
 const PREVIEW_LABELS: Record<PreviewFeatureId, string> = {
   agentOrchestration: "Agent orchestration",
+  fileOpen: "Agent file opening",
   piRunner: "Pi coding agent runner",
 };
 

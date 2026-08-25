@@ -72,6 +72,50 @@ describe("CLI execution contract", () => {
     });
   });
 
+  test("gates file-open navigation behind the fileOpen preview", async () => {
+    const root = await createRepoRoot("craig-cli-file-preview-");
+    tempRoots.push(root);
+    await createCraigState(root);
+    await writeFile(path.join(root, "notes.md"), "hello\n", "utf8");
+    const output = createOutput();
+
+    const exitCode = await runCli(createOptions(root, ["file", "open", "notes.md", "--json"], output));
+
+    expect(exitCode).toBe(2);
+    expect(output.stdout).toEqual([]);
+    expect(JSON.parse(output.stderr[0]!)).toMatchObject({
+      command: "file.open",
+      error: { code: "CLI_USAGE", details: { preview: "fileOpen" } },
+    });
+  });
+
+  test("validates arbitrary file paths before requiring a connected TUI", async () => {
+    const root = await createRepoRoot("craig-cli-file-open-");
+    tempRoots.push(root);
+    const paths = await createCraigState(root);
+    await configService.save(paths, { previews: { fileOpen: true } });
+    const output = createOutput();
+
+    const missingExit = await runCli(createOptions(root, ["file", "open", "missing.md", "--json"], output));
+    expect(missingExit).toBe(2);
+    expect(JSON.parse(output.stderr.pop()!)).toMatchObject({
+      command: "file.open",
+      error: { code: "CLI_USAGE", details: { path: path.join(root, "missing.md") } },
+    });
+
+    await writeFile(path.join(root, "notes.md"), "hello\n", "utf8");
+    const disconnectedExit = await runCli(createOptions(root, ["file", "open", "notes.md", "--json"], output));
+    expect(disconnectedExit).toBe(5);
+    expect(JSON.parse(output.stderr.pop()!)).toMatchObject({
+      command: "file.open",
+      error: {
+        code: "EXTERNAL_DEPENDENCY_FAILED",
+        retryable: true,
+        details: { path: path.join(root, "notes.md") },
+      },
+    });
+  });
+
   test("resolves task identity from environment without UI selection", async () => {
     const root = await createRepoRoot("craig-cli-task-");
     const worktree = path.join(root, "worktree");

@@ -16,6 +16,7 @@ import { appendTaskId } from "../src/domain/task/adapters/task-store.js";
 import { promptCommandService, readAllEvents } from "../src/domain/orchestration/index.js";
 import { watchWorkspaceEvents } from "../src/shell/events.js";
 import { disposeDaemonSessions, wakeOrchestrationSupervisor } from "../src/shell/pty-daemon-orchestration.js";
+import { requestOpenFile } from "../src/shell/ui-navigation.js";
 import { runCommand } from "../src/shared/exec.js";
 import { createCraigState, createGitRepo, createStubCommands, writeTaskRecord } from "./test-helpers.js";
 
@@ -213,6 +214,32 @@ describe("PTY daemon", () => {
 
       await vi.waitFor(() => expect(onTasksChanged).toHaveBeenCalledWith(["task_child"]), { timeout: 2_500 });
       client.disposeAll();
+    } finally {
+      await requestDaemonShutdown(paths);
+      await daemon;
+      await rm(root, { recursive: true, force: true });
+    }
+  }, DAEMON_TEST_TIMEOUT_MS);
+
+  test("delivers file-open navigation only to subscribed TUI clients", async () => {
+    const root = await createWorkspace();
+    const paths = getCraigPaths(root);
+    const onOpenFile = vi.fn();
+    const daemon = servePtyDaemon(paths, { pullRequestSync: false });
+
+    try {
+      const client = await createDaemonPtyRuntime({
+        paths,
+        workspaceRoot: root,
+        onOpenFile,
+        resolveSessionSpec: () => ({ cwd: root, command: [] }),
+      });
+      const filePath = join(root, "notes.md");
+
+      await expect(requestOpenFile(paths, filePath)).resolves.toBe(true);
+      await vi.waitFor(() => expect(onOpenFile).toHaveBeenCalledWith(filePath));
+      client.disposeAll();
+      await expect(requestOpenFile(paths, filePath)).resolves.toBe(false);
     } finally {
       await requestDaemonShutdown(paths);
       await daemon;

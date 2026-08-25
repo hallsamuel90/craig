@@ -218,6 +218,8 @@ export function formatCommandResult(result: CommandResult): string {
       return result.launched
         ? `Opened task ${result.taskId} at ${result.worktreePath}`
         : result.worktreePath;
+    case "openFile":
+      return `Opened ${result.path} in Craig.`;
     case "runChecks":
       return `Checks ${result.status} for ${result.taskId}: ${result.commands.join(", ")}`;
     case "commitTask":

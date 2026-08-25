@@ -62,6 +62,9 @@ export function parseArgv(argv: string[]): ParsedArgvCommand {
     case "workspace:remove":
       command = { kind: "removeWorkspace", workspaceId: requireSingleValue(args, "Workspace id") };
       break;
+    case "file:open":
+      command = { kind: "openFile", path: requireSingleValue(args, "File path") };
+      break;
     case "task:new":
       command = parseTaskNew(args);
       break;
@@ -257,6 +260,7 @@ export function getCommandName(command: AppCommand): string {
     watchEvents: "events.watch",
     addTaskLink: "link.add",
     listTaskLinks: "link.list",
+    openFile: "file.open",
     refreshInteractiveState: "interactive.refresh",
     showSelectedTask: "task.show",
     streamTaskLogs: "task.logs",
@@ -289,6 +293,7 @@ export function getHelpText(): string {
     "  craig workspace archive <id>  Archive a workspace",
     "  craig workspace restore <id>  Restore an archived workspace",
     "  craig workspace remove <id>  Remove an archived workspace",
+    "  craig file open <path>  Open a readable file in the active Craig TUI (preview)",
     "  craig task new --repo <repo-id> [--runner codex|cursor|claude|pi] <prompt>",
     "  craig task new --workspace <workspace-id> [--runner codex|cursor|claude|pi] <prompt>",
     "  craig task create-child [--parent <task-id>] [--repo <repo-id> | --workspace <workspace-id>] [--runner codex|cursor|claude|pi] [--idempotency-key <key>] <prompt>",

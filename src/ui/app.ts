@@ -27,7 +27,7 @@ import {
   type PreviewOptionsState,
   type RunnerOptionsState,
 } from "./options.js";
-import { createInitialShellState, restoreShellState } from "./state.js";
+import { createInitialShellState, restoreShellState, INSPECTION_TAB_ID } from "./state.js";
 import { getViewport } from "./layout.js";
 import { buildShellData, type ShellData } from "./shell/data.js";
 import type { MainShellPresentation, MainShellRegions, RenderedRegion } from "./render.js";
@@ -41,12 +41,14 @@ import {
   withTerminalView,
   restoreTerminalScreen,
   upsertTaskInModel,
+  persistShellState,
 } from "./shell/sync.js";
 import { hydrateOpenPtyTabs, syncInputCapture } from "./pty/manager.js";
 import { pollPullRequests } from "./workspace/pr-polling.js";
 import { GitHubPollCoordinator, type GitHubPollView } from "../shell/github-poll-coordinator.js";
 import { onKey, onUnknown, onMouse } from "./input/dispatch.js";
 import { Heartbeat } from "../shell/heartbeat.js";
+import { readExternalFile } from "./shell/task-local-inspection.js";
 import { logBackgroundError } from "./actions/index.js";
 import {
   AGENT_ACTIVITY_ANIMATION_FRAMES,
@@ -299,6 +301,49 @@ export async function startTerminalApp(options: TerminalAppOptions = {}): Promis
       );
     };
     ctx.ptyRuntime.setTasksChangedHandler?.(handleTasksChanged);
+
+    let fileOpenQueue = Promise.resolve();
+    const handleOpenFile = (filePath: string) => {
+      fileOpenQueue = fileOpenQueue.then(async () => {
+        const shell = ctx.state.shell;
+        const task = ctx.model.tasks.find((candidate) => candidate.id === shell.selectedTaskId) ?? null;
+        const inspection = task && ctx.model.inspection?.taskId === task.id ? ctx.model.inspection : null;
+        if (!task || !inspection) {
+          throw new Error("Craig needs an active task before it can open a file from an agent session.");
+        }
+
+        const selectedFile = await readExternalFile(filePath);
+        ctx.model = {
+          ...ctx.model,
+          inspection: {
+            ...inspection,
+            filePaths: [...new Set([...inspection.filePaths, filePath])],
+            selectedFilePath: filePath,
+            selectedFile,
+            error: null,
+          },
+        };
+        ctx.ptyRuntime.detach();
+        const nextShell = syncShell(ctx, {
+          ...shell,
+          inputMode: "control",
+          focusedRegion: "center",
+          activeTab: INSPECTION_TAB_ID,
+          inspectionMode: "files",
+          openInspectionKind: "file",
+          selectedFileTreePath: filePath,
+          selectedFilePath: filePath,
+          fileScrollOffset: 0,
+          actionMessage: null,
+        });
+        ctx.state = { mode: "main", shell: nextShell };
+        persistShellState(ctx, nextShell);
+        ctx.render();
+      }).catch((error: unknown) =>
+        logBackgroundError("open file from agent", error, buildActionContext(ctx))
+      );
+    };
+    ctx.ptyRuntime.setOpenFileHandler?.(handleOpenFile);
 
     const buildMainPresentation = (
       renderState: Extract<AppState, { mode: "main" }>,

@@ -1441,6 +1441,36 @@ describe("terminal app PTY attach flow", () => {
     expect(ptyRuntime.ensureSession).not.toHaveBeenCalled();
   });
 
+  test("agent file-open navigation leaves terminal input and displays a file outside the worktree", async () => {
+    const root = await mkdtemp(join(tmpdir(), "craig-ui-agent-file-open-"));
+    tempRoots.push(root);
+    const paths = await setupWorkspace(root);
+    await prepareInspectableTask(paths);
+    const externalPath = join(root, "agent-notes.md");
+    await writeFile(externalPath, "# Agent notes\n\nLook here.\n", "utf8");
+    const terminal = new FakeTerminal();
+    const ptyRuntime = new FakePtyRuntime();
+    const app = startTerminalApp({ terminal, ptyRuntime, uiStateFile: paths.uiStateFile, workspaceRoot: root });
+    await vi.waitFor(() => expect(terminal.hasKeyListener()).toBe(true));
+
+    terminal.emitKey("\r");
+    await vi.waitFor(() => expect(stripAnsi(terminal.frames.at(-1) ?? "")).toContain("TERMINAL"));
+    terminal.emitKey("ENTER");
+    await vi.waitFor(() => expect(ptyRuntime.ensureSession).toHaveBeenCalled());
+
+    ptyRuntime.emitOpenFile(externalPath);
+    await vi.waitFor(() => {
+      const frame = stripAnsi(terminal.frames.at(-1) ?? "");
+      expect(frame).toContain("agent-notes.md");
+      expect(frame).toContain("# Agent notes");
+      expect(frame).toContain("Look here.");
+    });
+    expect(ptyRuntime.detach).toHaveBeenCalled();
+    terminal.emitKey("q");
+
+    await expect(app).resolves.toBe(0);
+  });
+
   test("diff inspector selection opens a grouped file diff without attaching a PTY", async () => {
     const root = await mkdtemp(join(tmpdir(), "craig-ui-app-"));
     tempRoots.push(root);
@@ -2656,6 +2686,7 @@ describe("terminal app PTY attach flow", () => {
       expect(frame).not.toContain("Agent activity indicators");
       expect(frame).toContain("[ ] Agent orchestration");
       expect(frame).toContain("[ ] Pi coding agent runner");
+      expect(frame).toContain("[ ] Agent file opening");
       expect(frame).not.toContain("Incremental center pane");
       expect(frame).toContain("may change or be removed");
     });
@@ -2898,6 +2929,8 @@ class FakePtyRuntime implements PtyRuntimePort {
 
   /* eslint-disable-next-line no-unused-vars */
   private tasksChangedHandler: ((taskIds: string[]) => void) | null = null;
+  /* eslint-disable-next-line no-unused-vars */
+  private openFileHandler: ((path: string) => void) | null = null;
 
   constructor(options: {
     hydrateRows?: boolean;
@@ -2936,9 +2969,17 @@ class FakePtyRuntime implements PtyRuntimePort {
   setTasksChangedHandler = vi.fn((handler: (taskIds: string[]) => void) => {
     this.tasksChangedHandler = handler;
   });
+  /* eslint-disable-next-line no-unused-vars */
+  setOpenFileHandler = vi.fn((handler: (path: string) => void) => {
+    this.openFileHandler = handler;
+  });
 
   emitTasksChanged(taskIds: string[]): void {
     this.tasksChangedHandler?.(taskIds);
+  }
+
+  emitOpenFile(path: string): void {
+    this.openFileHandler?.(path);
   }
 
   getViewState(tabId: string | null): TerminalViewState {

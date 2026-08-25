@@ -30,7 +30,7 @@ Craig gives every task its own Git branch, isolated worktree, and live PTY, then
 
 Bring the agent CLIs you already use—Claude Code, Codex, or Cursor. Craig is not another coding agent; it is the heads-up display and controls around them.
 
-The Pi coding agent is also available as an opt-in feature preview.
+The Pi coding agent is also available as an opt-in feature preview. The Agent file opening preview lets an attached agent run `craig file open <path>` to display any readable text file directly in the active Craig TUI.
 
 _It's like a game, except the PRs are real._
 

@@ -18,6 +18,8 @@ import { cancelTaskTreeAndSessions, createChildTaskAndSession, createRootTaskAnd
 import { configService } from "../domain/config/index.js";
 import { CraigError } from "../domain/error/index.js";
 import { furyRuntimeService } from "../shell/fury-runtime.js";
+import { resolveOpenFilePath } from "../domain/file/index.js";
+import { requestOpenFile } from "../shell/ui-navigation.js";
 
 export interface CommandContext {
   paths: CraigPaths;
@@ -201,6 +203,26 @@ export async function executeCommand(
       return taskService.addTaskLink(context.paths, command.taskId, command.repoId);
     case "listTaskLinks":
       return taskService.listTaskLinks(context.paths, command.taskId);
+    case "openFile": {
+      const config = await configService.load(context.paths);
+      if (!configService.previews.isEnabled(config, "fileOpen")) {
+        throw new CraigError(
+          "CLI_USAGE",
+          "Opening files in the Craig TUI is a feature preview. Enable fileOpen before using this command.",
+          { details: { preview: "fileOpen" } },
+        );
+      }
+      const filePath = await resolveOpenFilePath(context.cwd ?? process.cwd(), command.path);
+      const delivered = await requestOpenFile(context.paths, filePath);
+      if (!delivered) {
+        throw new CraigError(
+          "EXTERNAL_DEPENDENCY_FAILED",
+          "No compatible Craig TUI is connected to this workspace. Restart Craig and try again.",
+          { retryable: true, details: { path: filePath } },
+        );
+      }
+      return { kind: "openFile", path: filePath, delivered };
+    }
     case "refreshInteractiveState":
       throw new Error("Interactive refresh should be handled by the interactive app.");
     case "showTask":

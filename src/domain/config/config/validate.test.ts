@@ -9,8 +9,8 @@ describe("validate", () => {
   });
 
   test("accepts current previews and retired preview config keys", () => {
-    expect(validate({ previews: { incrementalCenterPane: true, agentActivityIndicators: true, agentOrchestration: true, piRunner: true } }, FILE)).toEqual({
-      previews: { incrementalCenterPane: true, agentActivityIndicators: true, agentOrchestration: true, piRunner: true },
+    expect(validate({ previews: { incrementalCenterPane: true, agentActivityIndicators: true, agentOrchestration: true, piRunner: true, fileOpen: true } }, FILE)).toEqual({
+      previews: { incrementalCenterPane: true, agentActivityIndicators: true, agentOrchestration: true, piRunner: true, fileOpen: true },
     });
   });
 

@@ -51,6 +51,8 @@ Craig requires Node.js 22+ and `git`. Install and authenticate at least one supp
 
 The Pi coding agent is available as an opt-in feature preview under Options &gt; Feature Previews.
 
+The Agent file opening preview lets an attached agent run `craig file open <path>` to display any readable text file directly in the active Craig TUI.
+
 ## Quick start
 
 Run `craig` in a full-screen terminal, then work through the TUI:
