@@ -1,5 +1,11 @@
 # craig-cli
 
+## 0.15.5
+
+### Patch Changes
+
+- 619e87b: Add an experimental `craig file open <path>` command that lets agents display any readable file in the active Craig TUI.
+
 ## 0.15.4
 
 ### Patch Changes
