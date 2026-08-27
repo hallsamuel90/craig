@@ -1,5 +1,5 @@
 export type RunnerType = "codex" | "cursor" | "claude" | "pi";
-export type PreviewFeatureId = "agentOrchestration" | "piRunner";
+export type PreviewFeatureId = "agentOrchestration" | "fileOpen" | "piRunner";
 
 export interface RunnerConfig {
   enabled?: boolean;
@@ -27,6 +27,7 @@ export interface CraigConfig {
     incrementalCenterPane?: boolean;
     agentActivityIndicators?: boolean;
     agentOrchestration?: boolean;
+    fileOpen?: boolean;
     piRunner?: boolean;
   };
 }

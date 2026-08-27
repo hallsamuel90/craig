@@ -60,6 +60,7 @@ export interface PtyRuntimePort {
   setActivityEnabled?(...args: [boolean]): void;
   setPullRequestPollView?(...args: [GitHubPollView]): void;
   setTasksChangedHandler?(...args: [(taskIds: string[]) => void]): void;
+  setOpenFileHandler?(...args: [(path: string) => void]): void;
 }
 /* eslint-enable no-unused-vars */
 

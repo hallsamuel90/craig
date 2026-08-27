@@ -14,6 +14,7 @@ describe("CLI argument parsing", () => {
     [["workspace", "archive", "workspace_1"], "archiveWorkspace"],
     [["workspace", "restore", "workspace_1"], "restoreWorkspace"],
     [["workspace", "remove", "workspace_1"], "removeWorkspace"],
+    [["file", "open", "notes/design.md"], "openFile"],
     [["task", "new", "--repo", "repo_1", "ship it"], "createTask"],
     [["task", "create-child", "--parent", "task_1", "--repo", "repo_1", "ship it"], "createChildTask"],
     [["task", "children", "task_1"], "listTaskChildren"],

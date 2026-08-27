@@ -413,27 +413,35 @@ async function readGuardedFile(worktreePath: string, filePath: string | null): P
   }
 
   const absolutePath = resolveWorktreePath(worktreePath, filePath);
+  return readFileContent(absolutePath, filePath);
+}
+
+export async function readExternalFile(filePath: string): Promise<InspectionContent> {
+  return readFileContent(filePath, filePath);
+}
+
+async function readFileContent(absolutePath: string, displayPath: string): Promise<InspectionContent> {
   try {
     const fileStat = await stat(absolutePath);
     if (fileStat.size > FILE_CONTENT_LIMIT_BYTES) {
-      return buildEmptyContent(filePath, `File is ${fileStat.size} bytes, above the 200 KB inline preview limit.`, "too_large", filePath, fileStat.size);
+      return buildEmptyContent(displayPath, `File is ${fileStat.size} bytes, above the 200 KB inline preview limit.`, "too_large", displayPath, fileStat.size);
     }
 
     const buffer = await readFile(absolutePath);
     if (isBinaryBuffer(buffer)) {
-      return buildEmptyContent(filePath, "Binary file preview is not available in Craig.", "binary", filePath, buffer.byteLength);
+      return buildEmptyContent(displayPath, "Binary file preview is not available in Craig.", "binary", displayPath, buffer.byteLength);
     }
 
     return {
-      path: filePath,
+      path: displayPath,
       status: "ready",
-      title: filePath,
+      title: displayPath,
       lines: buffer.toString("utf8").split("\n"),
       byteLength: buffer.byteLength,
     };
   } catch (error) {
     const message = error instanceof Error ? error.message : "Unable to read file.";
-    return buildEmptyContent(filePath, message, "missing", filePath, null);
+    return buildEmptyContent(displayPath, message, "missing", displayPath, null);
   }
 }
 

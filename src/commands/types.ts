@@ -57,6 +57,7 @@ import type {
   PromptDelivery,
 } from "../domain/orchestration/index.js";
 import type { PromptInput } from "../shell/prompt-commands.js";
+import type { CommandOpenFileResult } from "../domain/file/index.js";
 
 export type AppCommand =
   | { kind: "addWorkspace"; path: string }
@@ -88,6 +89,7 @@ export type AppCommand =
   | { kind: "currentTask" }
   | { kind: "addTaskLink"; taskId: string; repoId: string }
   | { kind: "listTaskLinks"; taskId: string }
+  | { kind: "openFile"; path: string }
   | { kind: "refreshInteractiveState" }
   | { kind: "showTask"; taskId: string }
   | { kind: "showCurrentTask" }
@@ -178,6 +180,7 @@ export type {
   CommandShowFuryReviewResult,
   CommandActFuryReviewResult,
   CommandWatchFuryResult,
+  CommandOpenFileResult,
 };
 
 export type CommandResult =
@@ -228,4 +231,5 @@ export type CommandResult =
   | CommandDiffResult
   | CommandOpenResult
   | CommandChecksResult
-  | CommandCommitResult;
+  | CommandCommitResult
+  | CommandOpenFileResult;

@@ -50,11 +50,13 @@ type DaemonRequest =
   | { id: number; type: "getViewState"; tabId: string | null }
   | { id: number; type: "getActivitySnapshots" }
   | { id: number; type: "setPullRequestPollView"; view: GitHubPollView }
+  | { id: number; type: "subscribeNavigation" }
+  | { id: number; type: "openFile"; path: string }
   | { id: number; type: "wakeOrchestration" }
   | { id: number; type: "shutdown" };
 
 type DaemonResponse =
-  | { id: number; ok: true; protocolVersion?: number; sessionCount?: number; view?: TerminalViewState; activities?: PtyActivitySnapshot[] }
+  | { id: number; ok: true; protocolVersion?: number; sessionCount?: number; view?: TerminalViewState; activities?: PtyActivitySnapshot[]; deliveredCount?: number }
   | { id: number; ok: false; error: string };
 type DaemonOkResponse = Extract<DaemonResponse, { ok: true }>;
 
@@ -71,6 +73,7 @@ type DaemonEvent =
   | { type: "update"; tabId: string; patch: TerminalViewPatch }
   | { type: "activity"; snapshot: PtyActivitySnapshot }
   | { type: "activityRemoved"; tabId: string }
+  | { type: "openFile"; path: string }
   | { type: "tasksChanged"; taskIds: string[] };
 type DaemonMessage = DaemonResponse | DaemonEvent;
 
@@ -80,6 +83,7 @@ interface ClientViewSubscription {
   view: TerminalViewState | null;
   rowKeys: string[];
   pullRequestPollView: GitHubPollView;
+  navigationEnabled: boolean;
 }
 
 /* eslint-disable no-unused-vars */
@@ -93,6 +97,7 @@ export interface DaemonPtyRuntimeOptions extends PtyRuntimeOptions {
   spawnDaemon?: (workspaceRoot: string) => void;
   activityEnabled?: boolean;
   onTasksChanged?: (taskIds: string[]) => void;
+  onOpenFile?: (path: string) => void;
 }
 
 export interface PtyDaemonServerOptions extends Partial<PtyRuntimeOptions> {
@@ -194,6 +199,8 @@ export class DaemonPtyRuntimeClient {
   private pullRequestPollView: GitHubPollView = { selectedTaskId: null, reviewVisible: false };
   /* eslint-disable-next-line no-unused-vars */
   private tasksChangedHandler: ((taskIds: string[]) => void) | undefined;
+  /* eslint-disable-next-line no-unused-vars */
+  private openFileHandler: ((path: string) => void) | undefined;
   private buffer = "";
   private closed = false;
   private protocolVersion = DAEMON_PROTOCOL_VERSION;
@@ -203,6 +210,7 @@ export class DaemonPtyRuntimeClient {
     this.options = options;
     this.activityEnabled = options.activityEnabled ?? false;
     this.tasksChangedHandler = options.onTasksChanged;
+    this.openFileHandler = options.onOpenFile;
     socket.setEncoding("utf8");
     socket.on("data", (chunk) => this.handleData(String(chunk)));
     socket.on("error", (error) => this.rejectAll(error instanceof Error ? error : new Error(String(error))));
@@ -226,6 +234,7 @@ export class DaemonPtyRuntimeClient {
       await this.send({ type: "setViewUpdateMode", mode: "incremental" });
     }
     await this.send({ type: "setActivityEnabled", enabled: this.activityEnabled });
+    if (this.protocolVersion >= 10) await this.send({ type: "subscribeNavigation" });
     if (this.activityEnabled) {
       await this.refreshActivitySnapshots();
     }
@@ -351,6 +360,11 @@ export class DaemonPtyRuntimeClient {
   /* eslint-disable-next-line no-unused-vars */
   setTasksChangedHandler(handler: (taskIds: string[]) => void): void {
     this.tasksChangedHandler = handler;
+  }
+
+  /* eslint-disable-next-line no-unused-vars */
+  setOpenFileHandler(handler: (path: string) => void): void {
+    this.openFileHandler = handler;
   }
 
   disposeSession(tabId: string): void {
@@ -480,6 +494,9 @@ export class DaemonPtyRuntimeClient {
     }
     if (message.type === "tasksChanged") {
       this.tasksChangedHandler?.(message.taskIds);
+    }
+    if (message.type === "openFile") {
+      this.openFileHandler?.(message.path);
     }
   }
 
@@ -668,6 +685,7 @@ class PtyDaemonServer {
       view: null,
       rowKeys: [],
       pullRequestPollView: { selectedTaskId: null, reviewVisible: false },
+      navigationEnabled: false,
     });
     socket.setEncoding("utf8");
     socket.on("data", (chunk) => {
@@ -734,7 +752,7 @@ class PtyDaemonServer {
     }
 
     try {
-      const view = await this.handleRequest(socket, request);
+      const result = await this.handleRequest(socket, request);
       writeMessage(socket, {
         id: request.id,
         ok: true,
@@ -742,7 +760,7 @@ class PtyDaemonServer {
           ? { protocolVersion: DAEMON_PROTOCOL_VERSION, sessionCount: this.runtime.sessionTabIds().length }
           : {}),
         ...(request.type === "getActivitySnapshots" ? { activities: this.runtime.getActivitySnapshots() } : {}),
-        ...(view ? { view } : {}),
+        ...(typeof result === "number" ? { deliveredCount: result } : result ? { view: result } : {}),
       });
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
@@ -750,7 +768,7 @@ class PtyDaemonServer {
     }
   }
 
-  private async handleRequest(socket: Socket, request: DaemonRequest): Promise<TerminalViewState | null> {
+  private async handleRequest(socket: Socket, request: DaemonRequest): Promise<TerminalViewState | number | null> {
     switch (request.type) {
       case "ping":
         return null;
@@ -850,6 +868,13 @@ class PtyDaemonServer {
       case "setPullRequestPollView":
         this.setPullRequestPollView(socket, request.view);
         return null;
+      case "subscribeNavigation": {
+        const current = this.subscriptions.get(socket);
+        if (current) this.subscriptions.set(socket, { ...current, navigationEnabled: true });
+        return null;
+      }
+      case "openFile":
+        return this.broadcastOpenFile(socket, request.path);
       case "wakeOrchestration":
         await this.ensureOrchestrationSupervisor();
         await this.orchestrationSupervisor!.wake();
@@ -877,6 +902,7 @@ class PtyDaemonServer {
       view,
       rowKeys: view.rows.map(rowKey),
       pullRequestPollView: current?.pullRequestPollView ?? { selectedTaskId: null, reviewVisible: false },
+      navigationEnabled: current?.navigationEnabled ?? false,
     });
     return view;
   }
@@ -912,6 +938,16 @@ class PtyDaemonServer {
     for (const client of this.clients) {
       writeMessage(client, { type: "tasksChanged", taskIds });
     }
+  }
+
+  private broadcastOpenFile(requester: Socket, filePath: string): number {
+    let deliveredCount = 0;
+    for (const [client, subscription] of this.subscriptions) {
+      if (client === requester || !subscription.navigationEnabled) continue;
+      writeMessage(client, { type: "openFile", path: filePath });
+      deliveredCount += 1;
+    }
+    return deliveredCount;
   }
 
   private handleRuntimeUpdate(tabId: string): void {
