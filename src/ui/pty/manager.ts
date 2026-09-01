@@ -207,6 +207,20 @@ export function scheduleTerminalViewportScroll(ctx: AppContext, lines: number): 
   }, 16);
 }
 
+export function scrollTerminalViewportToBottom(ctx: AppContext): void {
+  if (ctx.scrollRenderTimer) {
+    clearTimeout(ctx.scrollRenderTimer);
+    ctx.scrollRenderTimer = null;
+  }
+  ctx.pendingScrollLines = 0;
+
+  ctx.ptyRuntime.scrollViewport(Number.MAX_SAFE_INTEGER);
+  if (ctx.state.mode === "main") {
+    ctx.state = { mode: "main", shell: withTerminalView(ctx, ctx.state.shell) };
+    ctx.render();
+  }
+}
+
 function resolveLeftItemAfterClose(previousLeftItemIds: string[], nextLeftItemIds: string[], closedIndex: number): string | null {
   if (nextLeftItemIds.length === 0) {
     return null;
