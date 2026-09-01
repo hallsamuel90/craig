@@ -58,6 +58,7 @@ import {
   hydrateAndRenderOpenPtyTabs,
   warmSelectedPtyTab,
   scheduleTerminalViewportScroll,
+  scrollTerminalViewportToBottom,
 } from "../pty/manager.js";
 import { refreshPullRequestChecksFromShell } from "../workspace/pr-polling.js";
 import { openWorkspaceBrowser } from "../workspace/browser.js";
@@ -710,6 +711,14 @@ export function onKey(ctx: AppContext, name: unknown): void {
       if (scrollLines !== 0) {
         scheduleTerminalViewportScroll(ctx, scrollLines);
         return;
+      }
+
+      if (
+        isPrintableKey(key) &&
+        (ctx.state.shell.terminal.scrolledBack || ctx.pendingScrollLines < 0) &&
+        isAgentTabId(ctx.state.shell.selectedPtyTabId)
+      ) {
+        scrollTerminalViewportToBottom(ctx);
       }
 
       ctx.ptyRuntime.writeKey(key);
