@@ -1,5 +1,11 @@
 # craig-cli
 
+## 0.15.6
+
+### Patch Changes
+
+- 745a7b9: Return scrolled-back agent conversations to the prompt when typing begins.
+
 ## 0.15.5
 
 ### Patch Changes
