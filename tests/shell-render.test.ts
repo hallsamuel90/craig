@@ -1430,7 +1430,7 @@ describe("terminal shell renderer", () => {
     expect(frame).not.toContain("+ New Task");
   });
 
-  test("renders project task review panel with per-repo target rows", () => {
+  test("renders only changed or PR-bearing repos in a project task review panel", () => {
     const makeTarget = (repoId: string, status: "ready" | "unavailable"): ProjectTaskRepoTarget => ({
       repoId,
       branch: `craig/proj_01/${repoId}`,
@@ -1461,7 +1461,11 @@ describe("terminal shell renderer", () => {
       type: "project",
       repoId: "repo_projects",
       workspaceId: "ws_projects",
-      repoTargets: [makeTarget("repo_alpha", "ready"), makeTarget("repo_beta", "unavailable")],
+      repoTargets: [
+        makeTarget("repo_alpha", "ready"),
+        makeTarget("repo_beta", "ready"),
+        makeTarget("repo_gamma", "unavailable"),
+      ],
     });
     const workspace = {
       id: "ws_projects",
@@ -1469,10 +1473,10 @@ describe("terminal shell renderer", () => {
       name: "projects",
       primaryRepoId: "repo_projects",
       rootPath: "/tmp/projects",
-      discoveredRepoIds: ["repo_alpha", "repo_beta"],
+      discoveredRepoIds: ["repo_alpha", "repo_beta", "repo_gamma"],
       branch: "project",
       status: "active" as const,
-      linkedRepoIds: ["repo_alpha", "repo_beta"],
+      linkedRepoIds: ["repo_alpha", "repo_beta", "repo_gamma"],
       archivedAt: null,
       createdAt: "",
       updatedAt: "",
@@ -1492,22 +1496,25 @@ describe("terminal shell renderer", () => {
         repos: [
           { id: "repo_alpha", name: "alpha", rootPath: "/tmp/projects/alpha", defaultBranch: "main", createdAt: "", updatedAt: "" },
           { id: "repo_beta", name: "beta", rootPath: "/tmp/projects/beta", defaultBranch: "main", createdAt: "", updatedAt: "" },
+          { id: "repo_gamma", name: "gamma", rootPath: "/tmp/projects/gamma", defaultBranch: "main", createdAt: "", updatedAt: "" },
         ],
         tasks: [task],
-        inspection: null,
+        inspection: projectInspectionFixture(task.id, "repo_beta/src/app.ts"),
       },
     );
 
     const frame = renderMainShellFrame(MIN_VIEWPORT, data, { color: false });
     const taskRow = data.leftTree.find((row) => row.taskId === "task_proj_01");
     const modeRow = data.rightInspection?.rows.find((row) => row.id === "inspection-mode");
+    const reviewRows = data.rightInspection?.rows ?? [];
 
     expect(frame).toContain("FILES  REVIEW");
-    expect(frame).toContain("alpha");
-    expect(frame).toContain("beta");
     expect(frame).toContain("#12");
     expect(frame).toContain("✓ ci");
-    expect(frame).toContain("checkout faile");
+    expect(reviewRows.some((row) => row.id === "project-review:repo_alpha")).toBe(true);
+    expect(reviewRows.some((row) => row.id === "project-review:repo_beta")).toBe(true);
+    expect(reviewRows.some((row) => row.id === "project-review:repo_gamma")).toBe(false);
+    expect(frame).not.toContain("checkout faile");
     expect(taskRow?.prBadge?.map((segment) => segment.text).join("")).toContain("✓");
     expect(modeRow?.segments?.map((segment) => segment.text).join("")).toContain("✓");
     expect(frame).not.toContain("P create pr");
@@ -1860,6 +1867,22 @@ function inspectionFixture(input: { selectedFilePath?: string | null; selectedDi
       ],
       byteLength: 80,
     },
+    error: null,
+  };
+}
+
+function projectInspectionFixture(taskId: string, changedPath: string): TaskLocalInspection {
+  return {
+    taskId,
+    fileRows: [],
+    filePaths: [changedPath],
+    diffRows: [{ group: "unstaged", path: changedPath, status: "M", additions: 1, deletions: 0 }],
+    diffPaths: [changedPath],
+    diffContents: {},
+    selectedFilePath: null,
+    selectedDiffPath: changedPath,
+    selectedFile: { path: null, status: "empty", title: "No file selected", lines: [], byteLength: null },
+    selectedDiff: { path: changedPath, status: "ready", title: changedPath, lines: [], byteLength: 0 },
     error: null,
   };
 }

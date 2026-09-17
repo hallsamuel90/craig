@@ -5,7 +5,7 @@ import { workspaceService } from "../../domain/workspace/index.js";
 import { reloadSelectedContent } from "./task-local-inspection.js";
 import { loadWorkspaceShellModel, resolveShellState, resolveSelectedTaskForInspection, getLeftItemIds } from "./loader.js";
 import { getViewport, SHELL_LAYOUT } from "../layout.js";
-import { getReviewInspectionRowCount, getVisibleFileTreeRows } from "./data.js";
+import { getActiveProjectReviewTargets, getReviewInspectionRowCount, getVisibleFileTreeRows } from "./data.js";
 import type { TaskRecord } from "../../domain/task/index.js";
 import { toPersistedUiState, updateTerminalViewState, buildCenterTabIds, type ControlShellState, type FooterToast } from "../state.js";
 import { scrollInspectionContent } from "../input/reducer.js";
@@ -136,7 +136,7 @@ export function getShellKeyOptions(ctx: AppContext, shell: ControlShellState) {
     reviewRowCount: getReviewInspectionRowCount(shell, selectedTask, selectedInspection),
     pageRows: Math.max(5, getViewport(ctx.activeTerminal.width, ctx.activeTerminal.height).height - SHELL_LAYOUT.topRailHeight - 9),
     enabledRunnerIds: ctx.enabledRunnerIds,
-    projectTargetIds: selectedTask?.repoTargets?.map((t) => t.repoId) ?? [],
+    projectTargetIds: getActiveProjectReviewTargets(selectedTask, selectedInspection).map((target) => target.repoId),
   };
 }
 
