@@ -919,7 +919,7 @@ function buildInspectionSection(
     : selectedTarget?.pullRequest ?? (task ? getTaskPrimaryPr(task) : null);
   const modeRows = [renderInspectionModeRow(state, effectivePr), { id: "mode-spacer", text: "", muted: true }];
   if (state.inspectionMode === "review") {
-    const reviewRows = buildReviewInspectionRows(state, task);
+    const reviewRows = buildReviewInspectionRows(state, task, inspection);
     const changeRows = buildDiffInspectionRows(state, inspection);
     const combinedRows = applyReviewScrollAnchor([
       { id: "review-pr-header", text: "PULL REQUEST", muted: true },
@@ -1111,13 +1111,14 @@ function isPrReviewBlocked(pr: Pick<PrBadgeDetail, "mergeStateStatus" | "reviewD
 function buildReviewInspectionRows(
   state: ControlShellState,
   task: TaskRecord | null,
+  inspection: TaskLocalInspection | null,
 ): ShellInspectionRow[] {
   if (!task) {
     return [{ id: "review-empty", text: "No task selected.", muted: true }];
   }
 
   if (task.type === "project" && task.repoTargets?.length) {
-    return buildProjectReviewInspectionRows(state, task);
+    return buildProjectReviewInspectionRows(state, task, inspection);
   }
 
   const primaryPr = getTaskPrimaryPr(task);
@@ -1136,13 +1137,21 @@ const TARGET_ROW_WIDTH = 32;
 function buildProjectReviewInspectionRows(
   state: ControlShellState,
   task: TaskRecord,
+  inspection: TaskLocalInspection | null,
 ): ShellInspectionRow[] {
   const rows: ShellInspectionRow[] = [];
-  const targets = task.repoTargets ?? [];
+  const targets = getActiveProjectReviewTargets(task, inspection);
   const selectedTargetId = state.selectedProjectTargetId ?? targets[0]?.repoId ?? null;
+  const effectiveSelectedTargetId = targets.some((target) => target.repoId === selectedTargetId)
+    ? selectedTargetId
+    : targets[0]?.repoId ?? null;
+
+  if (targets.length === 0) {
+    return [{ id: "project-review-empty", text: "No repos with changes or pull requests.", muted: true }];
+  }
 
   for (const target of targets) {
-    const selected = selectedTargetId === target.repoId;
+    const selected = effectiveSelectedTargetId === target.repoId;
     const focused = state.focusedRegion === "inspector" && selected;
     const repoLabel = target.repoId.startsWith("repo_") ? target.repoId.slice(5) : target.repoId;
 
@@ -1182,7 +1191,7 @@ function buildProjectReviewInspectionRows(
     }
   }
 
-  const selectedTarget = targets.find((t) => t.repoId === selectedTargetId) ?? null;
+  const selectedTarget = targets.find((t) => t.repoId === effectiveSelectedTargetId) ?? null;
   if (selectedTarget?.status === "ready" && selectedTarget.pullRequest.number) {
     rows.push({ id: "target-detail-spacer", text: "" });
     rows.push(...buildPrDetailRows("target", selectedTarget.branch, selectedTarget.pullRequest));
@@ -1191,12 +1200,33 @@ function buildProjectReviewInspectionRows(
   return rows;
 }
 
+export function getActiveProjectReviewTargets(
+  task: TaskRecord | null,
+  inspection: TaskLocalInspection | null,
+): ProjectTaskRepoTarget[] {
+  if (task?.type !== "project") {
+    return [];
+  }
+
+  const changedRepoIds = new Set(
+    inspection?.taskId === task.id
+      ? inspection.diffRows
+        .map((row) => row.path.split("/")[0])
+        .filter((repoId): repoId is string => Boolean(repoId))
+      : [],
+  );
+
+  return (task.repoTargets ?? []).filter(
+    (target) => Boolean(target.pullRequest.number) || changedRepoIds.has(target.repoId),
+  );
+}
+
 export function getReviewInspectionRowCount(
   state: ControlShellState,
   task: TaskRecord | null,
   inspection: TaskLocalInspection | null = null,
 ): number {
-  return 3 + buildReviewInspectionRows(state, task).length + buildDiffInspectionRows(state, inspection).length;
+  return 3 + buildReviewInspectionRows(state, task, inspection).length + buildDiffInspectionRows(state, inspection).length;
 }
 
 interface PrDetail {
