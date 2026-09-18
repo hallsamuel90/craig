@@ -1,5 +1,11 @@
 # craig-cli
 
+## 0.15.7
+
+### Patch Changes
+
+- 2b072ed: Show only repositories with local changes or pull requests in multi-repository task Review panels.
+
 ## 0.15.6
 
 ### Patch Changes
