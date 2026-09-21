@@ -21,3 +21,4 @@ export { openTask } from "./open.js";
 export { markRunnerFailed, recordStartupFailure, markTaskStarted } from "./lifecycle.js";
 export { resolveTaskContext } from "./context.js";
 export type { ResolveTaskContextInput } from "./context.js";
+export { renameTask } from "./rename.js";

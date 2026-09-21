@@ -252,6 +252,14 @@ export interface CommandCurrentTaskResult {
   };
 }
 
+export interface CommandRenameTaskResult {
+  kind: "renameTask";
+  taskId: string;
+  previousTitle: string;
+  title: string;
+  slug: string;
+}
+
 export type TaskPrCommandDisposition =
   | "shown"
   | "discovered"

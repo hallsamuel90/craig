@@ -199,6 +199,12 @@ export async function executeCommand(
         },
       };
     }
+    case "renameTask":
+      return taskService.renameTask(
+        context.paths,
+        command.taskId ?? requireResolvedTaskContext(context).task.id,
+        command.title,
+      );
     case "addTaskLink":
       return taskService.addTaskLink(context.paths, command.taskId, command.repoId);
     case "listTaskLinks":

@@ -6,6 +6,7 @@ import type {
   CommandListTaskLinksResult,
   CommandShowTaskResult,
   CommandCurrentTaskResult,
+  CommandRenameTaskResult,
   CommandTaskPrResult,
   CommandLogsResult,
   CommandDiffResult,
@@ -87,6 +88,7 @@ export type AppCommand =
   | { kind: "actFuryReview"; reviewId: string; action: "approve" | "reject" | "request_changes" | "resubmit"; message?: string }
   | { kind: "listTasks"; repoId?: string; workspaceId?: string }
   | { kind: "currentTask" }
+  | { kind: "renameTask"; taskId?: string; title: string }
   | { kind: "addTaskLink"; taskId: string; repoId: string }
   | { kind: "listTaskLinks"; taskId: string }
   | { kind: "openFile"; path: string }
@@ -139,6 +141,7 @@ export type {
   CommandListTaskLinksResult,
   CommandShowTaskResult,
   CommandCurrentTaskResult,
+  CommandRenameTaskResult,
   CommandTaskPrResult,
   CommandLogsResult,
   CommandDiffResult,
@@ -215,6 +218,7 @@ export type CommandResult =
   | CommandListResult
   | CommandShowTaskResult
   | CommandCurrentTaskResult
+  | CommandRenameTaskResult
   | CommandTaskPrResult
   | CommandAgentListResult
   | CommandAgentStatusResult

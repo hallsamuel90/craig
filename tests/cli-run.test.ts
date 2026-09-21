@@ -10,6 +10,7 @@ import { runCommand } from "../src/shared/exec.js";
 import { configService } from "../src/domain/config/index.js";
 import { ensureTaskCapabilities, promptCommandService } from "../src/domain/orchestration/index.js";
 import { taskService } from "../src/domain/task/index.js";
+import { getCraigPaths } from "../src/state/craig-paths.js";
 
 const tempRoots: string[] = [];
 
@@ -145,6 +146,54 @@ describe("CLI execution contract", () => {
         task: { id: task.id },
         context: { source: "environment", agentTabId: agentTab.id },
       },
+    });
+  });
+
+  test("renames the current agent task without changing its identity or original prompt", async () => {
+    const root = await createRepoRoot("craig-cli-task-rename-");
+    const worktree = path.join(root, "worktree");
+    tempRoots.push(root);
+    await mkdir(worktree, { recursive: true });
+    await createCraigState(root, ["task_1"]);
+    const task = await writeTaskRecord(root, {
+      id: "task_1",
+      title: "random investigation",
+      slug: "random-investigation",
+      worktreePath: worktree,
+    });
+    const agentTab = task.ptyTabs.find((tab) => tab.kind === "agent")!;
+    const output = createOutput();
+
+    const exitCode = await runCli({
+      ...createOptions(worktree, ["task", "rename", "consolidate", "task", "renaming", "--json"], output),
+      env: {
+        CRAIG_WORKSPACE_ROOT: root,
+        CRAIG_TASK_ID: task.id,
+        CRAIG_AGENT_TAB_ID: agentTab.id,
+      },
+    });
+
+    expect(exitCode).toBe(0);
+    expect(output.stderr).toEqual([]);
+    expect(JSON.parse(output.stdout[0]!)).toMatchObject({
+      command: "task.rename",
+      ok: true,
+      data: {
+        kind: "renameTask",
+        taskId: "task_1",
+        previousTitle: "random investigation",
+        title: "consolidate task renaming",
+        slug: "consolidate-task-renaming",
+      },
+    });
+
+    const renamed = await taskService.getTask(getCraigPaths(root), task.id);
+    expect(renamed).toMatchObject({
+      id: task.id,
+      title: "consolidate task renaming",
+      slug: "consolidate-task-renaming",
+      worktreePath: worktree,
+      prompt: { source: "inline", value: "random investigation" },
     });
   });
 
