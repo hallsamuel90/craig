@@ -1,5 +1,11 @@
 # craig-cli
 
+## 0.15.8
+
+### Patch Changes
+
+- 917254c: Refresh development and site dependencies to patched releases.
+
 ## 0.15.7
 
 ### Patch Changes
