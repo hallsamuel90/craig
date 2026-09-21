@@ -3,6 +3,7 @@ import { mkdir, rm, writeFile } from "node:fs/promises";
 import path from "node:path";
 
 import type { CraigPaths } from "../../../state/craig-paths.js";
+import { slugifyTaskTitle } from "./title.js";
 import { writeTask, appendTaskId } from "../adapters/task-store.js";
 import type { CraigConfig, RunnerType } from "../../config/index.js";
 import { configService } from "../../config/index.js";
@@ -174,7 +175,7 @@ export const provisionProjectTask = async (
   const task: TaskRecord = {
     id: taskId,
     title: prompt,
-    slug: slugify(prompt),
+    slug: slugifyTaskTitle(prompt),
     type: "project",
     status: "draft",
     runner,
@@ -268,7 +269,7 @@ const buildDraftTask = (paths: CraigPaths, input: DraftTaskInput): TaskRecord =>
   return {
     id: input.taskId,
     title: input.prompt,
-    slug: slugify(input.prompt),
+    slug: slugifyTaskTitle(input.prompt),
     type: "repo",
     status: "draft",
     runner: input.runner,
@@ -491,12 +492,4 @@ const resolveWorkspaceForRepo = async (
   }
 
   return workspace;
-};
-
-const slugify = (value: string): string => {
-  return value
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, "-")
-    .replace(/^-+|-+$/g, "")
-    .replace(/-{2,}/g, "-");
 };

@@ -163,6 +163,7 @@ function getTaskResolution(command: AppCommand): "none" | "optional" | "required
   if (command.kind === "currentTask" || command.kind === "showCurrentTask") {
     return "required";
   }
+  if (command.kind === "renameTask") return command.taskId ? "none" : "required";
   if (command.kind === "createChildTask") return command.parentTaskId ? "none" : "required";
   if (command.kind === "listTaskChildren" || command.kind === "cancelTaskTree") return command.taskId ? "none" : "required";
   if (isTaskPrCommand(command)) {
@@ -225,6 +226,7 @@ function assertTaskOptionApplies(
 function getPositionalTaskId(command: AppCommand): string | undefined {
   switch (command.kind) {
     case "showTask":
+    case "renameTask":
     case "listTaskLinks":
     case "listTaskChildren":
     case "cancelTaskTree":
@@ -262,7 +264,8 @@ function bindGlobalTaskTarget(command: AppCommand, globalTaskId: string | undefi
     command.kind === "listAgents" || command.kind === "showAgentStatus" || command.kind === "waitTask" ||
     command.kind === "listEvents" || command.kind === "watchEvents"
     || command.kind === "sendAgentPrompt" || command.kind === "listPromptCommands" ||
-    command.kind === "listTaskChildren" || command.kind === "cancelTaskTree" || command.kind === "createChildTask"
+    command.kind === "listTaskChildren" || command.kind === "cancelTaskTree" || command.kind === "createChildTask" ||
+    command.kind === "renameTask"
   ) {
     return command.kind === "createChildTask"
       ? { ...command, parentTaskId: command.parentTaskId ?? globalTaskId }

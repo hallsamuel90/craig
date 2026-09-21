@@ -21,6 +21,7 @@ describe("CLI argument parsing", () => {
     [["task", "cancel-tree", "task_1"], "cancelTaskTree"],
     [["task", "list"], "listTasks"],
     [["task", "show", "task_1"], "showTask"],
+    [["task", "rename", "ship", "the", "right", "thing"], "renameTask"],
     [["task", "pr", "show", "task_1"], "showTaskPr"],
     [["task", "pr", "discover", "task_1"], "discoverTaskPr"],
     [["task", "pr", "link", "task_1", "--pr", "17"], "linkTaskPr"],
@@ -123,6 +124,18 @@ describe("CLI argument parsing", () => {
       kind: "showTask",
       taskId: "task_1",
     });
+  });
+
+  test("parses a task rename title and leaves task targeting to resolved context", () => {
+    expect(parseArgv(["task", "rename", "  consolidate", "the work  "]).command).toEqual({
+      kind: "renameTask",
+      title: "consolidate the work",
+    });
+    expect(parseArgv(["task", "rename", "--task", "task_1", "consolidate", "the work"])).toMatchObject({
+      command: { kind: "renameTask", title: "consolidate the work" },
+      options: { taskId: "task_1" },
+    });
+    expect(() => parseArgv(["task", "rename"])).toThrow(/Task title cannot be empty/);
   });
 
   test("parses child delegation options and context-defaulted tree commands", () => {

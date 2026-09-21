@@ -84,6 +84,9 @@ export function parseArgv(argv: string[]): ParsedArgvCommand {
       requireNoArgs(args, "task current");
       command = { kind: "currentTask" };
       break;
+    case "task:rename":
+      command = { kind: "renameTask", title: requireJoinedValue(args, "Task title") };
+      break;
     case "task:show":
       command = args.length === 0
         ? { kind: "showCurrentTask" }
@@ -241,6 +244,7 @@ export function getCommandName(command: AppCommand): string {
     actFuryReview: "fury.review.action",
     listTasks: "task.list",
     currentTask: "task.current",
+    renameTask: "task.rename",
     showTask: "task.show",
     showCurrentTask: "task.show",
     showTaskPr: "task.pr.show",
@@ -301,6 +305,7 @@ export function getHelpText(): string {
     "  craig task cancel-tree [<task-id>]  Cancel a task and all descendants",
     "  craig task list [--repo <repo-id>]  List known Craig tasks",
     "  craig task current       Show the task resolved from flags, environment, or cwd",
+    "  craig task rename <name> Rename the resolved task without changing its ID or worktree",
     "  craig task show [<id>]   Show task details; omit id to use resolved context",
     "  craig task pr show [<id>] [--repo <repo-id>]",
     "  craig task pr discover [<id>] [--repo <repo-id>]",

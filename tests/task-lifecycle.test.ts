@@ -107,7 +107,7 @@ describe("task lifecycle services", () => {
     await writeTaskRecord(paths.repoRoot, {
       id: "task_1",
       title: "ship phase 1.4",
-      prompt: { source: "inline", value: "ship phase 1.4" },
+      prompt: { source: "inline", value: "original exploratory prompt" },
       status: "review",
       worktreePath: repoRoot,
     });

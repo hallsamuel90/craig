@@ -170,6 +170,8 @@ export function formatCommandResult(result: CommandResult): string {
         `Context source: ${result.context.source}`,
         `Agent tab: ${result.context.agentTabId ?? "none"}`,
       ].join("\n");
+    case "renameTask":
+      return `Renamed task ${result.taskId} from ${JSON.stringify(result.previousTitle)} to ${JSON.stringify(result.title)}.`;
     case "showTaskPr":
     case "discoverTaskPr":
     case "linkTaskPr":

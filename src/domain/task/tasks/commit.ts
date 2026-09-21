@@ -22,7 +22,7 @@ export const commitTask = async (paths: CraigPaths, taskId: string): Promise<Com
     throw new Error(`Task ${task.id} has no uncommitted diff to commit.`);
   }
 
-  const message = task.prompt.value.trim();
+  const message = task.title.trim();
 
   await stageAllChanges(task.worktreePath);
   await commitAllChanges(task.worktreePath, message);
