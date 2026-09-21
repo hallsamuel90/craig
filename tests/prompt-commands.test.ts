@@ -1,6 +1,6 @@
 import { mkdir, readdir, rm, writeFile } from "node:fs/promises";
 
-import { afterEach, describe, expect, test, vi } from "vitest";
+import { afterEach, describe, expect, test, vi, type Mock } from "vitest";
 
 import { configService } from "../src/domain/config/index.js";
 import { taskService } from "../src/domain/task/index.js";
@@ -15,6 +15,7 @@ import { promptCommandShellService } from "../src/shell/prompt-commands.js";
 import { createCraigState, createRepoRoot, writeTaskRecord } from "./test-helpers.js";
 
 const roots: string[] = [];
+type WriteToSession = OrchestrationDeliveryRuntime["writeToSession"];
 
 afterEach(async () => {
   await Promise.all(roots.splice(0).map((root) => rm(root, { recursive: true, force: true })));
@@ -421,7 +422,7 @@ async function setupCommand(): Promise<{
 }
 
 function createRuntime(tabId: string, lastActivityAt: number): OrchestrationDeliveryRuntime & {
-  writeToSession: ReturnType<typeof vi.fn>;
+  writeToSession: Mock<WriteToSession>;
 } {
   return {
     getActivitySnapshots: () => [{
@@ -433,6 +434,6 @@ function createRuntime(tabId: string, lastActivityAt: number): OrchestrationDeli
       error: null,
     }],
     hasRunningSession: () => true,
-    writeToSession: vi.fn(),
+    writeToSession: vi.fn<WriteToSession>(),
   };
 }
