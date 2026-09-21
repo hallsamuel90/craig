@@ -1,5 +1,11 @@
 # craig-cli
 
+## 0.16.0
+
+### Minor Changes
+
+- a79b66d: Add `craig task rename <name>` so users and agents can rename the current task without changing its ID, worktree, or original prompt. Later task commits use the renamed title.
+
 ## 0.15.8
 
 ### Patch Changes
