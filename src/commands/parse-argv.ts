@@ -95,6 +95,17 @@ export function parseArgv(argv: string[]): ParsedArgvCommand {
     case "task:pr":
       command = parseTaskPr(args);
       break;
+    case "task:repo":
+      if (args[0] !== "add") {
+        throw usageError(`Unsupported task repo command: ${args.join(" ")}`);
+      }
+      requireExactLength(args, 3, "task repo add");
+      command = {
+        kind: "addTaskRepoTarget",
+        taskId: requireValueAt(args, 1, "Task id"),
+        repoId: requireValueAt(args, 2, "Repo id"),
+      };
+      break;
     case "task:wait":
       command = parseTaskWait(args);
       break;
@@ -263,6 +274,7 @@ export function getCommandName(command: AppCommand): string {
     listEvents: "events.list",
     watchEvents: "events.watch",
     addTaskLink: "link.add",
+    addTaskRepoTarget: "task.repo.add",
     listTaskLinks: "link.list",
     openFile: "file.open",
     refreshInteractiveState: "interactive.refresh",
@@ -307,6 +319,7 @@ export function getHelpText(): string {
     "  craig task current       Show the task resolved from flags, environment, or cwd",
     "  craig task rename <name> Rename the resolved task without changing its ID or worktree",
     "  craig task show [<id>]   Show task details; omit id to use resolved context",
+    "  craig task repo add <task-id> <repo-id>  Provision a repo target in an existing project task",
     "  craig task pr show [<id>] [--repo <repo-id>]",
     "  craig task pr discover [<id>] [--repo <repo-id>]",
     "  craig task pr link [<id>] --pr <url|number> [--repo <repo-id>]",
@@ -336,7 +349,7 @@ export function getHelpText(): string {
     "  craig task open <id>     Open the task worktree or print its path",
     "  craig task check <id>    Run configured checks for a task",
     "  craig task commit <id>   Commit all task worktree changes",
-    "  craig link add <task-id> <repo-id>  Add a linked repo to a task",
+    "  craig link add <task-id> <repo-id>  Add contextual repo linkage only (does not provision a target)",
     "  craig link list <task-id>  List linked repos for a task",
   ].join("\n");
 }

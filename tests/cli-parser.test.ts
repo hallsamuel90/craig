@@ -22,6 +22,7 @@ describe("CLI argument parsing", () => {
     [["task", "list"], "listTasks"],
     [["task", "show", "task_1"], "showTask"],
     [["task", "rename", "ship", "the", "right", "thing"], "renameTask"],
+    [["task", "repo", "add", "task_1", "repo_1"], "addTaskRepoTarget"],
     [["task", "pr", "show", "task_1"], "showTaskPr"],
     [["task", "pr", "discover", "task_1"], "discoverTaskPr"],
     [["task", "pr", "link", "task_1", "--pr", "17"], "linkTaskPr"],
@@ -136,6 +137,16 @@ describe("CLI argument parsing", () => {
       options: { taskId: "task_1" },
     });
     expect(() => parseArgv(["task", "rename"])).toThrow(/Task title cannot be empty/);
+  });
+
+  test("parses project task repository target attachment", () => {
+    expect(parseArgv(["task", "repo", "add", "task_1", "repo_1"]).command).toEqual({
+      kind: "addTaskRepoTarget",
+      taskId: "task_1",
+      repoId: "repo_1",
+    });
+    expect(() => parseArgv(["task", "repo", "add", "task_1"])).toThrow();
+    expect(() => parseArgv(["task", "repo", "remove", "task_1", "repo_1"])).toThrow();
   });
 
   test("parses child delegation options and context-defaulted tree commands", () => {

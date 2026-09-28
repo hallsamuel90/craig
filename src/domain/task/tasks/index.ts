@@ -17,6 +17,7 @@ export { commitTask } from "./commit.js";
 export { closeTask } from "./close.js";
 export { cleanupTask } from "./cleanup.js";
 export { addTaskLink, listTaskLinks } from "./links.js";
+export { addTaskRepoTarget } from "./repo-targets.js";
 export { openTask } from "./open.js";
 export { markRunnerFailed, recordStartupFailure, markTaskStarted } from "./lifecycle.js";
 export { resolveTaskContext } from "./context.js";

@@ -207,6 +207,8 @@ export async function executeCommand(
       );
     case "addTaskLink":
       return taskService.addTaskLink(context.paths, command.taskId, command.repoId);
+    case "addTaskRepoTarget":
+      return taskService.addTaskRepoTarget(context.paths, command.taskId, command.repoId);
     case "listTaskLinks":
       return taskService.listTaskLinks(context.paths, command.taskId);
     case "openFile": {

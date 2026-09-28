@@ -109,7 +109,16 @@ export function formatCommandResult(result: CommandResult): string {
     case "watchFury":
       return "";
     case "addTaskLink":
-      return `Linked repo ${result.repoId} to task ${result.taskId}: ${result.linkedRepoIds.join(", ")}`;
+      return [
+        `Added contextual repo link ${result.repoId} to task ${result.taskId}: ${result.linkedRepoIds.join(", ")}`,
+        `This does not provision a project task target. Use 'craig task repo add ${result.taskId} ${result.repoId}' for that.`,
+      ].join("\n");
+    case "addTaskRepoTarget":
+      return [
+        `${result.disposition === "added" ? "Added" : "Found"} repo target ${result.repoId} for task ${result.taskId}`,
+        `Branch: ${result.branch}`,
+        `Worktree: ${result.worktreePath}`,
+      ].join("\n");
     case "listTaskLinks":
       if (result.repos.length === 0) {
         return `Task ${result.taskId} has no linked repos.`;
