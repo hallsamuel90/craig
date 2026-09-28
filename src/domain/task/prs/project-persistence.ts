@@ -2,7 +2,7 @@ import type { CraigPaths } from "../../../state/craig-paths.js";
 import { parseGitHubPullRequestUrl, type GhPrView } from "../adapters/github.js";
 import { withTaskLock } from "../adapters/task-lock.js";
 import { getTask } from "../tasks/inspect.js";
-import type { TaskPullRequest, TaskRecord } from "../types.js";
+import type { ProjectTaskRepoTarget, TaskPullRequest, TaskRecord } from "../types.js";
 import { isSamePullRequest, normalizePr, normalizeRequiredChecks, upsertTaskPr } from "./state.js";
 import { persistTaskAndPrStatus } from "./refresh.js";
 
@@ -35,7 +35,16 @@ export async function persistProjectPullRequestView(
     const nextTask: TaskRecord = {
       ...withHistory,
       repoTargets: (withHistory.repoTargets ?? []).map((candidate) =>
-        candidate.repoId === repoId ? { ...candidate, pullRequest } : candidate
+        candidate.repoId === repoId
+          ? {
+              ...candidate,
+              pullRequest: view.headRefName === candidate.branch
+                ? pullRequest
+                : hasBranchMatchingPullRequest(candidate)
+                ? candidate.pullRequest
+                : emptyProjectPullRequest(candidate.pullRequest),
+            }
+          : candidate
       ),
     };
     const persisted = {
@@ -44,6 +53,41 @@ export async function persistProjectPullRequestView(
     };
     return persistTaskAndPrStatus(paths, persisted);
   });
+}
+
+export async function clearMismatchedProjectPullRequest(
+  paths: CraigPaths,
+  taskId: string,
+  repoId: string,
+): Promise<TaskRecord> {
+  return withTaskLock(paths, taskId, async () => {
+    const task = await getTask(paths, taskId);
+    const target = task.repoTargets?.find((candidate) => candidate.repoId === repoId);
+    if (!target) {
+      throw new Error(`Project task ${taskId} has no repo target ${repoId}.`);
+    }
+    if (target.pullRequest.number === null || hasBranchMatchingPullRequest(target)) {
+      return task;
+    }
+
+    const nextTask: TaskRecord = {
+      ...task,
+      repoTargets: (task.repoTargets ?? []).map((candidate) =>
+        candidate.repoId === repoId
+          ? { ...candidate, pullRequest: emptyProjectPullRequest(candidate.pullRequest) }
+          : candidate
+      ),
+    };
+    const persisted = {
+      ...nextTask,
+      status: nextTask.status === "closed" ? nextTask.status : deriveProjectTaskStatus(nextTask),
+    };
+    return persistTaskAndPrStatus(paths, persisted);
+  });
+}
+
+export function hasBranchMatchingPullRequest(target: ProjectTaskRepoTarget): boolean {
+  return target.pullRequest.number !== null && target.pullRequest.headBranch === target.branch;
 }
 
 export function normalizeProjectPullRequest(view: GhPrView): TaskPullRequest {
@@ -111,3 +155,22 @@ const normalizeReviewDecision = (value: string | null) => {
   }
   return null;
 };
+
+const emptyProjectPullRequest = (current: TaskPullRequest): TaskPullRequest => ({
+  provider: "github",
+  owner: current.owner ?? null,
+  repo: current.repo ?? null,
+  number: null,
+  url: null,
+  baseBranch: null,
+  headBranch: null,
+  status: null,
+  draft: false,
+  mergeable: false,
+  mergeStateStatus: null,
+  reviewDecision: null,
+  requiredChecks: [],
+  comments: [],
+  lastSyncedAt: null,
+  lastSyncedHeadSha: null,
+});
