@@ -1,5 +1,11 @@
 # craig-cli
 
+## 0.16.1
+
+### Patch Changes
+
+- d6681cf: Keep project task pull requests aligned with their repository target branches during heartbeat refreshes and expose previous PR history in multi-repo task reviews.
+
 ## 0.16.0
 
 ### Minor Changes
