@@ -1,7 +1,7 @@
 import { describe, expect, test } from "vitest";
 
 import type { TaskLocalInspection } from "../src/ui/shell/task-local-inspection.js";
-import type { ProjectTaskRepoTarget } from "../src/domain/task/index.js";
+import type { ProjectTaskRepoTarget, TaskPR } from "../src/domain/task/index.js";
 import { getMockShellData } from "../src/ui/mock-data.js";
 import { MIN_VIEWPORT } from "../src/ui/layout.js";
 import { OPTIONS_MENU_ITEMS } from "../src/ui/options.js";
@@ -1521,6 +1521,66 @@ describe("terminal shell renderer", () => {
     expect(frame).not.toContain("M merge");
   });
 
+  test("renders previous PR history for each project repo target", () => {
+    const alpha = makeProjectReviewTarget("repo_alpha", "craig/proj_01/alpha", 12);
+    const beta = makeProjectReviewTarget("repo_beta", "craig/proj_01/beta");
+    const task = buildTaskRecord("/tmp/projects", {
+      id: "task_proj_01",
+      title: "scaffold api",
+      type: "project",
+      repoId: "repo_projects",
+      workspaceId: "ws_projects",
+      repoTargets: [alpha, beta],
+      prs: [
+        makeProjectHistoryPr("alpha", 8, "merged", "craig/proj_01/alpha-runtime"),
+        makeProjectHistoryPr("alpha", 12, "open", alpha.branch),
+        makeProjectHistoryPr("beta", 9, "merged", "craig/proj_01/beta-runtime"),
+      ],
+    });
+    const data = buildShellData(
+      {
+        ...createInitialShellState(null),
+        selectedWorkspaceId: "ws_projects",
+        selectedTaskId: task.id,
+        selectedLeftItemId: `task:${task.id}`,
+        selectedProjectTargetId: "repo_beta",
+        focusedRegion: "inspector",
+        inspectionMode: "review",
+      },
+      {
+        workspaceRoot: "/tmp/projects",
+        workspaces: [{
+          id: "ws_projects",
+          kind: "project",
+          name: "projects",
+          primaryRepoId: "repo_projects",
+          rootPath: "/tmp/projects",
+          discoveredRepoIds: ["repo_alpha", "repo_beta"],
+          branch: "project",
+          status: "active",
+          linkedRepoIds: ["repo_alpha", "repo_beta"],
+          archivedAt: null,
+          createdAt: "",
+          updatedAt: "",
+        }],
+        repos: [
+          { id: "repo_alpha", name: "alpha", rootPath: "/tmp/projects/alpha", defaultBranch: "main", createdAt: "", updatedAt: "" },
+          { id: "repo_beta", name: "beta", rootPath: "/tmp/projects/beta", defaultBranch: "main", createdAt: "", updatedAt: "" },
+        ],
+        tasks: [task],
+        inspection: null,
+      },
+    );
+
+    const frame = renderMainShellFrame(MIN_VIEWPORT, data, { color: false });
+    const reviewRows = data.rightInspection?.rows ?? [];
+
+    expect(reviewRows.some((row) => row.id === "project-review:repo_alpha")).toBe(true);
+    expect(reviewRows.some((row) => row.id === "project-review:repo_beta")).toBe(true);
+    expect(frame).toContain("craig/proj_01/beta");
+    expect(frame).toContain("+ 1 previous PR");
+  });
+
   test("keeps project review rollups green for merged child PRs with stale review metadata", () => {
     const makeMergedTarget = (repoId: string, number: number): ProjectTaskRepoTarget => ({
       repoId,
@@ -1631,6 +1691,70 @@ describe("terminal shell renderer", () => {
     );
   });
 });
+
+function makeProjectReviewTarget(
+  repoId: string,
+  branch: string,
+  pullRequestNumber: number | null = null,
+): ProjectTaskRepoTarget {
+  const repository = repoId.replace(/^repo_/, "");
+  return {
+    repoId,
+    branch,
+    repoRoot: `/tmp/projects/${repository}`,
+    worktreePath: `/tmp/craig/.craig/worktrees/proj_01/${repository}`,
+    status: "ready",
+    failureReason: null,
+    checks: { source: { type: "repo_config", path: ".craig/config.json" }, lastRunAt: null, status: "not_run", commands: [], results: [] },
+    lastCommit: null,
+    pullRequest: {
+      provider: "github",
+      owner: "example",
+      repo: repository,
+      number: pullRequestNumber,
+      url: pullRequestNumber ? `https://github.com/example/${repository}/pull/${pullRequestNumber}` : null,
+      baseBranch: pullRequestNumber ? "main" : null,
+      headBranch: pullRequestNumber ? branch : null,
+      status: pullRequestNumber ? "open" : null,
+      mergeable: Boolean(pullRequestNumber),
+      mergeStateStatus: pullRequestNumber ? "CLEAN" : null,
+      requiredChecks: [],
+      lastSyncedAt: pullRequestNumber ? "2026-05-04T00:00:00.000Z" : null,
+      lastSyncedHeadSha: null,
+    },
+    cleanup: { worktreeRemovedAt: null, preservedWorktree: false, warning: null },
+  };
+}
+
+function makeProjectHistoryPr(
+  repository: string,
+  number: number,
+  status: "open" | "merged",
+  headBranch: string,
+): TaskPR {
+  return {
+    provider: "github",
+    owner: "example",
+    repo: repository,
+    number,
+    url: `https://github.com/example/${repository}/pull/${number}`,
+    title: null,
+    status,
+    draft: false,
+    baseBranch: "main",
+    headBranch,
+    mergeable: status === "open",
+    mergeStateStatus: status === "open" ? "CLEAN" : "UNKNOWN",
+    reviewDecision: null,
+    requiredChecks: [],
+    comments: [],
+    createdAt: null,
+    updatedAt: null,
+    mergedAt: status === "merged" ? "2026-05-03T00:00:00.000Z" : null,
+    lastSyncedAt: "2026-05-04T00:00:00.000Z",
+    lastSyncedHeadSha: null,
+  };
+}
 
 function displayWidth(value: string): number {
   let width = 0;

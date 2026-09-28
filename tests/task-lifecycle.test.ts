@@ -5,9 +5,11 @@ import path from "node:path";
 import { afterEach, describe, expect, test } from "vitest";
 
 import { taskService } from "../src/domain/task/index.js";
+import type { ProjectTaskRepoTarget, TaskPullRequest } from "../src/domain/task/index.js";
 const { commitTask, closeTask, runChecks, showTask, listTasks } = taskService;
 const { discoverOrRefresh: discoverOrRefreshPullRequest, discoverOrRefreshAll: discoverOrRefreshAllProjectPullRequests, discoverOrRefreshMany: discoverOrRefreshPullRequests, refreshChecks: refreshPullRequestChecks } = taskService.prs;
 import { readTask } from "../src/domain/task/adapters/task-store.js";
+import { persistProjectPullRequestView } from "../src/domain/task/prs/project-persistence.js";
 import { runCommand } from "../src/shared/exec.js";
 import {
   createCraigState,
@@ -620,6 +622,144 @@ describe("task lifecycle services", () => {
     expect(task.repoTargets?.[0]?.pullRequest.requiredChecks.map((check) => `${check.name}:${check.status}`)).toEqual(["ci:success"]);
   });
 
+  test("heartbeat polling replaces a stale target PR with the PR for the target branch", async () => {
+    const repoRoot = await createRepoRoot("craig-project-pr-branch-repair-");
+    tempRoots.push(repoRoot);
+    const { paths, worktreePath, stubDir } = await createTrackedTaskRepo(repoRoot);
+    process.env.PATH = `${stubDir}:${originalPath}`;
+    await runCommand("git", ["remote", "set-url", "origin", "https://github.com/example/repo.git"], { cwd: worktreePath });
+
+    const branch = "craig/task_1-hardening";
+    const graphqlFile = path.join(repoRoot, "gh-project-branch-repair.json");
+    await writeFile(
+      graphqlFile,
+      JSON.stringify({
+        data: {
+          repository: {
+            item0: {
+              nodes: [{
+                number: 102,
+                url: "https://github.com/example/repo/pull/102",
+                baseRefName: "main",
+                headRefName: branch,
+                headRefOid: "hardening-sha",
+                state: "OPEN",
+                mergeable: "MERGEABLE",
+                mergeStateStatus: "CLEAN",
+                statusCheckRollup: { contexts: { nodes: [] } },
+              }],
+            },
+          },
+        },
+      }),
+      "utf8",
+    );
+    process.env.CRAIG_TEST_GH_GRAPHQL_FILE = graphqlFile;
+    process.env.CRAIG_TEST_GH_EXPECT_GRAPHQL_SELECTOR = branch;
+
+    const originalTask = await writeTaskRecord(paths.repoRoot, {
+      id: "task_1",
+      type: "project",
+      status: "merged",
+      worktreePath,
+      repoTargets: [buildProjectTarget(repoRoot, worktreePath, branch, {
+        number: 99,
+        url: "https://github.com/example/repo/pull/99",
+        headBranch: "craig/task_1-runtime",
+        status: "merged",
+      })],
+    });
+
+    const [result] = await discoverOrRefreshPullRequests(paths, [originalTask]);
+    const task = await readTask(paths, "task_1");
+
+    expect(result).toMatchObject({ discovered: 1, synced: 0, notFound: 0 });
+    expect(task.repoTargets?.[0]?.pullRequest).toMatchObject({
+      number: 102,
+      headBranch: branch,
+      status: "open",
+    });
+  });
+
+  test("heartbeat polling clears a stale target PR when the target branch has no PR", async () => {
+    const repoRoot = await createRepoRoot("craig-project-pr-branch-missing-");
+    tempRoots.push(repoRoot);
+    const { paths, worktreePath, stubDir } = await createTrackedTaskRepo(repoRoot);
+    process.env.PATH = `${stubDir}:${originalPath}`;
+    await runCommand("git", ["remote", "set-url", "origin", "https://github.com/example/repo.git"], { cwd: worktreePath });
+
+    const branch = "craig/task_1-hardening";
+    const graphqlFile = path.join(repoRoot, "gh-project-branch-missing.json");
+    await writeFile(
+      graphqlFile,
+      JSON.stringify({ data: { repository: { item0: { nodes: [] } } } }),
+      "utf8",
+    );
+    process.env.CRAIG_TEST_GH_GRAPHQL_FILE = graphqlFile;
+    process.env.CRAIG_TEST_GH_EXPECT_GRAPHQL_SELECTOR = branch;
+    const originalTask = await writeTaskRecord(paths.repoRoot, {
+      id: "task_1",
+      type: "project",
+      status: "merged",
+      worktreePath,
+      repoTargets: [buildProjectTarget(repoRoot, worktreePath, branch, {
+        number: 99,
+        url: "https://github.com/example/repo/pull/99",
+        headBranch: "craig/task_1-runtime",
+        status: "merged",
+      })],
+    });
+
+    const [result] = await discoverOrRefreshPullRequests(paths, [originalTask]);
+    const task = await readTask(paths, "task_1");
+
+    expect(result).toMatchObject({ discovered: 0, synced: 0, notFound: 1 });
+    expect(task.status).toBe("checked");
+    expect(task.repoTargets?.[0]?.pullRequest).toMatchObject({
+      number: null,
+      headBranch: null,
+      status: null,
+    });
+  });
+
+  test("a stale in-flight heartbeat response cannot overwrite a branch-matching target PR", async () => {
+    const repoRoot = await createRepoRoot("craig-project-pr-stale-response-");
+    tempRoots.push(repoRoot);
+    const paths = await createCraigState(repoRoot);
+    const branch = "craig/task_1-hardening";
+    await writeTaskRecord(paths.repoRoot, {
+      id: "task_1",
+      type: "project",
+      status: "pr_open",
+      repoTargets: [buildProjectTarget(repoRoot, repoRoot, branch, {
+        number: 102,
+        url: "https://github.com/example/repo/pull/102",
+        headBranch: branch,
+        status: "open",
+      })],
+    });
+
+    await persistProjectPullRequestView(paths, "task_1", "repo_test", {
+      number: 99,
+      url: "https://github.com/example/repo/pull/99",
+      baseRefName: "main",
+      headRefName: "craig/task_1-runtime",
+      headRefOid: "runtime-sha",
+      state: "MERGED",
+      mergeable: "UNKNOWN",
+      mergeStateStatus: "UNKNOWN",
+      statusCheckRollup: [],
+    });
+    const task = await readTask(paths, "task_1");
+
+    expect(task.repoTargets?.[0]?.pullRequest).toMatchObject({
+      number: 102,
+      headBranch: branch,
+      status: "open",
+    });
+    expect(task.prs).toContainEqual(expect.objectContaining({ number: 99, status: "merged" }));
+  });
+
   test("discoverOrRefreshAllProjectPullRequests surfaces tracked target refresh failures", async () => {
     const workspaceRoot = await createRepoRoot("craig-project-pr-refresh-fail-");
     tempRoots.push(workspaceRoot);
@@ -1218,4 +1358,48 @@ async function createTrackedTaskRepo(repoRoot: string) {
   tempRoots.push(stubDir);
   await symlink(path.join(fullStubDir, "gh"), path.join(stubDir, "gh"));
   return { paths, worktreePath, stubDir, remoteRepo };
+}
+
+function buildProjectTarget(
+  repoRoot: string,
+  worktreePath: string,
+  branch: string,
+  pullRequest: Partial<TaskPullRequest> = {},
+): ProjectTaskRepoTarget {
+  return {
+    repoId: "repo_test",
+    branch,
+    repoRoot,
+    worktreePath,
+    status: "ready",
+    failureReason: null,
+    checks: {
+      source: { type: "repo_config", path: ".craig/config.json" },
+      lastRunAt: null,
+      status: "not_run",
+      commands: [],
+      results: [],
+    },
+    lastCommit: null,
+    pullRequest: {
+      provider: "github",
+      owner: "example",
+      repo: "repo",
+      number: null,
+      url: null,
+      baseBranch: "main",
+      headBranch: null,
+      status: null,
+      draft: false,
+      mergeable: false,
+      mergeStateStatus: null,
+      reviewDecision: null,
+      requiredChecks: [],
+      comments: [],
+      lastSyncedAt: null,
+      lastSyncedHeadSha: null,
+      ...pullRequest,
+    },
+    cleanup: { worktreeRemovedAt: null, preservedWorktree: false, warning: null },
+  };
 }

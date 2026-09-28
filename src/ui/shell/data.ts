@@ -15,7 +15,7 @@ import {
   getFileIcon,
   getFileIconColor,
 } from "../icons.js";
-import type { ProjectTaskRepoTarget, TaskPullRequest, TaskPullRequestCheck, TaskPullRequestComment, TaskPtyTabRecord, TaskRecord } from "../../domain/task/index.js";
+import type { ProjectTaskRepoTarget, TaskPR, TaskPullRequest, TaskPullRequestCheck, TaskPullRequestComment, TaskPtyTabRecord, TaskRecord } from "../../domain/task/index.js";
 import { getTaskPrimaryPr } from "../../domain/task/index.js";
 import type { RepoRecord, WorkspaceRecord } from "../../domain/workspace/index.js";
 import { configService } from "../../domain/config/index.js";
@@ -1192,9 +1192,19 @@ function buildProjectReviewInspectionRows(
   }
 
   const selectedTarget = targets.find((t) => t.repoId === effectiveSelectedTargetId) ?? null;
-  if (selectedTarget?.status === "ready" && selectedTarget.pullRequest.number) {
+  const previousPullRequests = selectedTarget
+    ? getProjectTargetPreviousPullRequests(task, selectedTarget)
+    : [];
+  if (selectedTarget?.status === "ready" && (selectedTarget.pullRequest.number || previousPullRequests.length > 0)) {
     rows.push({ id: "target-detail-spacer", text: "" });
     rows.push(...buildPrDetailRows("target", selectedTarget.branch, selectedTarget.pullRequest));
+    if (previousPullRequests.length > 0) {
+      rows.push({
+        id: "target-pr-history",
+        text: `+ ${previousPullRequests.length} previous PR${previousPullRequests.length !== 1 ? "s" : ""}`,
+        muted: true,
+      });
+    }
   }
 
   return rows;
@@ -1217,8 +1227,67 @@ export function getActiveProjectReviewTargets(
   );
 
   return (task.repoTargets ?? []).filter(
-    (target) => Boolean(target.pullRequest.number) || changedRepoIds.has(target.repoId),
+    (target) =>
+      Boolean(target.pullRequest.number) ||
+      changedRepoIds.has(target.repoId) ||
+      getProjectTargetPullRequests(task, target).length > 0,
   );
+}
+
+function getProjectTargetPreviousPullRequests(
+  task: TaskRecord,
+  target: ProjectTaskRepoTarget,
+): TaskPR[] {
+  return getProjectTargetPullRequests(task, target).filter((pullRequest) =>
+    pullRequest.number !== target.pullRequest.number &&
+    (pullRequest.status === "merged" || pullRequest.status === "closed")
+  );
+}
+
+function getProjectTargetPullRequests(
+  task: TaskRecord,
+  target: ProjectTaskRepoTarget,
+): TaskPR[] {
+  const repository = getProjectTargetRepository(target, task.prs);
+  if (!repository) {
+    return [];
+  }
+  return task.prs.filter((pullRequest) =>
+    pullRequest.owner?.toLowerCase() === repository.owner &&
+    pullRequest.repo?.toLowerCase() === repository.repo
+  );
+}
+
+function getProjectTargetRepository(
+  target: ProjectTaskRepoTarget,
+  pullRequests: TaskPR[],
+): { owner: string; repo: string } | null {
+  if (target.pullRequest.owner && target.pullRequest.repo) {
+    return {
+      owner: target.pullRequest.owner.toLowerCase(),
+      repo: target.pullRequest.repo.toLowerCase(),
+    };
+  }
+
+  const urlRepository = getGitHubRepositoryFromPullRequestUrl(target.pullRequest.url);
+  if (urlRepository) {
+    return urlRepository;
+  }
+
+  const candidates = pullRequests.filter((pullRequest) =>
+    target.pullRequest.number !== null && pullRequest.number === target.pullRequest.number
+  );
+  const active = candidates.length === 1 ? candidates[0] : null;
+  return active?.owner && active.repo
+    ? { owner: active.owner.toLowerCase(), repo: active.repo.toLowerCase() }
+    : null;
+}
+
+function getGitHubRepositoryFromPullRequestUrl(url: string | null): { owner: string; repo: string } | null {
+  const match = url?.match(/^https:\/\/github\.com\/([^/]+)\/([^/]+)\/pull\/\d+(?:[/?#].*)?$/i);
+  return match?.[1] && match[2]
+    ? { owner: match[1].toLowerCase(), repo: match[2].toLowerCase() }
+    : null;
 }
 
 export function getReviewInspectionRowCount(

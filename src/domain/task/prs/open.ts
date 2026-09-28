@@ -19,7 +19,11 @@ import { GitHubRateLimitError } from "./errors.js";
 import { assertTaskWorktreeExists, getTask } from "../tasks/inspect.js";
 import { getTaskPrimaryPr, isPrTerminal } from "./state.js";
 import { refreshOrDiscoverTargetPullRequest } from "./target.js";
-import { persistProjectPullRequestView } from "./project-persistence.js";
+import {
+  clearMismatchedProjectPullRequest,
+  hasBranchMatchingPullRequest,
+  persistProjectPullRequestView,
+} from "./project-persistence.js";
 
 export type PullRequestSyncDisposition = "discovered" | "synced" | "not_found";
 
@@ -105,13 +109,14 @@ export const discoverOrRefreshPullRequests = async (
     const result = ensurePollResult(results, task);
     if (task.type === "project" && task.repoTargets?.length) {
       for (const target of task.repoTargets.filter((entry) => entry.status === "ready")) {
+        const pollByNumber = hasBranchMatchingPullRequest(target);
         const item: PullRequestBatchItem = {
           id: `${task.id}:${target.repoId}`,
           task,
           targetRepoId: target.repoId,
           worktreePath: target.worktreePath,
-          selector: target.pullRequest.number ? String(target.pullRequest.number) : target.branch,
-          mode: target.pullRequest.number ? "number" : "head",
+          selector: pollByNumber ? String(target.pullRequest.number) : target.branch,
+          mode: pollByNumber ? "number" : "head",
           fallbackSelectors: [],
         };
         await enqueueBatchItem(batchGroups, item).catch(async () => {
@@ -164,6 +169,9 @@ export const discoverOrRefreshPullRequests = async (
         const batchResult = byId.get(item.id);
         const view = batchResult?.view ?? await fetchFirstFallbackPullRequestView(group.worktreePath, item);
         if (!view) {
+          if (item.targetRepoId && item.mode === "head") {
+            await clearMismatchedProjectPullRequest(paths, item.task.id, item.targetRepoId);
+          }
           recordDisposition(result, "not_found", null, null);
           continue;
         }
