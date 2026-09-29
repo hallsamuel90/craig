@@ -1,5 +1,11 @@
 # craig-cli
 
+## 0.17.0
+
+### Minor Changes
+
+- dc15b91: Add `craig task repo add` to provision newly discovered repositories as targets of existing project tasks, and clarify that `craig link add` creates contextual linkage only.
+
 ## 0.16.1
 
 ### Patch Changes
