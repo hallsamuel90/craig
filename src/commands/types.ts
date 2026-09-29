@@ -3,6 +3,7 @@ import type {
   CommandCreateTaskResult,
   CommandListResult,
   CommandAddTaskLinkResult,
+  CommandAddTaskRepoTargetResult,
   CommandListTaskLinksResult,
   CommandShowTaskResult,
   CommandCurrentTaskResult,
@@ -90,6 +91,7 @@ export type AppCommand =
   | { kind: "currentTask" }
   | { kind: "renameTask"; taskId?: string; title: string }
   | { kind: "addTaskLink"; taskId: string; repoId: string }
+  | { kind: "addTaskRepoTarget"; taskId: string; repoId: string }
   | { kind: "listTaskLinks"; taskId: string }
   | { kind: "openFile"; path: string }
   | { kind: "refreshInteractiveState" }
@@ -138,6 +140,7 @@ export type {
   CommandCreateTaskResult,
   CommandListResult,
   CommandAddTaskLinkResult,
+  CommandAddTaskRepoTargetResult,
   CommandListTaskLinksResult,
   CommandShowTaskResult,
   CommandCurrentTaskResult,
@@ -212,6 +215,7 @@ export type CommandResult =
   | CommandActFuryReviewResult
   | CommandWatchFuryResult
   | CommandAddTaskLinkResult
+  | CommandAddTaskRepoTargetResult
   | CommandListTaskLinksResult
   | CommandHelpResult
   | CommandExitResult

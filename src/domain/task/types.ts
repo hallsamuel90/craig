@@ -223,6 +223,15 @@ export interface CommandAddTaskLinkResult {
   linkedRepoIds: string[];
 }
 
+export interface CommandAddTaskRepoTargetResult {
+  kind: "addTaskRepoTarget";
+  disposition: "added" | "unchanged";
+  taskId: string;
+  repoId: string;
+  branch: string;
+  worktreePath: string;
+}
+
 export interface CommandListTaskLinksResult {
   kind: "listTaskLinks";
   taskId: string;

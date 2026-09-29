@@ -125,3 +125,7 @@ export const pushBranch = async (worktreePath: string, branch: string): Promise<
 export const removeWorktree = async (repoRoot: string, worktreePath: string): Promise<void> => {
   await runCommand("git", ["worktree", "remove", "--force", worktreePath], { cwd: repoRoot });
 };
+
+export const deleteBranch = async (repoRoot: string, branch: string): Promise<void> => {
+  await runCommand("git", ["branch", "-D", branch], { cwd: repoRoot });
+};

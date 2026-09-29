@@ -141,35 +141,14 @@ export const provisionProjectTask = async (
     );
   }
 
-  await writeFile(
-    path.join(bundlePath, "manifest.json"),
-    JSON.stringify({
-      taskId,
-      workspaceId,
-      prompt,
-      repos: repoTargets.map((target) => ({
-        repoId: target.repoId,
-        repoName: repos.find((repo) => repo.id === target.repoId)?.name ?? target.repoId,
-        path: path.relative(bundlePath, target.worktreePath),
-        status: target.status,
-        worktreePath: target.worktreePath,
-        failureReason: target.failureReason,
-      })),
-    }, null, 2),
-    "utf8",
-  );
-  await writeFile(
-    path.join(bundlePath, PROJECT_BUNDLE_GUIDE_FILENAME),
-    buildProjectBundleAgentsMarkdown({
-      taskId,
-      workspaceId,
-      prompt,
-      repos,
-      repoTargets,
-      bundlePath,
-    }),
-    "utf8",
-  );
+  await writeProjectBundleMetadata({
+    taskId,
+    workspaceId,
+    prompt,
+    repos,
+    repoTargets,
+    bundlePath,
+  });
 
   const ptyTabs = createDefaultTaskPtyTabs(taskId, prompt, timestamp, runner, options.config ?? {});
   const task: TaskRecord = {
@@ -319,22 +298,8 @@ const provisionProjectRepoTarget = async (
   branch: string,
   worktreePath: string,
 ): Promise<ProjectTaskRepoTarget> => {
-  await mkdir(path.dirname(worktreePath), { recursive: true });
-
   try {
-    await createWorktree(repo.rootPath, branch, worktreePath, repo.defaultBranch);
-    return {
-      repoId: repo.id,
-      branch,
-      repoRoot: repo.rootPath,
-      worktreePath,
-      status: "ready",
-      failureReason: null,
-      checks: buildDefaultChecks(path.relative(paths.workspaceRoot, paths.configFile)),
-      lastCommit: null,
-      pullRequest: buildDefaultPullRequest(),
-      cleanup: buildDefaultCleanup(),
-    };
+    return await createReadyProjectRepoTarget(paths, repo, branch, worktreePath);
   } catch (error) {
     return {
       repoId: repo.id,
@@ -349,6 +314,28 @@ const provisionProjectRepoTarget = async (
       cleanup: buildDefaultCleanup(),
     };
   }
+};
+
+export const createReadyProjectRepoTarget = async (
+  paths: CraigPaths,
+  repo: RepoRecord,
+  branch: string,
+  worktreePath: string,
+): Promise<ProjectTaskRepoTarget> => {
+  await mkdir(path.dirname(worktreePath), { recursive: true });
+  await createWorktree(repo.rootPath, branch, worktreePath, repo.defaultBranch);
+  return {
+    repoId: repo.id,
+    branch,
+    repoRoot: repo.rootPath,
+    worktreePath,
+    status: "ready",
+    failureReason: null,
+    checks: buildDefaultChecks(path.relative(paths.workspaceRoot, paths.configFile)),
+    lastCommit: null,
+    pullRequest: buildDefaultPullRequest(),
+    cleanup: buildDefaultCleanup(),
+  };
 };
 
 const allocateProjectRepoDirectoryNames = (repos: RepoRecord[]): Map<string, string> => {
@@ -406,6 +393,38 @@ const buildProjectBundleAgentsMarkdown = (input: {
     repoRows,
     "",
   ].join("\n");
+};
+
+export const writeProjectBundleMetadata = async (input: {
+  taskId: string;
+  workspaceId: string;
+  prompt: string;
+  repos: RepoRecord[];
+  repoTargets: ProjectTaskRepoTarget[];
+  bundlePath: string;
+}): Promise<void> => {
+  await writeFile(
+    path.join(input.bundlePath, "manifest.json"),
+    JSON.stringify({
+      taskId: input.taskId,
+      workspaceId: input.workspaceId,
+      prompt: input.prompt,
+      repos: input.repoTargets.map((target) => ({
+        repoId: target.repoId,
+        repoName: input.repos.find((repo) => repo.id === target.repoId)?.name ?? target.repoId,
+        path: path.relative(input.bundlePath, target.worktreePath),
+        status: target.status,
+        worktreePath: target.worktreePath,
+        failureReason: target.failureReason,
+      })),
+    }, null, 2),
+    "utf8",
+  );
+  await writeFile(
+    path.join(input.bundlePath, PROJECT_BUNDLE_GUIDE_FILENAME),
+    buildProjectBundleAgentsMarkdown(input),
+    "utf8",
+  );
 };
 
 const buildDefaultChecks = (configPath: string): TaskChecks => {

@@ -252,6 +252,7 @@ function getPositionalTaskId(command: AppCommand): string | undefined {
     case "unlinkTaskPr":
       return command.taskId;
     case "addTaskLink":
+    case "addTaskRepoTarget":
       return command.taskId;
     default:
       return undefined;

@@ -260,6 +260,103 @@ describe("command routing", () => {
       .resolves.toContain("repo-a");
   });
 
+  test("attaches a newly discovered repo target to an existing project task idempotently", async () => {
+    const workspaceRoot = await createRepoRoot("craig-router-project-target-add-");
+    tempRoots.push(workspaceRoot);
+    await createCraigState(workspaceRoot);
+    const paths = getCraigPaths(workspaceRoot);
+
+    for (const name of ["repo-a", "repo-b"]) {
+      const repoRoot = path.join(workspaceRoot, name);
+      await mkdir(repoRoot, { recursive: true });
+      await createGitRepo(repoRoot);
+      await writeFile(path.join(repoRoot, "README.md"), `${name}\n`, "utf8");
+      await runCommand("git", ["add", "README.md"], { cwd: repoRoot });
+      await runCommand("git", ["commit", "-m", "seed"], { cwd: repoRoot });
+    }
+
+    const created = await executeCommand({ kind: "addWorkspace", path: "." }, { paths });
+    if (created.kind !== "createWorkspace") throw new Error("Expected project workspace.");
+    const provisioned = await provisionProjectTask(paths, created.workspace.id, "ship project");
+
+    const addedRepoRoot = path.join(workspaceRoot, "repo-c");
+    await mkdir(addedRepoRoot, { recursive: true });
+    await createGitRepo(addedRepoRoot);
+    await writeFile(path.join(addedRepoRoot, "README.md"), "repo-c\n", "utf8");
+    await runCommand("git", ["add", "README.md"], { cwd: addedRepoRoot });
+    await runCommand("git", ["commit", "-m", "seed"], { cwd: addedRepoRoot });
+    const rescanned = await executeCommand({ kind: "addWorkspace", path: "." }, { paths });
+    if (rescanned.kind !== "createWorkspace") throw new Error("Expected updated project workspace.");
+    const repoC = rescanned.repos.find((repo) => repo.name === "repo-c");
+    if (!repoC) throw new Error("Expected repo-c to be discovered.");
+
+    const command = {
+      kind: "addTaskRepoTarget" as const,
+      taskId: provisioned.task.id,
+      repoId: repoC.id,
+    };
+    const added = await executeCommand(command, { paths });
+    const repeated = await executeCommand(command, { paths });
+    const task = await readTask(paths, provisioned.task.id);
+    const target = task.repoTargets?.find((candidate) => candidate.repoId === repoC.id);
+    const manifest = JSON.parse(await readFile(path.join(task.bundlePath ?? "", "manifest.json"), "utf8")) as {
+      repos: Array<{ repoId: string; path: string; status: string }>;
+    };
+    const agentsGuide = await readFile(path.join(task.bundlePath ?? "", "AGENTS.md"), "utf8");
+
+    expect(added).toMatchObject({ kind: "addTaskRepoTarget", disposition: "added", repoId: repoC.id });
+    expect(repeated).toMatchObject({ kind: "addTaskRepoTarget", disposition: "unchanged", repoId: repoC.id });
+    expect(task.repoTargets?.filter((candidate) => candidate.repoId === repoC.id)).toHaveLength(1);
+    expect(task.linkedRepoIds).toContain(repoC.id);
+    expect(target).toMatchObject({ branch: task.branch, status: "ready" });
+    await expect(readFile(path.join(target?.worktreePath ?? "", "README.md"), "utf8")).resolves.toBe("repo-c\n");
+    expect(manifest.repos).toContainEqual(expect.objectContaining({ repoId: repoC.id, path: "repo-c", status: "ready" }));
+    expect(agentsGuide).toContain(`repo-c (${repoC.id}, ready)`);
+  });
+
+  test("rolls back project target attachment when worktree provisioning fails", async () => {
+    const workspaceRoot = await createRepoRoot("craig-router-project-target-rollback-");
+    tempRoots.push(workspaceRoot);
+    await createCraigState(workspaceRoot);
+    const paths = getCraigPaths(workspaceRoot);
+
+    for (const name of ["repo-a", "repo-b"]) {
+      const repoRoot = path.join(workspaceRoot, name);
+      await mkdir(repoRoot, { recursive: true });
+      await createGitRepo(repoRoot);
+      await writeFile(path.join(repoRoot, "README.md"), `${name}\n`, "utf8");
+      await runCommand("git", ["add", "README.md"], { cwd: repoRoot });
+      await runCommand("git", ["commit", "-m", "seed"], { cwd: repoRoot });
+    }
+
+    const created = await executeCommand({ kind: "addWorkspace", path: "." }, { paths });
+    if (created.kind !== "createWorkspace") throw new Error("Expected project workspace.");
+    const provisioned = await provisionProjectTask(paths, created.workspace.id, "ship project");
+    const manifestPath = path.join(provisioned.bundlePath, "manifest.json");
+    const manifestBefore = await readFile(manifestPath, "utf8");
+
+    const failingRepoRoot = path.join(workspaceRoot, "repo-c");
+    await mkdir(failingRepoRoot, { recursive: true });
+    await createGitRepo(failingRepoRoot);
+    const rescanned = await executeCommand({ kind: "addWorkspace", path: "." }, { paths });
+    if (rescanned.kind !== "createWorkspace") throw new Error("Expected updated project workspace.");
+    const repoC = rescanned.repos.find((repo) => repo.name === "repo-c");
+    if (!repoC) throw new Error("Expected repo-c to be discovered.");
+    await writeRepo(paths, { ...repoC, defaultBranch: "missing" });
+
+    await expect(executeCommand({
+      kind: "addTaskRepoTarget",
+      taskId: provisioned.task.id,
+      repoId: repoC.id,
+    }, { paths })).rejects.toThrow(/Base branch 'missing' does not exist locally/);
+
+    const task = await readTask(paths, provisioned.task.id);
+    expect(task.repoTargets?.some((target) => target.repoId === repoC.id)).toBe(false);
+    expect(task.linkedRepoIds).not.toContain(repoC.id);
+    await expect(readFile(manifestPath, "utf8")).resolves.toBe(manifestBefore);
+    await expect(lstat(path.join(provisioned.bundlePath, "repo-c"))).rejects.toThrow();
+  });
+
   test("provisions an explicitly linked repo child inside its parent project workspace", async () => {
     const workspaceRoot = await createRepoRoot("craig-router-linked-project-child-");
     tempRoots.push(workspaceRoot);

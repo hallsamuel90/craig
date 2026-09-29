@@ -32,6 +32,7 @@ const groups = [
       { cmd: "craig task list [--repo <id>]", desc: "List tasks" },
       { cmd: "craig task current", desc: "Show the task resolved from context" },
       { cmd: "craig task show [<id>]", desc: "Show task details" },
+      { cmd: "craig task repo add <task-id> <repo-id>", desc: "Provision another repository target in a project task" },
       { cmd: "craig task open <id>", desc: "Open the task worktree or print its path" },
       { cmd: "craig task logs <id>", desc: "Stream Craig-managed task logs" },
       { cmd: "craig task diff <id>", desc: "Show the current worktree diff" },
@@ -114,7 +115,7 @@ const groups = [
   {
     name: "Links",
     commands: [
-      { cmd: "craig link add <task-id> <repo-id>", desc: "Link an additional repository to a task" },
+      { cmd: "craig link add <task-id> <repo-id>", desc: "Add contextual repository linkage without provisioning a task target" },
       { cmd: "craig link list <task-id>", desc: "List linked repositories" },
     ],
   },
