@@ -9,7 +9,14 @@ import type { ControlShellState } from "./state.js";
 import type { PtyActivitySnapshot } from "../domain/agent/index.js";
 import type { GitHubPollView } from "../shell/github-poll-coordinator.js";
 
-type OverlayVariant = "boot" | "pause" | "help" | "options" | "runners" | "previews" | "logs";
+export interface CraigUpdateOverlayState {
+  current: string;
+  latest: string;
+  phase: "ready" | "installing" | "success" | "error";
+  error?: string;
+}
+
+type OverlayVariant = "boot" | "pause" | "help" | "options" | "runners" | "previews" | "logs" | "update";
 
 export type AppState =
   | {
@@ -23,6 +30,7 @@ export type AppState =
       runnerOptions?: RunnerOptionsState;
       previewOptions?: PreviewOptionsState;
       log?: CraigLogSnapshot;
+      update?: CraigUpdateOverlayState;
     }
   | { mode: "main"; shell: ControlShellState };
 
@@ -105,5 +113,6 @@ export type AppContext = {
   render: () => void;
   renderTaskNavigation: () => boolean;
   exit: (_: number) => void;
+  installUpdate: (_: string) => Promise<void>;
   /* eslint-enable no-unused-vars */
 };
