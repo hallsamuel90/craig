@@ -12,6 +12,7 @@ import type { TerminalCellStyle, TerminalRowSegment } from "./terminal-emulator.
 import type { FooterToast } from "./state.js";
 import { isPtyTab } from "./state.js";
 import type { AgentActivityState } from "./agent-activity.js";
+import type { CraigUpdateOverlayState } from "./app-context.js";
 
 export interface RenderOptions {
   color?: boolean;
@@ -127,6 +128,46 @@ export function renderPauseOverlayFrame(viewport: Viewport, options: RenderOptio
     color: options.color ?? true,
     versionText: options.versionText ?? null,
     updateText: options.updateText ?? null,
+  });
+}
+
+export function renderCraigUpdateOverlayFrame(
+  viewport: Viewport,
+  update: CraigUpdateOverlayState,
+  options: Pick<RenderOptions, "color" | "menuIndex"> = {},
+): string {
+  const command = `npm install -g craig-cli@${update.latest}`;
+  const releaseNotes = "https://github.com/hallsamuel90/craig/releases/latest";
+  const presentation = update.phase === "installing"
+    ? {
+        subtitle: `Updating Craig · ${update.current} → ${update.latest}`,
+        menuItems: ["Updating…"],
+        message: command,
+      }
+    : update.phase === "success"
+      ? {
+          subtitle: `Craig ${update.latest} installed · restart to use it`,
+          menuItems: ["Continue", "Exit Craig"],
+          message: "The current Craig session is still running the previous version.",
+        }
+      : update.phase === "error"
+        ? {
+            subtitle: "Craig update failed",
+            menuItems: ["Retry", "Continue"],
+            message: update.error ?? "npm could not install the update.",
+          }
+        : {
+            subtitle: `Update available · ${update.current} → ${update.latest}`,
+            menuItems: ["Update now", "Continue", "Ignore this version"],
+            message: `Release notes: ${releaseNotes}\nRuns: ${command}`,
+          };
+
+  return renderOverlayFrame(viewport, {
+    subtitle: presentation.subtitle,
+    menuItems: presentation.menuItems,
+    menuIndex: options.menuIndex ?? 0,
+    optionsMessage: presentation.message,
+    color: options.color ?? true,
   });
 }
 
@@ -412,7 +453,7 @@ function renderOverlayFrame(
   const lines = new Array<string>(viewport.height).fill(fillSurface(" ".repeat(viewport.width), input.color, PALETTE.overlay));
   const logo = getBannerArtLines();
   const menu = input.menuItems.map((item, index) => `${index === input.menuIndex ? ">" : " "} ${item}`);
-  const messageLines = input.optionsMessage ? ["", input.optionsMessage] : [];
+  const messageLines = input.optionsMessage ? ["", ...input.optionsMessage.split("\n")] : [];
   const body = [...menu, ...messageLines];
   while (body.length < OVERLAY_BODY_ROWS) {
     body.push("");

@@ -41,6 +41,14 @@ describe("checkForUpdate", () => {
     expect(result.updateAvailable).toBe(false);
   });
 
+  test("rejects malformed and prerelease registry versions", async () => {
+    const malformed = await checkForUpdate(deps(mockFetch({ ok: true, json: async () => ({ version: "2.0.0; rm -rf" }) })));
+    const prerelease = await checkForUpdate(deps(mockFetch({ ok: true, json: async () => ({ version: "2.0.0-beta.1" }) })));
+
+    expect(malformed.updateAvailable).toBe(false);
+    expect(prerelease.updateAvailable).toBe(false);
+  });
+
   test("returns cached result on second call within TTL", async () => {
     let calls = 0;
     const fetchFn = mockFetch({ ok: true, json: async () => { calls++; return { version: "2.0.0" }; } });

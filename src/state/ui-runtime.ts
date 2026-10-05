@@ -1,4 +1,4 @@
-import type { RunnerType } from "../domain/config/index.js";
+import type { PreviewFeatureId, RunnerType } from "../domain/config/index.js";
 
 export interface CraigUiRuntime {
   version: 1;
@@ -19,5 +19,7 @@ export interface CraigUiRuntime {
   collapsedFileTreePaths?: string[];
   selectedActionId?: "commit" | "push" | "refresh-checks" | "close-task";
   selectedRunner?: RunnerType;
+  ignoredUpdateVersion?: string;
+  seenPreviewIds?: PreviewFeatureId[];
   updatedAt: string;
 }

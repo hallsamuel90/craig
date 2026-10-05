@@ -68,6 +68,114 @@ describe("terminal app PTY attach flow", () => {
     await expect(app).resolves.toBe(0);
   });
 
+  test("offers and installs an available Craig update before entering the shell", async () => {
+    const root = await mkdtemp(join(tmpdir(), "craig-ui-app-update-"));
+    tempRoots.push(root);
+    const paths = await setupWorkspace(root);
+    const terminal = new FakeTerminal();
+    const ptyRuntime = new FakePtyRuntime();
+    let finishInstall!: () => void;
+    const installUpdate = vi.fn(() => new Promise<void>((resolve) => { finishInstall = resolve; }));
+    const app = startTerminalApp({
+      terminal,
+      ptyRuntime,
+      uiStateFile: paths.uiStateFile,
+      workspaceRoot: root,
+      checkForUpdate: async () => ({ current: "0.13.0", latest: "0.14.0", updateAvailable: true }),
+      installUpdate,
+    });
+    await vi.waitFor(() => expect(stripAnsi(terminal.frames.at(-1) ?? "")).toContain("Update available · 0.13.0 → 0.14.0"));
+
+    const prompt = stripAnsi(terminal.frames.at(-1) ?? "");
+    expect(prompt).toContain("Release notes: https://github.com/hallsamuel90/craig/releases/latest");
+    expect(prompt).toContain("npm install -g craig-cli@0.14.0");
+    terminal.emitKey("ENTER");
+    await vi.waitFor(() => expect(stripAnsi(terminal.frames.at(-1) ?? "")).toContain("Updating Craig"));
+    expect(installUpdate).toHaveBeenCalledWith("0.14.0");
+
+    finishInstall();
+    await vi.waitFor(() => expect(stripAnsi(terminal.frames.at(-1) ?? "")).toContain("restart to use it"));
+    terminal.emitKey("ENTER");
+    await vi.waitFor(() => expect(stripAnsi(terminal.frames.at(-1) ?? "")).toContain("CRAIG"));
+    terminal.emitKey("q");
+    await expect(app).resolves.toBe(0);
+  });
+
+  test("escape continues past the update chooser without installing", async () => {
+    const root = await mkdtemp(join(tmpdir(), "craig-ui-app-skip-update-"));
+    tempRoots.push(root);
+    const paths = await setupWorkspace(root);
+    const terminal = new FakeTerminal();
+    const installUpdate = vi.fn(async () => undefined);
+    const app = startTerminalApp({
+      terminal,
+      ptyRuntime: new FakePtyRuntime(),
+      uiStateFile: paths.uiStateFile,
+      workspaceRoot: root,
+      checkForUpdate: async () => ({ current: "0.13.0", latest: "0.14.0", updateAvailable: true }),
+      installUpdate,
+    });
+    await vi.waitFor(() => expect(stripAnsi(terminal.frames.at(-1) ?? "")).toContain("Update available · 0.13.0 → 0.14.0"));
+
+    terminal.emitKey("ESCAPE");
+    await vi.waitFor(() => expect(stripAnsi(terminal.frames.at(-1) ?? "")).toContain("CRAIG"));
+    expect(installUpdate).not.toHaveBeenCalled();
+    terminal.emitKey("q");
+    await expect(app).resolves.toBe(0);
+  });
+
+  test("ignores one update version and does not prompt for it on the next launch", async () => {
+    const root = await mkdtemp(join(tmpdir(), "craig-ui-app-ignore-update-"));
+    tempRoots.push(root);
+    const paths = await setupWorkspace(root);
+    const checkForUpdate = async () => ({ current: "0.13.0", latest: "0.14.0", updateAvailable: true });
+    const terminal = new FakeTerminal();
+    const app = startTerminalApp({
+      terminal,
+      ptyRuntime: new FakePtyRuntime(),
+      uiStateFile: paths.uiStateFile,
+      workspaceRoot: root,
+      checkForUpdate,
+    });
+    await vi.waitFor(() => expect(stripAnsi(terminal.frames.at(-1) ?? "")).toContain("Ignore this version"));
+    terminal.emitKey("DOWN");
+    terminal.emitKey("DOWN");
+    terminal.emitKey("ENTER");
+    await vi.waitFor(async () => expect(JSON.parse(await readFile(paths.uiStateFile, "utf8")).ignoredUpdateVersion).toBe("0.14.0"));
+    terminal.emitKey("q");
+    await expect(app).resolves.toBe(0);
+
+    const nextTerminal = new FakeTerminal();
+    const nextApp = startTerminalApp({
+      terminal: nextTerminal,
+      ptyRuntime: new FakePtyRuntime(),
+      uiStateFile: paths.uiStateFile,
+      workspaceRoot: root,
+      checkForUpdate,
+    });
+    await vi.waitFor(() => expect(nextTerminal.hasKeyListener()).toBe(true));
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(stripAnsi(nextTerminal.frames.join("\n"))).toContain("crAIg is that you?");
+    expect(stripAnsi(nextTerminal.frames.join("\n"))).not.toContain("Ignore this version");
+    expect(stripAnsi(nextTerminal.frames.join("\n"))).not.toContain("update available");
+    nextTerminal.emitKey("ENTER");
+    nextTerminal.emitKey("q");
+    await expect(nextApp).resolves.toBe(0);
+
+    const laterTerminal = new FakeTerminal();
+    const laterApp = startTerminalApp({
+      terminal: laterTerminal,
+      ptyRuntime: new FakePtyRuntime(),
+      uiStateFile: paths.uiStateFile,
+      workspaceRoot: root,
+      checkForUpdate: async () => ({ current: "0.13.0", latest: "0.15.0", updateAvailable: true }),
+    });
+    await vi.waitFor(() => expect(stripAnsi(laterTerminal.frames.at(-1) ?? "")).toContain("Update available · 0.13.0 → 0.15.0"));
+    laterTerminal.emitKey("ESCAPE");
+    laterTerminal.emitKey("q");
+    await expect(laterApp).resolves.toBe(0);
+  });
+
   test("switches tasks without repainting the inspector", async () => {
     const root = await mkdtemp(join(tmpdir(), "craig-ui-app-regional-nav-"));
     tempRoots.push(root);
@@ -2731,6 +2839,7 @@ describe("terminal app PTY attach flow", () => {
 
     terminal.emitKey("DOWN"); // Options
     terminal.emitKey("ENTER");
+    await vi.waitFor(() => expect(stripAnsi(terminal.frames.at(-1) ?? "")).toContain("Feature Previews · NEW"));
     terminal.emitKey("DOWN"); // Feature Previews
     terminal.emitKey("ENTER");
     await vi.waitFor(() => {
@@ -2738,8 +2847,8 @@ describe("terminal app PTY attach flow", () => {
       expect(frame).toContain("Feature Previews - Experimental");
       expect(frame).not.toContain("Agent activity indicators");
       expect(frame).toContain("[ ] Agent orchestration");
-      expect(frame).toContain("[ ] Pi coding agent runner");
-      expect(frame).toContain("[ ] Agent file opening");
+      expect(frame).toContain("[ ] Pi coding agent runner · NEW");
+      expect(frame).toContain("[ ] Agent file opening · NEW");
       expect(frame).not.toContain("Incremental center pane");
       expect(frame).toContain("may change or be removed");
     });
@@ -2754,7 +2863,11 @@ describe("terminal app PTY attach flow", () => {
     await vi.waitFor(() => expect(stripAnsi(terminal.frames.at(-1) ?? "")).toContain("[x] Pi coding agent runner"));
 
     terminal.emitKey("ESCAPE"); // back to options menu
-    await vi.waitFor(() => expect(stripAnsi(terminal.frames.at(-1) ?? "")).toContain("Configuration"));
+    await vi.waitFor(() => {
+      const frame = stripAnsi(terminal.frames.at(-1) ?? "");
+      expect(frame).toContain("Configuration");
+      expect(frame).not.toContain("Feature Previews · NEW");
+    });
     terminal.emitKey("UP"); // Runners
     terminal.emitKey("ENTER"); // Runners submenu
     await vi.waitFor(() => expect(stripAnsi(terminal.frames.at(-1) ?? "")).toContain("Pi  enabled  default (pi)"));
