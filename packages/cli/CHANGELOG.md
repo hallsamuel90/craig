@@ -1,5 +1,11 @@
 # craig-cli
 
+## 0.17.1
+
+### Patch Changes
+
+- 1f0a83e: Refresh development and site dependencies to address newly disclosed vulnerabilities.
+
 ## 0.17.0
 
 ### Minor Changes
