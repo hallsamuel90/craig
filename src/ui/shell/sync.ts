@@ -1,4 +1,5 @@
 import { writeUiState } from "../../state/ui-state-store.js";
+import type { CraigUiRuntime } from "../../state/ui-runtime.js";
 import { errorService } from "../../domain/error/index.js";
 import { taskService } from "../../domain/task/index.js";
 import { workspaceService } from "../../domain/workspace/index.js";
@@ -86,6 +87,24 @@ export function persistShellState(ctx: AppContext, shell: ControlShellState): vo
   }
 
   ctx.runtimeState = toPersistedUiState(ctx.runtimeState, shell);
+  const nextRuntimeState = ctx.runtimeState;
+  ctx.persistQueue = ctx.persistQueue.then(
+    () => writeUiState({ uiStateFile: ctx.uiStateFile! }, nextRuntimeState),
+    () => writeUiState({ uiStateFile: ctx.uiStateFile! }, nextRuntimeState),
+  );
+  void ctx.persistQueue.catch(() => undefined);
+}
+
+export function persistUiPreferences(
+  ctx: AppContext,
+  preferences: Pick<CraigUiRuntime, "ignoredUpdateVersion" | "seenPreviewIds">,
+): void {
+  if (!ctx.uiStateFile) {
+    ctx.runtimeState = { ...toPersistedUiState(ctx.runtimeState, ctx.state.shell), ...preferences };
+    return;
+  }
+
+  ctx.runtimeState = { ...toPersistedUiState(ctx.runtimeState, ctx.state.shell), ...preferences };
   const nextRuntimeState = ctx.runtimeState;
   ctx.persistQueue = ctx.persistQueue.then(
     () => writeUiState({ uiStateFile: ctx.uiStateFile! }, nextRuntimeState),

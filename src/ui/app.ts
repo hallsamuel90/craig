@@ -12,6 +12,7 @@ import type { PtyRuntimeOptions, PtyViewInvalidation } from "./pty/runtime.js";
 import { createDaemonPtyRuntime } from "./pty/daemon.js";
 import {
   renderBootOverlayFrame,
+  renderCraigUpdateOverlayFrame,
   renderHelpOverlayFrame,
   renderLogsOverlayFrame,
   renderMainShellPresentation,
@@ -19,14 +20,15 @@ import {
   renderPauseOverlayFrame,
 } from "./render.js";
 import {
+  buildOptionsMenuItems,
   buildPreviewSubmenuItems,
   buildRunnersSubmenuItems,
   getPreviewSubmenuMessage,
   getRunnersSubmenuMessage,
-  OPTIONS_MENU_ITEMS,
   type PreviewOptionsState,
   type RunnerOptionsState,
 } from "./options.js";
+import { installCraigUpdate } from "../shell/craig-update.js";
 import { createInitialShellState, restoreShellState, INSPECTION_TAB_ID } from "./state.js";
 import { getViewport } from "./layout.js";
 import { buildShellData, type ShellData } from "./shell/data.js";
@@ -66,6 +68,8 @@ export interface TerminalAppOptions {
   workspaceRoot?: string;
   terminal?: TerminalRuntime;
   ptyRuntime?: PtyRuntimePort;
+  checkForUpdate?: typeof configService.version.checkForUpdate;
+  installUpdate?: typeof installCraigUpdate;
 }
 
 const require = createRequire(import.meta.url);
@@ -211,6 +215,7 @@ export async function startTerminalApp(options: TerminalAppOptions = {}): Promis
       render: () => undefined,
       renderTaskNavigation: () => false,
       exit: (code: number) => resolve(code),
+      installUpdate: options.installUpdate ?? installCraigUpdate,
     };
     ctx.ptyRuntime.setActivityEnabled?.(true);
 
@@ -455,7 +460,7 @@ export async function startTerminalApp(options: TerminalAppOptions = {}): Promis
             : renderState.variant === "options"
               ? renderOptionsOverlayFrame(viewport, {
                   menuIndex: renderState.menuIndex,
-                  optionsMenuItems: OPTIONS_MENU_ITEMS,
+                  optionsMenuItems: buildOptionsMenuItems(ctx.runtimeState?.seenPreviewIds),
                 })
               : renderState.variant === "runners"
                 ? renderOptionsOverlayFrame(viewport, {
@@ -467,16 +472,20 @@ export async function startTerminalApp(options: TerminalAppOptions = {}): Promis
                 : renderState.variant === "previews"
                   ? renderOptionsOverlayFrame(viewport, {
                       menuIndex: getPreviewOptionsState(renderState).menuIndex,
-                      optionsMenuItems: buildPreviewSubmenuItems(ctx.config),
+                      optionsMenuItems: buildPreviewSubmenuItems(ctx.config, ctx.runtimeState?.seenPreviewIds),
                       optionsMessage: getPreviewSubmenuMessage(getPreviewOptionsState(renderState)),
                       optionsSubtitle: "Feature Previews - Experimental",
                     })
-                : renderState.variant === "logs"
-                  ? renderLogsOverlayFrame(viewport, {
-                      logPath: renderState.log?.path ?? paths.logFile,
-                      logLines: renderState.log?.lines ?? [],
-                    })
-                  : renderHelpOverlayFrame(viewport);
+                  : renderState.variant === "update" && renderState.update
+                    ? renderCraigUpdateOverlayFrame(viewport, renderState.update, {
+                        menuIndex: renderState.menuIndex,
+                      })
+                    : renderState.variant === "logs"
+                      ? renderLogsOverlayFrame(viewport, {
+                          logPath: renderState.log?.path ?? paths.logFile,
+                          logLines: renderState.log?.lines ?? [],
+                        })
+                      : renderHelpOverlayFrame(viewport);
         lastShellData = null;
         lastRenderedCenter = null;
         lastRenderedRegions = null;
@@ -577,9 +586,30 @@ export async function startTerminalApp(options: TerminalAppOptions = {}): Promis
       },
     });
     heartbeat.start();
-    void configService.version.checkForUpdate().then((result) => {
+    void (options.checkForUpdate ?? configService.version.checkForUpdate)().then((result) => {
       if (result.updateAvailable && result.latest) {
+        if (ctx.runtimeState?.ignoredUpdateVersion === result.latest) {
+          return;
+        }
         ctx.updateText = `Update available: v${result.latest}`;
+        if (
+          ctx.state.mode === "overlay" &&
+          ctx.state.variant === "boot"
+        ) {
+          ctx.state = {
+            mode: "overlay",
+            variant: "update",
+            menuIndex: 0,
+            optionsMessage: null,
+            shell: ctx.state.shell,
+            update: {
+              current: result.current,
+              latest: result.latest,
+              phase: "ready",
+            },
+          };
+          ctx.pendingClear = true;
+        }
         ctx.render();
       }
     });

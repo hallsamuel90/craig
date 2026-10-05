@@ -11,7 +11,13 @@ interface VersionCheckCache {
 
 const moduleCache: { value: VersionCheckCache | null } = { value: null };
 
-const isNewer = (latest: string, current: string): boolean => {
+const STABLE_VERSION_PATTERN = /^\d+\.\d+\.\d+$/;
+
+export const isNewer = (latest: string, current: string): boolean => {
+  if (!STABLE_VERSION_PATTERN.test(latest) || !STABLE_VERSION_PATTERN.test(current)) {
+    return false;
+  }
+
   const parseSemver = (v: string) => v.split(".").map(Number);
   const [lMaj = 0, lMin = 0, lPat = 0] = parseSemver(latest);
   const [cMaj = 0, cMin = 0, cPat = 0] = parseSemver(current);
