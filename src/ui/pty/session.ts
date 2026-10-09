@@ -1,6 +1,6 @@
 import path from "node:path";
 
-import type { TaskPtyTabRecord } from "../../domain/task/index.js";
+import type { TaskPtyTabRecord, TaskRecord } from "../../domain/task/index.js";
 import type { WorkspaceShellModel } from "../shell/data.js";
 import { CENTER_TERMINAL_GUTTER } from "../render.js";
 import { SHELL_LAYOUT, type Viewport } from "../layout.js";
@@ -10,7 +10,7 @@ export function resolvePtySessionSpec(model: WorkspaceShellModel, tabId: string,
   const task = model.tasks.find((entry) => entry.ptyTabs.some((tab) => tab.id === tabId)) ?? null;
   const tab = task?.ptyTabs.find((entry) => entry.id === tabId) ?? null;
   const cwd = task?.worktreePath ?? workspaceRoot;
-  const command = tab?.kind === "agent" ? resolveAgentCommand(tab) : [];
+  const command = tab?.kind === "agent" ? resolveAgentCommand(tab, task?.runner) : [];
   const taskEnvironment = task
     ? {
         CRAIG_WORKSPACE_ROOT: workspaceRoot,
@@ -43,8 +43,17 @@ function appendGitCeilingDirectory(current: string | undefined, directory: strin
   return entries.includes(directory) ? entries.join(path.delimiter) : [...entries, directory].join(path.delimiter);
 }
 
-function resolveAgentCommand(tab: TaskPtyTabRecord): string[] {
-  return tab.command.length > 0 ? tab.command : ["codex"];
+function resolveAgentCommand(tab: TaskPtyTabRecord, runner: TaskRecord["runner"] | undefined): string[] {
+  const command = tab.command.length > 0 ? tab.command : ["codex"];
+  if (runner !== "codex") {
+    return command;
+  }
+
+  // Craig renders and persists the PTY itself, so Codex must not take over an
+  // alternate screen or attach the embedded session to the user's global daemon.
+  const [executable, ...args] = command;
+  const embeddedFlags = ["--no-alt-screen", "--no-daemon"].filter((flag) => !args.includes(flag));
+  return [executable!, ...embeddedFlags, ...args];
 }
 
 export function getRequiredPtyTabId(task: { id: string; ptyTabs: TaskPtyTabRecord[] }, kind: TaskPtyTabRecord["kind"]): string {
