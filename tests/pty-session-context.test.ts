@@ -9,20 +9,21 @@ describe("PTY session context", () => {
     const task = buildTaskRecord(workspaceRoot, { id: "task_1" });
     const agentTab = task.ptyTabs.find((tab) => tab.kind === "agent")!;
 
-    expect(
-      resolvePtySessionSpec(
-        {
-          workspaceRoot,
-          repos: [],
-          tasks: [task],
-          inspection: null,
-          agentCapabilityTokens: { [agentTab.id]: "capability_test.secret" },
-        },
-        agentTab.id,
+    const spec = resolvePtySessionSpec(
+      {
         workspaceRoot,
-      ),
-    ).toMatchObject({
+        repos: [],
+        tasks: [task],
+        inspection: null,
+        agentCapabilityTokens: { [agentTab.id]: "capability_test.secret" },
+      },
+      agentTab.id,
+      workspaceRoot,
+    );
+
+    expect(spec).toMatchObject({
       cwd: task.worktreePath,
+      command: ["codex", "--no-alt-screen", "--no-daemon"],
       env: {
         CRAIG_WORKSPACE_ROOT: workspaceRoot,
         CRAIG_TASK_ID: task.id,
@@ -30,6 +31,35 @@ describe("PTY session context", () => {
         CRAIG_AGENT_CAPABILITY: "capability_test.secret",
       },
     });
+  });
+
+  test("preserves explicit embedded Codex flags without duplicating them", () => {
+    const workspaceRoot = "/tmp/craig";
+    const task = buildTaskRecord(workspaceRoot, { id: "task_1" });
+    const agentTab = task.ptyTabs.find((tab) => tab.kind === "agent")!;
+    agentTab.command = ["/usr/local/bin/codex", "--no-daemon", "--no-alt-screen"];
+
+    const spec = resolvePtySessionSpec(
+      { workspaceRoot, repos: [], tasks: [task], inspection: null },
+      agentTab.id,
+      workspaceRoot,
+    );
+
+    expect(spec.command).toEqual(["/usr/local/bin/codex", "--no-daemon", "--no-alt-screen"]);
+  });
+
+  test("does not add Codex embedding flags to other agent runners", () => {
+    const workspaceRoot = "/tmp/craig";
+    const task = buildTaskRecord(workspaceRoot, { id: "task_1", runner: "claude" });
+    const agentTab = task.ptyTabs.find((tab) => tab.kind === "agent")!;
+
+    const spec = resolvePtySessionSpec(
+      { workspaceRoot, repos: [], tasks: [task], inspection: null },
+      agentTab.id,
+      workspaceRoot,
+    );
+
+    expect(spec.command).toEqual(["claude"]);
   });
 
   test("does not claim an agent-tab identity for a terminal tab", () => {
