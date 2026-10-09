@@ -1,5 +1,11 @@
 # craig-cli
 
+## 0.17.2
+
+### Patch Changes
+
+- 571d219: Launch embedded Codex agents without the alternate screen or shared daemon so terminal history remains scrollable and Codex does not prompt to restart a global background server with conflicting feature settings.
+
 ## 0.17.1
 
 ### Patch Changes
