@@ -41,6 +41,8 @@ export type PreviewOptionsKeyResult =
 
 export const OPTIONS_MENU_ITEMS = ["Runners", "Feature Previews", "Logs", "Help"];
 
+export const NEW_PREVIEW_FEATURE_IDS = ["piRunner", "fileOpen"] as const satisfies readonly PreviewFeatureId[];
+
 const PREVIEW_LABELS: Record<PreviewFeatureId, string> = {
   agentOrchestration: "Agent orchestration",
   fileOpen: "Agent file opening",
@@ -74,10 +76,20 @@ export function getRunnersSubmenuMessage(state: RunnerOptionsState): string | nu
   return "Enter toggles. E edits the executable path.";
 }
 
-export function buildPreviewSubmenuItems(config: CraigConfig): string[] {
+export function buildOptionsMenuItems(seenPreviewIds: readonly PreviewFeatureId[] = []): string[] {
+  const hasNewPreviews = NEW_PREVIEW_FEATURE_IDS.some((feature) => !seenPreviewIds.includes(feature));
+  return OPTIONS_MENU_ITEMS.map((item, index) => index === 1 && hasNewPreviews ? `${item} · NEW` : item);
+}
+
+export function buildPreviewSubmenuItems(
+  config: CraigConfig,
+  seenPreviewIds: readonly PreviewFeatureId[] = [],
+): string[] {
   return PREVIEW_FEATURE_IDS.map((feature) => {
     const enabled = configService.previews.isEnabled(config, feature);
-    return `${enabled ? "[x]" : "[ ]"} ${PREVIEW_LABELS[feature]}`;
+    const isNew = NEW_PREVIEW_FEATURE_IDS.includes(feature as (typeof NEW_PREVIEW_FEATURE_IDS)[number]) &&
+      !seenPreviewIds.includes(feature);
+    return `${enabled ? "[x]" : "[ ]"} ${PREVIEW_LABELS[feature]}${isNew ? " · NEW" : ""}`;
   });
 }
 

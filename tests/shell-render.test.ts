@@ -5,7 +5,7 @@ import type { ProjectTaskRepoTarget, TaskPR } from "../src/domain/task/index.js"
 import { getMockShellData } from "../src/ui/mock-data.js";
 import { MIN_VIEWPORT } from "../src/ui/layout.js";
 import { OPTIONS_MENU_ITEMS } from "../src/ui/options.js";
-import { renderBootOverlayFrame, renderLogsOverlayFrame, renderMainShellFrame, renderMainShellPresentation, renderOptionsOverlayFrame, renderPauseOverlayFrame } from "../src/ui/render.js";
+import { renderBootOverlayFrame, renderCraigUpdateOverlayFrame, renderLogsOverlayFrame, renderMainShellFrame, renderMainShellPresentation, renderOptionsOverlayFrame, renderPauseOverlayFrame } from "../src/ui/render.js";
 import { createInitialShellState, getLeftItemIds } from "../src/ui/state.js";
 import { buildShellData } from "../src/ui/shell/data.js";
 import { buildTaskRecord } from "./test-helpers.js";
@@ -34,6 +34,21 @@ describe("terminal shell renderer", () => {
     expect(frame).toContain("> Resume");
     expect(frame).toContain("  Options");
     expect(frame).toContain("  Exit");
+  });
+
+  test("renders the Craig update chooser with release notes and the exact npm command", () => {
+    const frame = renderCraigUpdateOverlayFrame(MIN_VIEWPORT, {
+      current: "0.13.0",
+      latest: "0.14.0",
+      phase: "ready",
+    }, { color: false });
+
+    expect(frame).toContain("Update available · 0.13.0 → 0.14.0");
+    expect(frame).toContain("> Update now");
+    expect(frame).toContain("  Continue");
+    expect(frame).toContain("  Ignore this version");
+    expect(frame).toContain("github.com/hallsamuel90/craig/releases/latest");
+    expect(frame).toContain("npm install -g craig-cli@0.14.0");
   });
 
   test("renders leveled log overlay entries", () => {

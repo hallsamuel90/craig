@@ -1,6 +1,6 @@
 import path from "node:path";
 
-import { configService } from "../../domain/config/index.js";
+import { configService, PREVIEW_FEATURE_IDS } from "../../domain/config/index.js";
 import { mutateTask } from "../../domain/task/index.js";
 import { errorService } from "../../domain/error/index.js";
 import { getViewport } from "../layout.js";
@@ -41,6 +41,7 @@ import {
   applyErrorToast,
   reportRecoverableError,
   persistShellState,
+  persistUiPreferences,
   persistTaskPtySelection,
   getShellKeyOptions,
   refreshInspection,
@@ -579,6 +580,7 @@ function handlePreviewsKey(ctx: AppContext, key: string): void {
   }
 
   if (result.kind === "back") {
+    persistUiPreferences(ctx, { seenPreviewIds: [...PREVIEW_FEATURE_IDS] });
     const parentVariant = ctx.state.parentVariant;
     ctx.state = {
       mode: "overlay",
@@ -631,6 +633,125 @@ function handlePreviewsKey(ctx: AppContext, key: string): void {
       };
       ctx.render();
     });
+}
+
+function enterCraigFromBoot(ctx: AppContext): void {
+  const shellBeforeWarm = syncShell(ctx, { ...ctx.state.shell, inputMode: "control" });
+  ctx.state = { mode: "main", shell: shellBeforeWarm };
+  ctx.pendingClear = true;
+  ctx.render();
+  void ctx.bootHydrationReady.then(() => {
+    if (ctx.state.mode !== "main" || ctx.state.shell !== shellBeforeWarm) {
+      return;
+    }
+    void warmSelectedPtyTab(ctx, shellBeforeWarm)
+      .then((shell) => {
+        if (ctx.state.mode !== "main" || ctx.state.shell !== shellBeforeWarm) {
+          return;
+        }
+        ctx.state = { mode: "main", shell };
+        persistShellState(ctx, ctx.state.shell);
+        ctx.render();
+      })
+      .catch((error: unknown) => {
+        if (ctx.state.mode !== "main" || ctx.state.shell !== shellBeforeWarm) {
+          return;
+        }
+        const message = reportRecoverableError(ctx, "warm selected PTY", error, "Failed to start selected PTY.");
+        ctx.state = { mode: "main", shell: applyErrorToast(ctx, syncShell(ctx, ctx.state.shell), message) };
+        persistShellState(ctx, ctx.state.shell);
+        ctx.render();
+      });
+  });
+}
+
+function sanitizeUpdateError(error: unknown): string {
+  const message = error instanceof Error ? error.message : "npm could not install the update.";
+  const printable = [...message]
+    .map((character) => {
+      const code = character.charCodeAt(0);
+      return code <= 31 || (code >= 127 && code <= 159) ? " " : character;
+    })
+    .join("");
+  return printable.replace(/\s+/g, " ").trim().slice(0, 160);
+}
+
+function beginCraigUpdate(ctx: AppContext): void {
+  if (ctx.state.mode !== "overlay" || ctx.state.variant !== "update" || !ctx.state.update) {
+    return;
+  }
+  const latest = ctx.state.update.latest;
+  ctx.state = { ...ctx.state, menuIndex: 0, update: { ...ctx.state.update, phase: "installing" } };
+  ctx.render();
+  void ctx.installUpdate(latest)
+    .then(() => {
+      if (ctx.state.mode !== "overlay" || ctx.state.variant !== "update" || !ctx.state.update) {
+        return;
+      }
+      ctx.state = { ...ctx.state, menuIndex: 0, update: { ...ctx.state.update, phase: "success" } };
+      ctx.pendingClear = true;
+      ctx.render();
+    })
+    .catch((error: unknown) => {
+      if (ctx.state.mode !== "overlay" || ctx.state.variant !== "update" || !ctx.state.update) {
+        return;
+      }
+      const message = sanitizeUpdateError(error);
+      reportRecoverableError(ctx, "update Craig", error, message);
+      ctx.state = {
+        ...ctx.state,
+        menuIndex: 0,
+        update: { ...ctx.state.update, phase: "error", error: message },
+      };
+      ctx.pendingClear = true;
+      ctx.render();
+    });
+}
+
+function handleCraigUpdateKey(ctx: AppContext, key: string): void {
+  if (ctx.state.mode !== "overlay" || ctx.state.variant !== "update" || !ctx.state.update) {
+    return;
+  }
+  const phase = ctx.state.update.phase;
+  if (phase === "installing") {
+    return;
+  }
+  if (key === "ESCAPE") {
+    enterCraigFromBoot(ctx);
+    return;
+  }
+  const maxIndex = phase === "ready" ? 2 : 1;
+  if (key === "UP" || key === "k") {
+    ctx.state = { ...ctx.state, menuIndex: Math.max(0, ctx.state.menuIndex - 1) };
+    ctx.render();
+    return;
+  }
+  if (key === "DOWN" || key === "j") {
+    ctx.state = { ...ctx.state, menuIndex: Math.min(maxIndex, ctx.state.menuIndex + 1) };
+    ctx.render();
+    return;
+  }
+  if (!isEnterKey(key)) {
+    return;
+  }
+  if (phase === "ready" && ctx.state.menuIndex === 0) {
+    beginCraigUpdate(ctx);
+    return;
+  }
+  if (phase === "ready" && ctx.state.menuIndex === 2) {
+    persistUiPreferences(ctx, { ignoredUpdateVersion: ctx.state.update.latest });
+    enterCraigFromBoot(ctx);
+    return;
+  }
+  if (phase === "error" && ctx.state.menuIndex === 0) {
+    beginCraigUpdate(ctx);
+    return;
+  }
+  if (phase === "success" && ctx.state.menuIndex === 1) {
+    ctx.exit(0);
+    return;
+  }
+  enterCraigFromBoot(ctx);
 }
 
 export function onKey(ctx: AppContext, name: unknown): void {
@@ -973,6 +1094,11 @@ export function onKey(ctx: AppContext, name: unknown): void {
     return;
   }
 
+  if (ctx.state.variant === "update") {
+    handleCraigUpdateKey(ctx, key);
+    return;
+  }
+
   if (ctx.state.optionsMessage) {
     if (key === "ESCAPE" || isEnterKey(key)) {
       ctx.state = { ...ctx.state, optionsMessage: null };
@@ -1008,35 +1134,12 @@ export function onKey(ctx: AppContext, name: unknown): void {
 
   if (ctx.state.menuIndex === 0) {
     const fromBoot = ctx.state.variant === "boot";
-    ctx.state = { mode: "main", shell: syncShell(ctx, { ...ctx.state.shell, inputMode: "control" }) };
-    ctx.pendingClear = true;
-    ctx.render();
     if (fromBoot) {
-      void ctx.bootHydrationReady.then(() => {
-        if (ctx.state.mode !== "main") {
-          return;
-        }
-        const shellBeforeWarm = ctx.state.shell;
-        void warmSelectedPtyTab(ctx, shellBeforeWarm)
-          .then((shell) => {
-            if (ctx.state.mode !== "main" || ctx.state.shell !== shellBeforeWarm) {
-              return;
-            }
-            ctx.state = { mode: "main", shell };
-            persistShellState(ctx, ctx.state.shell);
-            ctx.render();
-          })
-          .catch((error: unknown) => {
-            if (ctx.state.mode !== "main" || ctx.state.shell !== shellBeforeWarm) {
-              return;
-            }
-            const message = reportRecoverableError(ctx, "warm selected PTY", error, "Failed to start selected PTY.");
-            ctx.state = { mode: "main", shell: applyErrorToast(ctx, syncShell(ctx, ctx.state.shell), message) };
-            persistShellState(ctx, ctx.state.shell);
-            ctx.render();
-          });
-      });
+      enterCraigFromBoot(ctx);
     } else {
+      ctx.state = { mode: "main", shell: syncShell(ctx, { ...ctx.state.shell, inputMode: "control" }) };
+      ctx.pendingClear = true;
+      ctx.render();
       hydrateAndRenderOpenPtyTabs(ctx);
     }
     return;

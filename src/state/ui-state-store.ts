@@ -79,6 +79,8 @@ function validateUiState(value: unknown, filePath: string): CraigUiRuntime {
     !optionalNullableString(value, "selectedFilePath") ||
     !optionalNullableString(value, "selectedDiffPath") ||
     !optionalStringArray(value, "collapsedFileTreePaths") ||
+    !optionalString(value, "ignoredUpdateVersion") ||
+    !optionalStringArray(value, "seenPreviewIds") ||
     !optionalString(value, "selectedActionId") ||
     typeof (value as Partial<CraigUiRuntime>).updatedAt !== "string"
   ) {
