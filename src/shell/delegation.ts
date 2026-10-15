@@ -12,6 +12,7 @@ import { taskService, type CommandCreateTaskResult, type TaskCreationOptions } f
 import type { CraigPaths } from "../state/craig-paths.js";
 import { disposeDaemonSessions, ensureDaemonAgentSession } from "./pty-daemon-orchestration.js";
 import { requirePromptCommandWake } from "./prompt-commands.js";
+import { buildEmbeddedAgentCommand } from "./agent-command.js";
 
 const INITIAL_PROMPT_TIMEOUT_MS = 60_000;
 
@@ -60,7 +61,10 @@ async function launchDaemonTask(
       taskId: task.id,
       tabId: agentTab.id,
       cwd: task.worktreePath,
-      command: durableInitialPrompt ? agentTab.command : task.runnerSession.command,
+      command: buildEmbeddedAgentCommand(
+        durableInitialPrompt ? agentTab.command : task.runnerSession.command,
+        agentTab.runner ?? task.runner,
+      ),
       ...(environment ? { env: environment } : {}),
     });
     if (!durableInitialPrompt) return;

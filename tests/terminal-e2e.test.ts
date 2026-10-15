@@ -173,6 +173,21 @@ describe("Craig terminal mode E2E", () => {
       expect(frame).toContain("codex_stub_bottom_bar");
       expect(frame).toContain("48;2;42;42;42");
       expect(frame).toContain("codex_stub_task_dir:task_20260430_02");
+      expect(frame).toContain("codex_embedded_flags:yes");
+
+      child.write("craig_scroll_probe\r");
+      await output.waitFor("scroll_probe_live");
+      // Clear the output capture so a marker painted before scrollback cannot
+      // satisfy the assertion. Only a new Craig redraw can show the old line.
+      output.value = "";
+      child.write("\x1b[<64;60;10M\x1b[<64;60;10M");
+      await output.waitFor("scroll_probe_oldest");
+      output.value = "";
+      child.write("\x1b[6~");
+      await output.waitFor("scroll_probe_live");
+      output.value = "";
+      child.write("\x1b[5~");
+      await output.waitFor("scroll_probe_oldest");
     } finally {
       child.kill();
       await cleanupTerminalWorkspace(workspaceRoot);
@@ -248,6 +263,7 @@ describe("Craig terminal mode E2E", () => {
       expect(frame).toContain("codex_stub_task_dir:task_");
       expect(frame).toContain("codex_stub_prompt:");
       expect(frame).toContain("codex_stub_capability:present");
+      expect(frame).toContain("codex_embedded_flags:yes");
       expect(frame).not.toContain("[process exited");
     } finally {
       child.kill();
@@ -789,6 +805,7 @@ const maybeAdvance = () => {
     process.stdout.write(\`codex_stub_task_dir:\${process.cwd().split("/").pop()}\\n\`);
     process.stdout.write(\`codex_stub_prompt:\${process.argv.slice(2).join(" ")}\\n\`);
     process.stdout.write(\`codex_stub_capability:\${process.env.CRAIG_AGENT_CAPABILITY ? "present" : "missing"}\\n\`);
+    process.stdout.write(\`codex_embedded_flags:\${["--no-alt-screen", "--no-daemon"].every((flag) => process.argv.includes(flag)) ? "yes" : "no"}\\n\`);
     const rows = Number(process.stdout.rows || 0);
     if (rows > 0) {
       process.stdout.write(\`\\u001B[\${rows};1H\\u001B[48;2;42;42;42;38;2;229;229;229mcodex_stub_bottom_bar\\u001B[0m\`);
@@ -798,6 +815,14 @@ const maybeAdvance = () => {
 
 process.stdin.on("data", (chunk) => {
   buffer += chunk;
+  if (launched && buffer.includes("craig_scroll_probe")) {
+    buffer = "";
+    const rows = Number(process.stdout.rows || 30);
+    process.stdout.write("\\x1b[r\\x1b[2J\\x1b[Hscroll_probe_oldest\\r\\n");
+    for (let row = 2; row < rows; row++) process.stdout.write(\`history_\${row}\\r\\n\`);
+    process.stdout.write(\`composer\\x1b[1;\${rows - 1}r\\x1b[5S\\x1b[\${rows - 2};1Hscroll_probe_live\`);
+    return;
+  }
   maybeAdvance();
 });
 

@@ -3,6 +3,7 @@ import type { IBufferCell } from "@xterm/headless";
 import type { Terminal } from "@xterm/headless";
 
 import type { PtySize } from "./pty/runtime.js";
+import { TerminalScrollbackWriter } from "./terminal-scrollback.js";
 
 export interface TerminalCellStyle {
   fg?: string;
@@ -25,6 +26,7 @@ export interface TerminalScreenRow {
 }
 
 const DEFAULT_SCROLLBACK = 1_000;
+const scrollbackWriters = new WeakMap<Terminal, TerminalScrollbackWriter>();
 const ANSI_PALETTE = [
   "000000",
   "cd3131",
@@ -45,7 +47,7 @@ const ANSI_PALETTE = [
 ] as const;
 
 export function createTerminalEmulator(size: PtySize): Terminal {
-  return new XtermHeadless.Terminal({
+  const terminal = new XtermHeadless.Terminal({
     allowProposedApi: true,
     cols: size.columns,
     rows: size.rows,
@@ -55,6 +57,8 @@ export function createTerminalEmulator(size: PtySize): Terminal {
       background: "#0a0a0a",
     },
   });
+  scrollbackWriters.set(terminal, new TerminalScrollbackWriter(terminal));
+  return terminal;
 }
 
 export function resizeTerminalEmulator(terminal: Terminal, size: PtySize): void {
@@ -64,6 +68,8 @@ export function resizeTerminalEmulator(terminal: Terminal, size: PtySize): void 
 }
 
 export function writeTerminalEmulator(terminal: Terminal, chunk: string): Promise<void> {
+  const writer = scrollbackWriters.get(terminal);
+  if (writer) return writer.write(chunk);
   return new Promise((resolve) => {
     terminal.write(chunk, resolve);
   });

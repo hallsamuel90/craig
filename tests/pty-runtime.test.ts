@@ -362,6 +362,68 @@ describe("PTY runtime", () => {
     expect(scrolled.join("\n")).toContain("line4");
   });
 
+  test("retains Codex inline transcript growth in scrollback above its composer", async () => {
+    const fakePty = createFakePty();
+    const runtime = new PtyRuntime({
+      workspaceRoot: "/tmp/craig",
+      spawn: vi.fn(() => fakePty),
+    });
+    const tabId = "task_1:agent";
+    runtime.ensureSession("task_1", tabId, { columns: 20, rows: 6 });
+    fakePty.emitData("one\r\ntwo\r\nthree\r\nfour\r\nfive\r\nprompt");
+    // Codex grows a top-aligned scroll region with CSI S, which may be split
+    // across PTY chunks. xterm's default SU drops 'one' and 'two' entirely.
+    fakePty.emitData("\x1b[1;5r\x1b[2");
+    fakePty.emitData("S");
+    await vi.waitFor(() => expect(runtime.getViewState(tabId).rows[0]?.segments.map((part) => part.text).join("").trimEnd()).toBe("three"));
+    expect(runtime.getViewState(tabId).rows[5]?.segments.map((part) => part.text).join("")).toContain("prompt");
+
+    runtime.scrollViewport(-2);
+    const history = runtime.getViewState(tabId);
+    expect(history.scrolledBack).toBe(true);
+    expect(history.rows[0]?.segments.map((part) => part.text).join("").trimEnd()).toBe("one");
+    expect(history.rows[1]?.segments.map((part) => part.text).join("").trimEnd()).toBe("two");
+    runtime.scrollViewport(2);
+    expect(runtime.getViewState(tabId).rows[5]?.segments.map((part) => part.text).join("")).toContain("prompt");
+    runtime.disposeAll();
+  });
+
+  test("keeps alternate-screen and interior-region scrolling out of terminal history", async () => {
+    const terminal = createTerminalEmulator({ columns: 20, rows: 6 });
+    await writeTerminalEmulator(terminal, "one\r\ntwo\r\nthree\r\nfour\r\nfive\r\nprompt");
+    await writeTerminalEmulator(terminal, "\x1b[2;5r\x1b[2S");
+    expect(terminal.buffer.active.baseY).toBe(0);
+    expect(terminal.buffer.active.getLine(0)?.translateToString(true)).toBe("one");
+    await writeTerminalEmulator(terminal, "\x1b[?1049h\x1b[r\x1b[2S");
+    expect(terminal.buffer.active.baseY).toBe(0);
+    terminal.dispose();
+  });
+
+  test.each(["", "\x1b[?6h"])("preserves the screen, cursor and colors while retaining CSI S history (origin %j)", async (origin) => {
+    const terminal = createTerminalEmulator({ columns: 20, rows: 6 });
+    const baseline = createTerminalEmulator({ columns: 20, rows: 6 });
+    const output = `one\r\ntwo\r\nthree\r\nfour\r\nfive\r\nprompt\x1b[1;5r${origin}\x1b[4;3H\x1b[32m\x1b[2S!`;
+    await new Promise<void>((resolve) => baseline.write(output, resolve));
+    // Exercise arbitrary PTY boundaries, including inside escape sequences.
+    await Promise.all([...output].map((char) => writeTerminalEmulator(terminal, char)));
+    expect(renderTerminalScreenRows(terminal)).toEqual(renderTerminalScreenRows(baseline));
+    expect(terminal.buffer.active.cursorX).toBe(baseline.buffer.active.cursorX);
+    expect(terminal.buffer.active.cursorY).toBe(baseline.buffer.active.cursorY);
+    expect(terminal.buffer.active.baseY).toBe(2);
+    expect(baseline.buffer.active.baseY).toBe(0);
+    terminal.dispose();
+    baseline.dispose();
+  });
+
+  test("does not interpret scroll-like text inside an OSC string as terminal history", async () => {
+    const terminal = createTerminalEmulator({ columns: 20, rows: 6 });
+    await writeTerminalEmulator(terminal, "\x1b]2;title\x1b[");
+    await writeTerminalEmulator(terminal, "2S\x07visible");
+    expect(terminal.buffer.active.baseY).toBe(0);
+    expect(toPlainRows(terminal)).toEqual(["visible"]);
+    terminal.dispose();
+  });
+
   test("sessionTabIds returns ids of all open sessions and excludes disposed ones", async () => {
     const runtime = new PtyRuntime({
       workspaceRoot: "/tmp/craig",
