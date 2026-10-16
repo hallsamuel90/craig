@@ -30,6 +30,21 @@ describe("PTY runtime", () => {
     });
   });
 
+  test("preserves labeled OSC 8 links through wrapping, scrollback and overwrites", async () => {
+    const terminal = createTerminalEmulator({ columns: 12, rows: 3 });
+    const url = "http://127.0.0.1:4325/";
+    await writeTerminalEmulator(terminal, `before\r\n\x1b]8;id=preview;${url}\x1b`);
+    await writeTerminalEmulator(terminal, "\\Open preview here\x1b]8;;\x07 plain\r\nlast\r\n");
+    const history = renderTerminalScreenRows(terminal, terminal.buffer.active.baseY);
+    const links = history.flatMap((row) => row.segments).filter((segment) => segment.href);
+    expect(links.map((segment) => segment.text).join("")).toBe("Open preview here");
+    expect(links.every((segment) => segment.href === url)).toBe(true);
+    expect(history.flatMap((row) => row.segments).find((segment) => segment.text.includes("plain"))?.href).toBeUndefined();
+    await writeTerminalEmulator(terminal, "\x1b[r\x1b[H\x1b[2Jreplacement");
+    expect(renderTerminalScreenRows(terminal).flatMap((row) => row.segments).some((segment) => segment.href)).toBe(false);
+    terminal.dispose();
+  });
+
   test("emulates clear-screen, cursor movement, carriage return, wrapping, and resize", async () => {
     const terminal = createTerminalEmulator({ columns: 6, rows: 4 });
 

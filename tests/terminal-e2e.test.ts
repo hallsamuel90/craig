@@ -174,6 +174,7 @@ describe("Craig terminal mode E2E", () => {
       expect(frame).toContain("48;2;42;42;42");
       expect(frame).toContain("codex_stub_task_dir:task_20260430_02");
       expect(frame).toContain("codex_embedded_flags:yes");
+      expect(frame).toContain("\x1b]8;;http://127.0.0.1:4325/\x1b\\Open preview");
 
       child.write("craig_scroll_probe\r");
       await output.waitFor("scroll_probe_live");
@@ -806,6 +807,7 @@ const maybeAdvance = () => {
     process.stdout.write(\`codex_stub_prompt:\${process.argv.slice(2).join(" ")}\\n\`);
     process.stdout.write(\`codex_stub_capability:\${process.env.CRAIG_AGENT_CAPABILITY ? "present" : "missing"}\\n\`);
     process.stdout.write(\`codex_embedded_flags:\${["--no-alt-screen", "--no-daemon"].every((flag) => process.argv.includes(flag)) ? "yes" : "no"}\\n\`);
+    process.stdout.write("\\x1b]8;;http://127.0.0.1:4325/\\x1b\\\\Open preview\\x1b]8;;\\x1b\\\\\\n");
     const rows = Number(process.stdout.rows || 0);
     if (rows > 0) {
       process.stdout.write(\`\\u001B[\${rows};1H\\u001B[48;2;42;42;42;38;2;229;229;229mcodex_stub_bottom_bar\\u001B[0m\`);

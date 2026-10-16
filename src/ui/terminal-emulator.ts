@@ -4,6 +4,7 @@ import type { Terminal } from "@xterm/headless";
 
 import type { PtySize } from "./pty/runtime.js";
 import { TerminalScrollbackWriter } from "./terminal-scrollback.js";
+import { getTerminalCellHref } from "./terminal-links.js";
 
 export interface TerminalCellStyle {
   fg?: string;
@@ -90,7 +91,7 @@ export function renderTerminalScreenRows(terminal: Terminal, scrollbackLines = 0
       continue;
     }
 
-    const cells: Array<{ text: string; style: TerminalCellStyle }> = [];
+    const cells: Array<{ text: string; style: TerminalCellStyle; href?: string }> = [];
 
     for (let column = 0; column < terminal.cols; column += 1) {
       const cell = line.getCell(column, reusableCell);
@@ -98,9 +99,11 @@ export function renderTerminalScreenRows(terminal: Terminal, scrollbackLines = 0
         continue;
       }
 
+      const href = getTerminalCellHref(terminal, cell);
       cells.push({
         text: cell.getChars() || " ",
         style: getCellStyle(cell, startY + rowIndex === cursorY && column === buffer.cursorX),
+        ...(href ? { href } : {}),
       });
     }
 
@@ -110,17 +113,18 @@ export function renderTerminalScreenRows(terminal: Terminal, scrollbackLines = 0
   return rows;
 }
 
-function cellsToSegments(cells: Array<{ text: string; style: TerminalCellStyle }>): TerminalRowSegment[] {
+function cellsToSegments(cells: Array<{ text: string; style: TerminalCellStyle; href?: string }>): TerminalRowSegment[] {
   const segments: TerminalRowSegment[] = [];
 
   for (const cell of cells) {
     const previous = segments.at(-1);
-    if (previous && stylesEqual(previous.style, cell.style)) {
+    if (previous && previous.href === cell.href && stylesEqual(previous.style, cell.style)) {
       previous.text += cell.text;
       continue;
     }
 
     const nextSegment: TerminalRowSegment = { text: cell.text };
+    if (cell.href) nextSegment.href = cell.href;
     if (!isDefaultStyle(cell.style)) {
       nextSegment.style = cell.style;
     }
@@ -130,12 +134,12 @@ function cellsToSegments(cells: Array<{ text: string; style: TerminalCellStyle }
   return segments;
 }
 
-function trimTrailingDefaultCells(cells: Array<{ text: string; style: TerminalCellStyle }>): Array<{ text: string; style: TerminalCellStyle }> {
+function trimTrailingDefaultCells(cells: Array<{ text: string; style: TerminalCellStyle; href?: string }>): Array<{ text: string; style: TerminalCellStyle; href?: string }> {
   let end = cells.length;
 
   while (end > 0) {
     const cell = cells[end - 1];
-    if (!cell || cell.text !== " " || !isDefaultStyle(cell.style)) {
+    if (!cell || cell.text !== " " || cell.href || !isDefaultStyle(cell.style)) {
       break;
     }
 
