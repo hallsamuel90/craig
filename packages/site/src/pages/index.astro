@@ -18,7 +18,7 @@ const structuredData = {
       url: "https://craig-cli.com/",
       applicationCategory: "DeveloperApplication",
       operatingSystem: "macOS, Linux",
-      description: "An agnostic orchestrator TUI, for the people.",
+      description: "Run Claude Code, Codex, and Cursor in isolated Git worktrees. Keep tasks, changes, pull requests, and checks together in one keyboard-driven terminal workspace.",
       downloadUrl: "https://www.npmjs.com/package/craig-cli",
       softwareRequirements: "Node.js 22 or newer",
       license: "https://opensource.org/license/mit",
@@ -32,7 +32,12 @@ const structuredData = {
 };
 ---
 
-<Base structuredData={structuredData} preloadHeroImage>
+<Base
+  title="Craig — Your coding agents, from task to PR, in one terminal"
+  description="Run Claude Code, Codex, and Cursor in isolated Git worktrees. Keep tasks, changes, pull requests, and checks together in one keyboard-driven terminal workspace."
+  structuredData={structuredData}
+  preloadHeroImage
+>
   <!-- Nav -->
   <header class="border-b border-[#292e42] px-4 sm:px-6 py-3 flex items-center justify-between">
     <div class="flex items-center gap-2 group">
@@ -78,7 +83,6 @@ const structuredData = {
   <main>
     <!-- Hero -->
     <section class="max-w-4xl mx-auto px-6 pt-16 pb-10 text-center">
-      <h1 class="sr-only">Craig AI coding agent orchestrator</h1>
       <pre aria-hidden="true" class="block w-fit mx-auto -translate-x-[5%] text-[#9ece6a] text-[0.45rem] sm:text-[0.55rem] md:text-[0.65rem] leading-tight mb-6 select-none opacity-90">
   ▄████▄   ██▀███   ▄▄▄       ██▓  ▄████
   ▒██▀ ▀█  ▓██ ▒ ██▒▒████▄    ▓██▒ ██▒ ▀█▒
@@ -91,7 +95,14 @@ const structuredData = {
   ░ ░         ░           ░  ░ ░        ░</pre>
 
       <p class="text-[#9ece6a] text-sm font-bold tracking-widest uppercase mb-4">Have fun. Get shit done.</p>
-      <p class="text-[#a9adc4] text-base max-w-[22rem] sm:max-w-none mx-auto mb-8">An agnostic orchestrator TUI, for the people.</p>
+      <h1 class="text-3xl sm:text-5xl font-bold tracking-tight leading-tight mb-5">Your coding agents.<br />From task to PR. One terminal.</h1>
+      <p class="text-[#a9adc4] text-sm sm:text-base leading-relaxed max-w-2xl mx-auto mb-4">Run Claude Code, Codex, and Cursor in parallel, each task in its own Git worktree. Keep your agents, changes, pull requests, and checks together without leaving the keyboard.</p>
+      <p class="text-[#7a82ad] text-xs sm:text-sm mb-7">An agnostic orchestrator TUI, for the people.</p>
+
+      <div class="flex flex-wrap justify-center gap-3 mb-6 text-sm">
+        <a href="/docs/quickstart/" class="px-4 py-2.5 bg-[#9ece6a] text-[#0a0a0a] font-bold rounded-lg hover:opacity-90 transition-opacity">Get started</a>
+        <a href="https://github.com/hallsamuel90/craig" data-github-placement="hero" class="px-4 py-2.5 border border-[#737aa2] text-[#c0caf5] rounded-lg hover:border-[#9ece6a] transition-colors">View on GitHub ↗</a>
+      </div>
 
       <div class="inline-flex items-center gap-3 bg-[#06060f] border border-[#292e42] rounded-lg px-5 py-3 mb-3">
         <span class="text-[#7a82ad] select-none">$</span>
@@ -99,37 +110,84 @@ const structuredData = {
         <button
           class="text-[#7a82ad] hover:text-[#c0caf5] transition-colors ml-1 text-base"
           title="Copy"
+          aria-label="Copy npm install command"
           onclick="navigator.clipboard.writeText('npm install -g craig-cli').then(() => { window.gtag?.('event', 'install_command_copy', { method: 'npm', placement: 'homepage_hero' }); this.textContent = '✓'; setTimeout(() => this.textContent = '⎘', 1200) })"
         >⎘</button>
       </div>
-      <p class="text-[#737aa2] text-xs">Node 22+ · MIT · No account required</p>
+      <p class="text-[#a9adc4] text-xs">Node 22+ · MIT · No Craig account required</p>
     </section>
 
     <!-- Hero video -->
-    <section class="max-w-[1440px] mx-auto px-6 pb-8">
-      <div class="flex justify-center mb-5">
-        <p class="font-mono text-[#7a82ad] text-sm text-center" style="width:min(34rem,90vw)"><span id="hero-caption"></span><span id="hero-cursor">▌</span></p>
-      </div>
+    <section id="demo" aria-label="Craig demo" class="max-w-[1440px] mx-auto px-6 pb-12">
+      <p class="text-[#a9adc4] text-sm text-center mb-5">It's like a game, except the PRs are real.</p>
       <div class="rounded-xl overflow-hidden border border-[#292e42]" style="aspect-ratio: 1440 / 694">
-        <video autoplay loop muted playsinline width="1440" height="694" poster="/screenshots/agent-working.webp" class="w-full block">
+        <video controls muted playsinline preload="none" width="1440" height="694" poster="/screenshots/agent-working.webp" aria-label="Watch Craig's terminal workflow" class="w-full block">
           <source src="/craig-hero.mp4?v=3" type="video/mp4" />
+          <a href="/craig-hero.mp4?v=3">Watch the Craig demo</a>
         </video>
+      </div>
+      <p class="text-[#a9adc4] text-xs text-center mt-3">A look around Craig · 1 min 42 sec · play, pause, or scrub through the workflow.</p>
+    </section>
+
+    <section aria-labelledby="workflow-heading" class="max-w-6xl mx-auto px-6 py-12 sm:py-16 border-t border-[#292e42]">
+      <p class="text-[#9ece6a] text-xs uppercase tracking-widest mb-3">The workflow</p>
+      <h2 id="workflow-heading" class="text-2xl sm:text-3xl font-bold mb-10">More work moving. Less tab hunting.</h2>
+      <div class="grid md:grid-cols-3 gap-8 md:gap-10">
+        <div>
+          <p class="text-[#9ece6a] text-xs mb-3">01 / Start another task</p>
+          <h3 class="text-lg font-bold mb-3">Parallel agents. Separate worktrees.</h3>
+          <p class="text-[#a9adc4] text-sm leading-relaxed mb-4">Give one agent a bug and another a feature. Craig creates a branch and worktree for each task, so they can work side by side in separate working directories.</p>
+          <a href="/docs/quickstart/" class="text-[#9ece6a] text-sm underline underline-offset-4">Create your first task →</a>
+        </div>
+        <div>
+          <p class="text-[#7aa2f7] text-xs mb-3">02 / Keep your bearings</p>
+          <h3 class="text-lg font-bold mb-3">One repo, or a few.</h3>
+          <p class="text-[#a9adc4] text-sm leading-relaxed mb-4">Work across your frontend, API, and other repos from one workspace. Switch tasks from the keyboard and return to the agent's native CLI when it needs you.</p>
+          <a href="/docs/tui/" class="text-[#9ece6a] text-sm underline underline-offset-4">Explore the controls →</a>
+        </div>
+        <div>
+          <p class="text-[#e0af68] text-xs mb-3">03 / Follow it through</p>
+          <h3 class="text-lg font-bold mb-3">Changes, PRs, and checks in view.</h3>
+          <p class="text-[#a9adc4] text-sm leading-relaxed mb-4">Inspect files and diffs while Craig syncs pull request and check status. Ask your agent to commit, open the PR, or merge from the same terminal session.</p>
+          <a href="/docs/tui/" class="text-[#9ece6a] text-sm underline underline-offset-4">See the review workflow →</a>
+        </div>
+      </div>
+      <figure class="mt-10">
+        <div class="rounded-xl overflow-hidden border border-[#292e42]">
+          <img src="/screenshots/ci-review.png" alt="Craig showing a task's coding agent alongside its pull request and CI checks in the Review panel" width="1440" height="694" loading="lazy" decoding="async" class="w-full block" />
+        </div>
+        <figcaption class="text-[#a9adc4] text-xs text-center mt-3">The agent and its PR status, in the same workspace.</figcaption>
+      </figure>
+    </section>
+
+    <section aria-labelledby="why-heading" class="max-w-6xl mx-auto px-6 py-12 sm:py-16 border-t border-[#292e42]">
+      <div class="grid md:grid-cols-[1fr_1.3fr] gap-8 md:gap-16">
+        <div>
+          <p class="text-[#9ece6a] text-xs uppercase tracking-widest mb-3">Why Craig?</p>
+          <h2 id="why-heading" class="text-2xl sm:text-3xl font-bold leading-snug">You like your agent CLIs.<br />Keep them.</h2>
+        </div>
+        <div class="space-y-7 text-sm leading-relaxed">
+          <div><h3 class="text-base font-bold mb-2">A heads-up display around the tools you use.</h3><p class="text-[#a9adc4]">Your agents run in real terminal sessions, with their own prompts, tools, and authentication. Craig adds task navigation, worktree management, and review context around them.</p></div>
+          <div><h3 class="text-base font-bold mb-2">Your workspace, on your machine.</h3><p class="text-[#a9adc4]">Craig runs locally, in your existing terminal. No Craig account or hosted control plane. Install and authenticate your agent CLIs, then bring them along.</p></div>
+          <div><h3 class="text-base font-bold mb-2">Your agents can drive Craig, too.</h3><p class="text-[#a9adc4]">The TUI has a CLI behind it. Agents and scripts can inspect task context, create tasks, and operate the workspace using the same task model.</p><a href="/docs/cli/" class="inline-block text-[#9ece6a] underline underline-offset-4 mt-3">Read the CLI reference →</a></div>
+        </div>
       </div>
     </section>
 
-
     <!-- CTA -->
-    <section class="pt-10 pb-20 text-center">
+    <section class="px-6 pt-12 pb-20 text-center border-t border-[#292e42]">
       <p class="text-[#9ece6a] text-xs font-bold tracking-widest uppercase mb-4">Open source · MIT · One command</p>
-      <h2 class="text-2xl font-bold text-[#c0caf5] mb-8">Your move.</h2>
+      <h2 class="text-2xl font-bold text-[#c0caf5] mb-3">Your move.</h2>
+      <p class="text-[#a9adc4] text-sm mb-8">Install Craig. Add a repo. Give your agent something to do.</p>
       <div class="flex flex-wrap items-center justify-center gap-3">
         <a href="/docs/install/" class="px-5 py-2.5 bg-[#9ece6a] text-[#0a0a0a] font-bold rounded-lg hover:opacity-90 transition-opacity tracking-wide text-sm">
           Get Started
         </a>
-        <a href="https://github.com/hallsamuel90/craig" class="px-5 py-2.5 border border-[#292e42] text-[#7a82ad] rounded-lg hover:border-[#737aa2] hover:text-[#c0caf5] transition-colors text-sm">
+        <a href="https://github.com/hallsamuel90/craig" data-github-placement="footer_cta" class="px-5 py-2.5 border border-[#737aa2] text-[#c0caf5] rounded-lg hover:border-[#9ece6a] transition-colors text-sm">
           View on GitHub
         </a>
       </div>
+      <p class="text-[#a9adc4] text-xs mt-5">Requires Node.js 22+, Git, and an authenticated agent CLI. PR features also use GitHub CLI.</p>
     </section>
   </main>
 
@@ -140,54 +198,10 @@ const structuredData = {
 
 </Base>
 
-<script>
-const captions = [
-  "it's like a game, except the PRs are real.",
-  "like your agent CLIs are wearing a cool Michael J Fox vest.",
-  "crAIg is that you?",
-  "the pause menu is not a bit...",
-  "ding, dang, dong, dong, deng, deng, dong, dong, ding, dang.",
-  "who knew TUIs could look this good?",
-];
-let capIdx = 0;
-let animating = false;
-const capEl = document.getElementById('hero-caption');
-const cursorEl = document.getElementById('hero-cursor');
-
-// Blink cursor via opacity — width never changes so no jitter
-setInterval(() => {
-  if (!animating) cursorEl.style.opacity = cursorEl.style.opacity === '0' ? '1' : '0';
-}, 530);
-
-function typeText(text, onDone) {
-  animating = true;
-  cursorEl.style.opacity = '1';
-  let i = 0;
-  capEl.textContent = '';
-  const iv = setInterval(() => {
-    capEl.textContent = text.slice(0, ++i);
-    if (i >= text.length) { clearInterval(iv); animating = false; setTimeout(onDone, 200); }
-  }, 35);
-}
-
-function deleteText(onDone) {
-  animating = true;
-  cursorEl.style.opacity = '1';
-  const text = capEl.textContent;
-  let i = text.length;
-  const iv = setInterval(() => {
-    capEl.textContent = text.slice(0, --i);
-    if (i <= 0) { clearInterval(iv); setTimeout(onDone, 100); }
-  }, 18);
-}
-
-function cycle() {
-  deleteText(() => {
-    capIdx = (capIdx + 1) % captions.length;
-    typeText(captions[capIdx], () => setTimeout(cycle, 8000));
+<script is:inline>
+  document.querySelectorAll('[data-github-placement]').forEach((link) => {
+    link.addEventListener('click', () => {
+      window.gtag?.('event', 'github_click', { placement: link.dataset.githubPlacement });
+    });
   });
-}
-
-typeText(captions[0], () => setTimeout(cycle, 8000));
-
 </script>
