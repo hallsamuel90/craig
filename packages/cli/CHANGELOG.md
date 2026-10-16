@@ -1,5 +1,12 @@
 # craig-cli
 
+## 0.17.3
+
+### Patch Changes
+
+- 336ba1c: Preserve embedded terminal hyperlink targets so labeled agent links such as Open preview can be opened with the terminal's native hyperlink gesture.
+- 336ba1c: Preserve Codex inline transcript lines when it scrolls the region above its composer, and apply embedded Codex launch flags when creating tasks through the daemon.
+
 ## 0.17.2
 
 ### Patch Changes
