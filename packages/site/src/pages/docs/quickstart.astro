@@ -6,7 +6,7 @@ import "../../styles/global.css";
 <Docs title="Quickstart" description="Create your first isolated AI coding agent task with Craig, attach to its live terminal, and review the resulting changes.">
   <div class="max-w-3xl mx-auto px-10 prose">
     <h1>Quickstart</h1>
-    <p class="subtitle">Your first agent task in five steps.</p>
+    <p class="subtitle">Your first agent task in six steps.</p>
 
     <h2>1. Launch Craig</h2>
     <pre><code>craig</code></pre>
@@ -56,6 +56,12 @@ import "../../styles/global.css";
     <img src="/screenshots/ci-review.png" alt="CI checks passing in review panel" width="1440" height="694" loading="lazy" class="w-full block" /></div>
   </div>
   <div class="max-w-3xl mx-auto px-10 prose">
+    <h2>6. Publish and merge a PR</h2>
+    <p>
+      With <code>gh</code> authenticated, ask the agent in its PTY to commit, push, and open a PR.
+      Follow checks and review state in Craig's <strong>Review</strong> panel, then ask the agent to merge
+      after all required checks and reviews pass.
+    </p>
     <p>Next: <a href="/docs/tui/">TUI Reference →</a></p>
   </div>
 </Docs>
