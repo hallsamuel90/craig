@@ -1,5 +1,11 @@
 # craig-cli
 
+## 0.17.5
+
+### Patch Changes
+
+- b47049f: Allow TUI workspace removal to archive workspaces with closed task history, preserving records for restoration. Identify non-closed task ids and statuses when they block removal.
+
 ## 0.17.4
 
 ### Patch Changes
