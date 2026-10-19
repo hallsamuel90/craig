@@ -13,16 +13,20 @@ export const removeWorkspace = async (
     workspaceId: shell.selectedWorkspaceId,
     includeClosed: true,
   });
-  if (taskResult.tasks.length > 0) {
+  const blockers = taskResult.tasks.filter((task) => task.status !== "closed");
+  if (blockers.length > 0) {
     throw new Error(
-      `Cannot remove workspace ${shell.selectedWorkspaceId} while task records still reference it.`,
+      `Close tasks before removing workspace: ${blockers.map((task) => `${task.id} (${task.status})`).join(", ")}.`,
     );
   }
 
   await ctx.workspaceService.archiveWorkspace(ctx.paths, shell.selectedWorkspaceId);
-  const removed = await ctx.workspaceService.removeWorkspace(ctx.paths, shell.selectedWorkspaceId, {
-    listTasks: ctx.taskService.listTasks,
-  });
+  const hasHistory = taskResult.tasks.length > 0;
+  if (!hasHistory) {
+    await ctx.workspaceService.removeWorkspace(ctx.paths, shell.selectedWorkspaceId, {
+      listTasks: ctx.taskService.listTasks,
+    });
+  }
 
   return {
     nextShell: {
@@ -31,7 +35,9 @@ export const removeWorkspace = async (
       selectedTaskId: null,
       selectedPtyTabId: null,
       selectedLeftItemId: null,
-      actionMessage: `Removed workspace ${removed.workspaceId}`,
+      actionMessage: hasHistory
+        ? `Archived workspace ${shell.selectedWorkspaceId}; closed task history preserved.`
+        : `Removed workspace ${shell.selectedWorkspaceId}`,
     },
   };
 };
