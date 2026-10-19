@@ -1,5 +1,11 @@
 # craig-cli
 
+## 0.17.4
+
+### Patch Changes
+
+- bd433c8: Resolve new task destinations from the visible sidebar row, freeze the workspace when the prompt opens, and show its name before submission.
+
 ## 0.17.3
 
 ### Patch Changes
