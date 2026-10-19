@@ -179,6 +179,28 @@ describe("terminal shell control state", () => {
     expect(state.selectedDiffPath).toBe("src/app.ts");
   });
 
+  test.each(["workspace:workspace_repo_b", "new-task:repo_b", "new-task-workspace:workspace_repo_b"])(
+    "visible %s overrides stale creation workspace and repo ids",
+    (selectedLeftItemId) => {
+      const model = {
+        ...restoreModel(),
+        workspaces: ["a", "b"].map((suffix) => ({
+          id: `workspace_repo_${suffix}`, kind: (selectedLeftItemId.startsWith("new-task-workspace:") && suffix === "b" ? "project" : "repo") as "repo" | "project", name: `repo-${suffix}`,
+          primaryRepoId: `repo_${suffix}`, branch: "main", status: "active" as const,
+          linkedRepoIds: [], archivedAt: null,
+          createdAt: "2026-05-03T00:00:00.000Z", updatedAt: "2026-05-03T00:00:00.000Z",
+        })),
+      };
+      const state = restoreShellState({
+        ...createInitialShellState(null),
+        selectedWorkspaceId: "workspace_repo_a", selectedRepoId: "repo_a",
+        selectedTaskId: "task_a_1", selectedLeftItemId,
+      }, model);
+      expect(state.selectedWorkspaceId).toBe("workspace_repo_b");
+      if (!selectedLeftItemId.startsWith("new-task-workspace:")) expect(state.selectedRepoId).toBe("repo_b");
+    },
+  );
+
   test("restores workspace from the task's workspaceId when selectedWorkspaceId is stale", () => {
     const state = restoreShellState(
       createInitialShellState({

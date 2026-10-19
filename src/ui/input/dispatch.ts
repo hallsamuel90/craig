@@ -82,7 +82,8 @@ async function submitTaskPrompt(ctx: AppContext): Promise<void> {
   const shell = ctx.state.shell;
   const prompt = shell.taskPromptInput?.trim() ?? "";
 
-  if (!shell.selectedRepoId && !shell.selectedWorkspaceId) {
+  const target = shell.taskPromptTarget;
+  if (!target || (!target.repoId && !target.workspaceId)) {
     ctx.state = { mode: "main", shell: syncShell(ctx, { ...shell, taskPromptError: "Select a workspace first." }) };
     ctx.render();
     return;
@@ -99,7 +100,7 @@ async function submitTaskPrompt(ctx: AppContext): Promise<void> {
     mode: "main",
     shell: syncShell(ctx, {
       ...shell,
-      actionMessage: `Creating ${shell.selectedRunner} task in ${shell.selectedWorkspaceId ?? shell.selectedRepoId}...`,
+      actionMessage: `Creating ${shell.selectedRunner} task in ${target.name}...`,
     }),
   };
   ctx.render();
@@ -107,8 +108,8 @@ async function submitTaskPrompt(ctx: AppContext): Promise<void> {
   let createdTask = null;
   try {
     const created = await createInteractiveTask(
-      shell.selectedRepoId,
-      shell.selectedWorkspaceId,
+      target.repoId,
+      target.workspaceId,
       prompt,
       shell.selectedRunner,
       buildActionContext(ctx),
@@ -120,6 +121,7 @@ async function submitTaskPrompt(ctx: AppContext): Promise<void> {
       ...created.nextShell,
       selectedLeftItemId: `task:${createdTask.id}`,
       inputMode: "terminal",
+      taskPromptTarget: null,
       taskPromptInput: null,
       taskPromptError: null,
       actionMessage: null,
@@ -193,7 +195,7 @@ function handlePromptKey(ctx: AppContext, key: string): void {
   if (key === "ESCAPE") {
     ctx.state = {
       mode: "main",
-      shell: syncShell(ctx, { ...shell, taskPromptInput: null, taskPromptError: null, actionMessage: null }),
+      shell: syncShell(ctx, { ...shell, taskPromptTarget: null, taskPromptInput: null, taskPromptError: null, actionMessage: null }),
     };
     ctx.render();
     return;
@@ -751,7 +753,20 @@ export function onKey(ctx: AppContext, name: unknown): void {
     }
 
     if (result.beginTaskPrompt) {
-      ctx.state = { mode: "main", shell: syncShell(ctx, result.state) };
+      const shell = syncShell(ctx, result.state);
+      const workspace = ctx.model.workspaces?.find((item) => item.id === shell.selectedWorkspaceId);
+      const repo = ctx.model.repos.find((item) => item.id === shell.selectedRepoId);
+      ctx.state = {
+        mode: "main",
+        shell: {
+          ...shell,
+          taskPromptTarget: {
+            workspaceId: workspace?.id ?? null,
+            repoId: repo?.id ?? null,
+            name: workspace?.name ?? repo?.name ?? "no workspace",
+          },
+        },
+      };
       persistShellState(ctx, ctx.state.shell);
       ctx.render();
       return;

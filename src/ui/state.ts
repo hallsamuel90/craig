@@ -80,6 +80,7 @@ export interface ControlShellState {
   centerTabRunner: RunnerType | null;
   actionMessage: string | null;
   footerToast: FooterToast | null;
+  taskPromptTarget: { repoId: string | null; workspaceId: string | null; name: string } | null;
   taskPromptInput: string | null;
   taskPromptError: string | null;
   fileSearchQuery: string | null;
@@ -175,6 +176,7 @@ export function createInitialShellState(runtime: CraigUiRuntime | null, config: 
     centerTabRunner: null,
     actionMessage: null,
     footerToast: null,
+    taskPromptTarget: null,
     taskPromptInput: null,
     taskPromptError: null,
     fileSearchQuery: null,
@@ -227,7 +229,11 @@ export function restoreShellState(
     ? model.tasks.find((task) => task.id === leftSelection.id) ?? null
     : null;
   const leftTaskVisualRoot = leftTask ? visualRoot(model.tasks, leftTask) : null;
+  const newTaskWorkspaceId = getNewTaskWorkspaceId(selectedLeftItemId);
+  const newTaskRepoId = getNewTaskRepoId(selectedLeftItemId);
   const selectedWorkspace =
+    model.workspaces?.find((workspace) => workspace.id === newTaskWorkspaceId) ??
+    (newTaskRepoId ? model.workspaces?.find((workspace) => workspace.kind === "repo" && workspace.primaryRepoId === newTaskRepoId) : null) ??
     (leftSelection?.kind === "workspace" ? model.workspaces?.find((workspace) => workspace.id === leftSelection.id) ?? null : null) ??
     (leftTaskVisualRoot
       ? model.workspaces?.find((workspace) => workspace.id === leftTaskVisualRoot.workspaceId) ?? null
@@ -236,6 +242,7 @@ export function restoreShellState(
     model.workspaces?.[0] ??
     null;
   const selectedRepo =
+    model.repos.find((repo) => repo.id === newTaskRepoId) ??
     (leftSelection?.kind === "repo"
       ? model.repos.find((repo) => repo.id === leftSelection.id) ?? null
       : leftTaskVisualRoot
