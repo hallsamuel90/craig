@@ -7,6 +7,7 @@ import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 import { startTerminalApp, type PtyRuntimePort, type TerminalRuntime } from "../src/ui/app.js";
 import type { TerminalViewState } from "../src/ui/state.js";
 import type { PtyActivitySnapshot } from "../src/ui/agent-activity.js";
+import { workspaceService } from "../src/domain/workspace/index.js";
 import { listRepos } from "../src/domain/workspace/adapters/repo-store.js";
 import { runCommand, runCommandAllowingFailure } from "../src/shared/exec.js";
 import { readTask, taskService, writeTask } from "../src/domain/task/index.js";
@@ -2922,6 +2923,54 @@ describe("terminal app PTY attach flow", () => {
     terminal.emitKey("q");
     await expect(app).resolves.toBe(0);
   });
+
+  test.each(["closed", "running", "merged"] as const)(
+    "workspace removal handles %s task records without losing history",
+    async (status) => {
+      const root = await mkdtemp(join(tmpdir(), "craig-ui-workspace-removal-"));
+      tempRoots.push(root);
+      const paths = await setupWorkspace(root);
+      const task = { ...await readTask(paths, "task_20260430_02"), status };
+      await writeTask(paths, task);
+      const history = await writeTaskRecord(root, {
+        id: "task_20260430_03", repoId: "repo_a", workspaceId: "workspace_repo_a", status: "closed",
+      });
+      await appendTaskId(paths, history.id);
+      const savedTask = await readTask(paths, task.id);
+      const savedHistory = await readTask(paths, history.id);
+      const runtime = JSON.parse(await readFile(paths.uiStateFile, "utf8"));
+      await writeFile(paths.uiStateFile, JSON.stringify({
+        ...runtime, selectedTaskId: null, selectedPtyTabId: null, focusedRegion: "tasks",
+      }));
+      const terminal = new FakeTerminal();
+      const ptyRuntime = new FakePtyRuntime();
+      const app = startTerminalApp({ terminal, ptyRuntime, uiStateFile: paths.uiStateFile, workspaceRoot: root });
+      await vi.waitFor(() => expect(terminal.hasKeyListener()).toBe(true));
+      terminal.emitKey("\r");
+      terminal.emitKey("X");
+      if (status === "closed") {
+        await vi.waitFor(() => expect(stripAnsi(terminal.frames.at(-1) ?? "")).toContain("Archived workspace"));
+        expect(stripAnsi(terminal.frames.at(-1) ?? "")).toContain("No workspaces registered.");
+        expect((await workspaceService.listWorkspaces(paths, { archived: false })).workspaces).toEqual([]);
+        expect((await workspaceService.listWorkspaces(paths, { archived: true })).workspaces.map((item) => item.id)).toContain("workspace_repo_a");
+        // The destructive CLI operation must continue to reject historical references.
+        await expect(workspaceService.removeWorkspace(paths, "workspace_repo_a", { listTasks: taskService.listTasks })).rejects.toThrow("task records still reference it");
+      } else {
+        await vi.waitFor(() => expect(stripAnsi(terminal.frames.at(-1) ?? "")).toContain(`${task.id} (${status})`));
+        const frame = stripAnsi(terminal.frames.at(-1) ?? "");
+        expect(frame).not.toContain(`${history.id} (closed)`);
+        expect((await workspaceService.listWorkspaces(paths, { archived: false })).workspaces.map((item) => item.id)).toContain("workspace_repo_a");
+      }
+      terminal.emitKey("q");
+      await expect(app).resolves.toBe(0);
+      expect(await readTask(paths, task.id)).toEqual(savedTask);
+      expect(await readTask(paths, history.id)).toEqual(savedHistory);
+      if (status === "closed") {
+        await workspaceService.restoreWorkspace(paths, "workspace_repo_a");
+        expect((await workspaceService.listWorkspaces(paths, { archived: false })).workspaces.map((item) => item.id)).toContain("workspace_repo_a");
+      }
+    },
+  );
 
   test("the left panel can remove an empty workspace", async () => {
     const root = await mkdtemp(join(tmpdir(), "craig-ui-app-"));
