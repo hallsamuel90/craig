@@ -2860,6 +2860,69 @@ describe("terminal app PTY attach flow", () => {
     expect(terminal.frames.join("\n")).toContain("Registered workspace: repo-b");
   });
 
+  test.each(["n", "ENTER"])("%s creates in the visible second workspace and immediately attaches its agent", async (openKey) => {
+    const root = await mkdtemp(join(tmpdir(), "craig-ui-app-"));
+    tempRoots.push(root);
+    const paths = await setupWorkspace(root);
+    const repoBRoot = join(root, "repo-b");
+    await mkdir(repoBRoot, { recursive: true });
+    await createGitRepo(repoBRoot);
+    await writeRepoRecord(
+      root,
+      {
+        id: "repo_b",
+        name: "repo-b",
+        rootPath: repoBRoot,
+        defaultBranch: "main",
+        createdAt: "2026-05-04T00:00:00.000Z",
+        updatedAt: "2026-05-04T00:00:00.000Z",
+      },
+      {
+        id: "workspace_repo_b",
+        kind: "repo",
+        name: "repo-b",
+        rootPath: repoBRoot,
+        primaryRepoId: "repo_b",
+        repoId: "repo_b",
+        discoveredRepoIds: ["repo_b"],
+        branch: "main",
+        status: "active",
+        linkedRepoIds: [],
+        archivedAt: null,
+        createdAt: "2026-05-04T00:00:00.000Z",
+        updatedAt: "2026-05-04T00:00:00.000Z",
+      },
+    );
+
+    const stubDir = await createStubCommands(root);
+    process.env.PATH = `${stubDir}:${originalPath}`;
+    const terminal = new FakeTerminal();
+    const ptyRuntime = new FakePtyRuntime();
+    const app = startTerminalApp({ terminal, ptyRuntime, uiStateFile: paths.uiStateFile, workspaceRoot: root });
+    await vi.waitFor(() => expect(terminal.hasKeyListener()).toBe(true));
+    terminal.emitKey("\r");
+    terminal.emitKey("[");
+    terminal.emitKey("DOWN"); // new task in A, retaining A's task selection
+    terminal.emitKey("DOWN"); // workspace B
+    terminal.emitKey("DOWN"); // new task in B
+    terminal.emitKey(openKey);
+    expect(stripAnsi(terminal.frames.at(-1) ?? "")).toContain("NEW TASK [repo-b]");
+    // A model refresh while editing must preserve the captured destination.
+    ptyRuntime.emitTasksChanged(["task_20260430_02"]);
+    for (const char of "fix the second repo") terminal.emitKey(char);
+    terminal.emitKey("ENTER");
+    await vi.waitFor(() => expect(ptyRuntime.ensureSession).toHaveBeenCalled());
+    const taskId = String(ptyRuntime.ensureSession.mock.calls[0]?.[0]);
+    const task = await readTask(paths, taskId);
+    expect(task.workspaceId).toBe("workspace_repo_b");
+    expect(task.repoId).toBe("repo_b");
+    expect(task.worktreePath).toContain("repo_b");
+    expect(ptyRuntime.ensureSession.mock.calls[0]?.[1]).toBe(`${taskId}:agent`);
+    terminal.emitKey("\u001D");
+    terminal.emitKey("q");
+    await expect(app).resolves.toBe(0);
+  });
+
   test("the left panel can remove an empty workspace", async () => {
     const root = await mkdtemp(join(tmpdir(), "craig-ui-app-"));
     tempRoots.push(root);

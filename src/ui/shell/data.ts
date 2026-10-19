@@ -202,7 +202,7 @@ export function buildShellData(
           ? `BROWSE WORKSPACE ${state.workspaceBrowser.cwd}   Search: ${state.workspaceBrowser.query}   ↑↓ move   Enter select   Esc clear search`
           : `BROWSE WORKSPACE ${state.workspaceBrowser.cwd}   ↑↓ move   → open   ← up   / search   Enter add repo   Esc cancel`
         : state.taskPromptInput !== null
-        ? `NEW TASK ${selectedRepo ? `[${selectedRepo.name}]` : "[no repo]"} · ${configService.runners.getDisplayName(state.selectedRunner)}   Ctrl+R switch runner   Enter create   Esc cancel   ›   ${state.taskPromptInput}${state.taskPromptError ? `   ✗ ${state.taskPromptError}` : ""}`
+        ? `NEW TASK [${state.taskPromptTarget?.name ?? selectedRepo?.name ?? "no workspace"}] · ${configService.runners.getDisplayName(state.selectedRunner)}   Ctrl+R switch runner   Enter create   Esc cancel   ›   ${state.taskPromptInput}${state.taskPromptError ? `   ✗ ${state.taskPromptError}` : ""}`
         : state.inputMode === "terminal"
         ? "TERMINAL   ↑↓/PgUp/PgDn scroll   Ctrl+] return to control"
         : state.focusedRegion === "tasks"
