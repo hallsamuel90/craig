@@ -1,9 +1,10 @@
+import { stripVTControlCharacters } from "node:util";
 import { describe, expect, test } from "vitest";
 
 import type { TaskLocalInspection } from "../src/ui/shell/task-local-inspection.js";
 import type { ProjectTaskRepoTarget, TaskPR } from "../src/domain/task/index.js";
 import { getMockShellData } from "../src/ui/mock-data.js";
-import { MIN_VIEWPORT } from "../src/ui/layout.js";
+import { MIN_VIEWPORT, getFramedPanelBounds, getFramedTerminalBounds } from "../src/ui/layout.js";
 import { OPTIONS_MENU_ITEMS } from "../src/ui/options.js";
 import { renderBootOverlayFrame, renderLogsOverlayFrame, renderMainShellFrame, renderMainShellPresentation, renderOptionsOverlayFrame, renderPauseOverlayFrame } from "../src/ui/render.js";
 import { createInitialShellState, getLeftItemIds } from "../src/ui/state.js";
@@ -17,6 +18,101 @@ function contentCenter(line: string): number {
 }
 
 describe("terminal shell renderer", () => {
+  test.each(["tasks", "center", "inspector", "actions"] as const)("frames the preview without clipping output with %s focused", (focusedRegion) => {
+    const data = getMockShellData({ focusedRegion, terminal: {
+      status: "running", rows: [{ segments: [{ text: "agent output" }] }], error: null,
+    } });
+    data.leftTree[0]!.panelHeader = true;
+    const stable = renderMainShellPresentation(MIN_VIEWPORT, data, { color: false });
+    const polished = renderMainShellPresentation(MIN_VIEWPORT, data, { color: false, panelPolish: true });
+    expect(renderMainShellPresentation(MIN_VIEWPORT, data, { color: false, panelPolish: false })).toEqual(stable);
+    expect(polished.center.width).toBeGreaterThan(stable.center.width);
+    expect(polished.frame.split("\n").every((row) => row.length === MIN_VIEWPORT.width)).toBe(true);
+    expect(polished.frame.split("\n")).toHaveLength(MIN_VIEWPORT.height);
+    expect(polished.frame).toContain("╭─ WORKSPACES");
+    expect(polished.center.rows[0]).toContain("AGENT");
+    expect(polished.center.rows.at(-1)).toMatch(/^╰─+╯$/);
+    const bounds = getFramedTerminalBounds(MIN_VIEWPORT);
+    const outputRow = polished.frame.split("\n")[bounds.row - 1]!;
+    expect(outputRow.slice(bounds.column - 1, bounds.column - 1 + bounds.width)).toContain("agent output");
+    expect(polished.center.width).toBe(getFramedPanelBounds(MIN_VIEWPORT).center.width);
+  });
+
+  test("preview fits task names with compact sidebar indentation", () => {
+    const data = getMockShellData({ inputMode: "control", focusedRegion: "tasks" });
+    data.leftTree = [
+      { text: "craig" },
+      { text: "Panel polish pass", indent: 2, selected: true, activity: "working" },
+    ];
+    data.rightInspection = { title: "", rows: [{ id: "modes", text: "FILES  REVIEW", segments: [
+      { text: "FILES", style: { fg: "7aa2f7" } },
+      { text: "  " },
+      { text: "REVIEW", style: { fg: "565f89" } },
+    ] }] };
+    const view = renderMainShellPresentation(MIN_VIEWPORT, data, { panelPolish: true });
+    expect(view.center.rows[0]).toContain("\u001B[38;2;122;162;247;48;2;10;10;10mAGENT");
+    expect(view.regions.left?.rows[0]).toContain("\u001B[38;2;158;206;106;48;2;10;10;10mWORKSPACES");
+    expect(view.regions.left?.rows[1]).not.toContain("\u001B[38;2;158;206;106;48;2;10;10;10m│");
+    expect(view.regions.left?.rows.at(-1)).not.toContain("\u001B[38;2;158;206;106;48;2;10;10;10m╰");
+    expect(view.regions.right?.rows[0]).toContain("\u001B[38;2;122;162;247;48;2;10;10;10mFILES");
+    expect(stripVTControlCharacters(view.regions.left!.rows[2]!)).toContain("Panel polish pass");
+    expect(view.regions.left!.width).toBe(34);
+  });
+
+  test.each(["tasks", "center", "inspector", "actions"] as const)("preview matches normal title colors and moves blue outlines with %s focus", (focusedRegion) => {
+    const task = buildTaskRecord("/tmp/craig", { id: "task_focus", repoId: "repo_a", workspaceId: "workspace_a" });
+    for (const inspectionMode of ["files", "review"] as const) {
+      const data = buildShellData({
+        ...createInitialShellState(null), focusedRegion, inspectionMode,
+        selectedRepoId: "repo_a", selectedTaskId: task.id, selectedPtyTabId: task.ptyTabs[0]!.id,
+      }, {
+        workspaceRoot: "/tmp/craig", tasks: [task], inspection: null,
+        repos: [{ id: "repo_a", name: "craig", rootPath: "/tmp/craig", defaultBranch: "main", createdAt: "", updatedAt: "" }],
+      });
+      const normal = renderMainShellPresentation(MIN_VIEWPORT, data);
+      const preview = renderMainShellPresentation(MIN_VIEWPORT, data, { panelPolish: true });
+      const blue = "\u001B[38;2;122;162;247;48;2;10;10;10m";
+      const green = "\u001B[38;2;158;206;106;48;2;10;10;10m";
+      const subdued = "\u001B[38;2;59;66;97;48;2;10;10;10m";
+      const inspectorFocused = focusedRegion === "inspector" || focusedRegion === "actions";
+      const activeTab = data.tabs.find((tab) => tab.active)!.label;
+      for (const [title, active] of [["WORKSPACES", focusedRegion === "tasks"], [activeTab, focusedRegion === "center"], [inspectionMode.toUpperCase(), inspectorFocused]] as const) {
+        const expected = `${active ? green : blue}${title}`;
+        expect(normal.frame).toContain(expected);
+        expect(preview.frame).toContain(expected);
+        if (!active) expect(preview.frame).not.toContain(`${green}${title}`);
+      }
+      for (const [region, active] of [[preview.regions.left!, focusedRegion === "tasks"], [preview.center, focusedRegion === "center"], [preview.regions.right!, inspectorFocused]] as const) {
+        const expected = active ? blue : subdued;
+        expect(region.rows[0]).toContain(`${expected}╭─`);
+        expect(region.rows[1]).toContain(`${expected}│`);
+        expect(region.rows.at(-1)).toContain(`${expected}╰`);
+        expect(region.rows.join("")).not.toContain(`${green}│`);
+      }
+    }
+  });
+
+  test("zoomed preview preserves the frame and expands terminal content", () => {
+    const data = getMockShellData();
+    const polished = renderMainShellPresentation(MIN_VIEWPORT, data, { color: false, centerOnly: true, panelPolish: true });
+    expect(polished.regions.left).toBeNull();
+    expect(polished.regions.right).toBeNull();
+    expect(polished.center.width).toBe(MIN_VIEWPORT.width - 2);
+    expect(polished.frame.split("\n").every((row) => row.length === MIN_VIEWPORT.width)).toBe(true);
+    expect(getFramedTerminalBounds(MIN_VIEWPORT, true).width).toBe(MIN_VIEWPORT.width - 8);
+  });
+
+  test("preview clips colored titles and long shortcut strips without breaking ANSI", () => {
+    const data = getMockShellData();
+    data.tabs = data.tabs.map((tab) => ({ ...tab, label: tab.label.repeat(10) }));
+    data.footerToast = { tone: "success", message: "Saved settings" };
+    const frame = renderMainShellFrame(MIN_VIEWPORT, data, { panelPolish: true });
+    const plain = stripVTControlCharacters(frame);
+    expect(plain).not.toContain(String.fromCharCode(27));
+    expect(plain).toContain("Saved settings");
+    expect(plain.split("\n").every((row) => row.length === MIN_VIEWPORT.width)).toBe(true);
+  });
+
   test("renders the boot overlay with the CRAIG logo and menu", () => {
     const frame = renderBootOverlayFrame(MIN_VIEWPORT, { color: false, menuIndex: 0 });
 
@@ -25,6 +121,25 @@ describe("terminal shell renderer", () => {
     expect(frame).toContain("> Start");
     expect(frame).toContain("  Options");
     expect(frame).toContain("  Exit");
+  });
+
+  test.each([renderBootOverlayFrame, renderPauseOverlayFrame, renderOptionsOverlayFrame])("frames preview splash menus with one blue outline and preserves their content", (renderOverlay) => {
+    const options = { color: false, menuIndex: 0, versionText: "v0.17.3", updateText: "v0.18.0" };
+    const stable = renderOverlay(MIN_VIEWPORT, options);
+    expect(renderOverlay(MIN_VIEWPORT, { ...options, panelPolish: false })).toBe(stable);
+    const preview = renderOverlay(MIN_VIEWPORT, { ...options, panelPolish: true });
+    const rows = preview.split("\n");
+    expect(rows).toHaveLength(MIN_VIEWPORT.height);
+    expect(rows.every((row) => row.length === MIN_VIEWPORT.width)).toBe(true);
+    expect(rows[1]).toMatch(/^ ╭─+╮ $/);
+    expect(rows.at(-2)).toMatch(/^ ╰─+╯ $/);
+    expect(rows.slice(2, -2).every((row) => row.startsWith(" │") && row.endsWith("│ "))).toBe(true);
+    expect(preview).toContain("▄████▄");
+    expect(preview).toContain(renderOverlay === renderOptionsOverlayFrame ? "Help" : "Options");
+    if (renderOverlay !== renderOptionsOverlayFrame) expect(preview).toContain("v0.17.3  (update available)");
+    const colored = renderOverlay(MIN_VIEWPORT, { ...options, color: true, panelPolish: true });
+    expect(colored).toContain("\u001B[38;2;122;162;247;48;2;6;6;15m╭");
+    expect(stripVTControlCharacters(colored)).toBe(preview);
   });
 
   test("renders the pause overlay with resume and exit actions", () => {

@@ -1,3 +1,4 @@
+import { stripVTControlCharacters } from "node:util";
 import { chmod, mkdir, mkdtemp, readFile, realpath, rm, writeFile } from "node:fs/promises";
 import { join, resolve } from "node:path";
 import { tmpdir } from "node:os";
@@ -100,10 +101,11 @@ describe("Craig terminal mode E2E", () => {
     }
   }, 15000);
 
-  test("incremental center rendering starts Codex in the selected task worktree", async () => {
+  test.each([false, true])("incremental center rendering starts Codex in the selected task worktree with panel polish %s", async (panelPolish) => {
     const repoRoot = process.cwd();
     const workspaceRoot = await mkdtemp(join(tmpdir(), "craig-terminal-e2e-")).then((value) => realpath(value));
     await createCraigState(workspaceRoot, ["task_20260430_02"]);
+    await configService.save(getCraigPaths(workspaceRoot), { previews: { panelPolish } });
     const sourceRepo = join(workspaceRoot, "repo-a");
     await mkdir(sourceRepo, { recursive: true });
     await createGitRepo(sourceRepo);
@@ -162,12 +164,12 @@ describe("Craig terminal mode E2E", () => {
     try {
       await output.waitFor("> Start");
       child.write("\r");
-      await output.waitFor("+ new tab");
+      await output.waitFor(panelPolish ? "╭─ " : "+ new tab");
       child.write("\r");
       await output.waitFor("codex_stub_started");
       await output.waitForLatestFrame("codex_stub_bottom_bar");
       const frame = output.latestFrame();
-      expect(frame).toContain("TERMINAL   ↑↓/PgUp/PgDn scroll");
+      expect(stripVTControlCharacters(frame)).toContain("TERMINAL   ↑↓/PgUp/PgDn scroll");
       expect(frame).toContain("codex_stub_started");
       expect(frame).toContain("codex_stub_prompt:");
       expect(frame).toContain("codex_stub_bottom_bar");
@@ -195,7 +197,7 @@ describe("Craig terminal mode E2E", () => {
     }
   }, 15000);
 
-  test("creating a new task starts Codex in the new task worktree", async () => {
+  test.each([false, true])("creating a new task starts Codex in the new task worktree with panel polish %s", async (panelPolish) => {
     const repoRoot = process.cwd();
     const workspaceRoot = await mkdtemp(join(tmpdir(), "craig-terminal-e2e-create-")).then((value) => realpath(value));
     await createCraigState(workspaceRoot, []);
@@ -226,7 +228,7 @@ describe("Craig terminal mode E2E", () => {
         updatedAt: "2026-05-04T00:00:00.000Z",
       },
     );
-    await configService.save(getCraigPaths(workspaceRoot), { previews: { agentOrchestration: true } });
+    await configService.save(getCraigPaths(workspaceRoot), { previews: { agentOrchestration: true, panelPolish } });
     const codexStubDir = await createCodexHarnessStub(workspaceRoot);
     await writeRepoUiState(workspaceRoot);
     const output = new PtyOutputBuffer();
@@ -259,7 +261,7 @@ describe("Craig terminal mode E2E", () => {
       await output.waitFor("codex_stub_started");
       await output.waitForLatestFrame("codex_stub_bottom_bar");
       const frame = output.latestFrame();
-      expect(frame).toContain("TERMINAL   ↑↓/PgUp/PgDn scroll");
+      expect(stripVTControlCharacters(frame)).toContain("TERMINAL   ↑↓/PgUp/PgDn scroll");
       expect(frame).toContain("codex_stub_started");
       expect(frame).toContain("codex_stub_task_dir:task_");
       expect(frame).toContain("codex_stub_prompt:");
@@ -902,7 +904,7 @@ class PtyOutputBuffer {
   }
 
   latestFrame(): string {
-    const marker = "CRAIG  |";
+    const marker = "CRAIG  ";
     const index = this.value.lastIndexOf(marker);
     return index === -1 ? this.value : this.value.slice(index);
   }

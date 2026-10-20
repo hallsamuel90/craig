@@ -7,7 +7,7 @@ import type {
   ShellTab,
   ShellTreeRow,
 } from "./shell/data.js";
-import { SHELL_LAYOUT, type Viewport } from "./layout.js";
+import { SHELL_LAYOUT, getFramedPanelBounds, type PanelBounds, type Viewport } from "./layout.js";
 import type { TerminalCellStyle, TerminalRowSegment } from "./terminal-emulator.js";
 import type { FooterToast } from "./state.js";
 import { isPtyTab } from "./state.js";
@@ -25,6 +25,7 @@ export interface RenderOptions {
   logPath?: string;
   logLines?: string[];
   focusFlashActive?: boolean;
+  panelPolish?: boolean;
 }
 
 export interface RenderedRegion {
@@ -108,6 +109,7 @@ const WORKING_DOT_COLORS = ["3d59a1", "506eb8", "6386d0", "7aa2f7", "6386d0", "5
 
 export function renderBootOverlayFrame(viewport: Viewport, options: RenderOptions = {}): string {
   return renderOverlayFrame(viewport, {
+    panelPolish: options.panelPolish ?? false,
     subtitle: "crAIg is that you?",
     menuItems: BOOT_MENU,
     menuIndex: options.menuIndex ?? 0,
@@ -120,6 +122,7 @@ export function renderBootOverlayFrame(viewport: Viewport, options: RenderOption
 
 export function renderPauseOverlayFrame(viewport: Viewport, options: RenderOptions = {}): string {
   return renderOverlayFrame(viewport, {
+    panelPolish: options.panelPolish ?? false,
     subtitle: "Control mode is paused.",
     menuItems: PAUSE_MENU,
     menuIndex: options.menuIndex ?? 0,
@@ -151,6 +154,7 @@ const OVERLAY_BODY_ROWS = 5;
 
 export function renderOptionsOverlayFrame(viewport: Viewport, options: RenderOptions = {}): string {
   return renderOverlayFrame(viewport, {
+    panelPolish: options.panelPolish ?? false,
     subtitle: options.optionsSubtitle ?? "Configuration",
     menuItems: options.optionsMenuItems ?? OPTIONS_MENU,
     menuIndex: options.menuIndex ?? 0,
@@ -241,7 +245,7 @@ function getLogTone(line: string): NonNullable<SurfaceLine["tone"]> {
 export function renderMainShellFrame(
   viewport: Viewport,
   data: ShellData,
-  options: Pick<RenderOptions, "color" | "centerOnly" | "focusFlashActive"> = {},
+  options: Pick<RenderOptions, "color" | "centerOnly" | "focusFlashActive" | "panelPolish"> = {},
 ): string {
   return renderMainShellPresentation(viewport, data, options).frame;
 }
@@ -249,8 +253,9 @@ export function renderMainShellFrame(
 export function renderMainShellPresentation(
   viewport: Viewport,
   data: ShellData,
-  options: Pick<RenderOptions, "color" | "centerOnly" | "focusFlashActive"> = {},
+  options: Pick<RenderOptions, "color" | "centerOnly" | "focusFlashActive" | "panelPolish"> = {},
 ): MainShellPresentation {
+  if (options.panelPolish) return renderFramedShellPresentation(viewport, data, options);
   const color = options.color ?? true;
   const leftWidth = SHELL_LAYOUT.leftWidth;
   const rightWidth = SHELL_LAYOUT.rightWidth;
@@ -322,8 +327,9 @@ export function renderMainShellPresentation(
 export function renderCenterPaneRegion(
   viewport: Viewport,
   data: ShellData,
-  options: Pick<RenderOptions, "color" | "centerOnly"> = {},
+  options: Pick<RenderOptions, "color" | "centerOnly" | "panelPolish"> = {},
 ): RenderedRegion {
+  if (options.panelPolish) return renderFramedCenterRegion(viewport, data, options);
   const color = options.color ?? true;
   const geometry = getCenterPaneGeometry(viewport, options.centerOnly ?? false);
   const lines = toCenterLines(data, geometry.width, geometry.rowCount, color);
@@ -340,7 +346,7 @@ export function renderCenterPaneTerminalRowPatch(
   viewport: Viewport,
   data: ShellData,
   terminalRowIndices: readonly number[],
-  options: Pick<RenderOptions, "color" | "centerOnly"> = {},
+  options: Pick<RenderOptions, "color" | "centerOnly" | "panelPolish"> = {},
 ): RenderedRegionPatch | null {
   const activeTabId = data.tabs.find((tab) => tab.active)?.id ?? "";
   if (!isPtyTab(activeTabId) || data.centerHeader.tabLabel === "BROWSER" || data.terminal.error || data.terminal.rows.length === 0) {
@@ -349,6 +355,19 @@ export function renderCenterPaneTerminalRowPatch(
 
   if (terminalRowIndices.some((index) => index < 0 || index >= data.terminal.rows.length)) {
     return null;
+  }
+
+  if (options.panelPolish) {
+    const bounds = getFramedPanelBounds(viewport, options.centerOnly).center;
+    return {
+      row: bounds.row, column: bounds.column, width: bounds.width, rowCount: bounds.height,
+      rows: [...new Set(terminalRowIndices)]
+        .filter((index) => index + 2 < bounds.height - 1)
+        .map((terminalIndex) => ({
+          index: terminalIndex + 2,
+          row: renderFramedPanelRow(renderTerminalRow(data.terminal.rows[terminalIndex]!), bounds.width, data.focusedRegion === "center", options.color ?? true, "center", data.inputMode === "terminal"),
+        })),
+    };
   }
 
   const color = options.color ?? true;
@@ -363,6 +382,79 @@ export function renderCenterPaneTerminalRowPatch(
     }));
 
   return { ...geometry, rows };
+}
+
+function renderFramedShellPresentation(viewport: Viewport, data: ShellData, options: RenderOptions): MainShellPresentation {
+  const color = options.color ?? true;
+  const bounds = getFramedPanelBounds(viewport, options.centerOnly);
+  const center = renderFramedCenterRegion(viewport, data, options);
+  const blank = fillSurface(" ", color, PALETTE.panelBg);
+  const railText = ` CRAIG  ${muted("/", color, PALETTE.panelBg)}  ${muted(data.topRail.workspacePath, color, PALETTE.panelBg)}`;
+  const rail: RenderedRegion = { row: 1, column: 1, width: viewport.width, rows: [fillSurface(pad(railText, viewport.width), color, PALETTE.rail)] };
+  let left: RenderedRegion | null = null;
+  let right: RenderedRegion | null = null;
+  if (bounds.left && bounds.right) {
+    const leftTree = data.leftTree.filter((row) => !row.panelHeader)
+      .map((row) => ({ ...row, indent: Math.floor((row.indent ?? 0) / 2) }));
+    const leftBody = toLeftLines({ ...data, leftTree }, bounds.left.width - 4, bounds.left.height - 2, color);
+    const workspaceTitle = data.focusedRegion === "tasks"
+      ? green("WORKSPACES", color, PALETTE.panelBg)
+      : accent("WORKSPACES", color, PALETTE.panelBg);
+    const leftRows = framePanel(leftBody, workspaceTitle, bounds.left, data.focusedRegion === "tasks", color, "left");
+    left = { row: bounds.left.row, column: 1, width: bounds.left.width + 2, rows: leftRows.map((row) => `${blank}${row}${blank}`) };
+    const rightLines = toRightLines(data, bounds.right.width - 2, bounds.right.height - 1, color);
+    const title = renderLineContent(rightLines[0] ?? { text: "Inspector" }, color, PALETTE.panelBg).trim();
+    const rightRows = framePanel(rightLines.slice(1), title, bounds.right, data.focusedRegion === "inspector" || data.focusedRegion === "actions", color, "right");
+    right = { row: bounds.right.row, column: center.column + center.width, width: bounds.right.width + 2, rows: rightRows.map((row) => `${blank}${row}${blank}`) };
+  }
+  const footerPalette = data.modalInput ? PALETTE.panelBg : PALETTE.panelMuted;
+  const footerLine = renderFooterLine(data.footerText, data.footerToast, viewport.width, color, footerPalette);
+  // Highlight after clipping so ANSI styling never becomes part of the text
+  // width calculation for a long shortcut strip beside a toast.
+  const shortcuts = data.modalInput ? footerLine : footerLine.replace(
+    /( {2,})(Tab|Enter|Esc|Ctrl\+\]|[ntxar?q+z]|↑↓\/PgUp\/PgDn)(?= )/g,
+    (_match, gap: string, key: string) => `${gap}${fillSurface(key, color, PALETTE.panelSelected)}${color ? toAnsi(footerPalette) : ""}`,
+  );
+  const footer: RenderedRegion = {
+    row: viewport.height, column: 1, width: viewport.width, rows: [shortcuts],
+  };
+  const body = center.rows.map((row, index) => left && right
+    ? `${left.rows[index]}${row}${right.rows[index]}`
+    : `${blank}${row}${blank}`);
+  return { frame: [rail.rows[0], ...body, footer.rows[0]].join("\n"), center, regions: { rail, left, center, right, footer } };
+}
+
+function renderFramedCenterRegion(viewport: Viewport, data: ShellData, options: RenderOptions): RenderedRegion {
+  const color = options.color ?? true;
+  const bounds = getFramedPanelBounds(viewport, options.centerOnly).center;
+  const activeTabId = data.tabs.find((tab) => tab.active)?.id ?? "agent";
+  const content = data.centerHeader.tabLabel === "BROWSER" || !isPtyTab(activeTabId)
+    ? data.centerTranscript.map((line) => ({ ...line }))
+    : renderTerminalSurface(data);
+  const context = [data.centerHeader.repo, data.centerHeader.taskId].filter(Boolean).join(" · ");
+  const title = renderTabLine(data.tabs, color, data.focusedRegion === "center");
+  const rows = framePanel([{ text: context, tone: "muted" }, ...content], title, bounds, data.focusedRegion === "center", color, "center", data.inputMode === "terminal");
+  return { row: bounds.row, column: bounds.column, width: bounds.width, rows };
+}
+
+function getFrameBorderPalette(focused: boolean, engaged: boolean): PaletteColor {
+  return { bg: PALETTE.panelBg.bg, fg: engaged ? PALETTE.success.fg : focused ? PALETTE.accent.fg : "3b4261" };
+}
+
+function framePanel(lines: SurfaceLine[], title: string, bounds: PanelBounds, focused: boolean, color: boolean, panel: "left" | "center" | "right", engaged = false): string[] {
+  const border = getFrameBorderPalette(focused, engaged);
+  const label = truncate(title, bounds.width - 6);
+  const top = `${fillSurface("╭─ ", color, border)}${fillSurface(label, color, focused ? border : PALETTE.panelMuted)}${fillSurface(` ${"─".repeat(Math.max(0, bounds.width - stringWidth(label) - 5))}╮`, color, border)}`;
+  const body = fitLines(lines, bounds.height - 2).map((line) => renderFramedPanelRow(line, bounds.width, focused, color, panel, engaged));
+  return [top, ...body, fillSurface(`╰${"─".repeat(bounds.width - 2)}╯`, color, border)];
+}
+
+function renderFramedPanelRow(line: SurfaceLine, width: number, focused: boolean, color: boolean, panel: "left" | "center" | "right", engaged = false): string {
+  const side = fillSurface("│", color, getFrameBorderPalette(focused, engaged));
+  const content = panel === "right"
+    ? `${renderSurfaceSegment(line, width - 3, color, panel)}${fillSurface(" ", color, PALETTE.panelBg)}`
+    : renderSurfaceSegment(line, width - 2, color, panel, panel === "left");
+  return `${side}${content}${side}`;
 }
 
 function getCenterPaneGeometry(viewport: Viewport, centerOnly: boolean): Omit<RenderedRegionPatch, "rows"> {
@@ -397,18 +489,34 @@ function renderFooterLine(footerText: string, footerToast: FooterToast | null, w
   return fillSurface(pad(line, width), color, palette);
 }
 
-function renderOverlayFrame(
-  viewport: Viewport,
-  input: {
-    subtitle: string;
-    menuItems: string[];
-    menuIndex: number;
-    optionsMessage: string | null;
-    color: boolean;
-    versionText?: string | null;
-    updateText?: string | null;
-  },
-): string {
+interface OverlayInput {
+  subtitle: string;
+  menuItems: string[];
+  menuIndex: number;
+  optionsMessage: string | null;
+  color: boolean;
+  versionText?: string | null;
+  updateText?: string | null;
+  panelPolish?: boolean;
+}
+
+function renderOverlayFrame(viewport: Viewport, input: OverlayInput): string {
+  if (!input.panelPolish) return renderOverlayContent(viewport, input);
+  const innerWidth = viewport.width - 4;
+  const content = renderOverlayContent({ width: innerWidth, height: viewport.height - 4 }, input).split("\n");
+  const border = { bg: PALETTE.overlay.bg, fg: PALETTE.accent.fg };
+  const blank = fillSurface(" ", input.color, PALETTE.overlay);
+  const side = fillSurface("│", input.color, border);
+  return [
+    fillSurface(" ".repeat(viewport.width), input.color, PALETTE.overlay),
+    `${blank}${fillSurface(`╭${"─".repeat(innerWidth)}╮`, input.color, border)}${blank}`,
+    ...content.map((line) => `${blank}${side}${line}${side}${blank}`),
+    `${blank}${fillSurface(`╰${"─".repeat(innerWidth)}╯`, input.color, border)}${blank}`,
+    fillSurface(" ".repeat(viewport.width), input.color, PALETTE.overlay),
+  ].join("\n");
+}
+
+function renderOverlayContent(viewport: Viewport, input: OverlayInput): string {
   const lines = new Array<string>(viewport.height).fill(fillSurface(" ".repeat(viewport.width), input.color, PALETTE.overlay));
   const logo = getBannerArtLines();
   const menu = input.menuItems.map((item, index) => `${index === input.menuIndex ? ">" : " "} ${item}`);
@@ -436,7 +544,7 @@ function renderOverlayFrame(
     const menuOffset = index - (logo.length + 3);
     const isMenuItem = menuOffset >= 0 && menuOffset < input.menuItems.length;
     const itemPalette = isMenuItem && menuOffset === input.menuIndex
-      ? PALETTE.overlayMenuSelected
+      ? input.panelPolish ? { ...PALETTE.overlayMenuSelected, fg: PALETTE.success.fg } : PALETTE.overlayMenuSelected
       : PALETTE.overlay;
     lines[startLine + index] = fillSurface(centered, input.color, itemPalette);
   }
@@ -717,23 +825,26 @@ function renderSurfaceSegment(
   width: number,
   color: boolean,
   panel: "left" | "center" | "right",
+  compactLeft = false,
 ): string {
   const palette = getPanelPalette(panel, line.tone ?? "default");
   const lineContent = renderLineContent(line, color, palette);
   if (panel === "left") {
+    const leftInset = compactLeft ? 1 : LEFT_PANEL_INSET;
+    const leftGutter = compactLeft ? 1 : LEFT_PANEL_GUTTER;
     if (line.fullBleed) {
       return fillSurface(pad(lineContent, width), color, palette);
     }
 
-    const contentWidth = width - LEFT_PANEL_INSET - LEFT_PANEL_GUTTER;
+    const contentWidth = width - leftInset - leftGutter;
     if (line.rightAlign) {
       const visLen = stringWidth(lineContent);
       const leftPad = Math.max(0, contentWidth - visLen);
-      const text = `${" ".repeat(LEFT_PANEL_INSET)}${" ".repeat(leftPad)}${lineContent}${" ".repeat(LEFT_PANEL_GUTTER)}`;
+      const text = `${" ".repeat(leftInset)}${" ".repeat(leftPad)}${lineContent}${" ".repeat(leftGutter)}`;
       return fillSurface(text, color, palette);
     }
 
-    const text = `${" ".repeat(LEFT_PANEL_INSET)}${pad(lineContent, contentWidth)}${" ".repeat(LEFT_PANEL_GUTTER)}`;
+    const text = `${" ".repeat(leftInset)}${pad(lineContent, contentWidth)}${" ".repeat(leftGutter)}`;
     return fillSurface(text, color, palette);
   }
 

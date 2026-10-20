@@ -1,5 +1,5 @@
 import type { TaskPtyTabRecord, TaskRecord } from "../../domain/task/index.js";
-import type { RunnerType } from "../../domain/config/index.js";
+import { configService, type RunnerType } from "../../domain/config/index.js";
 import {
   createPtyTab,
   closePtyTab,
@@ -52,7 +52,7 @@ export async function warmSelectedPtyTab(ctx: AppContext, shell: ControlShellSta
   const view = await ctx.ptyRuntime.ensureSession(
     selectedTask.id,
     tabId,
-    getPtySize(getViewport(ctx.activeTerminal.width, ctx.activeTerminal.height)),
+    getPtySize(getViewport(ctx.activeTerminal.width, ctx.activeTerminal.height), configService.previews.isEnabled(ctx.config, "panelPolish"), syncedShell.centerZoomed),
   );
 
   return updateTerminalViewState({ ...syncedShell, inputMode: "control" }, view);
@@ -113,7 +113,7 @@ export async function attachPtyFromShell(ctx: AppContext, shell: ControlShellSta
     const view = await ctx.ptyRuntime.ensureSession(
       nextShell.selectedTaskId,
       tabId,
-      getPtySize(getViewport(ctx.activeTerminal.width, ctx.activeTerminal.height)),
+      getPtySize(getViewport(ctx.activeTerminal.width, ctx.activeTerminal.height), configService.previews.isEnabled(ctx.config, "panelPolish"), nextShell.centerZoomed),
     );
     ctx.suppressTerminalEnterOnAttach = isAgentTabId(tabId);
     ctx.lastTerminalKey = null;

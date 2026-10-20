@@ -48,10 +48,11 @@ describe("terminal app PTY attach flow", () => {
     );
   });
 
-  test("renders shell frames with absolute row positioning instead of newlines", async () => {
+  test.each([false, true])("renders shell frames with absolute row positioning with panel polish %s", async (panelPolish) => {
     const root = await mkdtemp(join(tmpdir(), "craig-ui-app-"));
     tempRoots.push(root);
     const paths = await setupWorkspace(root);
+    await configService.save(paths, { previews: { panelPolish } });
     const terminal = new FakeTerminal();
     const ptyRuntime = new FakePtyRuntime();
     const app = startTerminalApp({ terminal, ptyRuntime, uiStateFile: paths.uiStateFile, workspaceRoot: root });
@@ -61,10 +62,19 @@ describe("terminal app PTY attach flow", () => {
     expect(frame).not.toContain("\n");
     expect(frame).toContain("\u001B[1;1H");
     expect(frame).toContain(`\u001B[${terminal.height};1H`);
+    expect(stripAnsi(frame).includes("╭")).toBe(panelPolish);
 
     terminal.emitKey("\r");
     await vi.waitFor(() => expect(stripAnsi(terminal.frames.at(-1) ?? "")).toContain("CRAIG"));
     expect(stripAnsi(terminal.frames.at(-1) ?? "")).toContain("▸ ● test task");
+    const shellFrame = stripAnsi(terminal.frames.at(-1) ?? "");
+    expect(shellFrame.includes("╭─ WORKSPACES")).toBe(panelPolish);
+    if (panelPolish) {
+      terminal.emitKey("z");
+      await vi.waitFor(() => expect(ptyRuntime.resize).toHaveBeenLastCalledWith({ columns: 112, rows: 31 }));
+      terminal.emitKey("z");
+      await vi.waitFor(() => expect(ptyRuntime.resize).toHaveBeenLastCalledWith({ columns: 44, rows: 31 }));
+    }
     terminal.emitKey("q");
     await expect(app).resolves.toBe(0);
   });
@@ -2741,6 +2751,7 @@ describe("terminal app PTY attach flow", () => {
       expect(frame).toContain("[ ] Agent orchestration");
       expect(frame).toContain("[ ] Pi coding agent runner");
       expect(frame).toContain("[ ] Agent file opening");
+      expect(frame).toContain("[ ] Panel polish");
       expect(frame).not.toContain("Incremental center pane");
       expect(frame).toContain("may change or be removed");
     });
@@ -2753,6 +2764,15 @@ describe("terminal app PTY attach flow", () => {
     terminal.emitKey("ENTER");
     await vi.waitFor(async () => expect((await configService.load(paths)).previews?.piRunner).toBe(true));
     await vi.waitFor(() => expect(stripAnsi(terminal.frames.at(-1) ?? "")).toContain("[x] Pi coding agent runner"));
+
+    terminal.emitKey("DOWN"); // Agent file opening
+    terminal.emitKey("DOWN"); // Panel polish
+    terminal.emitKey("ENTER");
+    await vi.waitFor(async () => expect((await configService.load(paths)).previews?.panelPolish).toBe(true));
+    await vi.waitFor(() => expect(stripAnsi(terminal.frames.at(-1) ?? "")).toContain("[x] Panel polish"));
+    terminal.emitKey("ENTER");
+    await vi.waitFor(async () => expect((await configService.load(paths)).previews?.panelPolish).toBe(false));
+    await vi.waitFor(() => expect(stripAnsi(terminal.frames.at(-1) ?? "")).toContain("[ ] Panel polish"));
 
     terminal.emitKey("ESCAPE"); // back to options menu
     await vi.waitFor(() => expect(stripAnsi(terminal.frames.at(-1) ?? "")).toContain("Configuration"));
