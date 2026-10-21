@@ -45,6 +45,7 @@ const PREVIEW_LABELS: Record<PreviewFeatureId, string> = {
   agentOrchestration: "Agent orchestration",
   fileOpen: "Agent file opening",
   piRunner: "Pi coding agent runner",
+  panelPolish: "Panel polish",
 };
 
 export function buildRunnersSubmenuItems(config: CraigConfig, state: RunnerOptionsState): string[] {

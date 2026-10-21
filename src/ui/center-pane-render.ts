@@ -19,12 +19,13 @@ export function buildCenterPaneUpdate(
   previous: RenderedRegion,
   centerOnly: boolean,
   terminalRowIndices: readonly number[] | null = null,
+  panelPolish = false,
 ): CenterPaneUpdate | null {
   if (terminalRowIndices) {
-    return buildTerminalRowUpdate(viewport, data, previous, centerOnly, terminalRowIndices);
+    return buildTerminalRowUpdate(viewport, data, previous, centerOnly, terminalRowIndices, panelPolish);
   }
 
-  const region = renderCenterPaneRegion(viewport, data, { centerOnly });
+  const region = renderCenterPaneRegion(viewport, data, { centerOnly, panelPolish });
   if (!hasSameRegionGeometry(previous, region)) {
     return null;
   }
@@ -41,8 +42,9 @@ function buildTerminalRowUpdate(
   previous: RenderedRegion,
   centerOnly: boolean,
   terminalRowIndices: readonly number[],
+  panelPolish: boolean,
 ): CenterPaneUpdate | null {
-  const patch = renderCenterPaneTerminalRowPatch(viewport, data, terminalRowIndices, { centerOnly });
+  const patch = renderCenterPaneTerminalRowPatch(viewport, data, terminalRowIndices, { centerOnly, panelPolish });
   if (!patch || !hasSamePatchGeometry(previous, patch)) {
     return null;
   }

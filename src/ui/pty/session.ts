@@ -4,7 +4,7 @@ import type { TaskPtyTabRecord, TaskRecord } from "../../domain/task/index.js";
 import { buildEmbeddedAgentCommand } from "../../shell/agent-command.js";
 import type { WorkspaceShellModel } from "../shell/data.js";
 import { CENTER_TERMINAL_GUTTER } from "../render.js";
-import { SHELL_LAYOUT, type Viewport } from "../layout.js";
+import { SHELL_LAYOUT, getFramedTerminalBounds, type Viewport } from "../layout.js";
 import type { PtySize } from "./runtime.js";
 
 export function resolvePtySessionSpec(model: WorkspaceShellModel, tabId: string, workspaceRoot: string) {
@@ -58,7 +58,11 @@ export function getRequiredPtyTabId(task: { id: string; ptyTabs: TaskPtyTabRecor
   return tab.id;
 }
 
-export function getPtySize(viewport: Viewport): PtySize {
+export function getPtySize(viewport: Viewport, panelPolish = false, centerOnly = false): PtySize {
+  if (panelPolish) {
+    const bounds = getFramedTerminalBounds(viewport, centerOnly);
+    return { columns: bounds.width, rows: bounds.height };
+  }
   // The center PTY surface reserves:
   // 1. tab strip
   // 2. active-tab underline
