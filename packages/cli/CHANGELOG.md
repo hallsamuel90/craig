@@ -1,5 +1,11 @@
 # craig-cli
 
+## 0.18.0
+
+### Minor Changes
+
+- 03e6e76: Add a launch-time Craig update chooser with exact npm installation, per-version ignore state, release-note guidance, and new Feature Preview markers.
+
 ## 0.17.6
 
 ### Patch Changes
