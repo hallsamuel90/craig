@@ -87,6 +87,7 @@ export interface ControlShellState {
   workspaceBrowser: WorkspaceBrowserState | null;
   terminal: TerminalViewState;
   centerZoomed: boolean;
+  readAgentActivityAt: Record<string, number>;
 }
 
 export interface ReduceMainKeyOptions {
@@ -183,6 +184,7 @@ export function createInitialShellState(runtime: CraigUiRuntime | null, config: 
     workspaceBrowser: null,
     terminal: createDefaultTerminalViewState(),
     centerZoomed: false,
+    readAgentActivityAt: runtime?.readAgentActivityAt ?? {},
   };
 }
 
@@ -215,6 +217,7 @@ export function toPersistedUiState(runtime: CraigUiRuntime | null, state: Contro
     collapsedFileTreePaths: state.collapsedFileTreePaths,
     selectedActionId: state.selectedActionId,
     selectedRunner: state.selectedRunner,
+    readAgentActivityAt: state.readAgentActivityAt,
   };
 }
 

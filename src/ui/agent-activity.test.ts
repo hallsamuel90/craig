@@ -1,6 +1,8 @@
 import { describe, expect, test } from "vitest";
 
 import {
+  acknowledgeAgentActivity,
+  hasUnreadAgentActivity,
   AGENT_READY_AFTER_MS,
   getAgentTabActivity,
   getTaskAgentActivity,
@@ -8,6 +10,8 @@ import {
   hasWorkingAgentActivity,
   type PtyActivitySnapshot,
 } from "./agent-activity.js";
+
+import { createInitialShellState, toPersistedUiState } from "./state.js";
 
 const NOW = 10_000;
 
@@ -74,3 +78,47 @@ function snapshot(overrides: Partial<PtyActivitySnapshot> = {}): PtyActivitySnap
     ...overrides,
   };
 }
+
+describe("agent response read state", () => {
+  const task = {
+    id: "task",
+    ptyTabs: [{ id: "task:agent", kind: "agent" as const, title: "Codex", command: ["codex"], createdAt: "", updatedAt: "" }],
+  };
+  const tabId = task.ptyTabs.find((tab) => tab.kind === "agent")!.id;
+  const snapshots = [snapshot({ tabId, lastActivityAt: 1_000 })];
+  const shell = {
+    ...createInitialShellState(null),
+    selectedTaskId: task.id,
+    activeTab: tabId,
+    focusedRegion: "center" as const,
+    terminal: { status: "running" as const, rows: [{ segments: [{ text: "Agent response" }] }], error: null },
+  };
+
+  test("clears unread only when viewing the latest completed agent output", () => {
+    expect(hasUnreadAgentActivity([tabId], snapshots, NOW, {})).toBe(true);
+    for (const hidden of [
+      { ...shell, focusedRegion: "tasks" as const },
+      { ...shell, activeTab: "inspection" },
+      { ...shell, terminal: { ...shell.terminal, rows: [] } },
+      { ...shell, terminal: { ...shell.terminal, scrolledBack: true } },
+      { ...shell, selectedTaskId: "other" },
+    ]) expect(acknowledgeAgentActivity(hidden, [task], snapshots, NOW)).toBe(hidden);
+    const read = acknowledgeAgentActivity(shell, [task], snapshots, NOW);
+    expect(hasUnreadAgentActivity([tabId], snapshots, NOW, read.readAgentActivityAt)).toBe(false);
+    expect(acknowledgeAgentActivity(read, [task], snapshots, NOW)).toBe(read);
+    const restored = createInitialShellState(toPersistedUiState(null, read));
+    expect(hasUnreadAgentActivity([tabId], snapshots, NOW, restored.readAgentActivityAt)).toBe(false);
+    expect(hasUnreadAgentActivity([tabId], [snapshot({ tabId, lastActivityAt: 2_000 })], NOW, restored.readAgentActivityAt)).toBe(true);
+  });
+
+  test("keeps other agent tabs unread and ignores terminal tabs, working output, and failures", () => {
+    const other = snapshot({ tabId: "other", lastActivityAt: 1_000 });
+    const read = acknowledgeAgentActivity(shell, [task], [...snapshots, other], NOW);
+    expect(hasUnreadAgentActivity([tabId, "other"], [...snapshots, other], NOW, read.readAgentActivityAt)).toBe(true);
+    expect(hasUnreadAgentActivity([tabId], [other], NOW, {})).toBe(false);
+    for (const pending of [snapshot({ tabId }), snapshot({ tabId, sessionState: "failed" })]) {
+      expect(acknowledgeAgentActivity(shell, [task], [pending], NOW)).toBe(shell);
+      expect(hasUnreadAgentActivity([tabId], [pending], NOW, {})).toBe(false);
+    }
+  });
+});

@@ -275,6 +275,37 @@ describe("terminal app PTY attach flow", () => {
     await expect(app).resolves.toBe(0);
   });
 
+  test("opening an agent pane marks completed output read and persists the marker", async () => {
+    const root = await mkdtemp(join(tmpdir(), "craig-ui-read-"));
+    tempRoots.push(root);
+    const paths = await setupWorkspace(root);
+    const taskId = "task_20260430_02";
+    const tabId = `${taskId}:agent`;
+    const lastActivityAt = Date.now() - 10_000;
+    await writeFile(paths.uiStateFile, JSON.stringify({
+      version: 1, selectedRepoId: "repo_a", selectedWorkspaceId: null,
+      selectedTaskId: taskId, selectedPtyTabId: tabId, activeTab: tabId,
+      focusedRegion: "tasks", inputMode: "control", updatedAt: new Date().toISOString(),
+    }));
+    const terminal = new FakeTerminal();
+    const ptyRuntime = new FakePtyRuntime({ activitySnapshots: [{
+      taskId, tabId, lastActivityAt, sessionState: "running", exitCode: null, error: null,
+    }] });
+    const app = startTerminalApp({ terminal, ptyRuntime, uiStateFile: paths.uiStateFile, workspaceRoot: root });
+    await vi.waitFor(() => expect(terminal.hasKeyListener()).toBe(true));
+    terminal.emitKey("\r");
+    await vi.waitFor(() => expect(stripAnsi(terminal.frames.join(""))).toContain("CODEX ●"));
+    expect(JSON.parse(await readFile(paths.uiStateFile, "utf8")).readAgentActivityAt?.[tabId]).toBeUndefined();
+    terminal.frames.length = 0;
+    terminal.emitKey("TAB");
+    await vi.waitFor(() => expect(stripAnsi(terminal.frames.join(""))).toContain("CODEX ○"));
+    await vi.waitFor(async () => {
+      expect(JSON.parse(await readFile(paths.uiStateFile, "utf8")).readAgentActivityAt[tabId]).toBe(lastActivityAt);
+    });
+    terminal.emitKey("q");
+    await expect(app).resolves.toBe(0);
+  });
+
   test("starts from an empty .craig directory by initializing runtime state", async () => {
     const root = await mkdtemp(join(tmpdir(), "craig-ui-empty-"));
     tempRoots.push(root);

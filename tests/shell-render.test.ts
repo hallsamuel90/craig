@@ -481,6 +481,19 @@ describe("terminal shell renderer", () => {
     expect(renderMainShellFrame(MIN_VIEWPORT, first, { color: false })).toContain("CODEX ●");
     expect(renderMainShellFrame(MIN_VIEWPORT, first, { color: true })).toContain("38;2;61;89;161");
     expect(renderMainShellFrame(MIN_VIEWPORT, bright, { color: true })).toContain("38;2;122;162;247");
+
+    const ready = { snapshots, now: 20_000, animationFrame: 0 };
+    const unread = buildShellData(state, model, ready);
+    expect(renderMainShellFrame(MIN_VIEWPORT, unread, { color: false })).toContain("▸ ● observe agents");
+    const partlyRead = { ...state, readAgentActivityAt: { [snapshots[0]!.tabId]: snapshots[0]!.lastActivityAt } };
+    const partial = buildShellData(partlyRead, model, ready);
+    expect(partial.leftTree.find((row) => row.taskId === task.id)?.unread).toBe(true);
+    expect(partial.tabs.filter((tab) => tab.activity).map((tab) => tab.unread)).toEqual([false, true]);
+    const allRead = buildShellData({ ...state, readAgentActivityAt: Object.fromEntries(snapshots.map((entry) => [entry.tabId, entry.lastActivityAt])) }, model, ready);
+    const readFrame = renderMainShellFrame(MIN_VIEWPORT, allRead, { color: false });
+    expect(readFrame).toContain("▸ ○ observe agents");
+    expect(readFrame).toContain("CODEX ○");
+    expect(allRead.leftTree.find((row) => row.taskId === task.id)?.unread).toBe(false);
   });
 
   test("flattens all task descendants to one visual sidebar level and preserves navigation order", () => {

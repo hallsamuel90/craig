@@ -783,7 +783,7 @@ function renderTreeRow(row: ShellTreeRow, width: number, color: boolean): Surfac
     const labelAndPadding = base.slice(prefix.length + 2);
     const segments: TerminalRowSegment[] = [
       { text: prefix },
-      activityDotSegment(row.activity, row.activityAnimationFrame ?? 0),
+      activityDotSegment(row.activity, row.activityAnimationFrame ?? 0, row.unread),
       { text: ` ${labelAndPadding}${status}${accentDot}` },
       ...(row.prBadge ?? []),
     ];
@@ -837,14 +837,14 @@ function renderTabLine(tabs: ShellTab[], color: boolean, centerFocused: boolean)
           : accent(tab.label, color, PALETTE.panelBg)
         : muted(tab.label, color, PALETTE.panelBg);
       const activityDot = tab.activity
-        ? renderTerminalSegment(activityDotSegment(tab.activity, tab.activityAnimationFrame ?? 0), color, PALETTE.panelBg)
+        ? renderTerminalSegment(activityDotSegment(tab.activity, tab.activityAnimationFrame ?? 0, tab.unread), color, PALETTE.panelBg)
         : "";
       return `${label}${activityDot ? ` ${activityDot}` : ""}`;
     })
     .join("   ");
 }
 
-function activityDotSegment(activity: AgentActivityState, animationFrame: number): TerminalRowSegment {
+function activityDotSegment(activity: AgentActivityState, animationFrame: number, unread = true): TerminalRowSegment {
   const fg = activity === "working"
     ? WORKING_DOT_COLORS[animationFrame % WORKING_DOT_COLORS.length] ?? WORKING_DOT_COLORS[0]
     : activity === "ready"
@@ -852,7 +852,7 @@ function activityDotSegment(activity: AgentActivityState, animationFrame: number
       : activity === "error"
         ? PALETTE.error.fg
         : PALETTE.panelMuted.fg;
-  return { text: "●", style: { fg } };
+  return { text: activity === "ready" && !unread ? "○" : "●", style: { fg } };
 }
 
 function renderContextRow(row: ShellContextRow, color: boolean): SurfaceLine {
