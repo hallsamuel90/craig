@@ -30,6 +30,7 @@ import {
 import type { TerminalCellStyle, TerminalRowSegment } from "../terminal-emulator.js";
 import {
   getTaskAgentActivity,
+  hasUnreadAgentActivity,
   getTaskAgentTabActivity,
   type AgentActivityPresentation,
   type AgentActivityState,
@@ -65,6 +66,7 @@ export interface ShellTreeRow {
   prBadge?: TerminalRowSegment[];
   activity?: AgentActivityState;
   activityAnimationFrame?: number;
+  unread?: boolean;
 }
 
 export interface ShellRunnerRow {
@@ -81,6 +83,7 @@ export interface ShellTab {
   focused?: boolean;
   activity?: AgentActivityState;
   activityAnimationFrame?: number;
+  unread?: boolean;
 }
 
 export interface ShellContextRow {
@@ -297,6 +300,7 @@ function buildLeftTree(
               ? {
                   activity: getTaskAgentActivity(task, activity.snapshots, activity.now),
                   activityAnimationFrame: activity.animationFrame,
+                  unread: hasUnreadAgentActivity(task.ptyTabs.filter((tab) => tab.kind === "agent").map((tab) => tab.id), activity.snapshots, activity.now, state.readAgentActivityAt),
                 }
               : {}),
           };
@@ -394,6 +398,7 @@ function buildLegacyRepoLeftTree(
               ? {
                   activity: getTaskAgentActivity(task, activity.snapshots, activity.now),
                   activityAnimationFrame: activity.animationFrame,
+                  unread: hasUnreadAgentActivity(task.ptyTabs.filter((tab) => tab.kind === "agent").map((tab) => tab.id), activity.snapshots, activity.now, state.readAgentActivityAt),
                 }
               : {}),
           };
@@ -547,6 +552,7 @@ function buildCenterTabs(
         ? {
             activity: getTaskAgentTabActivity(task, tab.id, activity.snapshots, activity.now),
             activityAnimationFrame: activity.animationFrame,
+            unread: hasUnreadAgentActivity([tab.id], activity.snapshots, activity.now, state.readAgentActivityAt),
           }
         : {}),
     })) ?? [];

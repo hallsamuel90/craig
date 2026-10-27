@@ -53,6 +53,7 @@ import { Heartbeat } from "../shell/heartbeat.js";
 import { readExternalFile } from "./shell/task-local-inspection.js";
 import { logBackgroundError } from "./actions/index.js";
 import {
+  acknowledgeAgentActivity,
   AGENT_ACTIVITY_ANIMATION_FRAMES,
   AGENT_ACTIVITY_ANIMATION_INTERVAL_MS,
   getAgentTabActivity,
@@ -270,11 +271,13 @@ export async function startTerminalApp(options: TerminalAppOptions = {}): Promis
     };
 
     handlePtyActivity = (snapshot: PtyActivitySnapshot) => {
+      const activity = getAgentTabActivity(snapshot.tabId, [snapshot], Date.now());
       if (
         ctx.state.mode === "main" &&
         isAgentTabId(snapshot.tabId) &&
-        renderedAgentActivityByTabId.get(snapshot.tabId) !== getAgentTabActivity(snapshot.tabId, [snapshot], Date.now())
+        (renderedAgentActivityByTabId.get(snapshot.tabId) !== activity || activity === "ready")
       ) {
+        // Reconnected or exited sessions can have new unread output while still ready.
         ctx.render();
       }
     };
@@ -368,8 +371,15 @@ export async function startTerminalApp(options: TerminalAppOptions = {}): Promis
       }
       const snapshots = ctx.ptyRuntime.getActivitySnapshots?.() ?? [];
       const now = Date.now();
+      const syncedShell = syncShell(ctx, renderState.shell);
+      const acknowledgedShell = acknowledgeAgentActivity(syncedShell, ctx.model.tasks, snapshots, now);
+      if (acknowledgedShell !== syncedShell) {
+        // Preserve shell identity: pending PTY warm-up uses it to detect navigation.
+        renderState.shell.readAgentActivityAt = acknowledgedShell.readAgentActivityAt;
+        persistShellState(ctx, renderState.shell);
+      }
       const mainShellData = buildShellData(
-        syncShell(ctx, renderState.shell),
+        acknowledgedShell,
         ctx.model,
         { snapshots, now, animationFrame: agentActivityAnimationFrame },
       );

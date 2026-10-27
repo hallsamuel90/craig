@@ -21,5 +21,6 @@ export interface CraigUiRuntime {
   selectedRunner?: RunnerType;
   ignoredUpdateVersion?: string;
   seenPreviewIds?: PreviewFeatureId[];
+  readAgentActivityAt?: Record<string, number>;
   updatedAt: string;
 }

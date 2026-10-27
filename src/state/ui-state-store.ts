@@ -82,6 +82,7 @@ function validateUiState(value: unknown, filePath: string): CraigUiRuntime {
     !optionalString(value, "ignoredUpdateVersion") ||
     !optionalStringArray(value, "seenPreviewIds") ||
     !optionalString(value, "selectedActionId") ||
+    !optionalTimestampMap(value, "readAgentActivityAt") ||
     typeof (value as Partial<CraigUiRuntime>).updatedAt !== "string"
   ) {
     throw new Error(`Craig UI state at ${filePath} is invalid. Remove or repair the file before rerunning Craig.`);
@@ -126,4 +127,11 @@ function isFileMissingError(error: unknown): error is { code: string } {
     typeof (error as { code?: unknown }).code === "string" &&
     (error as { code: string }).code === "ENOENT"
   );
+}
+
+function optionalTimestampMap(value: object, key: keyof CraigUiRuntime): boolean {
+  if (!(key in value)) return true;
+  const entries = (value as Record<string, unknown>)[key];
+  return typeof entries === "object" && entries !== null && !Array.isArray(entries)
+    && Object.values(entries).every((entry) => typeof entry === "number" && Number.isFinite(entry) && entry >= 0);
 }
