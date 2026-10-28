@@ -1,5 +1,11 @@
 # craig-cli
 
+## 0.19.3
+
+### Patch Changes
+
+- 36bcece: Refresh the npm README demo preview and link to the current task-to-merge walkthrough.
+
 ## 0.19.2
 
 ### Patch Changes
