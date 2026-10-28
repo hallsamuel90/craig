@@ -22,9 +22,11 @@
 
 </div>
 
-<a href="https://craig-cli.com">
-  <img src="https://craig-cli.com/craig-agent.gif" alt="Craig running parallel coding agents in its terminal UI">
+<a href="https://craig-cli.com/#demo">
+  <img src="https://craig-cli.com/craig-hero-poster.jpg" alt="Watch Craig's task-to-merge demo: agent work, pull request checks, and merge">
 </a>
+
+[▶ Watch the full task-to-merge demo (65 seconds)](https://craig-cli.com/#demo)
 
 Craig gives every task its own Git branch, isolated worktree, and live PTY, then keeps the agents, changes, pull requests, and checks together in one keyboard-driven workspace.
 
