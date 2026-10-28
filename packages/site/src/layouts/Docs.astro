@@ -1,10 +1,13 @@
 ---
 import Base from "./Base.astro";
+import "../styles/global.css";
 interface Props {
   title?: string;
   description?: string;
+  frontmatter?: { title?: string; description?: string };
 }
-const { title, description } = Astro.props;
+const title = Astro.props.title ?? Astro.props.frontmatter?.title;
+const description = Astro.props.description ?? Astro.props.frontmatter?.description;
 
 const nav = [
   { label: "Overview", href: "/docs/" },
@@ -15,15 +18,16 @@ const nav = [
   { label: "Config", href: "/docs/config/" },
   { label: "CLI Reference", href: "/docs/cli/" },
   { label: "Agent Orchestration", href: "/docs/orchestration/" },
+  { label: "Fury Quickstart", href: "/docs/fury-quickstart/" },
 ];
 
 const currentPath = Astro.url.pathname;
 ---
 
 <Base title={title ? `${title} - Craig Docs` : "Craig Documentation"} description={description}>
-  <div class="flex min-h-screen">
+  <div class="flex flex-col md:flex-row min-h-screen">
     <!-- Sidebar -->
-    <aside class="w-52 shrink-0 border-r border-[#292e42] p-5 sticky top-0 h-screen overflow-y-auto">
+    <aside class="w-full md:w-52 shrink-0 border-b md:border-b-0 md:border-r border-[#292e42] p-5 md:sticky md:top-0 md:h-screen overflow-y-auto">
       <div class="flex items-center gap-2 group mb-6">
         <a href="/" class="text-[#9ece6a] font-bold text-base tracking-tight hover:opacity-80 transition-opacity">craig</a>
         <a
@@ -43,8 +47,8 @@ const currentPath = Astro.url.pathname;
           </svg>
         </a>
       </div>
-      <nav class="space-y-0.5">
-        <p class="text-xs text-[#7a82ad] uppercase tracking-widest mb-2">Docs</p>
+      <nav class="flex flex-wrap md:block gap-1 md:space-y-0.5">
+        <p class="w-full text-xs text-[#7a82ad] uppercase tracking-widest mb-2">Docs</p>
         {nav.map((item) => (
           <a
             href={item.href}
@@ -58,10 +62,11 @@ const currentPath = Astro.url.pathname;
           </a>
         ))}
       </nav>
+      <a href="/blog/" class="block mt-6 px-2.5 text-sm text-[#7a82ad] hover:text-[#9ece6a]">Craig Blog →</a>
     </aside>
 
     <!-- Content -->
-    <main class="flex-1 py-10 overflow-y-auto">
+    <main class="flex-1 min-w-0 py-10 overflow-y-auto">
       <slot />
     </main>
   </div>

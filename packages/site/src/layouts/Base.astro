@@ -4,12 +4,14 @@ interface Props {
   description?: string;
   structuredData?: Record<string, unknown>;
   preloadHeroImage?: boolean;
+  ogType?: "website" | "article";
 }
 const {
   title = "Craig - An agnostic orchestrator TUI, for the people.",
   description = "An agnostic orchestrator TUI, for the people.",
   structuredData,
   preloadHeroImage = false,
+  ogType = "website",
 } = Astro.props;
 const canonicalURL = new URL(Astro.url.pathname, Astro.site);
 const socialImageURL = new URL("/screenshots/agent-working.png", Astro.site);
@@ -34,7 +36,7 @@ const socialImageURL = new URL("/screenshots/agent-working.png", Astro.site);
     <title>{title}</title>
 
     <!-- Open Graph -->
-    <meta property="og:type" content="website" />
+    <meta property="og:type" content={ogType} />
     <meta property="og:site_name" content="Craig" />
     <meta property="og:locale" content="en_US" />
     <meta property="og:url" content={canonicalURL} />

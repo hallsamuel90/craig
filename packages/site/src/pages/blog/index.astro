@@ -1,0 +1,30 @@
+---
+import Base from "../../layouts/Base.astro";
+import "../../styles/global.css";
+
+const posts = Object.values(import.meta.glob("./*.md", { eager: true })) as {
+  url: string;
+  frontmatter: { title: string; description: string; order: number };
+}[];
+posts.sort((a, b) => b.frontmatter.order - a.frontmatter.order);
+---
+
+<Base title="Craig Blog" description="Workflows, experiments, and development notes from Craig, the agent-agnostic orchestrator TUI.">
+  <header class="border-b border-[#292e42] px-6 py-4">
+    <nav class="max-w-3xl mx-auto flex items-center gap-6 text-sm" aria-label="Main navigation">
+      <a href="/" class="text-[#9ece6a] font-bold mr-auto">craig</a>
+      <a href="/docs/" class="hover:text-[#9ece6a]">Docs</a>
+      <a href="https://github.com/hallsamuel90/craig" class="hover:text-[#9ece6a]">GitHub</a>
+    </nav>
+  </header>
+  <main class="max-w-3xl mx-auto px-6 py-12 prose">
+    <h1>From the terminal</h1>
+    <p class="subtitle">Practical workflows, experiments, and what we're building in Craig.</p>
+    {posts.map((post) => (
+      <article>
+        <h2><a href={post.url}>{post.frontmatter.title}</a></h2>
+        <p>{post.frontmatter.description}</p>
+      </article>
+    ))}
+  </main>
+</Base>
