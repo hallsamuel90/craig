@@ -12,6 +12,7 @@ import type { TerminalCellStyle, TerminalRowSegment } from "./terminal-emulator.
 import type { FooterToast } from "./state.js";
 import { isPtyTab } from "./state.js";
 import type { AgentActivityState } from "./agent-activity.js";
+import type { CraigUpdateOverlayState } from "./app-context.js";
 
 export interface RenderOptions {
   color?: boolean;
@@ -130,6 +131,46 @@ export function renderPauseOverlayFrame(viewport: Viewport, options: RenderOptio
     color: options.color ?? true,
     versionText: options.versionText ?? null,
     updateText: options.updateText ?? null,
+  });
+}
+
+export function renderCraigUpdateOverlayFrame(
+  viewport: Viewport,
+  update: CraigUpdateOverlayState,
+  options: Pick<RenderOptions, "color" | "menuIndex"> = {},
+): string {
+  const command = `npm install -g craig-cli@${update.latest}`;
+  const releaseNotes = "https://github.com/hallsamuel90/craig/releases/latest";
+  const presentation = update.phase === "installing"
+    ? {
+        subtitle: `Updating Craig · ${update.current} → ${update.latest}`,
+        menuItems: ["Updating…"],
+        message: command,
+      }
+    : update.phase === "success"
+      ? {
+          subtitle: `Craig ${update.latest} installed · restart to use it`,
+          menuItems: ["Continue", "Exit Craig"],
+          message: "The current Craig session is still running the previous version.",
+        }
+      : update.phase === "error"
+        ? {
+            subtitle: "Craig update failed",
+            menuItems: ["Retry", "Continue"],
+            message: update.error ?? "npm could not install the update.",
+          }
+        : {
+            subtitle: `Update available · ${update.current} → ${update.latest}`,
+            menuItems: ["Update now", "Continue", "Ignore this version"],
+            message: `Release notes: ${releaseNotes}\nRuns: ${command}`,
+          };
+
+  return renderOverlayFrame(viewport, {
+    subtitle: presentation.subtitle,
+    menuItems: presentation.menuItems,
+    menuIndex: options.menuIndex ?? 0,
+    optionsMessage: presentation.message,
+    color: options.color ?? true,
   });
 }
 
@@ -520,7 +561,7 @@ function renderOverlayContent(viewport: Viewport, input: OverlayInput): string {
   const lines = new Array<string>(viewport.height).fill(fillSurface(" ".repeat(viewport.width), input.color, PALETTE.overlay));
   const logo = getBannerArtLines();
   const menu = input.menuItems.map((item, index) => `${index === input.menuIndex ? ">" : " "} ${item}`);
-  const messageLines = input.optionsMessage ? ["", input.optionsMessage] : [];
+  const messageLines = input.optionsMessage ? ["", ...input.optionsMessage.split("\n")] : [];
   const body = [...menu, ...messageLines];
   while (body.length < OVERLAY_BODY_ROWS) {
     body.push("");
@@ -742,7 +783,7 @@ function renderTreeRow(row: ShellTreeRow, width: number, color: boolean): Surfac
     const labelAndPadding = base.slice(prefix.length + 2);
     const segments: TerminalRowSegment[] = [
       { text: prefix },
-      activityDotSegment(row.activity, row.activityAnimationFrame ?? 0),
+      activityDotSegment(row.activity, row.activityAnimationFrame ?? 0, row.unread),
       { text: ` ${labelAndPadding}${status}${accentDot}` },
       ...(row.prBadge ?? []),
     ];
@@ -796,14 +837,14 @@ function renderTabLine(tabs: ShellTab[], color: boolean, centerFocused: boolean)
           : accent(tab.label, color, PALETTE.panelBg)
         : muted(tab.label, color, PALETTE.panelBg);
       const activityDot = tab.activity
-        ? renderTerminalSegment(activityDotSegment(tab.activity, tab.activityAnimationFrame ?? 0), color, PALETTE.panelBg)
+        ? renderTerminalSegment(activityDotSegment(tab.activity, tab.activityAnimationFrame ?? 0, tab.unread), color, PALETTE.panelBg)
         : "";
       return `${label}${activityDot ? ` ${activityDot}` : ""}`;
     })
     .join("   ");
 }
 
-function activityDotSegment(activity: AgentActivityState, animationFrame: number): TerminalRowSegment {
+function activityDotSegment(activity: AgentActivityState, animationFrame: number, unread = true): TerminalRowSegment {
   const fg = activity === "working"
     ? WORKING_DOT_COLORS[animationFrame % WORKING_DOT_COLORS.length] ?? WORKING_DOT_COLORS[0]
     : activity === "ready"
@@ -811,7 +852,7 @@ function activityDotSegment(activity: AgentActivityState, animationFrame: number
       : activity === "error"
         ? PALETTE.error.fg
         : PALETTE.panelMuted.fg;
-  return { text: "●", style: { fg } };
+  return { text: activity === "ready" && !unread ? "○" : "●", style: { fg } };
 }
 
 function renderContextRow(row: ShellContextRow, color: boolean): SurfaceLine {

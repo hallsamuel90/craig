@@ -6,7 +6,7 @@ import type { ProjectTaskRepoTarget, TaskPR } from "../src/domain/task/index.js"
 import { getMockShellData } from "../src/ui/mock-data.js";
 import { MIN_VIEWPORT, getFramedPanelBounds, getFramedTerminalBounds } from "../src/ui/layout.js";
 import { OPTIONS_MENU_ITEMS } from "../src/ui/options.js";
-import { renderBootOverlayFrame, renderLogsOverlayFrame, renderMainShellFrame, renderMainShellPresentation, renderOptionsOverlayFrame, renderPauseOverlayFrame } from "../src/ui/render.js";
+import { renderBootOverlayFrame, renderCraigUpdateOverlayFrame, renderLogsOverlayFrame, renderMainShellFrame, renderMainShellPresentation, renderOptionsOverlayFrame, renderPauseOverlayFrame } from "../src/ui/render.js";
 import { createInitialShellState, getLeftItemIds } from "../src/ui/state.js";
 import { buildShellData } from "../src/ui/shell/data.js";
 import { buildTaskRecord } from "./test-helpers.js";
@@ -149,6 +149,21 @@ describe("terminal shell renderer", () => {
     expect(frame).toContain("> Resume");
     expect(frame).toContain("  Options");
     expect(frame).toContain("  Exit");
+  });
+
+  test("renders the Craig update chooser with release notes and the exact npm command", () => {
+    const frame = renderCraigUpdateOverlayFrame(MIN_VIEWPORT, {
+      current: "0.13.0",
+      latest: "0.14.0",
+      phase: "ready",
+    }, { color: false });
+
+    expect(frame).toContain("Update available · 0.13.0 → 0.14.0");
+    expect(frame).toContain("> Update now");
+    expect(frame).toContain("  Continue");
+    expect(frame).toContain("  Ignore this version");
+    expect(frame).toContain("github.com/hallsamuel90/craig/releases/latest");
+    expect(frame).toContain("npm install -g craig-cli@0.14.0");
   });
 
   test("renders leveled log overlay entries", () => {
@@ -466,6 +481,19 @@ describe("terminal shell renderer", () => {
     expect(renderMainShellFrame(MIN_VIEWPORT, first, { color: false })).toContain("CODEX ●");
     expect(renderMainShellFrame(MIN_VIEWPORT, first, { color: true })).toContain("38;2;61;89;161");
     expect(renderMainShellFrame(MIN_VIEWPORT, bright, { color: true })).toContain("38;2;122;162;247");
+
+    const ready = { snapshots, now: 20_000, animationFrame: 0 };
+    const unread = buildShellData(state, model, ready);
+    expect(renderMainShellFrame(MIN_VIEWPORT, unread, { color: false })).toContain("▸ ● observe agents");
+    const partlyRead = { ...state, readAgentActivityAt: { [snapshots[0]!.tabId]: snapshots[0]!.lastActivityAt } };
+    const partial = buildShellData(partlyRead, model, ready);
+    expect(partial.leftTree.find((row) => row.taskId === task.id)?.unread).toBe(true);
+    expect(partial.tabs.filter((tab) => tab.activity).map((tab) => tab.unread)).toEqual([false, true]);
+    const allRead = buildShellData({ ...state, readAgentActivityAt: Object.fromEntries(snapshots.map((entry) => [entry.tabId, entry.lastActivityAt])) }, model, ready);
+    const readFrame = renderMainShellFrame(MIN_VIEWPORT, allRead, { color: false });
+    expect(readFrame).toContain("▸ ○ observe agents");
+    expect(readFrame).toContain("CODEX ○");
+    expect(allRead.leftTree.find((row) => row.taskId === task.id)?.unread).toBe(false);
   });
 
   test("flattens all task descendants to one visual sidebar level and preserves navigation order", () => {

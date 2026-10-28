@@ -1,5 +1,17 @@
 # craig-cli
 
+## 0.19.0
+
+### Minor Changes
+
+- 1c435a6: Distinguish unread agent output with solid green activity dots and viewed output with hollow green dots. Mark output read when viewing its agent pane, preserve unread output in other agent tabs, and remember read state across restarts.
+
+## 0.18.0
+
+### Minor Changes
+
+- 03e6e76: Add a launch-time Craig update chooser with exact npm installation, per-version ignore state, release-note guidance, and new Feature Preview markers.
+
 ## 0.17.6
 
 ### Patch Changes
