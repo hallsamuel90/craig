@@ -1,0 +1,37 @@
+version: 1
+name: inspect-and-review
+limits:
+  max_concurrency: 1
+  max_tasks: 1
+  timeout: 30m
+inputs:
+  task_id:
+    type: string
+    required: true
+steps:
+  inspect:
+    task: "${{ inputs.task_id }}"
+    prompt: >-
+      Read the README and the test configuration in this repository. Report up to
+      three concrete gaps in the getting-started or testing instructions, citing
+      file paths. Do not modify files, install dependencies, execute repository
+      scripts, commit, push, or open a pull request. If there are no concrete gaps,
+      return an empty findings array. Report completion using the Fury command
+      appended to this prompt, with an object containing a findings array of strings.
+    output:
+      schema:
+        type: object
+        required: [findings]
+        properties:
+          findings:
+            type: array
+            items:
+              type: string
+  review:
+    needs: [inspect]
+    human_review:
+      title: Review repository findings
+      summary: "Inspect the findings from ${{ steps.inspect.task_id }} before accepting this run."
+      feedback_target:
+        task: "${{ steps.inspect.task_id }}"
+      timeout: 15m

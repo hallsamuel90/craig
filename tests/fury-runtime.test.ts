@@ -51,6 +51,32 @@ afterEach(async () => {
 });
 
 describe("durable fury runtime", () => {
+  test("the downloadable quickstart waits for review after schema-checked completion", async () => {
+    // Contract test only: the agent session is mocked by this suite. This is not
+    // evidence of a live model turn or human approval in a marketing recording.
+    const fixture = await setup();
+    await writeFile(fixture.file, await readFile(
+      new URL("../packages/site/public/examples/inspect-and-review.yaml", import.meta.url), "utf8",
+    ));
+    const { plan, started } = await start(fixture);
+    expect(plan.plan.order).toEqual(["inspect", "review"]);
+    expect(plan.plan.limits).toMatchObject({ maxConcurrency: 1, maxTasks: 1, timeoutMs: 1_800_000 });
+    await expect(completeFuryStep(fixture.paths, started.run.id, "inspect", { findings: [123] }, human))
+      .rejects.toThrow();
+    expect((await showFury(fixture.paths, started.run.id)).run.stepRuns.inspect?.state).toBe("running");
+    await completeAndReconcile(fixture.paths, started.run.id, "inspect", { findings: ["README.md: test instructions are missing"] }, human);
+    expect((await showFury(fixture.paths, started.run.id)).run).toMatchObject({
+      state: "waiting_for_review",
+      stepRuns: { inspect: { state: "succeeded", output: { findings: ["README.md: test instructions are missing"] } } },
+    });
+    const { reviews } = await listReviews(fixture.paths, started.run.id);
+    expect(reviews).toHaveLength(1);
+    expect(reviews[0]).toMatchObject({ state: "waiting_for_review", title: "Review repository findings" });
+    await actOnReview(fixture.paths, reviews[0]!.id, "approve", "Contract-test approval", human);
+    await reconcileFuryRun(fixture.paths, started.run.id);
+    expect((await showFury(fixture.paths, started.run.id)).run.state).toBe("succeeded");
+  });
+
   test("command mutations only persist intent and never schedule in the calling worker", async () => {
     const fixture = await setupChildGraph();
     const { plan } = await createPlan(fixture.paths, fixture.file, {}, "task_planning", human);
