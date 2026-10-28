@@ -5,6 +5,22 @@ import { mapKeyToPtyInput, PtyRuntime } from "../src/ui/pty/runtime.js";
 import { createTerminalEmulator, renderTerminalScreenRows, writeTerminalEmulator } from "../src/ui/terminal-emulator.js";
 
 describe("PTY runtime", () => {
+  test("reads startup blockers from the live screen and clears them after the dialog closes", async () => {
+    const pty = createFakePty();
+    const runtime = new PtyRuntime({
+      workspaceRoot: "/tmp/craig", shell: "/bin/zsh", env: { TERM: "xterm-256color" }, spawn: vi.fn(() => pty),
+    });
+    try {
+      runtime.ensureSession("task_1", "task_1:agent", { columns: 80, rows: 24 });
+      pty.emitData("Trust this folder?\r\n1. Trust and continue\r\n2. Quit");
+      await vi.waitFor(() => expect(runtime.getStartupBlocker("task_1:agent", "codex")).toContain("folder trust"));
+      pty.emitData("\u001B[H\u001B[2JAsk Codex to do anything");
+      await vi.waitFor(() => expect(runtime.getStartupBlocker("task_1:agent", "codex")).toBeNull());
+    } finally {
+      runtime.disposeAll();
+    }
+  });
+
   test("maps Craig terminal-mode keys to PTY input and reserves ctrl+]", () => {
     expect(mapKeyToPtyInput("a")).toBe("a");
     expect(mapKeyToPtyInput("ENTER")).toBe("\r");

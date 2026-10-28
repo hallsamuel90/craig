@@ -1,4 +1,4 @@
-import { mkdir, readdir, rm, writeFile } from "node:fs/promises";
+import { mkdir, readdir, rm, utimes, writeFile } from "node:fs/promises";
 
 import { afterEach, describe, expect, test, vi, type Mock } from "vitest";
 
@@ -10,6 +10,7 @@ import {
   appendEvent,
   type CreatePromptDispatchInput,
 } from "../src/domain/orchestration/index.js";
+import { wakeOrchestrationSupervisor } from "../src/shell/pty-daemon-orchestration.js";
 import { OrchestrationSupervisor, type OrchestrationDeliveryRuntime } from "../src/shell/orchestration-supervisor.js";
 import { promptCommandShellService } from "../src/shell/prompt-commands.js";
 import { createCraigState, createRepoRoot, writeTaskRecord } from "./test-helpers.js";
@@ -146,6 +147,45 @@ describe("durable prompt commands", () => {
 });
 
 describe("orchestration supervisor", () => {
+  test("accepts durable work without socket access only while a fresh live leader exists", async () => {
+    const { paths, input, tabId } = await setupCommand();
+    await configService.save(paths, { previews: { agentOrchestration: true } });
+    const runtime = createRuntime(tabId, Date.now() - 10_000);
+    const supervisor = new OrchestrationSupervisor(paths, runtime, { intervalMs: 10_000 });
+    try {
+      await supervisor.start();
+      const queued = await promptCommandShellService.send(paths, {
+        taskId: input.taskId, prompt: { source: "inline", text: "queued without IPC" }, delivery: "when-ready", timeoutMs: 60_000,
+      });
+      expect(queued.command.state).toBe("queued");
+      expect(runtime.writeToSession).not.toHaveBeenCalled();
+      await supervisor.wake();
+      expect((await promptCommandService.show(paths, queued.command.id)).command.state).toBe("delivered");
+      const stale = new Date(Date.now() - 10_000);
+      await utimes(`${paths.runtimeDir}/orchestration-supervisor.lock/owner.json`, stale, stale);
+      expect(await wakeOrchestrationSupervisor(paths)).toBe(false);
+    } finally {
+      await supervisor.stop();
+    }
+    expect(await wakeOrchestrationSupervisor(paths)).toBe(false);
+  });
+
+  test("never submits a prompt into a known startup dialog, even for immediate delivery", async () => {
+    const { paths, input, tabId } = await setupCommand();
+    const queued = await promptCommandService.create(paths, { ...input, delivery: "immediate" });
+    const runtime = { ...createRuntime(tabId, Date.now() - 10_000), getStartupBlocker: () => "Codex requires folder trust." };
+    const supervisor = new OrchestrationSupervisor(paths, runtime, { intervalMs: 10_000 });
+    try {
+      await supervisor.start();
+      expect(runtime.writeToSession).not.toHaveBeenCalled();
+      expect((await promptCommandService.show(paths, queued.command.id)).command).toMatchObject({
+        state: "failed", attempts: 0, lastError: { code: "PROMPT_STARTUP_BLOCKED", deliveryUncertain: false },
+      });
+    } finally {
+      await supervisor.stop();
+    }
+  });
+
   test.each(["when-ready", "immediate"] as const)(
     "delivers %s follow-up work to a live merged task",
     async (delivery) => {

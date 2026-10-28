@@ -1,7 +1,7 @@
 import { describe, expect, test } from "vitest";
 
 import type { RunnerType } from "../src/domain/config/index.js";
-import { buildRunnerPromptSubmission } from "../src/shell/prompt-delivery.js";
+import { findRunnerStartupBlocker, buildRunnerPromptSubmission } from "../src/shell/prompt-delivery.js";
 
 describe("runner prompt submission", () => {
   test.each(["codex", "cursor", "claude", "pi"] satisfies RunnerType[])(
@@ -17,4 +17,11 @@ describe("runner prompt submission", () => {
       expect(submission.paste).not.toContain(submission.submit);
     },
   );
+});
+
+test("recognizes startup dialogs without treating an update banner as an input blocker", () => {
+  expect(findRunnerStartupBlocker("codex", "Trust this folder?\n1. Trust and continue\n2. Quit")).toContain("folder trust");
+  expect(findRunnerStartupBlocker("codex", "Update available!\n1. Update now\n2. Skip")).toContain("update dialog");
+  expect(findRunnerStartupBlocker("cursor", "Press any key to log in...")).toContain("authentication");
+  expect(findRunnerStartupBlocker("codex", "Update available! Run npm install -g @openai/codex\nAsk Codex to do anything")).toBeNull();
 });

@@ -54,4 +54,7 @@ async function canonicalWorkspaceRoot(value: string): Promise<string> {
 }
 
 const exitCode = await main();
+await Promise.all([process.stdout, process.stderr]
+  .filter((stream) => stream.writableLength > 0)
+  .map((stream) => new Promise<void>((resolve) => stream.write("", () => resolve()))));
 process.exit(exitCode);

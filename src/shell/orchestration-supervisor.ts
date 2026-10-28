@@ -1,6 +1,7 @@
 import { setTimeout as wait } from "node:timers/promises";
 
 import { getTaskAgentTabActivity, type PtyActivitySnapshot } from "../domain/agent/index.js";
+import type { RunnerType } from "../domain/config/index.js";
 import {
   listPromptCommands,
   promptCommandService,
@@ -22,6 +23,8 @@ export interface OrchestrationDeliveryRuntime {
   hasRunningSession(tabId: string): boolean;
   /* eslint-disable-next-line no-unused-vars */
   writeToSession(tabId: string, input: string): void;
+  /* eslint-disable-next-line no-unused-vars */
+  getStartupBlocker?(tabId: string, runner: RunnerType): string | null;
 }
 
 export class OrchestrationSupervisor {
@@ -46,13 +49,18 @@ export class OrchestrationSupervisor {
       intervalMs,
       run: () => this.reconcile(),
     });
+    this.heartbeat.register({
+      id: "orchestration.liveness",
+      intervalMs: 1_000,
+      run: async () => { await this.lease?.heartbeat(); },
+    });
   }
 
-  async start(): Promise<void> {
+  async start(options: { deferReconciliation?: boolean } = {}): Promise<void> {
     if (this.lease) return;
     this.lease = await acquireOrchestrationLeader(this.paths);
     try {
-      await this.reconcile();
+      if (!options.deferReconciliation) await this.reconcile();
       this.heartbeat.start();
     } catch (error) {
       await this.lease.release();
@@ -141,6 +149,11 @@ export class OrchestrationSupervisor {
     if (command.delivery === "when-ready") {
       const state = getTaskAgentTabActivity(task, command.agentTabId, this.runtime.getActivitySnapshots(), Date.now());
       if (state !== "ready") return;
+    }
+    const blocker = this.runtime.getStartupBlocker?.(command.agentTabId, tab.runner ?? task.runner);
+    if (blocker) {
+      await this.failCommand(command, commandError("PROMPT_STARTUP_BLOCKED", blocker, true, false));
+      return;
     }
 
     await promptCommandService.beginDelivery(this.paths, command.id);

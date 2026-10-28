@@ -5,17 +5,20 @@ import path from "node:path";
 import type { CraigPaths } from "../state/craig-paths.js";
 import { getPtyDaemonEndpoint, isCompatiblePtyDaemonProtocol } from "./pty-daemon-protocol.js";
 import { spawnPtyDaemonProcess } from "./pty-daemon-process.js";
+import { hasLiveOrchestrationSupervisor } from "./orchestration-leader.js";
 
 export async function wakeOrchestrationSupervisor(paths: CraigPaths): Promise<boolean> {
   const socket = await connect(getPtyDaemonEndpoint(paths).socketPath).catch(() => null);
-  if (!socket) return false;
+  // Sandboxed workers may read workspace state but cannot connect to Unix
+  // sockets. A fresh, live leader will poll their already-persisted commands.
+  if (!socket) return hasLiveOrchestrationSupervisor(paths);
   try {
     const ping = await request(socket, { type: "ping" });
     if (!isCompatiblePtyDaemonProtocol(ping.protocolVersion)) return false;
     await request(socket, { type: "wakeOrchestration" });
     return true;
   } catch {
-    return false;
+    return hasLiveOrchestrationSupervisor(paths);
   } finally {
     socket.end();
   }

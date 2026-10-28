@@ -56,6 +56,7 @@ const STEP_REFERENCE = /\$\{\{\s*steps\.([a-z][a-z0-9_-]{0,63})\.(task_id|output
 interface FuryReconcileOptions {
   /* eslint-disable-next-line no-unused-vars */
   isAgentAvailable?: (tabId: string) => boolean;
+  allowScheduling?: boolean;
 }
 
 export async function createPlan(
@@ -193,14 +194,11 @@ export async function runFury(
       details: { runId: persisted.run.id, planId: persisted.run.planId, persisted: true }, cause: error,
     });
   }
-  await reconcileFuryRun(paths, persisted.run.id);
-  await wakeOrchestrationSupervisor(paths);
+  if (!isTerminalRun(persisted.run)) await requireFuryWake(paths, persisted.run.id);
   return { kind: "runFury", run: await readFuryRun(paths, persisted.run.id), created: persisted.created };
 }
 
 export async function showFury(paths: CraigPaths, runId: string): Promise<CommandShowFuryResult> {
-  await assertEnabled(paths);
-  await reconcileFuryRun(paths, runId);
   return { kind: "showFury", run: await readFuryRun(paths, runId) };
 }
 
@@ -209,9 +207,9 @@ export async function reconcileFuryRuns(
   options: FuryReconcileOptions = {},
 ): Promise<void> {
   const config = await configService.load(paths);
-  if (!configService.previews.isEnabled(config, "agentOrchestration")) return;
+  const allowScheduling = configService.previews.isEnabled(config, "agentOrchestration");
   for (const run of await listFuryRuns(paths)) {
-    await reconcileFuryRun(paths, run.id, options);
+    await reconcileFuryRun(paths, run.id, { ...options, allowScheduling });
   }
 }
 
@@ -220,16 +218,23 @@ export async function reconcileFuryRun(
   runId: string,
   options: FuryReconcileOptions = {},
 ): Promise<void> {
+  const allowScheduling = options.allowScheduling ?? configService.previews.isEnabled(await configService.load(paths), "agentOrchestration");
   let run = await readFuryRun(paths, runId);
   await reconcileFuryAudit(paths, run);
-  if (isTerminalRun(run)) return;
+  if (isTerminalRun(run)) {
+    if (run.cleanupPending) await cleanupFuryRun(paths, run);
+    return;
+  }
+  run = await reconcileReviewDecisions(paths, run);
   if (Date.now() >= Date.parse(run.deadlineAt)) {
-    run = await mutateFuryRun(paths, runId, (current) => finishTimedOut(current));
+    run = await mutateFuryRun(paths, runId, (current) => isTerminalRun(current) ? current : finishTimedOut(current));
+    if (run.state !== "timed_out") return;
     for (const step of Object.values(run.stepRuns)) {
       if (!step.reviewId) continue;
-      await mutateFuryReview(paths, step.reviewId, (review) => ({
-        ...review, state: "timed_out", version: review.version + 1, updatedAt: new Date().toISOString(),
-      }));
+      await mutateFuryReview(paths, step.reviewId, (review) =>
+        ["waiting_for_review", "changes_requested"].includes(review.state)
+          ? { ...review, state: "timed_out", version: review.version + 1, updatedAt: new Date().toISOString() }
+          : review);
     }
     await event(paths, run, null, "fury.run.timed_out", SYSTEM_ACTOR, { state: run.state });
     return;
@@ -238,7 +243,7 @@ export async function reconcileFuryRun(
   const commands = new Map((await listPromptCommands(paths)).map((command) => [command.id, command]));
   for (const stepId of run.order) {
     const step = run.stepRuns[stepId]!;
-    if (step.state === "running" && !step.taskId) {
+    if (allowScheduling && step.state === "running" && !step.taskId) {
       run = await scheduleAgentStep(paths, run, step);
       continue;
     }
@@ -253,10 +258,10 @@ export async function reconcileFuryRun(
       run = await failStepRecord(paths, run.id, step.id, `Agent session ${step.agentTabId} disappeared.`, SYSTEM_ACTOR);
     }
     if (step.state === "running" && step.deadlineAt && Date.now() >= Date.parse(step.deadlineAt)) {
-      run = await mutateFuryRun(paths, run.id, (current) => updateStep(current, step.id, {
+      run = await mutateFuryRun(paths, run.id, (current) => isTerminalRun(current) ? current : updateStep(current, step.id, {
         state: "timed_out", error: "Step timed out.", completedAt: new Date().toISOString(), completedBy: SYSTEM_ACTOR,
       }));
-      await event(paths, run, step.id, "fury.step.timed_out", SYSTEM_ACTOR, {});
+      if (run.stepRuns[step.id]?.state === "timed_out") await event(paths, run, step.id, "fury.step.timed_out", SYSTEM_ACTOR, {});
     }
     if ((step.state === "waiting_for_review" || step.state === "changes_requested") && step.deadlineAt && Date.now() >= Date.parse(step.deadlineAt)) {
       if (step.reviewId) {
@@ -264,10 +269,10 @@ export async function reconcileFuryRun(
           ...review, state: "timed_out", version: review.version + 1, updatedAt: new Date().toISOString(),
         }));
       }
-      run = await mutateFuryRun(paths, run.id, (current) => updateStep(current, step.id, {
+      run = await mutateFuryRun(paths, run.id, (current) => isTerminalRun(current) ? current : updateStep(current, step.id, {
         state: "timed_out", error: "Review timed out.", completedAt: new Date().toISOString(), completedBy: SYSTEM_ACTOR,
       }));
-      await event(paths, run, step.id, "fury.review.timed_out", SYSTEM_ACTOR, { reviewId: step.reviewId });
+      if (run.stepRuns[step.id]?.state === "timed_out") await event(paths, run, step.id, "fury.review.timed_out", SYSTEM_ACTOR, { reviewId: step.reviewId });
     }
   }
   if (Object.values(run.stepRuns).some((step) => step.state === "failed" || step.state === "timed_out")) {
@@ -282,7 +287,7 @@ export async function reconcileFuryRun(
     if (step.state !== "pending" || !step.needs.every((id) => run.stepRuns[id]?.state === "succeeded")) continue;
     if (step.kind === "human_review") {
       run = await openReview(paths, run, step);
-    } else {
+    } else if (allowScheduling) {
       run = await scheduleAgentStep(paths, run, step);
       active += 1;
     }
@@ -292,14 +297,15 @@ export async function reconcileFuryRun(
 
 async function scheduleAgentStep(paths: CraigPaths, run: FuryRun, step: FuryStepRun): Promise<FuryRun> {
   const now = new Date();
-  run = await mutateFuryRun(paths, run.id, (current) => updateStep(current, step.id, {
-    state: "running", startedAt: now.toISOString(), deadlineAt: current.deadlineAt,
+  run = await mutateFuryRun(paths, run.id, (current) => isTerminalRun(current) ? current : updateStep(current, step.id, {
+    state: "running", startedAt: current.stepRuns[step.id]?.startedAt ?? now.toISOString(), deadlineAt: current.deadlineAt,
   }));
+  if (isTerminalRun(run)) return run;
   await event(paths, run, step.id, "fury.step.started", SYSTEM_ACTOR, {});
   const current = run.stepRuns[step.id]!;
   if (current.taskId) return run;
-  const prompt = `${resolveReferences(current.plan.prompt!, run)}\n\n${completionInstructions(run.id, step.id, current.plan.outputSchema)}`;
   try {
+    const prompt = `${resolveReferences(current.plan.prompt!, run)}\n\n${completionInstructions(run.id, step.id, current.plan.outputSchema)}`;
     let taskId: string;
     let agentTabId: string;
     let commandId: string | null = null;
@@ -322,6 +328,7 @@ async function scheduleAgentStep(paths: CraigPaths, run: FuryRun, step: FuryStep
       if (!tab) throw new CraigError("TASK_CONTEXT_CONFLICT", `Created task ${task.id} has no agent tab.`, {});
       taskId = task.id;
       agentTabId = tab.id;
+      commandId = (await listPromptCommands(paths)).find((command) => command.idempotencyKey === `task-start:${task.id}`)?.id ?? null;
     } else {
       taskId = resolveReferences(current.plan.target!.task, run);
       const task = await taskService.getTask(paths, taskId);
@@ -346,10 +353,15 @@ async function scheduleAgentStep(paths: CraigPaths, run: FuryRun, step: FuryStep
       });
       commandId = dispatched.command.id;
     }
-    run = await mutateFuryRun(paths, run.id, (record) => updateStep(record, step.id, { taskId, agentTabId, commandId }));
+    run = await mutateFuryRun(paths, run.id, (record) => isTerminalRun(record)
+      ? { ...record, cleanupPending: true }
+      : updateStep(record, step.id, { taskId, agentTabId, commandId }));
+    if (isTerminalRun(run)) return run;
     await event(paths, run, step.id, "fury.step.dispatched", SYSTEM_ACTOR, { taskId, agentTabId, commandId });
     return run;
   } catch (error) {
+    const latest = await readFuryRun(paths, run.id);
+    if (isTerminalRun(latest)) return latest;
     return failStepRecord(paths, run.id, step.id, error instanceof Error ? error.message : "Step dispatch failed.", SYSTEM_ACTOR);
   }
 }
@@ -362,7 +374,11 @@ async function openReview(paths: CraigPaths, run: FuryRun, step: FuryStepRun): P
   const feedbackStep = feedbackTask
     ? Object.values(run.stepRuns).find((candidate) => candidate.taskId === feedbackTask && candidate.agentTabId)
     : null;
-  const review: HumanReviewCheckpoint = {
+  const existing = await readFuryReview(paths, reviewId).catch((error: unknown) => {
+    if (error instanceof CraigError && error.code === "FURY_REVIEW_NOT_FOUND") return null;
+    throw error;
+  });
+  const review: HumanReviewCheckpoint = existing ?? {
     schemaVersion: 1, id: reviewId, runId: run.id, stepId: step.id, state: "waiting_for_review",
     title: resolveReferences(spec.title, run), summary: resolveReferences(spec.summary, run),
     feedbackTarget: feedbackTask ? { taskId: feedbackTask, agentTabId: feedbackStep?.agentTabId ?? null } : null,
@@ -370,10 +386,13 @@ async function openReview(paths: CraigPaths, run: FuryRun, step: FuryStepRun): P
     deadlineAt: new Date(Math.min(Date.parse(run.deadlineAt), now.getTime() + spec.timeoutMs)).toISOString(),
     version: 1, lastDecision: null, history: [], updatedAt: now.toISOString(),
   };
-  await writeFuryReview(paths, review);
-  run = await mutateFuryRun(paths, run.id, (record) => updateStep(record, step.id, {
-    state: "waiting_for_review", reviewId, startedAt: now.toISOString(), deadlineAt: review.deadlineAt,
-  }));
+  if (!existing) await writeFuryReview(paths, review);
+  run = await mutateFuryRun(paths, run.id, (record) => isTerminalRun(record)
+    ? { ...record, cleanupPending: true }
+    : updateStep(record, step.id, {
+      state: "waiting_for_review", reviewId, startedAt: review.requestedAt, deadlineAt: review.deadlineAt,
+    }));
+  if (isTerminalRun(run)) return run;
   await event(paths, run, step.id, "fury.review.requested", SYSTEM_ACTOR, { reviewId, title: review.title });
   return run;
 }
@@ -387,13 +406,13 @@ export async function completeFuryStep(
   validateOutput(output, step.plan.outputSchema);
   const now = new Date().toISOString();
   run = await mutateFuryRun(paths, runId, (current) => {
-    if (isTerminalRun(current) || current.stepRuns[stepId]?.state !== "running") {
-      throw new CraigError("FURY_STATE_CONFLICT", `Step ${stepId} is no longer running.`, {});
+    if (isTerminalRun(current) || current.stepRuns[stepId]?.state !== "running" || Date.now() >= Date.parse(current.deadlineAt)) {
+      throw new CraigError("FURY_STATE_CONFLICT", `Step ${stepId} is no longer running or its deadline has elapsed.`, {});
     }
     return updateStep(current, stepId, { state: "succeeded", output, completedAt: now, completedBy: actor });
   });
   await event(paths, run, stepId, "fury.step.succeeded", actor, { taskId: step.taskId });
-  await reconcileFuryRun(paths, runId);
+  await requireFuryWake(paths, runId);
   run = await readFuryRun(paths, runId);
   return { kind: "completeFuryStep", run, step: run.stepRuns[stepId]! };
 }
@@ -406,6 +425,7 @@ export async function failFuryStep(
   await authorizeStepActor(paths, step, actor, capabilityToken, "fury.step.fail");
   const failed = await failStepRecord(paths, runId, stepId, reason, actor);
   await setRunState(paths, runId, "failed", actor);
+  await requireFuryWake(paths, runId);
   return { kind: "failFuryStep", run: await readFuryRun(paths, runId), step: failed.stepRuns[stepId]! };
 }
 
@@ -417,33 +437,26 @@ export async function cancelFury(
     if (!capabilityToken) throw new CraigError("CAPABILITY_DENIED", "Fury cancellation requires an agent capability.", {});
     await authorizeCapability(paths, capabilityToken, "fury.cancel", before.rootTaskId);
   }
-  if (isTerminalRun(before)) return { kind: "cancelFury", run: before, changed: false };
+  if (isTerminalRun(before)) {
+    if (before.cleanupPending) await requireFuryWake(paths, runId);
+    return { kind: "cancelFury", run: await readFuryRun(paths, runId), changed: false };
+  }
   const now = new Date().toISOString();
   let changed = false;
   const run = await mutateFuryRun(paths, runId, (current) => {
     if (isTerminalRun(current)) return current;
     changed = true;
     return {
-      ...current, state: "cancelled" as const, completedAt: now, updatedAt: now, stateChangedAt: now,
+      ...current, state: "cancelled" as const, cleanupPending: true, cleanupError: null, completedAt: now, updatedAt: now, stateChangedAt: now,
       stepRuns: Object.fromEntries(Object.entries(current.stepRuns).map(([id, step]) => [id,
         step.state === "succeeded" ? step : { ...step, state: "cancelled", completedAt: now, completedBy: actor },
       ])),
     };
   });
   if (!changed) return { kind: "cancelFury", run, changed: false };
-  const commands = await listPromptCommands(paths);
-  for (const step of Object.values(run.stepRuns)) {
-    const command = step.commandId ? commands.find((item) => item.id === step.commandId) : null;
-    if (command?.state === "queued") await promptCommandService.cancel(paths, command.id, actor);
-    if (step.taskId && step.plan.target?.type === "create_child") await cancelTaskTreeAndSessions(paths, step.taskId).catch(() => undefined);
-    if (step.reviewId) {
-      await mutateFuryReview(paths, step.reviewId, (review) => ({
-        ...review, state: "cancelled", version: review.version + 1, updatedAt: now,
-      }));
-    }
-  }
   await event(paths, run, null, "fury.run.cancelled", actor, {});
-  return { kind: "cancelFury", run, changed };
+  await requireFuryWake(paths, runId);
+  return { kind: "cancelFury", run: await readFuryRun(paths, runId), changed };
 }
 
 export async function resumeFury(
@@ -455,18 +468,16 @@ export async function resumeFury(
     await authorizeCapability(paths, capabilityToken, "fury.resume", run.rootTaskId);
   }
   if (isTerminalRun(run)) throw new CraigError("FURY_STATE_CONFLICT", `Cannot resume ${run.id} while it is ${run.state}.`, {});
-  await reconcileFuryRun(paths, runId);
-  await wakeOrchestrationSupervisor(paths);
+  await requireFuryWake(paths, runId);
   return { kind: "resumeFury", run: await readFuryRun(paths, runId) };
 }
 
 export async function listReviews(paths: CraigPaths, runId?: string, state?: string): Promise<CommandListFuryReviewsResult> {
-  await assertEnabled(paths);
   const reviews = (await listFuryReviews(paths)).filter((review) => (!runId || review.runId === runId) && (!state || review.state === state));
   return { kind: "listFuryReviews", reviews };
 }
 export async function showReview(paths: CraigPaths, id: string): Promise<CommandShowFuryReviewResult> {
-  await assertEnabled(paths); return { kind: "showFuryReview", review: await readFuryReview(paths, id) };
+  return { kind: "showFuryReview", review: await readFuryReview(paths, id) };
 }
 
 export async function actOnReview(
@@ -475,11 +486,17 @@ export async function actOnReview(
   let review = await readFuryReview(paths, id);
   let run = await readFuryRun(paths, review.runId);
   if (action !== "resubmit" && actor.type !== "human") throw new CraigError("CAPABILITY_DENIED", "Only a human can decide a fury review.", {});
+  if (action === "resubmit" && actor.type !== "human" && actor.type !== "agent") {
+    throw new CraigError("CAPABILITY_DENIED", "Only a human or the feedback-target agent can resubmit a review.", {});
+  }
   if (action === "resubmit" && actor.type === "agent") {
     if (!review.feedbackTarget || actor.taskId !== review.feedbackTarget.taskId || !capabilityToken) {
       throw new CraigError("CAPABILITY_DENIED", "Only the feedback-target agent can resubmit this review.", {});
     }
     await authorizeCapability(paths, capabilityToken, "fury.review.resubmit", actor.taskId);
+  }
+  if (isTerminalRun(run) || Date.now() >= Math.min(Date.parse(run.deadlineAt), Date.parse(review.deadlineAt))) {
+    throw new CraigError("FURY_STATE_CONFLICT", `Review ${id} belongs to a terminal or expired run.`, {});
   }
   const allowed = action === "resubmit" ? review.state === "changes_requested" : review.state === "waiting_for_review";
   if (!allowed) throw new CraigError("FURY_STATE_CONFLICT", `Review ${id} cannot ${action} while ${review.state}.`, {});
@@ -493,7 +510,7 @@ export async function actOnReview(
       : task.ptyTabs.find((candidate) => candidate.kind === "agent");
     if (!tab) throw new CraigError("TASK_CONTEXT_CONFLICT", `Feedback task ${task.id} has no agent tab.`, {});
     const result = await promptCommandService.create(paths, {
-      taskId: task.id, agentTabId: tab.id, prompt: { source: "inline", text: `Fury review changes requested:\n\n${message}` },
+      taskId: task.id, agentTabId: tab.id, prompt: { source: "inline", text: `Fury review ${id} changes requested:\n\n${message}\n\nAfter revisions, resubmit with: craig fury review resubmit ${id} --summary '<revised summary>' --json\nOnly a human can approve this review.` },
       delivery: "when-ready", timeoutMs: Math.min(run.limits.timeoutMs, 86_400_000),
       idempotencyKey: `fury-review:${id}:${review.round}`, actor,
     });
@@ -504,7 +521,7 @@ export async function actOnReview(
   const nextState = action === "approve" ? "approved" : action === "reject" ? "rejected" : action === "request_changes" ? "changes_requested" : "waiting_for_review";
   review = await mutateFuryReview(paths, id, (current) => {
     const stillAllowed = action === "resubmit" ? current.state === "changes_requested" : current.state === "waiting_for_review";
-    if (!stillAllowed || current.version !== review.version) {
+    if (!stillAllowed || current.version !== review.version || Date.now() >= Math.min(Date.parse(run.deadlineAt), Date.parse(current.deadlineAt))) {
       throw new CraigError("FURY_STATE_CONFLICT", `Review ${id} changed concurrently.`, {});
     }
     return { ...current, state: nextState, round: action === "resubmit" ? current.round + 1 : current.round,
@@ -520,8 +537,7 @@ export async function actOnReview(
   });
   await event(paths, run, review.stepId, `fury.review.${action}`, actor, { reviewId: id, round: review.round, feedbackCommandId });
   if (action === "reject") await setRunState(paths, run.id, "failed", actor);
-  else await reconcileFuryRun(paths, run.id);
-  if (feedbackCommandId) await wakeOrchestrationSupervisor(paths);
+  await requireFuryWake(paths, run.id);
   return { kind: "actFuryReview", review, run: await readFuryRun(paths, run.id) };
 }
 
@@ -533,13 +549,11 @@ export async function watchFury(
     onEvent(event: Awaited<ReturnType<typeof listEvents>>["events"][number]): void;
   },
 ): Promise<CommandWatchFuryResult> {
-  await assertEnabled(paths);
   await readFuryRun(paths, runId);
   let cursor = after;
   let count = 0;
   let lastSequence = 0;
   while (!options.signal?.aborted) {
-    await reconcileFuryRun(paths, runId);
     const result = await listEvents(paths, { typeGlob: "fury.*", ...(cursor ? { after: cursor } : {}) });
     for (const item of result.events.filter((event) => event.furyRunId === runId)) { options.onEvent(item); count += 1; }
     cursor = result.cursor.after ?? cursor;
@@ -670,14 +684,16 @@ async function setRunState(paths: CraigPaths, id: string, state: FuryRun["state"
   const now = new Date().toISOString();
   const run = await mutateFuryRun(paths, id, (current) => isTerminalRun(current)
     ? current
-    : ({ ...current, state, updatedAt: now, stateChangedAt: now, completedAt: terminal ? now : null }));
+    : ({ ...current, state, updatedAt: now, stateChangedAt: now, completedAt: terminal ? now : null,
+      ...(["failed", "cancelled", "timed_out"].includes(state) ? { cleanupPending: true, cleanupError: null } : {}),
+    }));
   if (run.state !== state) return run;
   await event(paths, run, null, `fury.run.${state}`, actor, { state });
   return run;
 }
 function finishTimedOut(run: FuryRun): FuryRun {
   const now = new Date().toISOString();
-  return { ...run, state: "timed_out", updatedAt: now, stateChangedAt: now, completedAt: now, stepRuns: Object.fromEntries(Object.entries(run.stepRuns).map(([id, step]) => [id,
+  return { ...run, state: "timed_out", cleanupPending: true, cleanupError: null, updatedAt: now, stateChangedAt: now, completedAt: now, stepRuns: Object.fromEntries(Object.entries(run.stepRuns).map(([id, step]) => [id,
     step.state === "succeeded" ? step : { ...step, state: "timed_out", completedAt: now, completedBy: SYSTEM_ACTOR },
   ])) };
 }
@@ -724,6 +740,55 @@ async function reconcileFuryAudit(paths: CraigPaths, run: FuryRun): Promise<void
     }
   }
 }
+async function cleanupFuryRun(paths: CraigPaths, run: FuryRun): Promise<void> {
+  try {
+    const tasks = (await taskService.listTasks(paths, { includeClosed: true })).tasks;
+    const owned = tasks.filter((task) => task.furyRunId === run.id &&
+      (run.state === "cancelled" || run.stepRuns[task.furyStepId ?? ""]?.state !== "succeeded"));
+    const taskIds = new Set(owned.map((task) => task.id));
+    const commandIds = new Set(Object.values(run.stepRuns).map((step) => step.commandId).filter(Boolean));
+    for (const command of await listPromptCommands(paths)) {
+      if (command.state === "queued" && (commandIds.has(command.id) || taskIds.has(command.taskId))) {
+        await promptCommandService.cancel(paths, command.id, SYSTEM_ACTOR);
+      }
+    }
+    for (const task of owned) await cancelTaskTreeAndSessions(paths, task.id);
+    for (const review of (await listFuryReviews(paths)).filter((item) => item.runId === run.id)) {
+      await mutateFuryReview(paths, review.id, (current) =>
+        ["waiting_for_review", "changes_requested"].includes(current.state)
+          ? { ...current, state: run.state === "timed_out" ? "timed_out" : "cancelled", version: current.version + 1, updatedAt: new Date().toISOString() }
+          : current);
+    }
+    const cleaned = await mutateFuryRun(paths, run.id, (current) => ({ ...current, cleanupPending: false, cleanupError: null }));
+    await event(paths, cleaned, null, "fury.run.cleanup_completed", SYSTEM_ACTOR, {});
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "Fury cleanup failed.";
+    await mutateFuryRun(paths, run.id, (current) => ({ ...current, cleanupPending: true, cleanupError: message }));
+    if (run.cleanupError !== message) await event(paths, run, null, "fury.run.cleanup_failed", SYSTEM_ACTOR, { reason: message });
+  }
+}
+
+async function requireFuryWake(paths: CraigPaths, runId: string): Promise<void> {
+  if (await wakeOrchestrationSupervisor(paths)) return;
+  throw new CraigError("PARTIAL_RESULT", `Fury run ${runId} was saved, but its supervisor is unavailable. Start Craig for this workspace and resume the run.`, {
+    retryable: true, details: { runId, persisted: true, reason: "ORCHESTRATION_UNAVAILABLE" },
+  });
+}
+
+async function reconcileReviewDecisions(paths: CraigPaths, run: FuryRun): Promise<FuryRun> {
+  for (const step of Object.values(run.stepRuns)) {
+    if (!step.reviewId || step.kind !== "human_review") continue;
+    const review = await readFuryReview(paths, step.reviewId);
+    const state = review.state === "approved" ? "succeeded" : review.state === "rejected" ? "failed" : review.state;
+    if (step.state === state) continue;
+    run = await mutateFuryRun(paths, run.id, (current) => isTerminalRun(current) ? current : updateStep(current, step.id, {
+      state, completedBy: review.lastDecision?.actor ?? SYSTEM_ACTOR,
+      ...(["succeeded", "failed", "timed_out", "cancelled"].includes(state) ? { completedAt: review.updatedAt } : {}),
+    }));
+  }
+  return run;
+}
+
 async function assertEnabled(paths: CraigPaths) {
   if (!configService.previews.isEnabled(await configService.load(paths), "agentOrchestration")) throw new CraigError("CLI_USAGE", "Fury execution is a feature preview. Enable agentOrchestration first.", { details: { preview: "agentOrchestration" } });
 }

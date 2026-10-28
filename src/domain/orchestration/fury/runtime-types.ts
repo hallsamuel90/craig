@@ -69,6 +69,8 @@ export interface FuryRun {
   stateChangedAt: string;
   deadlineAt: string;
   completedAt: string | null;
+  cleanupPending?: boolean;
+  cleanupError?: string | null;
 }
 
 export interface HumanReviewDecision {
