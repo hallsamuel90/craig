@@ -123,3 +123,33 @@ jobs:
         env:
           NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+
+      - name: Create GitHub release
+        if: steps.version_pr.outputs.created != 'true'
+        env:
+          GH_TOKEN: ${{ secrets.RELEASE_BOT_TOKEN }}
+        run: |
+          version="$(node -p "require('./packages/cli/package.json').version")"
+          tag="craig-cli@$version"
+
+          if gh release view "$tag" >/dev/null 2>&1; then
+            echo "GitHub release $tag already exists."
+            exit 0
+          fi
+
+          release_notes="$(awk -v version="$version" '
+            $0 == "## " version { found = 1; next }
+            found && /^## / { exit }
+            found { print }
+          ' packages/cli/CHANGELOG.md)"
+
+          if [ -z "$(printf '%s' "$release_notes" | tr -d '[:space:]')" ]; then
+            echo "No changelog entry found for craig-cli $version."
+            exit 1
+          fi
+
+          gh release create "$tag" \
+            --target "$GITHUB_SHA" \
+            --title "craig-cli $version" \
+            --notes "$release_notes" \
+            --latest
