@@ -537,7 +537,7 @@ export async function actOnReview(
   });
   await event(paths, run, review.stepId, `fury.review.${action}`, actor, { reviewId: id, round: review.round, feedbackCommandId });
   if (action === "reject") await setRunState(paths, run.id, "failed", actor);
-  else await requireFuryWake(paths, run.id);
+  await requireFuryWake(paths, run.id);
   return { kind: "actFuryReview", review, run: await readFuryRun(paths, run.id) };
 }
 

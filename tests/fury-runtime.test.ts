@@ -85,6 +85,20 @@ describe("durable fury runtime", () => {
     expect(replay).toMatchObject({ created: false, run: { state: "pending" } });
   });
 
+  test("preserves rejected review cleanup when supervisor notification is unavailable", async () => {
+    const fixture = await setup();
+    const { started } = await start(fixture);
+    await completeAndReconcile(fixture.paths, started.run.id, "inspect", { findings: [] }, human);
+    const [review] = await listFuryReviews(fixture.paths);
+    vi.mocked(wakeOrchestrationSupervisor).mockResolvedValueOnce(false);
+    await expect(actOnReview(fixture.paths, review!.id, "reject", "Needs a different approach", human)).rejects.toMatchObject({
+      code: "PARTIAL_RESULT", details: { persisted: true, runId: started.run.id },
+    });
+    expect(await readFuryRun(fixture.paths, started.run.id)).toMatchObject({ state: "failed", cleanupPending: true });
+    await reconcileFuryRun(fixture.paths, started.run.id);
+    expect(await readFuryRun(fixture.paths, started.run.id)).toMatchObject({ cleanupPending: false });
+  });
+
   test("keeps reviews inspectable and visible after preview disablement and pauses new agent steps", async () => {
     const fixture = await setup();
     const { started } = await start(fixture);
