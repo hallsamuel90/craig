@@ -64,6 +64,8 @@ Run `craig` in a full-screen terminal, then work through the TUI:
 
 Agent dots animate while working. A solid green dot means the agent is ready with unread output; a hollow green dot means you have viewed it. Focus the agent pane or attach to it to mark the latest output read. Highlighting a task in the sidebar does not clear unread output, and read state survives restarts.
 
+The top-right of the main shell and splash/pause screens shows the current Craig version, such as `v0.19.0`. When an update is available, the same label reads `v0.19.0 → v0.20.0 available`. Ignoring a version returns the label to the current version alone.
+
 See the [TUI reference](https://craig-cli.com/docs/tui/) for every panel and keyboard shortcut.
 
 ## Local by default

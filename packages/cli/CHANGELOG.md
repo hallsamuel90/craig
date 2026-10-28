@@ -1,5 +1,11 @@
 # craig-cli
 
+## 0.19.1
+
+### Patch Changes
+
+- 5f8ad5b: Accept and preserve boolean preview flags written by newer Craig versions so long-running daemons can keep orchestrating tasks after future CLI upgrades.
+
 ## 0.19.0
 
 ### Minor Changes
