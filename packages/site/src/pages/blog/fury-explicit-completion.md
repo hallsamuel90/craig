@@ -1,14 +1,18 @@
 ---
 layout: ../../layouts/Blog.astro
 title: Introducing Craig Fury
-description: Repeatable agent workflows, explicit completion, and human review—all inside Craig.
+description: An experimental preview of repeatable agent workflows, explicit completion, and human review—all inside Craig.
 author: The Craig project
 order: 1
 ---
 
+<p class="text-xs uppercase tracking-widest"><strong>Experimental preview</strong></p>
+
 # Introducing Craig Fury
 
 Repeatable agent workflows, explicit completion, and human review—all inside Craig.
+
+Fury is opt-in, not enabled by default. In Craig, go to **Options → Feature Previews → Agent orchestration**, then create or restart an agent tab. The [quickstart](/docs/fury-quickstart/) covers setup and a small workflow to try. Commands and state formats may change while this is experimental.
 
 Running a few coding agents in parallel is one thing. Knowing when one has actually finished—and whether the next step should start—is a different problem.
 
