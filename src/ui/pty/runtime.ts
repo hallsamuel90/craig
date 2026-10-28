@@ -12,6 +12,8 @@ import {
 } from "../terminal-emulator.js";
 import { requireExecutablePath, withDefaultCommandPath } from "../../shared/command-path.js";
 import type { PtyActivitySnapshot } from "../../domain/agent/index.js";
+import type { RunnerType } from "../../domain/config/index.js";
+import { findRunnerStartupBlocker } from "../../shell/prompt-delivery.js";
 
 export interface PtySize {
   columns: number;
@@ -260,6 +262,15 @@ export class PtyRuntime {
       error: session.error,
       scrolledBack: session.scrollbackLines > 0,
     };
+  }
+
+  getStartupBlocker(tabId: string, runner: RunnerType): string | null {
+    const session = this.sessions.get(tabId);
+    if (!session) return null;
+    const buffer = session.terminal.buffer.active;
+    const screen = Array.from({ length: session.terminal.rows }, (_, row) =>
+      buffer.getLine(buffer.baseY + row)?.translateToString(true) ?? "").join("\n");
+    return findRunnerStartupBlocker(runner, screen);
   }
 
   private createSession(taskId: string, tabId: string, size: PtySize, specOverride?: PtySessionSpec): PtySession {

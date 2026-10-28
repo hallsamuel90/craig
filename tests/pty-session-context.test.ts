@@ -23,7 +23,7 @@ describe("PTY session context", () => {
 
     expect(spec).toMatchObject({
       cwd: task.worktreePath,
-      command: ["codex", "--no-alt-screen", "--no-daemon"],
+      command: ["codex", "--no-alt-screen", "--no-daemon", "-c", "check_for_update_on_startup=false"],
       env: {
         CRAIG_WORKSPACE_ROOT: workspaceRoot,
         CRAIG_TASK_ID: task.id,
@@ -45,7 +45,7 @@ describe("PTY session context", () => {
       workspaceRoot,
     );
 
-    expect(spec.command).toEqual(["/usr/local/bin/codex", "--no-daemon", "--no-alt-screen"]);
+    expect(spec.command).toEqual(["/usr/local/bin/codex", "--no-daemon", "--no-alt-screen", "-c", "check_for_update_on_startup=false"]);
   });
 
   test("does not add Codex embedding flags to other agent runners", () => {

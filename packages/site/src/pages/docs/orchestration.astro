@@ -38,7 +38,9 @@ craig task wait &lt;task-id&gt; --state ready,error --timeout 10m --json</code><
     </p>
     <p>
       Prompt delivery defaults to <code>when-ready</code>. Use <code>--delivery immediate</code> only when the new
-      prompt should interrupt a busy target. A delivered command means the live PTY accepted the input; it does
+      prompt should interrupt a busy target. Known startup trust, login, and update dialogs are rejected before
+      input is written. Embedded Codex sessions disable startup update checks to keep update menus from consuming
+      task prompts. A delivered command means the live PTY accepted the input; it does
       not claim that the agent understood or completed the request.
     </p>
 
@@ -55,14 +57,17 @@ craig task cancel-tree &lt;task-id&gt; --json</code></pre>
     <p>
       If no repository or workspace is supplied, the child inherits its parent's target. Disabling the preview
       stops new prompt and child creation. Agent status and waits remain available, as do prompt-command
-      inspection, waiting, and cancellation plus task-lineage inspection and <code>cancel-tree</code>. Event queries
-      and Fury operations require the preview.
+      inspection, waiting, and cancellation plus task-lineage inspection and <code>cancel-tree</code>.
+      Existing Fury runs and reviews remain inspectable and cancellable. Their deadlines and cleanup continue to be
+      reconciled, while new agent steps pause until the preview is enabled again. New Fury plans, plan approvals,
+      and runs require the preview; event queries also require it.
     </p>
 
     <h2>Fury workflows</h2>
     <p>
-      Fury definitions are strict, versioned YAML DAGs. Keeping them under <code>.craig/fury/</code> is a useful
-      convention, but Craig accepts a definition file from any path. Planning resolves inputs and persists an
+      Fury definitions are strict, versioned YAML DAGs. Validation accepts a definition file from any path;
+      planning requires the file to live under the workspace's <code>.craig/fury/</code> directory.
+      Planning resolves inputs and persists an
       immutable content-hashed plan. A human must approve that exact plan before it can run.
     </p>
     <pre><code>{`version: 1
@@ -94,6 +99,20 @@ craig fury watch &lt;run-id&gt; --format jsonl</code></pre>
       approves, rejects, or requests changes.
     </p>
 
+    <p>
+      Starting a run or reporting a step result saves durable state and notifies the workspace daemon. Scheduling
+      happens asynchronously in that daemon. A fresh supervisor heartbeat also permits durable submission from
+      a sandboxed worker that cannot connect to the daemon socket; the daemon picks it up by polling. Use <code>fury status</code> or <code>fury watch</code> to observe
+      progress. These inspection commands do not schedule work. If a mutation reports that state was saved but
+      the supervisor is unavailable, start Craig for that workspace and use <code>fury resume</code>; do not create
+      a replacement plan or manually launch duplicate workers.
+    </p>
+    <p>
+      Review feedback includes the review id and resubmission command. Resubmitting records a revised summary in
+      the decision history; it does not change an already completed step's structured output. Use an explicit
+      follow-on step to produce a revised structured artifact when downstream work needs one.
+    </p>
+
     <h2>Events and recovery</h2>
     <pre><code>craig events watch --task &lt;task-id&gt; --format jsonl
 craig command list --task &lt;task-id&gt; --json
@@ -101,7 +120,10 @@ craig fury status &lt;run-id&gt; --json
 craig fury resume &lt;run-id&gt; --json</code></pre>
     <p>
       The workspace daemon reconciles interrupted prompt dispatch, deadlines, missing sessions, pending reviews,
-      and unfinished Fury runs. All orchestration state remains local to the Craig workspace.
+      and unfinished Fury runs. Cancellation records the stop request before stopping child sessions. Check
+      <code>cleanupPending</code> and <code>cleanupError</code> in run status to confirm cleanup: failures remain
+      visible and are retried by the daemon. Existing task targets are not terminated as part of child cleanup.
+      All orchestration state remains local to the Craig workspace.
     </p>
 
     <h2>Workspace attachment</h2>

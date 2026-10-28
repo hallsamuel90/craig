@@ -8,7 +8,7 @@ import type { TerminalScreenRow } from "../terminal-emulator.js";
 import type { PtyActivitySnapshot } from "../../domain/agent/index.js";
 import { configService } from "../../domain/config/index.js";
 import { errorService } from "../../domain/error/index.js";
-import { listPromptCommands } from "../../domain/orchestration/index.js";
+import { listFuryRuns, listPromptCommands } from "../../domain/orchestration/index.js";
 import {
   getPtyDaemonEndpoint,
   isCompatiblePtyDaemonProtocol,
@@ -121,8 +121,8 @@ export async function servePtyDaemon(paths: CraigPaths, options: PtyDaemonServer
   const daemon = new PtyDaemonServer(paths, options);
   const server = createServer((socket) => daemon.handleConnection(socket));
   try {
-    await daemon.start();
     await listen(server, endpoint.socketPath);
+    await daemon.start();
     await writeFile(endpoint.pidPath, String(process.pid), "utf8");
     await errorService.appendLogBestEffort(paths, {
       level: "info",
@@ -159,6 +159,8 @@ export async function servePtyDaemon(paths: CraigPaths, options: PtyDaemonServer
     });
     throw error;
   } finally {
+    daemon.closeClients();
+    if (server.listening) await new Promise<void>((resolve) => server.close(() => resolve()));
     await errorService.appendLogBestEffort(paths, {
       level: "info",
       component: "daemon",
@@ -661,7 +663,8 @@ class PtyDaemonServer {
       this.updateRuntimeActivityEnabled();
     }
     const unfinished = (await listPromptCommands(this.paths))
-      .some((command) => command.state === "queued" || command.state === "delivering");
+      .some((command) => command.state === "queued" || command.state === "delivering") ||
+      (await listFuryRuns(this.paths)).some((run) => run.cleanupPending || !["succeeded", "failed", "cancelled", "timed_out"].includes(run.state));
     if (configService.previews.isEnabled(config, "agentOrchestration") || unfinished) {
       await this.ensureOrchestrationSupervisor();
     }
@@ -877,7 +880,14 @@ class PtyDaemonServer {
         return this.broadcastOpenFile(socket, request.path);
       case "wakeOrchestration":
         await this.ensureOrchestrationSupervisor();
-        await this.orchestrationSupervisor!.wake();
+        // A caller may hold the delegation lock, or be this supervisor creating
+        // a Fury child. Acknowledge the wake without waiting for work that can
+        // depend on the caller returning. Durable work is also heartbeat-backed.
+        void this.orchestrationSupervisor!.wake().catch((error) =>
+          errorService.appendErrorLogBestEffort(this.paths, {
+            context: "orchestration supervisor wake",
+            message: error instanceof Error ? error.message : String(error),
+          }));
         return null;
       case "shutdown":
         this.log({
@@ -1048,7 +1058,7 @@ class PtyDaemonServer {
       }),
     });
     try {
-      await supervisor.start();
+      await supervisor.start({ deferReconciliation: true });
       await errorService.appendLogBestEffort(this.paths, {
         level: "info",
         component: "orchestration",

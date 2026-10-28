@@ -17,17 +17,26 @@ import {
   listFuryReviews,
   listPendingFuryPlans,
   mutateFuryRun,
+  mutateFuryReview,
   furyDirs,
   readFuryRun,
 } from "../src/domain/orchestration/index.js";
 import {
   actOnReview,
+  cancelFury,
+  showFury,
+  showReview,
+  listReviews,
+  watchFury,
+  reconcileFuryRuns,
   approvePlan,
   completeFuryStep,
   createPlan,
   reconcileFuryRun,
   runFury,
 } from "../src/shell/fury-runtime.js";
+import { loadWorkspaceShellModel } from "../src/ui/shell/loader.js";
+import { disposeDaemonSessions, wakeOrchestrationSupervisor } from "../src/shell/pty-daemon-orchestration.js";
 import { createCraigState, createStubCommands, writeRepoRecord, writeTaskRecord } from "./test-helpers.js";
 
 const roots: string[] = [];
@@ -36,17 +45,167 @@ const originalPath = process.env.PATH ?? "";
 
 afterEach(async () => {
   process.env.PATH = originalPath;
+  vi.mocked(disposeDaemonSessions).mockResolvedValue(true);
+  vi.mocked(wakeOrchestrationSupervisor).mockResolvedValue(true);
   await Promise.all(roots.splice(0).map((root) => rm(root, { recursive: true, force: true })));
 });
 
 describe("durable fury runtime", () => {
+  test("command mutations only persist intent and never schedule in the calling worker", async () => {
+    const fixture = await setupChildGraph();
+    const { plan } = await createPlan(fixture.paths, fixture.file, {}, "task_planning", human);
+    await approvePlan(fixture.paths, plan.id, human);
+    const started = await runFury(fixture.paths, plan.id, human);
+    expect(started.run.state).toBe("pending");
+    expect((await taskService.listTasks(fixture.paths)).tasks).toHaveLength(1);
+    expect(await listPromptCommands(fixture.paths)).toHaveLength(0);
+    await reconcileFuryRun(fixture.paths, started.run.id);
+    const completed = await completeFuryStep(fixture.paths, started.run.id, "first", null, human);
+    expect(completed.step.state).toBe("succeeded");
+    expect(completed.run.stepRuns.second?.state).toBe("pending");
+    expect((await taskService.listTasks(fixture.paths)).tasks).toHaveLength(2);
+    const before = await readFile(path.join(furyDirs(fixture.paths).runs, `${started.run.id}.json`), "utf8");
+    await showFury(fixture.paths, started.run.id);
+    await watchFury(fixture.paths, started.run.id, undefined, { signal: AbortSignal.abort(), onEvent: () => undefined });
+    expect(await readFile(path.join(furyDirs(fixture.paths).runs, `${started.run.id}.json`), "utf8")).toBe(before);
+    await reconcileFuryRun(fixture.paths, started.run.id);
+    expect((await readFuryRun(fixture.paths, started.run.id)).stepRuns.second?.taskId).toBeTruthy();
+  });
+
+  test("reports a persisted run when supervisor notification fails, without launching from the caller", async () => {
+    const fixture = await setupChildGraph();
+    const { plan } = await createPlan(fixture.paths, fixture.file, {}, "task_planning", human);
+    await approvePlan(fixture.paths, plan.id, human);
+    vi.mocked(wakeOrchestrationSupervisor).mockResolvedValueOnce(false);
+    await expect(runFury(fixture.paths, plan.id, human)).rejects.toMatchObject({
+      code: "PARTIAL_RESULT", retryable: true, details: { persisted: true, reason: "ORCHESTRATION_UNAVAILABLE" },
+    });
+    expect((await taskService.listTasks(fixture.paths)).tasks).toHaveLength(1);
+    const replay = await runFury(fixture.paths, plan.id, human);
+    expect(replay).toMatchObject({ created: false, run: { state: "pending" } });
+  });
+
+  test("keeps reviews inspectable and visible after preview disablement and pauses new agent steps", async () => {
+    const fixture = await setup();
+    const { started } = await start(fixture);
+    await completeAndReconcile(fixture.paths, started.run.id, "inspect", { findings: [] }, human);
+    const [review] = await listFuryReviews(fixture.paths);
+    await configService.save(fixture.paths, { previews: { agentOrchestration: false } });
+    expect((await showFury(fixture.paths, started.run.id)).run.state).toBe("waiting_for_review");
+    expect((await listReviews(fixture.paths)).reviews).toHaveLength(1);
+    expect((await showReview(fixture.paths, review!.id)).review.id).toBe(review!.id);
+    await writeFile(path.join(furyDirs(fixture.paths).plans, "plan_disabled.json"), "invalid JSON");
+    expect((await loadWorkspaceShellModel(fixture.root)).furyApprovalCount).toBe(1);
+    await actOnReview(fixture.paths, review!.id, "request_changes", "Explain the tests", human);
+    const feedback = (await listPromptCommands(fixture.paths)).find((command) => command.idempotencyKey?.startsWith("fury-review:"));
+    expect(feedback?.prompt.text).toContain(`craig fury review resubmit ${review!.id}`);
+    expect((await loadWorkspaceShellModel(fixture.root)).furyApprovalCount).toBe(1);
+
+    const children = await setupChildGraph();
+    const { plan } = await createPlan(children.paths, children.file, {}, "task_planning", human);
+    await approvePlan(children.paths, plan.id, human);
+    const pending = await runFury(children.paths, plan.id, human);
+    await configService.save(children.paths, { previews: { agentOrchestration: false } });
+    await reconcileFuryRuns(children.paths);
+    expect((await taskService.listTasks(children.paths)).tasks).toHaveLength(1);
+    expect((await readFuryRun(children.paths, pending.run.id)).stepRuns.first?.state).toBe("pending");
+    await mutateFuryRun(children.paths, pending.run.id, (run) => ({ ...run, deadlineAt: new Date(0).toISOString() }));
+    await reconcileFuryRuns(children.paths);
+    expect((await readFuryRun(children.paths, pending.run.id)).state).toBe("timed_out");
+  });
+
+  test("retries failed cancellation cleanup without replaying tasks or claiming stopped sessions", async () => {
+    const fixture = await setupChildGraph();
+    const { plan } = await createPlan(fixture.paths, fixture.file, {}, "task_planning", human);
+    await approvePlan(fixture.paths, plan.id, human);
+    const { run } = await runAndReconcile(fixture.paths, plan.id, human);
+    const taskId = run.stepRuns.first!.taskId!;
+    const cancelled = await cancelFury(fixture.paths, run.id, human);
+    expect(cancelled.run).toMatchObject({ state: "cancelled", cleanupPending: true });
+    vi.mocked(disposeDaemonSessions).mockResolvedValue(false);
+    await reconcileFuryRun(fixture.paths, run.id);
+    expect((await showFury(fixture.paths, run.id)).run).toMatchObject({
+      state: "cancelled", cleanupPending: true, cleanupError: expect.stringContaining("could not stop"),
+    });
+    vi.mocked(disposeDaemonSessions).mockResolvedValue(true);
+    await cancelFury(fixture.paths, run.id, human);
+    await reconcileFuryRun(fixture.paths, run.id);
+    expect((await showFury(fixture.paths, run.id)).run).toMatchObject({ state: "cancelled", cleanupPending: false, cleanupError: null });
+    expect((await taskService.getTask(fixture.paths, taskId)).status).toBe("closed");
+    expect((await taskService.listTasks(fixture.paths, { includeClosed: true })).tasks).toHaveLength(2);
+  });
+
+  test("fails a dependent step explicitly when an optional referenced output was omitted", async () => {
+    const fixture = await setupChildGraph();
+    await writeFile(fixture.file, (await readFile(fixture.file, "utf8"))
+      .replace("prompt: First phase.", `prompt: First phase.
+    output:
+      schema:
+        type: object
+        properties:
+          summary: { type: string }`)
+      .replace("prompt: Second phase.", 'prompt: "Use ${{ steps.first.output.summary }}"'));
+    const { plan } = await createPlan(fixture.paths, fixture.file, {}, "task_planning", human);
+    await approvePlan(fixture.paths, plan.id, human);
+    const { run } = await runAndReconcile(fixture.paths, plan.id, human);
+    const completed = await completeAndReconcile(fixture.paths, run.id, "first", {}, human);
+    expect(completed.run).toMatchObject({
+      state: "failed", stepRuns: { second: { state: "failed", error: expect.stringContaining("has no output") } },
+    });
+    expect((await taskService.listTasks(fixture.paths)).tasks).toHaveLength(2);
+  });
+
+  test("rejects late completion and review approval before the next heartbeat can enforce deadlines", async () => {
+    const fixture = await setup();
+    const { started } = await start(fixture);
+    await mutateFuryRun(fixture.paths, started.run.id, (run) => ({ ...run, deadlineAt: new Date(0).toISOString() }));
+    await expect(completeFuryStep(fixture.paths, started.run.id, "inspect", { findings: [] }, human))
+      .rejects.toMatchObject({ code: "FURY_STATE_CONFLICT" });
+    await mutateFuryRun(fixture.paths, started.run.id, (run) => ({ ...run, deadlineAt: new Date(Date.now() + 60_000).toISOString() }));
+    await completeAndReconcile(fixture.paths, started.run.id, "inspect", { findings: [] }, human);
+    const [review] = await listFuryReviews(fixture.paths);
+    await mutateFuryReview(fixture.paths, review!.id, (current) => ({ ...current, deadlineAt: new Date(0).toISOString() }));
+    await expect(actOnReview(fixture.paths, review!.id, "approve", null, human))
+      .rejects.toMatchObject({ code: "FURY_STATE_CONFLICT" });
+    expect((await showReview(fixture.paths, review!.id)).review.state).toBe("waiting_for_review");
+  });
+
+  test("preserves review history when a crash occurred before binding its checkpoint to the step", async () => {
+    const fixture = await setup();
+    const { started } = await start(fixture);
+    await completeAndReconcile(fixture.paths, started.run.id, "inspect", { findings: [] }, human);
+    const [review] = await listFuryReviews(fixture.paths);
+    await actOnReview(fixture.paths, review!.id, "approve", "accepted", human);
+    await mutateFuryRun(fixture.paths, started.run.id, (run) => ({
+      ...run, stepRuns: { ...run.stepRuns, review: {
+        ...run.stepRuns.review!, state: "pending", reviewId: null, completedAt: null, completedBy: null,
+      } },
+    }));
+    await reconcileFuryRun(fixture.paths, started.run.id);
+    await reconcileFuryRun(fixture.paths, started.run.id);
+    expect((await readFuryRun(fixture.paths, started.run.id)).state).toBe("succeeded");
+    expect((await showReview(fixture.paths, review!.id)).review).toMatchObject({ state: "approved", history: [{ message: "accepted" }] });
+  });
+
+  test("recovers a durable review decision when its run update was interrupted", async () => {
+    const fixture = await setup();
+    const { started } = await start(fixture);
+    await completeAndReconcile(fixture.paths, started.run.id, "inspect", { findings: [] }, human);
+    const [review] = await listFuryReviews(fixture.paths);
+    await mutateFuryReview(fixture.paths, review!.id, (current) => ({
+      ...current, state: "approved", version: current.version + 1,
+    }));
+    await reconcileFuryRun(fixture.paths, started.run.id);
+    expect((await readFuryRun(fixture.paths, started.run.id)).state).toBe("succeeded");
+  });
+
   test("creates sequentially dependent Fury tasks as direct siblings beneath the planning task", async () => {
     const fixture = await setupChildGraph();
     const plan = await createPlan(fixture.paths, fixture.file, {}, "task_planning", human);
     await approvePlan(fixture.paths, plan.plan.id, human);
-    let run = (await runFury(fixture.paths, plan.plan.id, human)).run;
+    let run = (await runAndReconcile(fixture.paths, plan.plan.id, human)).run;
     const firstTaskId = run.stepRuns.first!.taskId!;
-    await completeFuryStep(fixture.paths, run.id, "first", null, human);
+    await completeAndReconcile(fixture.paths, run.id, "first", null, human);
     run = await readFuryRun(fixture.paths, run.id);
     const secondTaskId = run.stepRuns.second!.taskId!;
     const tasks = (await taskService.listTasks(fixture.paths, { includeClosed: true })).tasks;
@@ -60,7 +219,7 @@ describe("durable fury runtime", () => {
     const fixture = await setup();
     const plan = await createPlan(fixture.paths, fixture.file, { task_id: "task_root" }, "task_root", human);
     expect(await listPendingFuryPlans(fixture.paths)).toMatchObject([{ id: plan.plan.id }]);
-    await expect(runFury(fixture.paths, plan.plan.id, human)).rejects.toMatchObject({ code: "FURY_APPROVAL_REQUIRED" });
+    await expect(runAndReconcile(fixture.paths, plan.plan.id, human)).rejects.toMatchObject({ code: "FURY_APPROVAL_REQUIRED" });
     await expect(approvePlan(fixture.paths, plan.plan.id, {
       type: "agent", taskId: "task_root", agentTabId: "agent-task_root", capabilityId: "redacted",
     })).rejects.toMatchObject({ code: "CAPABILITY_DENIED" });
@@ -70,7 +229,7 @@ describe("durable fury runtime", () => {
     const planFile = path.join(furyDirs(fixture.paths).plans, `${plan.plan.id}.json`);
     const tampered = JSON.parse(await readFile(planFile, "utf8")) as Record<string, unknown>;
     await writeFile(planFile, JSON.stringify({ ...tampered, name: "tampered" }), "utf8");
-    await expect(runFury(fixture.paths, plan.plan.id, human)).rejects.toMatchObject({ code: "FURY_RECORD_INVALID" });
+    await expect(runAndReconcile(fixture.paths, plan.plan.id, human)).rejects.toMatchObject({ code: "FURY_RECORD_INVALID" });
   });
 
   test("reuses an unchanged plan and surfaces only the latest unapproved revision", async () => {
@@ -105,17 +264,17 @@ describe("durable fury runtime", () => {
     expect(started.run).toMatchObject({ state: "running", stepRuns: { inspect: { state: "running", taskId: "task_root" } } });
     expect(await listPromptCommands(fixture.paths)).toHaveLength(1);
 
-    await expect(completeFuryStep(fixture.paths, started.run.id, "inspect", { findings: 3 }, human))
+    await expect(completeAndReconcile(fixture.paths, started.run.id, "inspect", { findings: 3 }, human))
       .rejects.toMatchObject({ code: "FURY_OUTPUT_INVALID" });
-    const completed = await completeFuryStep(fixture.paths, started.run.id, "inspect", { findings: ["one"] }, human);
+    const completed = await completeAndReconcile(fixture.paths, started.run.id, "inspect", { findings: ["one"] }, human);
     expect(completed.run.state).toBe("waiting_for_review");
     const [review] = await listFuryReviews(fixture.paths);
     expect(review).toMatchObject({ state: "waiting_for_review", feedbackTarget: { taskId: "task_root" }, round: 1 });
 
-    await expect(actOnReview(fixture.paths, review!.id, "approve", null, {
+    await expect(reviewAndReconcile(fixture.paths, review!.id, "approve", null, {
       type: "agent", taskId: "task_root", agentTabId: "agent-task_root", capabilityId: "redacted",
     })).rejects.toMatchObject({ code: "CAPABILITY_DENIED" });
-    const approved = await actOnReview(fixture.paths, review!.id, "approve", "looks good", human);
+    const approved = await reviewAndReconcile(fixture.paths, review!.id, "approve", "looks good", human);
     expect(approved.run.state).toBe("succeeded");
     expect(approved.review.history).toHaveLength(1);
   });
@@ -152,8 +311,8 @@ describe("durable fury runtime", () => {
     const fixture = await setup();
     const { started } = await start(fixture);
     const completions = await Promise.allSettled([
-      completeFuryStep(fixture.paths, started.run.id, "inspect", { findings: ["first"] }, human),
-      completeFuryStep(fixture.paths, started.run.id, "inspect", { findings: ["second"] }, human),
+      completeAndReconcile(fixture.paths, started.run.id, "inspect", { findings: ["first"] }, human),
+      completeAndReconcile(fixture.paths, started.run.id, "inspect", { findings: ["second"] }, human),
     ]);
     expect(completions.filter((result) => result.status === "fulfilled")).toHaveLength(1);
     expect(completions.filter((result) => result.status === "rejected")).toHaveLength(1);
@@ -163,12 +322,12 @@ describe("durable fury runtime", () => {
   test("persists requested changes and resubmission without releasing downstream work", async () => {
     const fixture = await setup();
     const { started } = await start(fixture);
-    await completeFuryStep(fixture.paths, started.run.id, "inspect", { findings: [] }, human);
+    await completeAndReconcile(fixture.paths, started.run.id, "inspect", { findings: [] }, human);
     const [review] = await listFuryReviews(fixture.paths);
-    const requested = await actOnReview(fixture.paths, review!.id, "request_changes", "Add detail", human);
+    const requested = await reviewAndReconcile(fixture.paths, review!.id, "request_changes", "Add detail", human);
     expect(requested.run).toMatchObject({ state: "waiting_for_review", stepRuns: { review: { state: "changes_requested" } } });
     expect(requested.review.history[0]).toMatchObject({ action: "request_changes", feedbackCommandId: expect.any(String) });
-    const resubmitted = await actOnReview(fixture.paths, review!.id, "resubmit", "updated", human);
+    const resubmitted = await reviewAndReconcile(fixture.paths, review!.id, "resubmit", "updated", human);
     expect(resubmitted.review).toMatchObject({ state: "waiting_for_review", round: 2 });
     expect(resubmitted.review.history).toHaveLength(2);
   });
@@ -176,11 +335,11 @@ describe("durable fury runtime", () => {
   test("serializes concurrent human decisions", async () => {
     const fixture = await setup();
     const { started } = await start(fixture);
-    await completeFuryStep(fixture.paths, started.run.id, "inspect", { findings: [] }, human);
+    await completeAndReconcile(fixture.paths, started.run.id, "inspect", { findings: [] }, human);
     const [review] = await listFuryReviews(fixture.paths);
     const decisions = await Promise.allSettled([
-      actOnReview(fixture.paths, review!.id, "approve", null, human),
-      actOnReview(fixture.paths, review!.id, "reject", "not ready", human),
+      reviewAndReconcile(fixture.paths, review!.id, "approve", null, human),
+      reviewAndReconcile(fixture.paths, review!.id, "reject", "not ready", human),
     ]);
     expect(decisions.filter((result) => result.status === "fulfilled")).toHaveLength(1);
     expect(decisions.filter((result) => result.status === "rejected")).toHaveLength(1);
@@ -189,7 +348,7 @@ describe("durable fury runtime", () => {
   test("times out durable review state and fails the run", async () => {
     const fixture = await setup();
     const { started } = await start(fixture);
-    await completeFuryStep(fixture.paths, started.run.id, "inspect", { findings: [] }, human);
+    await completeAndReconcile(fixture.paths, started.run.id, "inspect", { findings: [] }, human);
     await mutateFuryRun(fixture.paths, started.run.id, (run) => ({
       ...run,
       stepRuns: { ...run.stepRuns, review: { ...run.stepRuns.review!, deadlineAt: new Date(0).toISOString() } },
@@ -250,7 +409,7 @@ steps:
 async function start(fixture: Awaited<ReturnType<typeof setup>>) {
   const plan = await createPlan(fixture.paths, fixture.file, { task_id: "task_root" }, "task_root", human);
   await approvePlan(fixture.paths, plan.plan.id, human);
-  const started = await runFury(fixture.paths, plan.plan.id, human);
+  const started = await runAndReconcile(fixture.paths, plan.plan.id, human);
   return { plan, started };
 }
 
@@ -291,4 +450,20 @@ steps:
     prompt: Second phase.
 `, "utf8");
   return { root, paths, file };
+}
+
+async function runAndReconcile(...args: Parameters<typeof runFury>) {
+  const result = await runFury(...args);
+  await reconcileFuryRun(args[0], result.run.id);
+  return { ...result, run: await readFuryRun(args[0], result.run.id) };
+}
+async function completeAndReconcile(...args: Parameters<typeof completeFuryStep>) {
+  const result = await completeFuryStep(...args);
+  await reconcileFuryRun(args[0], result.run.id);
+  return { ...result, run: await readFuryRun(args[0], result.run.id) };
+}
+async function reviewAndReconcile(...args: Parameters<typeof actOnReview>) {
+  const result = await actOnReview(...args);
+  await reconcileFuryRun(args[0], result.run.id);
+  return { ...result, run: await readFuryRun(args[0], result.run.id) };
 }

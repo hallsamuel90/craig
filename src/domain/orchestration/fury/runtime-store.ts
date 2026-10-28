@@ -197,6 +197,8 @@ function validateRun(value: unknown, id: string): FuryRun {
     !isObject(value.inputs) || !isLimits(value.limits) || !Array.isArray(value.order) ||
     value.order.some((step) => typeof step !== "string") || new Set(value.order).size !== value.order.length ||
     !hasStepRuns(value.stepRuns, value.order) || !isActor(value.actor) ||
+    (value.cleanupPending !== undefined && typeof value.cleanupPending !== "boolean") ||
+    (value.cleanupError !== undefined && value.cleanupError !== null && typeof value.cleanupError !== "string") ||
     !isTimestamp(value.createdAt) || !isTimestamp(value.updatedAt) || !isTimestamp(value.stateChangedAt) || !isTimestamp(value.deadlineAt) ||
     (value.completedAt !== null && !isTimestamp(value.completedAt))
   ) {

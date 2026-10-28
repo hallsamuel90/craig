@@ -1,14 +1,15 @@
 import { mkdir, realpath, rm, writeFile } from "node:fs/promises";
 import path from "node:path";
 
-import { afterEach, describe, expect, test } from "vitest";
+import { afterEach, describe, expect, test, vi } from "vitest";
 
 import { runCli, type RunCliOptions } from "../src/commands/run.js";
 import { CRAIG_EXIT_CODE_BY_ERROR } from "../src/domain/error/index.js";
 import { createCraigState, createGitRepo, createRepoRoot, writeTaskRecord } from "./test-helpers.js";
 import { runCommand } from "../src/shared/exec.js";
 import { configService } from "../src/domain/config/index.js";
-import { ensureTaskCapabilities, promptCommandService } from "../src/domain/orchestration/index.js";
+import { ensureTaskCapabilities, promptCommandService, readFuryRun } from "../src/domain/orchestration/index.js";
+import { createDaemonPtyRuntime, requestDaemonShutdown, servePtyDaemon } from "../src/ui/pty/daemon.js";
 import { taskService } from "../src/domain/task/index.js";
 import { getCraigPaths } from "../src/state/craig-paths.js";
 
@@ -654,26 +655,40 @@ steps:
     expect(await runCli(createOptions(root, ["fury", "approve", planId, "--json"], planApproval))).toBe(0);
     expect(JSON.parse(planApproval.stdout[0]!)).toMatchObject({ data: { approval: { planId } } });
 
-    const started = createOutput();
-    const runOptions = createOptions(root, ["fury", "run", planId, "--json"], started);
-    runOptions.env = agentEnv;
-    expect(await runCli(runOptions)).toBe(0);
-    const runId = JSON.parse(started.stdout[0]!).data.run.id as string;
+    const daemon = servePtyDaemon(paths, { pullRequestSync: false });
+    const client = await createDaemonPtyRuntime({
+      paths, workspaceRoot: root, resolveSessionSpec: () => ({ cwd: root, command: ["/bin/cat"] }),
+    });
+    try {
+      await client.ensureSession("task_root", agentTabId, { columns: 80, rows: 24 });
+      const started = createOutput();
+      const runOptions = createOptions(root, ["fury", "run", planId, "--json"], started);
+      runOptions.env = agentEnv;
+      expect(await runCli(runOptions)).toBe(0);
+      const runId = JSON.parse(started.stdout[0]!).data.run.id as string;
 
-    const completed = createOutput();
-    const agentOptions = createOptions(root, ["fury", "step", "complete", "--run", runId, "--step", "work", "--json"], completed);
-    agentOptions.env = agentEnv;
-    const completionExit = await runCli(agentOptions);
-    expect(completed.stderr).toEqual([]);
-    expect(completionExit).toBe(0);
-    expect(JSON.parse(completed.stdout[0]!).data.run.state).toBe("waiting_for_review");
+      await vi.waitFor(async () => expect((await readFuryRun(paths, runId)).stepRuns.work).toMatchObject({ state: "running", taskId: "task_root", agentTabId }));
+      const completed = createOutput();
+      const agentOptions = createOptions(root, ["fury", "step", "complete", "--run", runId, "--step", "work", "--json"], completed);
+      agentOptions.env = agentEnv;
+      const completionExit = await runCli(agentOptions);
+      expect(completed.stderr).toEqual([]);
+      expect(completionExit).toBe(0);
+      expect(JSON.parse(completed.stdout[0]!).data.step.state).toBe("succeeded");
+      await vi.waitFor(async () => expect((await readFuryRun(paths, runId)).state).toBe("waiting_for_review"));
 
-    const reviews = createOutput();
-    expect(await runCli(createOptions(root, ["fury", "reviews", "list", "--run", runId, "--json"], reviews))).toBe(0);
-    const reviewId = JSON.parse(reviews.stdout[0]!).data.reviews[0].id as string;
-    const approved = createOutput();
-    expect(await runCli(createOptions(root, ["fury", "review", "approve", reviewId, "--note", "ship it", "--json"], approved))).toBe(0);
-    expect(JSON.parse(approved.stdout[0]!).data.run.state).toBe("succeeded");
+      const reviews = createOutput();
+      expect(await runCli(createOptions(root, ["fury", "reviews", "list", "--run", runId, "--json"], reviews))).toBe(0);
+      const reviewId = JSON.parse(reviews.stdout[0]!).data.reviews[0].id as string;
+      const approved = createOutput();
+      expect(await runCli(createOptions(root, ["fury", "review", "approve", reviewId, "--note", "ship it", "--json"], approved))).toBe(0);
+      expect(JSON.parse(approved.stdout[0]!).data.review.state).toBe("approved");
+      await vi.waitFor(async () => expect((await readFuryRun(paths, runId)).state).toBe("succeeded"));
+    } finally {
+      client.disposeAll();
+      await requestDaemonShutdown(paths);
+      await daemon;
+    }
   });
 
   test("does not enter the terminal application when input is disabled", async () => {

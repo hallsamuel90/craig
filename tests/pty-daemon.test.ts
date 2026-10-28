@@ -1,7 +1,8 @@
+import { createRequire } from "node:module";
 import { createHash } from "node:crypto";
 import { createServer } from "node:net";
-import { mkdir, mkdtemp, readFile, rm, symlink, writeFile } from "node:fs/promises";
-import { join } from "node:path";
+import { chmod, mkdir, mkdtemp, readFile, rm, symlink, writeFile } from "node:fs/promises";
+import { join, resolve } from "node:path";
 import { tmpdir } from "node:os";
 
 import { describe, expect, test, vi } from "vitest";
@@ -13,16 +14,170 @@ import { ensureCraigState } from "../src/domain/workspace/workspaces/ensure.js";
 import { configService } from "../src/domain/config/index.js";
 import { taskService } from "../src/domain/task/index.js";
 import { appendTaskId } from "../src/domain/task/adapters/task-store.js";
-import { promptCommandService, readAllEvents } from "../src/domain/orchestration/index.js";
+import { ensureTaskCapabilities, mutateFuryRun, readFuryRun, promptCommandService, readAllEvents } from "../src/domain/orchestration/index.js";
+import { approvePlan, createPlan, runFury } from "../src/shell/fury-runtime.js";
 import { watchWorkspaceEvents } from "../src/shell/events.js";
 import { disposeDaemonSessions, wakeOrchestrationSupervisor } from "../src/shell/pty-daemon-orchestration.js";
 import { requestOpenFile } from "../src/shell/ui-navigation.js";
 import { runCommand } from "../src/shared/exec.js";
-import { createCraigState, createGitRepo, createStubCommands, writeTaskRecord } from "./test-helpers.js";
+import { createCraigState, createGitRepo, createStubCommands, writeRepoRecord, writeTaskRecord } from "./test-helpers.js";
 
 const DAEMON_TEST_TIMEOUT_MS = 15000;
 
 describe("PTY daemon", () => {
+  test("launches a Fury child from supervisor reconciliation without waiting on its own wake", async () => {
+    const root = await mkdtemp(join(tmpdir(), "craig-fury-supervisor-child-"));
+    const paths = await createCraigState(root, ["task_root"]);
+    await createGitRepo(root);
+    await writeFile(join(root, "README.md"), "# Fury fixture\n");
+    await runCommand("git", ["add", "README.md"], { cwd: root });
+    await runCommand("git", ["commit", "-m", "fixture"], { cwd: root });
+    const timestamp = new Date().toISOString();
+    await writeRepoRecord(root, {
+      id: "repo_a", name: "fixture", rootPath: root, defaultBranch: "main",
+      createdAt: timestamp, updatedAt: timestamp,
+    }, {
+      id: "workspace_repo_a", primaryRepoId: "repo_a", branch: "main", status: "active",
+      linkedRepoIds: [], archivedAt: null, createdAt: timestamp, updatedAt: timestamp,
+    });
+    await writeTaskRecord(root, {
+      id: "task_root", repoId: "repo_a", workspaceId: "workspace_repo_a", repoRoot: root, worktreePath: root,
+    });
+    await configService.save(paths, {
+      previews: { agentOrchestration: true },
+      runners: { codex: { path: "/bin/sh" } },
+    });
+    await mkdir(join(root, ".craig", "fury"), { recursive: true });
+    const file = join(root, ".craig", "fury", "child.yaml");
+    await writeFile(file, `version: 1
+name: supervisor-child
+limits: { max_concurrency: 1, max_tasks: 2, timeout: 1h }
+steps:
+  kickoff:
+    task: task_root
+    prompt: Start inspection.
+  child:
+    needs: [kickoff]
+    create_child: {}
+    prompt: Inspect the fixture.
+  downstream:
+    needs: [child]
+    create_child: {}
+    prompt: Verify the inspection.
+`);
+    const daemon = servePtyDaemon(paths, {
+      pullRequestSync: false,
+      shell: "/bin/zsh",
+      env: { TERM: "xterm-256color" },
+      spawn: vi.fn(() => createFakePty()),
+    });
+    try {
+      const client = await createDaemonPtyRuntime({
+        paths, workspaceRoot: root,
+        resolveSessionSpec: () => ({ cwd: root, command: [] }),
+      });
+      await client.ensureSession("task_root", "task_root:agent", { columns: 80, rows: 24 });
+      const actor = { type: "human" as const, source: "cli" as const, processId: process.pid };
+      const { plan } = await createPlan(paths, file, {}, "task_root", actor);
+      await approvePlan(paths, plan.id, actor);
+      const { run } = await runFury(paths, plan.id, actor);
+      await vi.waitFor(async () => {
+        expect((await readFuryRun(paths, run.id)).stepRuns.kickoff?.state).toBe("running");
+      });
+      // Release the dependency durably; only the real daemon schedules the child.
+      await mutateFuryRun(paths, run.id, (current) => ({
+        ...current,
+        stepRuns: { ...current.stepRuns, kickoff: { ...current.stepRuns.kickoff!, state: "succeeded" } },
+      }));
+      await vi.waitFor(async () => {
+        const current = await readFuryRun(paths, run.id);
+        expect(current.stepRuns.child?.state, current.stepRuns.child?.error ?? undefined).toBe("running");
+        const taskId = current.stepRuns.child?.taskId;
+        expect(taskId).toBeTruthy();
+        const { commands } = await promptCommandService.list(paths, taskId!);
+        expect(commands).toHaveLength(1);
+        expect(commands[0]).toMatchObject({ state: "delivered", attempts: 1, lastError: null });
+        expect((await taskService.getTask(paths, taskId!)).status).toBe("running");
+      }, { timeout: 8_000 });
+      const child = (await readFuryRun(paths, run.id)).stepRuns.child!;
+      const task = await taskService.getTask(paths, child.taskId!);
+      const capability = await ensureTaskCapabilities(paths, task);
+      const deniedBin = join(root, "worker-bin");
+      await mkdir(deniedBin);
+      await writeFile(join(deniedBin, "git"), "#!/bin/sh\necho worker-git-denied >&2\nexit 99\n");
+      await chmod(join(deniedBin, "git"), 0o755);
+      const completed = await runCommand(process.execPath, [
+        "--import", createRequire(import.meta.url).resolve("tsx"), resolve("src/cli.ts"),
+        "--workspace-root", root, "--json", "fury", "step", "complete", "--run", run.id, "--step", "child",
+      ], {
+        cwd: task.worktreePath,
+        env: {
+          ...process.env, PATH: `${deniedBin}:${process.env.PATH ?? ""}`,
+          CRAIG_WORKSPACE_ROOT: root, CRAIG_TASK_ID: task.id, CRAIG_AGENT_TAB_ID: child.agentTabId!,
+          CRAIG_AGENT_CAPABILITY: capability.CRAIG_AGENT_CAPABILITY,
+        },
+      });
+      expect(JSON.parse(completed.stdout).data.step.state).toBe("succeeded");
+      await vi.waitFor(async () => {
+        const downstream = (await readFuryRun(paths, run.id)).stepRuns.downstream!;
+        expect(downstream.state, downstream.error ?? undefined).toBe("running");
+        expect(downstream.taskId).toBeTruthy();
+        expect((await taskService.getTask(paths, downstream.taskId!)).parentTaskId).toBe("task_root");
+      }, { timeout: 4_000 });
+      expect((await taskService.listTasks(paths)).tasks).toHaveLength(3);
+      client.disposeAll();
+    } finally {
+      await requestDaemonShutdown(paths);
+      await daemon;
+      await rm(root, { recursive: true, force: true });
+    }
+  }, DAEMON_TEST_TIMEOUT_MS);
+
+  test("recovers and expires a persisted Fury review after restart with the preview disabled", async () => {
+    const root = await mkdtemp(join(tmpdir(), "craig-fury-disabled-restart-"));
+    const paths = await createCraigState(root, ["task_root"]);
+    await writeTaskRecord(root, { id: "task_root" });
+    await configService.save(paths, { previews: { agentOrchestration: true } });
+    const file = join(root, ".craig", "fury", "review.yaml");
+    await mkdir(join(root, ".craig", "fury"), { recursive: true });
+    await writeFile(file, `version: 1
+name: review-restart
+limits: { max_concurrency: 1, max_tasks: 1, timeout: 1h }
+steps:
+  review:
+    human_review:
+      title: Inspect before proceeding
+      summary: Keep the checkpoint durable.
+`);
+    let daemon = servePtyDaemon(paths, { pullRequestSync: false });
+    try {
+      const client = await createDaemonPtyRuntime({
+        paths, workspaceRoot: root, resolveSessionSpec: () => ({ cwd: root, command: [] }),
+      });
+      const actor = { type: "human" as const, source: "cli" as const, processId: process.pid };
+      const { plan } = await createPlan(paths, file, {}, "task_root", actor);
+      await approvePlan(paths, plan.id, actor);
+      const { run } = await runFury(paths, plan.id, actor);
+      await vi.waitFor(async () => expect((await readFuryRun(paths, run.id)).state).toBe("waiting_for_review"));
+      client.disposeAll();
+      await requestDaemonShutdown(paths);
+      await daemon;
+      await configService.save(paths, { previews: { agentOrchestration: false } });
+      await mutateFuryRun(paths, run.id, (current) => ({
+        ...current, stepRuns: { ...current.stepRuns, review: { ...current.stepRuns.review!, deadlineAt: new Date(0).toISOString() } },
+      }));
+      daemon = servePtyDaemon(paths, { pullRequestSync: false });
+      await vi.waitFor(async () => {
+        expect(await readFuryRun(paths, run.id)).toMatchObject({ state: "failed", cleanupPending: false });
+      }, { timeout: 4_000 });
+      expect((await taskService.listTasks(paths)).tasks).toHaveLength(1);
+    } finally {
+      await requestDaemonShutdown(paths);
+      await daemon;
+      await rm(root, { recursive: true, force: true });
+    }
+  }, DAEMON_TEST_TIMEOUT_MS);
+
   test("synchronizes pull requests through the production adapter without a connected TUI or orchestration preview", async () => {
     const root = await mkdtemp(join(tmpdir(), "craig-pr-sync-daemon-"));
     const paths = await createCraigState(root, ["task_1"]);

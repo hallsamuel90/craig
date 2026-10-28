@@ -36,9 +36,13 @@ export async function loadWorkspaceShellModel(
       }
     }
     taskResult = await taskService.listTasks(paths);
-    const [pendingPlans, reviews] = await Promise.all([listPendingFuryPlans(paths), listFuryReviews(paths)]);
-    furyApprovalCount = pendingPlans.length + reviews.filter((review) => review.state === "waiting_for_review").length;
   }
+  const [pendingPlans, reviews] = await Promise.all([
+    configService.previews.isEnabled(config, "agentOrchestration") ? listPendingFuryPlans(paths) : [],
+    listFuryReviews(paths),
+  ]);
+  furyApprovalCount = (configService.previews.isEnabled(config, "agentOrchestration") ? pendingPlans.length : 0) +
+    reviews.filter((review) => review.state === "waiting_for_review" || review.state === "changes_requested").length;
   const selectedTask = resolveSelectedTaskForInspection(taskResult.tasks, shell);
   const selection = shell
     ? {

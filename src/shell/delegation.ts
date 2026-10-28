@@ -106,7 +106,11 @@ export async function cancelTaskTreeAndSessions(
     .flatMap((task) => task.ptyTabs.map((tab) => tab.id));
   try {
     const result = await cancelTaskTree(paths, taskId, capabilityId);
-    await disposeDaemonSessions(paths, tabIds);
+    if (!await disposeDaemonSessions(paths, tabIds)) {
+      throw new CraigError("PARTIAL_RESULT", "The task tree was closed, but Craig could not stop its agent sessions. Retry cancellation after the daemon is available.", {
+        retryable: true, details: { taskId, persisted: true, sessionsStopped: false },
+      });
+    }
     return result;
   } catch (error) {
     if (error instanceof CraigError && error.code === "PARTIAL_RESULT" && error.details.persisted === true) {
