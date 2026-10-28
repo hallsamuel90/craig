@@ -44,12 +44,6 @@ jobs:
           SOCKET_SECURITY_API_KEY: ${{ secrets.SOCKET_SECURITY_API_KEY }}
           SOCKET_CLI_GITHUB_TOKEN: ${{ github.token }}
 
-      - name: Apply Changesets version
-        run: |
-          if find .changeset -maxdepth 1 -type f -name '*.md' -print -quit | grep -q .; then
-            pnpm version-packages
-          fi
-
       - name: Run tests
         run: pnpm test
 
@@ -71,13 +65,68 @@ jobs:
       - name: Smoke npm package
         run: pnpm package:smoke
 
+      - name: Check package publication
+        id: package
+        run: |
+          name="$(node -p "require('./packages/cli/package.json').name")"
+          version="$(node -p "require('./packages/cli/package.json').version")"
+
+          echo "name=$name" >> "$GITHUB_OUTPUT"
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+
+          if npm view "$name@$version" version --registry=https://registry.npmjs.org >/dev/null 2>&1; then
+            echo "published=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "published=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Publish package
+        if: steps.package.outputs.published != 'true'
+        run: pnpm exec changeset publish
+        env:
+          NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+
+      - name: Create GitHub release
+        env:
+          GH_TOKEN: ${{ secrets.RELEASE_BOT_TOKEN }}
+        run: |
+          version="${{ steps.package.outputs.version }}"
+          tag="craig-cli@$version"
+
+          if gh release view "$tag" >/dev/null 2>&1; then
+            echo "GitHub release $tag already exists."
+            exit 0
+          fi
+
+          release_notes="$(awk -v version="$version" '
+            $0 == "## " version { found = 1; next }
+            found && /^## / { exit }
+            found { print }
+          ' packages/cli/CHANGELOG.md)"
+
+          if [ -z "$(printf '%s' "$release_notes" | tr -d '[:space:]')" ]; then
+            echo "No changelog entry found for craig-cli $version."
+            exit 1
+          fi
+
+          gh release create "$tag" \
+            --target "$GITHUB_SHA" \
+            --title "craig-cli $version" \
+            --notes "$release_notes" \
+            --latest
+
+      - name: Apply Changesets version
+        run: |
+          if find .changeset -maxdepth 1 -type f -name '*.md' -print -quit | grep -q .; then
+            pnpm version-packages
+          fi
+
       - name: Open version pull request
-        id: version_pr
         env:
           GH_TOKEN: ${{ secrets.RELEASE_BOT_TOKEN }}
         run: |
           if [ -z "$(git status --porcelain)" ]; then
-            echo "created=false" >> "$GITHUB_OUTPUT"
             exit 0
           fi
 
@@ -115,41 +164,3 @@ jobs:
           fi
 
           gh pr merge "$version_pr_number" --auto --squash --delete-branch
-          echo "created=true" >> "$GITHUB_OUTPUT"
-
-      - name: Publish package
-        if: steps.version_pr.outputs.created != 'true'
-        run: pnpm exec changeset publish
-        env:
-          NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
-
-      - name: Create GitHub release
-        if: steps.version_pr.outputs.created != 'true'
-        env:
-          GH_TOKEN: ${{ secrets.RELEASE_BOT_TOKEN }}
-        run: |
-          version="$(node -p "require('./packages/cli/package.json').version")"
-          tag="craig-cli@$version"
-
-          if gh release view "$tag" >/dev/null 2>&1; then
-            echo "GitHub release $tag already exists."
-            exit 0
-          fi
-
-          release_notes="$(awk -v version="$version" '
-            $0 == "## " version { found = 1; next }
-            found && /^## / { exit }
-            found { print }
-          ' packages/cli/CHANGELOG.md)"
-
-          if [ -z "$(printf '%s' "$release_notes" | tr -d '[:space:]')" ]; then
-            echo "No changelog entry found for craig-cli $version."
-            exit 1
-          fi
-
-          gh release create "$tag" \
-            --target "$GITHUB_SHA" \
-            --title "craig-cli $version" \
-            --notes "$release_notes" \
-            --latest
