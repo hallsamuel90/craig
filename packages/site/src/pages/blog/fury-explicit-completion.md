@@ -1,12 +1,14 @@
 ---
 layout: ../../layouts/Blog.astro
-title: An agent saying “done” isn't enough
-description: How Craig Fury connects explicit agent results, fixed workflow steps, and human-review checkpoints.
+title: Introducing Craig Fury
+description: Repeatable agent workflows, explicit completion, and human review—all inside Craig.
 author: The Craig project
 order: 1
 ---
 
-# An agent saying “done” isn't enough
+# Introducing Craig Fury
+
+Repeatable agent workflows, explicit completion, and human review—all inside Craig.
 
 Running a few coding agents in parallel is one thing. Knowing when one has actually finished—and whether the next step should start—is a different problem.
 
