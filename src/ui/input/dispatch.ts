@@ -742,6 +742,7 @@ function handleCraigUpdateKey(ctx: AppContext, key: string): void {
   }
   if (phase === "ready" && ctx.state.menuIndex === 2) {
     persistUiPreferences(ctx, { ignoredUpdateVersion: ctx.state.update.latest });
+    ctx.updateText = null;
     enterCraigFromBoot(ctx);
     return;
   }

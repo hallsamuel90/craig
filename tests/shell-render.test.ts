@@ -18,6 +18,25 @@ function contentCenter(line: string): number {
 }
 
 describe("terminal shell renderer", () => {
+  test.each([false, true])("keeps update notices at the top right with panel polish %s", (panelPolish) => {
+    const data = getMockShellData();
+    data.topRail.workspacePath = "/very/long/workspace/".repeat(20);
+    for (const centerOnly of [false, true]) {
+      const options = { color: false, panelPolish, centerOnly, versionText: "v0.19.0", updateText: "→ v0.20.0 available" };
+      const frame = renderMainShellFrame(MIN_VIEWPORT, data, options);
+      const rows = frame.split("\n");
+      expect(rows[0]).toHaveLength(MIN_VIEWPORT.width);
+      expect(rows[0]).toMatch(/v0\.19\.0 → v0\.20\.0 available $/);
+      expect(rows[0]).toContain("CRAIG");
+      expect(rows.every((row) => row.length === MIN_VIEWPORT.width)).toBe(true);
+      const colored = renderMainShellFrame(MIN_VIEWPORT, data, { ...options, color: true });
+      expect(stripVTControlCharacters(colored)).toBe(frame);
+      const currentOnly = renderMainShellFrame(MIN_VIEWPORT, data, { ...options, updateText: null });
+      expect(currentOnly).not.toContain("available");
+      expect(currentOnly.split("\n")[0]).toMatch(/v0\.19\.0 $/);
+    }
+  });
+
   test.each(["tasks", "center", "inspector", "actions"] as const)("frames the preview without clipping output with %s focused", (focusedRegion) => {
     const data = getMockShellData({ focusedRegion, terminal: {
       status: "running", rows: [{ segments: [{ text: "agent output" }] }], error: null,
@@ -124,7 +143,7 @@ describe("terminal shell renderer", () => {
   });
 
   test.each([renderBootOverlayFrame, renderPauseOverlayFrame, renderOptionsOverlayFrame])("frames preview splash menus with one blue outline and preserves their content", (renderOverlay) => {
-    const options = { color: false, menuIndex: 0, versionText: "v0.17.3", updateText: "v0.18.0" };
+    const options = { color: false, menuIndex: 0, versionText: "v0.17.3", updateText: "→ v0.18.0 available" };
     const stable = renderOverlay(MIN_VIEWPORT, options);
     expect(renderOverlay(MIN_VIEWPORT, { ...options, panelPolish: false })).toBe(stable);
     const preview = renderOverlay(MIN_VIEWPORT, { ...options, panelPolish: true });
@@ -136,7 +155,16 @@ describe("terminal shell renderer", () => {
     expect(rows.slice(2, -2).every((row) => row.startsWith(" │") && row.endsWith("│ "))).toBe(true);
     expect(preview).toContain("▄████▄");
     expect(preview).toContain(renderOverlay === renderOptionsOverlayFrame ? "Help" : "Options");
-    if (renderOverlay !== renderOptionsOverlayFrame) expect(preview).toContain("v0.17.3  (update available)");
+    if (renderOverlay !== renderOptionsOverlayFrame) {
+      expect(rows[0]!.trim()).toBe("v0.17.3 → v0.18.0 available");
+      expect(preview.match(/v0\.17\.3/g)).toHaveLength(1);
+      const currentOnly = renderOverlay(MIN_VIEWPORT, { ...options, panelPolish: true, updateText: null });
+      expect(currentOnly.split("\n")[0]!.trim()).toBe("v0.17.3");
+      expect(currentOnly.match(/v0\.17\.3/g)).toHaveLength(1);
+      expect(currentOnly).not.toContain("available");
+      expect(preview).not.toContain("(update available)");
+      expect(stable.split("\n")[0]!.trim()).toBe("v0.17.3 → v0.18.0 available");
+    }
     const colored = renderOverlay(MIN_VIEWPORT, { ...options, color: true, panelPolish: true });
     expect(colored).toContain("\u001B[38;2;122;162;247;48;2;6;6;15m╭");
     expect(stripVTControlCharacters(colored)).toBe(preview);

@@ -286,7 +286,7 @@ function getLogTone(line: string): NonNullable<SurfaceLine["tone"]> {
 export function renderMainShellFrame(
   viewport: Viewport,
   data: ShellData,
-  options: Pick<RenderOptions, "color" | "centerOnly" | "focusFlashActive" | "panelPolish"> = {},
+  options: Pick<RenderOptions, "color" | "centerOnly" | "focusFlashActive" | "panelPolish" | "versionText" | "updateText"> = {},
 ): string {
   return renderMainShellPresentation(viewport, data, options).frame;
 }
@@ -294,7 +294,7 @@ export function renderMainShellFrame(
 export function renderMainShellPresentation(
   viewport: Viewport,
   data: ShellData,
-  options: Pick<RenderOptions, "color" | "centerOnly" | "focusFlashActive" | "panelPolish"> = {},
+  options: Pick<RenderOptions, "color" | "centerOnly" | "focusFlashActive" | "panelPolish" | "versionText" | "updateText"> = {},
 ): MainShellPresentation {
   if (options.panelPolish) return renderFramedShellPresentation(viewport, data, options);
   const color = options.color ?? true;
@@ -308,7 +308,7 @@ export function renderMainShellPresentation(
   const rightDividerPalette = flashActive && (data.focusedRegion === "center" || data.focusedRegion === "inspector") ? flashPalette : PALETTE.divider;
 
   const railText = `CRAIG  |  ${data.topRail.workspacePath}  |  ${data.topRail.agent}`;
-  const railTop = fillSurface(pad(railText, viewport.width), color, PALETTE.rail);
+  const railTop = renderVersionRail(railText, viewport.width, options, color, PALETTE.rail);
 
   const leftLines = toLeftLines(data, leftWidth - LEFT_PANEL_INSET - LEFT_PANEL_GUTTER, bodyHeight, color);
   const centerRegion = renderCenterPaneRegion(viewport, data, { color, centerOnly });
@@ -431,7 +431,7 @@ function renderFramedShellPresentation(viewport: Viewport, data: ShellData, opti
   const center = renderFramedCenterRegion(viewport, data, options);
   const blank = fillSurface(" ", color, PALETTE.panelBg);
   const railText = ` CRAIG  ${muted("/", color, PALETTE.panelBg)}  ${muted(data.topRail.workspacePath, color, PALETTE.panelBg)}`;
-  const rail: RenderedRegion = { row: 1, column: 1, width: viewport.width, rows: [fillSurface(pad(railText, viewport.width), color, PALETTE.rail)] };
+  const rail: RenderedRegion = { row: 1, column: 1, width: viewport.width, rows: [renderVersionRail(railText, viewport.width, options, color, PALETTE.rail)] };
   let left: RenderedRegion | null = null;
   let right: RenderedRegion | null = null;
   if (bounds.left && bounds.right) {
@@ -544,12 +544,12 @@ interface OverlayInput {
 function renderOverlayFrame(viewport: Viewport, input: OverlayInput): string {
   if (!input.panelPolish) return renderOverlayContent(viewport, input);
   const innerWidth = viewport.width - 4;
-  const content = renderOverlayContent({ width: innerWidth, height: viewport.height - 4 }, input).split("\n");
+  const content = renderOverlayContent({ width: innerWidth, height: viewport.height - 4 }, { ...input, versionText: null, updateText: null }).split("\n");
   const border = { bg: PALETTE.overlay.bg, fg: PALETTE.accent.fg };
   const blank = fillSurface(" ", input.color, PALETTE.overlay);
   const side = fillSurface("│", input.color, border);
   return [
-    fillSurface(" ".repeat(viewport.width), input.color, PALETTE.overlay),
+    renderVersionRail("", viewport.width, input, input.color, PALETTE.overlay),
     `${blank}${fillSurface(`╭${"─".repeat(innerWidth)}╮`, input.color, border)}${blank}`,
     ...content.map((line) => `${blank}${side}${line}${side}${blank}`),
     `${blank}${fillSurface(`╰${"─".repeat(innerWidth)}╯`, input.color, border)}${blank}`,
@@ -590,18 +590,18 @@ function renderOverlayContent(viewport: Viewport, input: OverlayInput): string {
     lines[startLine + index] = fillSurface(centered, input.color, itemPalette);
   }
 
-  if (input.versionText) {
-    const updateSuffix = input.updateText ? "  (update available)" : "";
-    const label = `${input.versionText}${updateSuffix}  `;
-    const padding = " ".repeat(Math.max(0, viewport.width - stringWidth(label)));
-    lines[viewport.height - 1] = fillSurface(
-      `${padding}${muted(label, input.color, PALETTE.overlay)}`,
-      input.color,
-      PALETTE.overlay,
-    );
-  }
-
+  lines[0] = renderVersionRail("", viewport.width, input, input.color, PALETTE.overlay);
   return lines.join("\n");
+}
+
+/** Reserve room for version status before truncating workspace context. */
+function renderVersionRail(left: string, width: number, versions: Pick<RenderOptions, "versionText" | "updateText">, color: boolean, palette: PaletteColor): string {
+  const label = [versions.versionText, versions.updateText].filter(Boolean).join(" ");
+  if (!label) return fillSurface(pad(left, width), color, palette);
+  const notice = truncate(label, Math.max(0, width - 2));
+  const leftWidth = Math.max(0, width - stringWidth(notice) - 2);
+  const styledNotice = versions.updateText ? accent(notice, color, palette) : muted(notice, color, palette);
+  return fillSurface(`${pad(left, leftWidth)} ${styledNotice} `, color, palette);
 }
 
 function toLeftLines(data: ShellData, width: number, height: number, color: boolean): SurfaceLine[] {
