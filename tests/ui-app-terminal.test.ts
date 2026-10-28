@@ -131,7 +131,7 @@ describe("terminal app PTY attach flow", () => {
     terminal.emitKey("ESCAPE");
     await vi.waitFor(() => expect(stripAnsi(terminal.frames.at(-1) ?? "")).toContain("CRAIG"));
     expect(installUpdate).not.toHaveBeenCalled();
-    expect(stripAnsi(terminal.frames.at(-1) ?? "")).toContain("↑ v0.14.0 available");
+    expect(stripAnsi(terminal.frames.at(-1) ?? "")).toContain(`v${configService.version.getCurrent()} → v0.14.0 available`);
     terminal.emitKey("q");
     await expect(app).resolves.toBe(0);
   });
@@ -153,17 +153,18 @@ describe("terminal app PTY attach flow", () => {
     await vi.waitFor(() => expect(terminal.hasKeyListener()).toBe(true));
     terminal.emitKey("ENTER");
     await vi.waitFor(() => expect(stripAnsi(terminal.frames.at(-1) ?? "")).toContain("CRAIG"));
+    expect(stripAnsi(terminal.frames.join(""))).toContain(`v${configService.version.getCurrent()}`);
     terminal.frames.length = 0;
     finishCheck();
-    await vi.waitFor(() => expect(stripAnsi(terminal.frames.join(""))).toContain("↑ v0.20.0 available"));
+    await vi.waitFor(() => expect(stripAnsi(terminal.frames.join(""))).toContain(`v${configService.version.getCurrent()} → v0.20.0 available`));
     expect(terminal.frames.join("")).not.toContain("Ignore this version");
     terminal.frames.length = 0;
     terminal.emitKey("ESCAPE");
     await vi.waitFor(() => expect(stripAnsi(terminal.frames.join(""))).toContain("Control mode is paused."));
-    expect(stripAnsi(terminal.frames.join(""))).toContain("↑ v0.20.0 available");
+    expect(stripAnsi(terminal.frames.join(""))).toContain(`v${configService.version.getCurrent()} → v0.20.0 available`);
     terminal.frames.length = 0;
     terminal.emitKey("ESCAPE");
-    await vi.waitFor(() => expect(stripAnsi(terminal.frames.join(""))).toContain("↑ v0.20.0 available"));
+    await vi.waitFor(() => expect(stripAnsi(terminal.frames.join(""))).toContain(`v${configService.version.getCurrent()} → v0.20.0 available`));
     terminal.emitKey("q");
     await expect(app).resolves.toBe(0);
   });
@@ -186,7 +187,7 @@ describe("terminal app PTY attach flow", () => {
     terminal.emitKey("DOWN");
     terminal.emitKey("ENTER");
     await vi.waitFor(async () => expect(JSON.parse(await readFile(paths.uiStateFile, "utf8")).ignoredUpdateVersion).toBe("0.14.0"));
-    expect(stripAnsi(terminal.frames.at(-1) ?? "")).not.toContain("↑ v0.14.0 available");
+    expect(stripAnsi(terminal.frames.at(-1) ?? "")).not.toContain(`v${configService.version.getCurrent()} → v0.14.0 available`);
     terminal.emitKey("q");
     await expect(app).resolves.toBe(0);
 
@@ -204,7 +205,7 @@ describe("terminal app PTY attach flow", () => {
     expect(stripAnsi(nextTerminal.frames.join("\n"))).not.toContain("Ignore this version");
     expect(stripAnsi(nextTerminal.frames.join("\n"))).not.toContain("update available");
     nextTerminal.emitKey("ENTER");
-    expect(stripAnsi(nextTerminal.frames.at(-1) ?? "")).not.toContain("↑ v0.14.0 available");
+    expect(stripAnsi(nextTerminal.frames.at(-1) ?? "")).not.toContain(`v${configService.version.getCurrent()} → v0.14.0 available`);
     nextTerminal.emitKey("q");
     await expect(nextApp).resolves.toBe(0);
 

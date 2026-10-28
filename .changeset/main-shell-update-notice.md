@@ -2,4 +2,4 @@
 "craig-cli": minor
 ---
 
-Show a persistent update notice at the top right of the main shell, including zoomed views. Move the splash and pause screen update notice to the same position, and hide notices for ignored versions.
+Consolidate current version and update availability into one top-right label in the main shell, including zoomed views, and splash/pause screens. Remove the bottom-right splash/pause version label and hide update notices for ignored versions.
