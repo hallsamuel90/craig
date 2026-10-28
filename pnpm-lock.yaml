@@ -19,6 +19,7 @@ overrides:
   smol-toml@<=1.8.0: 1.9.0
   source-map-js@>=1.0.0 <1.2.2: 1.2.2
   svgo@>=4.0.0 <4.1.0: 4.1.0
+  undici@>=8.0.0 <8.12.2: 8.12.2
   vite@>=8.0.0 <8.1.6: 8.1.6
   zod@>=4.0.0 <4.6.6: 4.6.6
 
@@ -2235,8 +2236,8 @@ packages:
   undici-types@7.18.2:
     resolution: {integrity: sha512-AsuCzffGHJybSaRrmr5eHr81mwJU3kjw6M+uprWvCXiNeN9SOGwQ3Jn8jb8m3Z6izVgknn1R0FTCEAP2QrLY/w==}
 
-  undici@8.10.2:
-    resolution: {integrity: sha512-/y4/bH9YNU5hi9NIrpOuvGXFcxrj3CMrV+/AYpowAYTpHn8gX/XPFjNy766FPoYY0miQhdW977JFWKGNhBdwyQ==}
+  undici@8.12.2:
+    resolution: {integrity: sha512-XtuDWVdqTLr3NAxm2ly9/hU6kUsJOgGh1RASzMBbsw6aWCOaQzHdW+QQDfdERjfJ2V5vL5pRPa4RetO9UfivDg==}
     engines: {node: '>=22.19.0'}
 
   unified@11.0.5:
@@ -4543,7 +4544,7 @@ snapshots:
 
   undici-types@7.18.2: {}
 
-  undici@8.10.2: {}
+  undici@8.12.2: {}
 
   unified@11.0.5:
     dependencies:
@@ -4559,7 +4560,7 @@ snapshots:
     dependencies:
       css-tree: 3.2.1
       ohash: 2.0.11
-      undici: 8.10.2
+      undici: 8.12.2
 
   uniq@1.0.1: {}
 
