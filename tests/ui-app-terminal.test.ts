@@ -131,6 +131,39 @@ describe("terminal app PTY attach flow", () => {
     terminal.emitKey("ESCAPE");
     await vi.waitFor(() => expect(stripAnsi(terminal.frames.at(-1) ?? "")).toContain("CRAIG"));
     expect(installUpdate).not.toHaveBeenCalled();
+    expect(stripAnsi(terminal.frames.at(-1) ?? "")).toContain("↑ v0.14.0 available");
+    terminal.emitKey("q");
+    await expect(app).resolves.toBe(0);
+  });
+
+  test.each([false, true])("shows late update results in the shell and pause screen with panel polish %s", async (panelPolish) => {
+    const root = await mkdtemp(join(tmpdir(), "craig-ui-update-notice-"));
+    tempRoots.push(root);
+    const paths = await setupWorkspace(root);
+    await configService.save(paths, { previews: { panelPolish } });
+    const terminal = new FakeTerminal();
+    let finishCheck!: () => void;
+    const result = new Promise<{ current: string; latest: string; updateAvailable: boolean }>((resolve) => {
+      finishCheck = () => resolve({ current: "0.19.0", latest: "0.20.0", updateAvailable: true });
+    });
+    const app = startTerminalApp({
+      terminal, ptyRuntime: new FakePtyRuntime(), uiStateFile: paths.uiStateFile,
+      workspaceRoot: root, checkForUpdate: () => result,
+    });
+    await vi.waitFor(() => expect(terminal.hasKeyListener()).toBe(true));
+    terminal.emitKey("ENTER");
+    await vi.waitFor(() => expect(stripAnsi(terminal.frames.at(-1) ?? "")).toContain("CRAIG"));
+    terminal.frames.length = 0;
+    finishCheck();
+    await vi.waitFor(() => expect(stripAnsi(terminal.frames.join(""))).toContain("↑ v0.20.0 available"));
+    expect(terminal.frames.join("")).not.toContain("Ignore this version");
+    terminal.frames.length = 0;
+    terminal.emitKey("ESCAPE");
+    await vi.waitFor(() => expect(stripAnsi(terminal.frames.join(""))).toContain("Control mode is paused."));
+    expect(stripAnsi(terminal.frames.join(""))).toContain("↑ v0.20.0 available");
+    terminal.frames.length = 0;
+    terminal.emitKey("ESCAPE");
+    await vi.waitFor(() => expect(stripAnsi(terminal.frames.join(""))).toContain("↑ v0.20.0 available"));
     terminal.emitKey("q");
     await expect(app).resolves.toBe(0);
   });
@@ -153,6 +186,7 @@ describe("terminal app PTY attach flow", () => {
     terminal.emitKey("DOWN");
     terminal.emitKey("ENTER");
     await vi.waitFor(async () => expect(JSON.parse(await readFile(paths.uiStateFile, "utf8")).ignoredUpdateVersion).toBe("0.14.0"));
+    expect(stripAnsi(terminal.frames.at(-1) ?? "")).not.toContain("↑ v0.14.0 available");
     terminal.emitKey("q");
     await expect(app).resolves.toBe(0);
 
@@ -170,6 +204,7 @@ describe("terminal app PTY attach flow", () => {
     expect(stripAnsi(nextTerminal.frames.join("\n"))).not.toContain("Ignore this version");
     expect(stripAnsi(nextTerminal.frames.join("\n"))).not.toContain("update available");
     nextTerminal.emitKey("ENTER");
+    expect(stripAnsi(nextTerminal.frames.at(-1) ?? "")).not.toContain("↑ v0.14.0 available");
     nextTerminal.emitKey("q");
     await expect(nextApp).resolves.toBe(0);
 

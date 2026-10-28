@@ -392,6 +392,7 @@ export async function startTerminalApp(options: TerminalAppOptions = {}): Promis
         }
       }
       const mainPresentation = renderMainShellPresentation(viewport, mainShellData, {
+        updateText: ctx.updateText,
         centerOnly: renderState.shell.centerZoomed,
         panelPolish: configService.previews.isEnabled(ctx.config, "panelPolish"),
         focusFlashActive: ctx.focusFlashUntil !== null && Date.now() < ctx.focusFlashUntil,
@@ -619,7 +620,7 @@ export async function startTerminalApp(options: TerminalAppOptions = {}): Promis
         if (ctx.runtimeState?.ignoredUpdateVersion === result.latest) {
           return;
         }
-        ctx.updateText = `Update available: v${result.latest}`;
+        ctx.updateText = `↑ v${result.latest} available`;
         if (
           ctx.state.mode === "overlay" &&
           ctx.state.variant === "boot"
