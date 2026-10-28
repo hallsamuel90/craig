@@ -14,8 +14,13 @@ describe("validate", () => {
     });
   });
 
-  test("rejects unknown or non-boolean feature previews", () => {
-    expect(() => validate({ previews: { futureThing: true } }, FILE)).toThrow('"previews.futureThing" is not supported');
+  test("preserves boolean preview keys written by a newer CLI", () => {
+    const config = { previews: { agentOrchestration: true, futureThing: true, futureDisabled: false } };
+    expect(validate(config, FILE)).toEqual(config);
+  });
+
+  test("rejects non-boolean feature previews, including unknown keys", () => {
+    expect(() => validate({ previews: { futureThing: "yes" } }, FILE)).toThrow('"previews.futureThing" must be a boolean');
     expect(() => validate({ previews: { incrementalCenterPane: "yes" } }, FILE)).toThrow(
       '"previews.incrementalCenterPane" must be a boolean',
     );

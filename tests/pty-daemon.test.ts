@@ -23,6 +23,59 @@ import { createCraigState, createGitRepo, createStubCommands, writeTaskRecord } 
 const DAEMON_TEST_TIMEOUT_MS = 15000;
 
 describe("PTY daemon", () => {
+  test("delivers prompts after a newer CLI adds an unknown preview to the running daemon's config", async () => {
+    const root = await mkdtemp(join(tmpdir(), "craig-daemon-future-preview-"));
+    const paths = await createCraigState(root, ["task_1"]);
+    await configService.save(paths, { previews: { agentOrchestration: true } });
+    await writeTaskRecord(root, { id: "task_1", status: "draft", runner: "cursor" });
+    const agentPty = createFakePty();
+    const spawn = vi.fn(() => agentPty);
+    const daemon = servePtyDaemon(paths, {
+      shell: "/bin/zsh",
+      env: { TERM: "xterm-256color" },
+      spawn,
+      pullRequestSync: false,
+    });
+
+    try {
+      const client = await createDaemonPtyRuntime({
+        paths,
+        workspaceRoot: root,
+        resolveSessionSpec: () => ({ cwd: root, command: ["/bin/sh"] }),
+      });
+      try {
+        await client.ensureSession("task_1", "task_1:agent", { columns: 80, rows: 24 });
+        // Simulate a newer CLI writing a preview this running daemon does not know.
+        await writeFile(paths.configFile, JSON.stringify({
+          previews: { agentOrchestration: true, futurePreview: true },
+        }), "utf8");
+        const { command } = await promptCommandService.create(paths, {
+          taskId: "task_1",
+          agentTabId: "task_1:agent",
+          prompt: { source: "inline", text: "initial prompt after upgrade" },
+          delivery: "immediate",
+          timeoutMs: 10_000,
+          idempotencyKey: "task-start:task_1",
+          actor: { type: "system", component: "orchestration-supervisor" },
+        });
+
+        expect(await wakeOrchestrationSupervisor(paths)).toBe(true);
+        await vi.waitFor(async () => {
+          expect((await promptCommandService.show(paths, command.id)).command.state).toBe("delivered");
+          expect((await taskService.getTask(paths, "task_1")).status).toBe("running");
+        });
+        expect(agentPty.writes.join("")).toContain("initial prompt after upgrade");
+        expect(spawn).toHaveBeenCalledOnce();
+      } finally {
+        client.disposeAll();
+      }
+    } finally {
+      await requestDaemonShutdown(paths);
+      await daemon;
+      await rm(root, { recursive: true, force: true });
+    }
+  }, DAEMON_TEST_TIMEOUT_MS);
+
   test("synchronizes pull requests through the production adapter without a connected TUI or orchestration preview", async () => {
     const root = await mkdtemp(join(tmpdir(), "craig-pr-sync-daemon-"));
     const paths = await createCraigState(root, ["task_1"]);

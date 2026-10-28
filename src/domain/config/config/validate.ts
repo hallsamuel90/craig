@@ -1,8 +1,5 @@
 import { RUNNER_IDS } from "../runners/runner-ids.js";
-import { PREVIEW_FEATURE_IDS } from "../previews/preview-ids.js";
 import type { CraigConfig } from "../types.js";
-
-const RETIRED_PREVIEW_FEATURE_IDS = ["incrementalCenterPane", "agentActivityIndicators"] as const;
 
 export const validate = (value: unknown, filePath: string): CraigConfig => {
   if (typeof value !== "object" || value === null) {
@@ -96,15 +93,9 @@ export const validate = (value: unknown, filePath: string): CraigConfig => {
       throw new Error(`Craig config at ${filePath} is invalid. "previews" must be an object.`);
     }
 
+    // Newer clients may add previews while an older daemon is still running.
+    // Preserve their boolean flags on save; this version only acts on known previews.
     for (const [feature, enabled] of Object.entries(candidate.previews)) {
-      if (
-        !(RETIRED_PREVIEW_FEATURE_IDS as readonly string[]).includes(feature) &&
-        !(PREVIEW_FEATURE_IDS as readonly string[]).includes(feature)
-      ) {
-        throw new Error(
-          `Craig config at ${filePath} is invalid. "previews.${feature}" is not supported. Expected one of: ${PREVIEW_FEATURE_IDS.join(", ")}.`,
-        );
-      }
       if (typeof enabled !== "boolean") {
         throw new Error(`Craig config at ${filePath} is invalid. "previews.${feature}" must be a boolean.`);
       }
