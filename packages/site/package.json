@@ -7,7 +7,7 @@
   },
   "scripts": {
     "dev": "astro dev",
-    "build": "astro build",
+    "build": "astro build && node --test tests/navigation.test.mjs",
     "preview": "astro preview",
     "astro": "astro"
   },

@@ -9,14 +9,6 @@ const { frontmatter } = Astro.props;
 ---
 
 <Base title={`${frontmatter.title} - Craig`} description={frontmatter.description} ogType="article">
-  <header class="border-b border-[#292e42] px-6 py-4">
-    <nav class="max-w-3xl mx-auto flex items-center gap-6 text-sm" aria-label="Main navigation">
-      <a href="/" class="text-[#9ece6a] font-bold mr-auto">craig</a>
-      <a href="/blog/" class="hover:text-[#9ece6a]">Blog</a>
-      <a href="/docs/" class="hover:text-[#9ece6a]">Docs</a>
-      <a href="https://github.com/hallsamuel90/craig" class="hover:text-[#9ece6a]">GitHub</a>
-    </nav>
-  </header>
   <main class="max-w-3xl mx-auto px-6 py-12 prose">
     <article>
       <p class="subtitle">{frontmatter.author} · Craig development notes</p>

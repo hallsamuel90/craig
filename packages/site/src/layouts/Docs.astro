@@ -25,35 +25,17 @@ const currentPath = Astro.url.pathname;
 ---
 
 <Base title={title ? `${title} - Craig Docs` : "Craig Documentation"} description={description}>
-  <div class="flex flex-col md:flex-row min-h-screen">
+  <div class="flex flex-col md:flex-row min-h-[calc(100dvh-4rem)]">
     <!-- Sidebar -->
-    <aside class="w-full md:w-52 shrink-0 border-b md:border-b-0 md:border-r border-[#292e42] p-5 md:sticky md:top-0 md:h-screen overflow-y-auto">
-      <div class="flex items-center gap-2 group mb-6">
-        <a href="/" class="text-[#9ece6a] font-bold text-base tracking-tight hover:opacity-80 transition-opacity">craig</a>
-        <a
-          href="/docs/quickstart/"
-          class="opacity-[0.15] group-hover:opacity-90 transition-opacity duration-300 flex items-center"
-          title="follow the white rabbit"
-          aria-label="follow the white rabbit"
-        >
-          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 26 30" width="15" height="18" fill="white" aria-hidden="true">
-            <ellipse cx="8" cy="5" rx="2" ry="6"/>
-            <ellipse cx="12" cy="4" rx="1.8" ry="5.5"/>
-            <circle cx="10" cy="14" r="5"/>
-            <circle cx="15" cy="22" r="7.5"/>
-            <circle cx="22" cy="18" r="2.5"/>
-            <ellipse cx="8" cy="29" rx="3.5" ry="1.5"/>
-            <ellipse cx="19" cy="29" rx="4" ry="1.5"/>
-          </svg>
-        </a>
-      </div>
-      <nav class="flex flex-wrap md:block gap-1 md:space-y-0.5">
+    <aside class="w-full md:w-52 shrink-0 border-b md:border-b-0 md:border-r border-[#292e42] p-5 md:sticky md:top-16 md:h-[calc(100dvh-4rem)] overflow-y-auto">
+      <nav class="flex flex-wrap md:block gap-1 md:space-y-0.5" aria-label="Documentation navigation">
         <p class="w-full text-xs text-[#7a82ad] uppercase tracking-widest mb-2">Docs</p>
         {nav.map((item) => (
           <a
             href={item.href}
+            aria-current={currentPath.replace(/\/$/, "") === item.href.replace(/\/$/, "") ? "page" : undefined}
             class={`block px-2.5 py-1.5 rounded text-sm transition-colors ${
-              currentPath === item.href
+              currentPath.replace(/\/$/, "") === item.href.replace(/\/$/, "")
                 ? "bg-[#1a1b26] text-[#c0caf5]"
                 : "text-[#7a82ad] hover:text-[#c0caf5] hover:bg-[#1a1b26]/50"
             }`}
@@ -62,7 +44,6 @@ const currentPath = Astro.url.pathname;
           </a>
         ))}
       </nav>
-      <a href="/blog/" class="block mt-6 px-2.5 text-sm text-[#7a82ad] hover:text-[#9ece6a]">Craig Blog →</a>
     </aside>
 
     <!-- Content -->
