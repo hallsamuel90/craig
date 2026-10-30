@@ -1,5 +1,11 @@
 # craig-cli
 
+## 0.19.4
+
+### Patch Changes
+
+- e06d3d7: Refine the Panel polish experimental splash with a workspace tagline, live workspace/task and agent activity summaries, and a Resume workspace action for existing work. Keep the normal splash unchanged when the preview is off.
+
 ## 0.19.3
 
 ### Patch Changes
