@@ -170,6 +170,35 @@ describe("terminal shell renderer", () => {
     expect(stripVTControlCharacters(colored)).toBe(preview);
   });
 
+  test("experimental splash shows honest activity and resumes existing work", () => {
+    const splashSummary = { workspaceCount: 3, taskCount: 8, workingAgents: 2, readyAgents: 1, attentionAgents: 1, activityKnown: true };
+    const frame = renderBootOverlayFrame(MIN_VIEWPORT, { color: false, panelPolish: true, splashSummary });
+    expect(frame).toContain("A workspace for your coding agents.");
+    expect(frame).toContain("3 workspaces · 8 open tasks");
+    expect(frame).toContain("2 agents working · 1 ready · 1 needs attention");
+    expect(frame.split("\n").find((row) => row.includes("3 workspaces"))).toContain("3 workspaces · 8 open tasks · 2 agents working · 1 ready · 1 needs attention");
+    expect(frame).toContain("> Resume workspace");
+    expect(frame.split("\n").every((row) => row.length === MIN_VIEWPORT.width)).toBe(true);
+    const checking = renderBootOverlayFrame(MIN_VIEWPORT, { color: false, panelPolish: true, splashSummary: { ...splashSummary, activityKnown: false } });
+    expect(checking).toContain("Checking agent activity…");
+    expect(checking).toContain("3 workspaces · 8 open tasks · Checking agent activity…");
+    expect(checking).not.toContain("2 agents working");
+    const stable = renderBootOverlayFrame(MIN_VIEWPORT, { color: false, splashSummary });
+    expect(stable).toContain("crAIg is that you?");
+    expect(stable).toContain("> Start");
+    expect(stable).not.toContain("open tasks");
+  });
+
+  test("experimental splash gives a fresh workspace a clear starting point", () => {
+    const frame = renderBootOverlayFrame(MIN_VIEWPORT, { color: false, panelPolish: true, splashSummary: {
+      workspaceCount: 0, taskCount: 0, workingAgents: 0, readyAgents: 0, attentionAgents: 0, activityKnown: true,
+    } });
+    expect(frame).toContain("Your workspace starts here.");
+    expect(frame).toContain("Add a repo, then start your first task.");
+    expect(frame).toContain("> Start");
+    expect(frame).not.toContain("Resume workspace");
+  });
+
   test("renders the pause overlay with resume and exit actions", () => {
     const frame = renderPauseOverlayFrame(MIN_VIEWPORT, { color: false, menuIndex: 0 });
 

@@ -162,7 +162,7 @@ describe("Craig terminal mode E2E", () => {
     child.onData((chunk) => output.append(chunk));
 
     try {
-      await output.waitFor("> Start");
+      await output.waitFor(panelPolish ? "> Resume workspace" : "> Start");
       child.write("\r");
       await output.waitFor(panelPolish ? "╭─ " : "+ new tab");
       child.write("\r");
@@ -251,7 +251,7 @@ describe("Craig terminal mode E2E", () => {
     child.onData((chunk) => output.append(chunk));
 
     try {
-      await output.waitFor("> Start");
+      await output.waitFor(panelPolish ? "> Resume workspace" : "> Start");
       child.write("\r");
       await output.waitFor("+ New Task");
       child.write("n");
