@@ -3174,39 +3174,41 @@ describe("terminal app PTY attach flow", () => {
     },
   );
 
-  test("the left panel can remove an empty workspace", async () => {
+  test.each(["b", "c", "d"])("removing workspace %s selects the next workspace or the previous last workspace", async (removed) => {
     const root = await mkdtemp(join(tmpdir(), "craig-ui-app-"));
     tempRoots.push(root);
     const paths = await setupWorkspace(root);
-    const repoBRoot = join(root, "repo-b");
-    await mkdir(repoBRoot, { recursive: true });
-    await createGitRepo(repoBRoot);
-    await writeRepoRecord(
-      root,
-      {
-        id: "repo_b",
-        name: "repo-b",
-        rootPath: repoBRoot,
-        defaultBranch: "main",
-        createdAt: "2026-05-04T00:00:00.000Z",
-        updatedAt: "2026-05-04T00:00:00.000Z",
-      },
-      {
-        id: "workspace_repo_b",
-        kind: "repo",
-        name: "repo-b",
-        rootPath: repoBRoot,
-        primaryRepoId: "repo_b",
-        repoId: "repo_b",
-        discoveredRepoIds: ["repo_b"],
-        branch: "main",
-        status: "active",
-        linkedRepoIds: [],
-        archivedAt: null,
-        createdAt: "2026-05-04T00:00:00.000Z",
-        updatedAt: "2026-05-04T00:00:00.000Z",
-      },
-    );
+    for (const suffix of ["b", "c", "d"]) {
+      const repoBRoot = join(root, `repo-${suffix}`);
+      await mkdir(repoBRoot, { recursive: true });
+      await createGitRepo(repoBRoot);
+      await writeRepoRecord(
+        root,
+        {
+          id: `repo_${suffix}`,
+          name: `repo-${suffix}`,
+          rootPath: repoBRoot,
+          defaultBranch: "main",
+          createdAt: "2026-05-04T00:00:00.000Z",
+          updatedAt: "2026-05-04T00:00:00.000Z",
+        },
+        {
+          id: `workspace_repo_${suffix}`,
+          kind: "repo",
+          name: `repo-${suffix}`,
+          rootPath: repoBRoot,
+          primaryRepoId: `repo_${suffix}`,
+          repoId: `repo_${suffix}`,
+          discoveredRepoIds: [`repo_${suffix}`],
+          branch: "main",
+          status: "active",
+          linkedRepoIds: [],
+          archivedAt: null,
+          createdAt: "2026-05-04T00:00:00.000Z",
+          updatedAt: "2026-05-04T00:00:00.000Z",
+        },
+      );
+    }
 
     const terminal = new FakeTerminal();
     const ptyRuntime = new FakePtyRuntime();
@@ -3217,11 +3219,21 @@ describe("terminal app PTY attach flow", () => {
     terminal.emitKey("["); // focus left pane
     terminal.emitKey("DOWN"); // + New Task under repo-a
     terminal.emitKey("DOWN"); // repo-b workspace
+    for (let index = 0; index < ["b", "c", "d"].indexOf(removed); index += 1) {
+      terminal.emitKey("DOWN"); // + New Task
+      terminal.emitKey("DOWN"); // next workspace
+    }
     terminal.emitKey("X");
 
     await vi.waitFor(() => expect(stripAnsi(terminal.frames.join("\n"))).toContain("Removed workspace"));
-    await expect(readFile(join(paths.workspacesDir, "workspace_repo_b.json"), "utf8")).rejects.toThrow();
-    await expect(readFile(join(paths.reposDir, "repo_b.json"), "utf8")).resolves.toContain(repoBRoot);
+    await expect(readFile(join(paths.workspacesDir, `workspace_repo_${removed}.json`), "utf8")).rejects.toThrow();
+    await expect(readFile(join(paths.reposDir, `repo_${removed}.json`), "utf8")).resolves.toContain(join(root, `repo-${removed}`));
+
+    const expectedWorkspace = removed === "b" ? "c" : removed === "c" ? "d" : "c";
+    await vi.waitFor(async () => {
+      const savedState = JSON.parse(await readFile(paths.uiStateFile, "utf8"));
+      expect(savedState.selectedWorkspaceId).toBe(`workspace_repo_${expectedWorkspace}`);
+    });
 
     terminal.emitKey("q");
     await expect(app).resolves.toBe(0);

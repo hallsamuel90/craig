@@ -176,9 +176,16 @@ export async function closeTaskFromShell(ctx: AppContext, shell: ControlShellSta
 
 export async function removeWorkspaceFromShell(ctx: AppContext, shell: ControlShellState): Promise<ControlShellState> {
   const syncedShell = syncShell(ctx, shell);
+  const removedIndex = ctx.model.workspaces?.findIndex((workspace) => workspace.id === syncedShell.selectedWorkspaceId) ?? -1;
   const { nextShell } = await removeWorkspaceAction(syncedShell, buildActionContext(ctx));
   await reloadModel(ctx);
-  return syncShell(ctx, { ...syncedShell, ...nextShell });
+  const workspaces = ctx.model.workspaces ?? [];
+  const nextWorkspace = workspaces[Math.min(Math.max(0, removedIndex), workspaces.length - 1)];
+  return syncShell(ctx, {
+    ...syncedShell,
+    ...nextShell,
+    selectedLeftItemId: nextWorkspace ? `workspace:${nextWorkspace.id}` : null,
+  });
 }
 
 async function ensureDefaultAgentTab(ctx: AppContext, task: TaskRecord): Promise<TaskRecord> {
