@@ -7,6 +7,8 @@ import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 import { startTerminalApp, type PtyRuntimePort, type TerminalRuntime } from "../src/ui/app.js";
 import type { TerminalViewState } from "../src/ui/state.js";
 import type { PtyActivitySnapshot } from "../src/ui/agent-activity.js";
+import { createPlan } from "../src/shell/fury-runtime.js";
+import { readFuryApproval, listFuryRuns } from "../src/domain/orchestration/index.js";
 import { workspaceService } from "../src/domain/workspace/index.js";
 import { listRepos } from "../src/domain/workspace/adapters/repo-store.js";
 import { runCommand, runCommandAllowingFailure } from "../src/shared/exec.js";
@@ -46,6 +48,109 @@ describe("terminal app PTY attach flow", () => {
     await Promise.all(
       tempRoots.splice(0).map(async (root) => rm(root, { recursive: true, force: true, maxRetries: 3, retryDelay: 50 })),
     );
+  });
+
+  test("reviews and explicitly approves a Fury plan in the TUI without starting workers", async () => {
+    const root = await mkdtemp(join(tmpdir(), "craig-ui-fury-approval-"));
+    tempRoots.push(root);
+    const paths = await setupWorkspace(root);
+    await configService.save(paths, { previews: { agentOrchestration: true } });
+    const file = join(root, ".craig", "fury", "ui.yaml");
+    await mkdir(join(root, ".craig", "fury"), { recursive: true });
+    await writeFile(file, `version: 1
+name: ux-approval-test
+limits: { max_concurrency: 1, max_tasks: 1, timeout: 10m }
+steps:
+  inspect:
+    task: task_20260430_02
+    prompt: "${"Detailed worker instructions. ".repeat(180)}"
+  checkpoint:
+    needs: [inspect]
+    human_review:
+      title: Confirm inspection findings
+      summary: A human must decide before continuing.
+`);
+    const { plan } = await createPlan(paths, file, {}, "task_20260430_02", { type: "human", source: "cli", processId: process.pid });
+    const terminal = new FakeTerminal();
+    const ptyRuntime = new FakePtyRuntime();
+    const app = startTerminalApp({ terminal, ptyRuntime, workspaceRoot: root, uiStateFile: paths.uiStateFile,
+      checkForUpdate: async () => ({ current: "0.19.5", latest: "0.19.5", updateAvailable: false }) });
+    await vi.waitFor(() => expect(terminal.hasKeyListener()).toBe(true));
+    terminal.emitKey("ENTER");
+    await vi.waitFor(() => expect(stripAnsi(terminal.frames.at(-1) ?? "")).toContain("1 Fury plan to approve"));
+    // The approval row is navigable using the same item order as the rendered sidebar.
+    terminal.emitKey("SHIFT_TAB"); terminal.emitKey("UP"); terminal.emitKey("UP"); terminal.emitKey("ENTER");
+    await vi.waitFor(() => expect(stripAnsi(terminal.frames.at(-1) ?? "")).toContain("FURY PLANS"));
+    terminal.emitKey("ENTER");
+    const frame = stripAnsi(terminal.frames.at(-1) ?? "");
+    expect(frame).toContain(plan.planHash);
+    expect(frame).toContain("1 tasks | 1 concurrent | 600s timeout");
+    expect(frame).toContain("Detailed worker instructions");
+    terminal.emitKey("END");
+    expect(stripAnsi(terminal.frames.at(-1) ?? "")).toContain("Confirm inspection findings");
+    terminal.emitKey("a");
+    expect(stripAnsi(terminal.frames.at(-1) ?? "")).toContain("Approve ux-approval-test?");
+    await expect(readFuryApproval(paths, plan.id)).rejects.toMatchObject({ code: "FURY_APPROVAL_REQUIRED" });
+    terminal.emitKey("ENTER");
+    await vi.waitFor(async () => expect(await readFuryApproval(paths, plan.id)).toMatchObject({
+      planHash: plan.planHash, approvedBy: { type: "human", source: "tui" },
+    }));
+    await vi.waitFor(() => expect(stripAnsi(terminal.frames.at(-1) ?? "")).toContain("Plan approved. No workers started"));
+    expect(await listFuryRuns(paths)).toHaveLength(0);
+    terminal.emitKey("ESCAPE"); terminal.emitKey("q");
+    await expect(app).resolves.toBe(0);
+  });
+
+  test("does not expose Fury plan approval with the preview disabled", async () => {
+    const root = await mkdtemp(join(tmpdir(), "craig-ui-fury-disabled-"));
+    tempRoots.push(root);
+    const paths = await setupWorkspace(root);
+    const terminal = new FakeTerminal();
+    const app = startTerminalApp({ terminal, ptyRuntime: new FakePtyRuntime(), workspaceRoot: root, uiStateFile: paths.uiStateFile,
+      checkForUpdate: async () => ({ current: "0.19.5", latest: "0.19.5", updateAvailable: false }) });
+    await vi.waitFor(() => expect(terminal.hasKeyListener()).toBe(true));
+    terminal.emitKey("ENTER"); terminal.emitKey("f");
+    expect(stripAnsi(terminal.frames.at(-1) ?? "")).not.toContain("FURY PLANS");
+    terminal.emitKey("q");
+    await expect(app).resolves.toBe(0);
+  });
+
+  test("blocks a superseded Fury approval and discovers new plans while Craig is open", async () => {
+    const root = await mkdtemp(join(tmpdir(), "craig-ui-fury-stale-"));
+    tempRoots.push(root);
+    const paths = await setupWorkspace(root);
+    await configService.save(paths, { previews: { agentOrchestration: true } });
+    const terminal = new FakeTerminal();
+    const app = startTerminalApp({ terminal, ptyRuntime: new FakePtyRuntime(), workspaceRoot: root, uiStateFile: paths.uiStateFile,
+      checkForUpdate: async () => ({ current: "0.19.5", latest: "0.19.5", updateAvailable: false }) });
+    await vi.waitFor(() => expect(terminal.hasKeyListener()).toBe(true));
+    terminal.emitKey("ENTER");
+    const file = join(root, ".craig", "fury", "late.yaml");
+    await mkdir(join(root, ".craig", "fury"), { recursive: true });
+    const yaml = `version: 1
+name: original-plan
+limits: { max_concurrency: 1, max_tasks: 1, timeout: 10m }
+steps:
+  review:
+    human_review: { title: Check scope, summary: Nothing starts yet. }
+`;
+    await writeFile(file, yaml);
+    const actor = { type: "human" as const, source: "cli" as const, processId: process.pid };
+    const { plan } = await createPlan(paths, file, {}, "task_20260430_02", actor);
+    await vi.waitFor(() => expect(stripAnsi(terminal.frames.at(-1) ?? "")).toContain("1 Fury plan to approve"), { timeout: 2500 });
+    terminal.emitKey("f"); terminal.emitKey("ENTER"); terminal.emitKey("a");
+    // Cancel confirmation, then show it again after the agent replaces the definition.
+    terminal.emitKey("ESCAPE");
+    await expect(readFuryApproval(paths, plan.id)).rejects.toMatchObject({ code: "FURY_APPROVAL_REQUIRED" });
+    await writeFile(file, yaml.replace("original-plan", "revised-plan"));
+    await createPlan(paths, file, {}, "task_20260430_02", actor);
+    terminal.emitKey("a"); terminal.emitKey("ENTER");
+    await vi.waitFor(() => expect(stripAnsi(terminal.frames.at(-1) ?? "")).toContain("replaced or already approved"));
+    await expect(readFuryApproval(paths, plan.id)).rejects.toMatchObject({ code: "FURY_APPROVAL_REQUIRED" });
+    terminal.emitKey("ESCAPE");
+    await vi.waitFor(() => expect(stripAnsi(terminal.frames.at(-1) ?? "")).toContain("revised-plan"));
+    terminal.emitKey("ESCAPE"); terminal.emitKey("q");
+    await expect(app).resolves.toBe(0);
   });
 
   test.each([false, true])("renders shell frames with absolute row positioning with panel polish %s", async (panelPolish) => {

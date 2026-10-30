@@ -118,10 +118,14 @@ export async function approvePlan(
   paths: CraigPaths,
   planId: string,
   actor: CraigActor,
+  expectedPlanHash?: string,
 ): Promise<CommandApproveFuryResult> {
   await assertEnabled(paths);
   if (actor.type !== "human") throw new CraigError("CAPABILITY_DENIED", "Only a human can approve a Fury plan.", {});
   const plan = await readFuryPlan(paths, planId);
+  if (expectedPlanHash !== undefined && plan.planHash !== expectedPlanHash) {
+    throw new CraigError("FURY_STATE_CONFLICT", "The Fury plan changed after you reviewed it. Review the current plan before approving.", {});
+  }
   const requested = {
     schemaVersion: 1 as const, planId: plan.id, planHash: plan.planHash,
     approvedBy: actor, approvedAt: new Date().toISOString(),

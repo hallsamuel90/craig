@@ -1,3 +1,4 @@
+import { openFuryPlans, handleFuryPlansKey } from "../shell/fury-plans.js";
 import path from "node:path";
 
 import { configService, PREVIEW_FEATURE_IDS } from "../../domain/config/index.js";
@@ -771,6 +772,10 @@ export function onKey(ctx: AppContext, name: unknown): void {
   }
 
   if (ctx.state.mode === "main" && ctx.state.shell.inputMode === "control") {
+    if (key === "f" || (isEnterKey(key) && ctx.state.shell.focusedRegion === "tasks" && ctx.state.shell.selectedLeftItemId === "fury-plans")) {
+      openFuryPlans(ctx);
+      return;
+    }
     if (key === "F") {
       triggerFocusFlash(ctx);
       ctx.render();
@@ -1051,6 +1056,8 @@ export function onKey(ctx: AppContext, name: unknown): void {
     }
     return;
   }
+
+  if (ctx.state.variant === "fury-plans") { handleFuryPlansKey(ctx, key); return; }
 
   if (ctx.state.variant === "help") {
     if (ctx.state.viaOptions && ctx.state.parentVariant) {

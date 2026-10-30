@@ -58,6 +58,8 @@ export async function loadWorkspaceShellModel(
     tasks: taskResult.tasks,
     inspection,
     furyApprovalCount,
+    furyPendingPlans: pendingPlans,
+    furyPlansEnabled: configService.previews.isEnabled(config, "agentOrchestration"),
     ...(Object.keys(agentCapabilityTokens).length > 0 ? { agentCapabilityTokens } : {}),
     ...(enabledRunnerIds ? { enabledRunnerIds } : {}),
   };

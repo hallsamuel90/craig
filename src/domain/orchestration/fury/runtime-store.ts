@@ -79,6 +79,8 @@ export async function approveFuryPlan(
   approval: FuryApproval,
 ): Promise<{ approval: FuryApproval; created: boolean }> {
   return withFuryLock(paths, async () => {
+    const plan = await readFuryPlan(paths, approval.planId);
+    if (plan.planHash !== approval.planHash) throw new CraigError("FURY_STATE_CONFLICT", `Fury plan ${approval.planId} changed before approval.`, {});
     const existing = await readApprovalIfPresent(paths, approval.planId);
     if (existing) {
       if (existing.planHash !== approval.planHash) {
