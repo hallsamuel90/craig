@@ -1,5 +1,11 @@
 # craig-cli
 
+## 0.19.5
+
+### Patch Changes
+
+- de35bc7: Select the next workspace after removal, falling back to the previous workspace when removing the last one.
+
 ## 0.19.4
 
 ### Patch Changes
