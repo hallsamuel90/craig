@@ -1,3 +1,4 @@
+import type { SplashSummary } from "./splash.js";
 import { getBannerArtLines } from "./banner.js";
 import type {
   ShellContextRow,
@@ -27,6 +28,7 @@ export interface RenderOptions {
   logLines?: string[];
   focusFlashActive?: boolean;
   panelPolish?: boolean;
+  splashSummary?: SplashSummary;
 }
 
 export interface RenderedRegion {
@@ -109,16 +111,34 @@ const PALETTE = {
 const WORKING_DOT_COLORS = ["3d59a1", "506eb8", "6386d0", "7aa2f7", "6386d0", "506eb8"] as const;
 
 export function renderBootOverlayFrame(viewport: Viewport, options: RenderOptions = {}): string {
+  const summary = options.panelPolish ? options.splashSummary : undefined;
+  const hasWork = summary && (summary.workspaceCount > 0 || summary.taskCount > 0);
   return renderOverlayFrame(viewport, {
     panelPolish: options.panelPolish ?? false,
-    subtitle: "crAIg is that you?",
-    menuItems: BOOT_MENU,
+    subtitle: options.panelPolish ? "A workspace for your coding agents." : "crAIg is that you?",
+    details: summary ? splashDetails(summary, options.color ?? true) : [],
+    menuItems: hasWork ? ["Resume workspace", "Options", "Exit"] : BOOT_MENU,
     menuIndex: options.menuIndex ?? 0,
     optionsMessage: options.optionsMessage ?? null,
     color: options.color ?? true,
     versionText: options.versionText ?? null,
     updateText: options.updateText ?? null,
   });
+}
+
+function splashDetails(summary: SplashSummary, color: boolean): string[] {
+  const count = (value: number, singular: string, plural = `${singular}s`) => `${value} ${value === 1 ? singular : plural}`;
+  if (summary.workspaceCount === 0 && summary.taskCount === 0) {
+    return ["Your workspace starts here.", "Add a repo, then start your first task."];
+  }
+  const workspaceLine = `${count(summary.workspaceCount, "workspace")} · ${count(summary.taskCount, "open task")}`;
+  if (!summary.activityKnown) return [`${workspaceLine} · Checking agent activity…`];
+  const activity = [
+    ...(summary.workingAgents ? [`${count(summary.workingAgents, "agent")} working`] : []),
+    ...(summary.readyAgents ? [`${summary.readyAgents} ready`] : []),
+    ...(summary.attentionAgents ? [inlineColor(`${summary.attentionAgents} ${summary.attentionAgents === 1 ? "needs" : "need"} attention`, color, PALETTE.pending.fg, PALETTE.overlay)] : []),
+  ];
+  return [`${workspaceLine} · ${activity.join(" · ") || "No agents running"}`];
 }
 
 export function renderPauseOverlayFrame(viewport: Viewport, options: RenderOptions = {}): string {
@@ -531,6 +551,7 @@ function renderFooterLine(footerText: string, footerToast: FooterToast | null, w
 }
 
 interface OverlayInput {
+  details?: string[];
   subtitle: string;
   menuItems: string[];
   menuIndex: number;
@@ -566,7 +587,8 @@ function renderOverlayContent(viewport: Viewport, input: OverlayInput): string {
   while (body.length < OVERLAY_BODY_ROWS) {
     body.push("");
   }
-  const content = [...logo, "", input.subtitle, "", ...body];
+  const details = input.details?.length ? ["", ...input.details] : [];
+  const content = [...logo, "", input.subtitle, ...details, "", ...body];
   const startLine = Math.max(1, Math.floor((viewport.height - content.length) / 2));
 
   for (let index = 0; index < content.length; index += 1) {
@@ -582,7 +604,7 @@ function renderOverlayContent(viewport: Viewport, input: OverlayInput): string {
       continue;
     }
 
-    const menuOffset = index - (logo.length + 3);
+    const menuOffset = index - (logo.length + 3 + details.length);
     const isMenuItem = menuOffset >= 0 && menuOffset < input.menuItems.length;
     const itemPalette = isMenuItem && menuOffset === input.menuIndex
       ? input.panelPolish ? { ...PALETTE.overlayMenuSelected, fg: PALETTE.success.fg } : PALETTE.overlayMenuSelected

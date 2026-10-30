@@ -58,11 +58,13 @@ describe("terminal app PTY attach flow", () => {
     const app = startTerminalApp({ terminal, ptyRuntime, uiStateFile: paths.uiStateFile, workspaceRoot: root });
     await vi.waitFor(() => expect(terminal.hasKeyListener()).toBe(true));
 
-    const frame = terminal.frames.at(-1) ?? "";
+    const frame = terminal.frames.find((output) => output.includes("\u001B[1;1H")) ?? "";
     expect(frame).not.toContain("\n");
     expect(frame).toContain("\u001B[1;1H");
     expect(frame).toContain(`\u001B[${terminal.height};1H`);
     expect(stripAnsi(frame).includes("╭")).toBe(panelPolish);
+    expect(stripAnsi(frame)).toContain(panelPolish ? "> Resume workspace" : "> Start");
+    if (panelPolish) expect(stripAnsi(frame)).toContain("1 workspace · 1 open task");
 
     terminal.emitKey("\r");
     await vi.waitFor(() => expect(stripAnsi(terminal.frames.at(-1) ?? "")).toContain("CRAIG"));

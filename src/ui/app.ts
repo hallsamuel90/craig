@@ -30,6 +30,7 @@ import {
 } from "./options.js";
 import { installCraigUpdate } from "../shell/craig-update.js";
 import { createInitialShellState, restoreShellState, INSPECTION_TAB_ID } from "./state.js";
+import { buildSplashSummary } from "./splash.js";
 import { getViewport } from "./layout.js";
 import { buildShellData, type ShellData } from "./shell/data.js";
 import type { MainShellPresentation, MainShellRegions, RenderedRegion } from "./render.js";
@@ -156,6 +157,8 @@ export async function startTerminalApp(options: TerminalAppOptions = {}): Promis
     let pendingPtyInvalidation: PtyViewInvalidation | null = null;
     let agentActivityAnimationFrame = 0;
     let hadWorkingAgentActivity = false;
+    let bootActivityKnown = false;
+    let appClosed = false;
     const renderedAgentActivityByTabId = new Map<string, AgentActivityState>();
     const githubPollCoordinator = initialPtyRuntime.managesPullRequestSync
       ? null
@@ -271,6 +274,10 @@ export async function startTerminalApp(options: TerminalAppOptions = {}): Promis
     };
 
     handlePtyActivity = (snapshot: PtyActivitySnapshot) => {
+      if (ctx.state.mode === "overlay" && ctx.state.variant === "boot" && configService.previews.isEnabled(ctx.config, "panelPolish")) {
+        ctx.render();
+        return;
+      }
       const activity = getAgentTabActivity(snapshot.tabId, [snapshot], Date.now());
       if (
         ctx.state.mode === "main" &&
@@ -283,6 +290,10 @@ export async function startTerminalApp(options: TerminalAppOptions = {}): Promis
     };
 
     handlePtyActivityRemoved = (tabId: string) => {
+      if (ctx.state.mode === "overlay" && ctx.state.variant === "boot" && configService.previews.isEnabled(ctx.config, "panelPolish")) {
+        ctx.render();
+        return;
+      }
       if (
         ctx.state.mode === "main" &&
         isAgentTabId(tabId) &&
@@ -470,6 +481,9 @@ export async function startTerminalApp(options: TerminalAppOptions = {}): Promis
       } else {
         frame = renderState.variant === "boot"
           ? renderBootOverlayFrame(viewport, {
+              ...(configService.previews.isEnabled(ctx.config, "panelPolish") ? {
+                splashSummary: buildSplashSummary(ctx.model, ctx.ptyRuntime.getActivitySnapshots?.() ?? [], Date.now(), bootActivityKnown && ctx.ptyRuntime.getActivitySnapshots !== undefined),
+              } : {}),
               panelPolish: configService.previews.isEnabled(ctx.config, "panelPolish"),
               menuIndex: renderState.menuIndex,
               optionsMessage: renderState.optionsMessage,
@@ -538,6 +552,7 @@ export async function startTerminalApp(options: TerminalAppOptions = {}): Promis
     const boundOnMouse = (name: unknown) => onMouse(ctx, name);
 
     const cleanup = () => {
+      appClosed = true;
       process.stdout.off("resize", handleResize);
       process.off("SIGCONT", handleResume);
       activeTerminal.removeListener("key", boundOnKey);
@@ -608,7 +623,7 @@ export async function startTerminalApp(options: TerminalAppOptions = {}): Promis
         );
         if (working || hadWorkingAgentActivity) {
           agentActivityAnimationFrame = (agentActivityAnimationFrame + 1) % AGENT_ACTIVITY_ANIMATION_FRAMES;
-          if (ctx.state.mode === "main") {
+          if (ctx.state.mode === "main" || (ctx.state.mode === "overlay" && ctx.state.variant === "boot" && configService.previews.isEnabled(ctx.config, "panelPolish"))) {
             ctx.render();
           }
         }
@@ -643,7 +658,12 @@ export async function startTerminalApp(options: TerminalAppOptions = {}): Promis
         ctx.render();
       }
     });
-    ctx.bootHydrationReady = hydrateOpenPtyTabs(ctx).catch(() => undefined);
+    ctx.bootHydrationReady = hydrateOpenPtyTabs(ctx)
+      .then(() => { bootActivityKnown = true; })
+      .catch(() => undefined)
+      .finally(() => {
+        if (!appClosed && ctx.state.mode === "overlay" && ctx.state.variant === "boot" && configService.previews.isEnabled(ctx.config, "panelPolish")) ctx.render();
+      });
     ctx.render();
   });
 }
