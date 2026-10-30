@@ -101,6 +101,22 @@ steps:
     await expect(app).resolves.toBe(0);
   });
 
+  test.each([false, true])("keeps f available to file search with Fury preview %s", async (enabled) => {
+    const root = await mkdtemp(join(tmpdir(), "craig-ui-fury-search-"));
+    tempRoots.push(root);
+    const paths = await setupWorkspace(root);
+    await configService.save(paths, { previews: { agentOrchestration: enabled } });
+    const terminal = new FakeTerminal();
+    const app = startTerminalApp({ terminal, ptyRuntime: new FakePtyRuntime(), workspaceRoot: root, uiStateFile: paths.uiStateFile,
+      checkForUpdate: async () => ({ current: "0.19.5", latest: "0.19.5", updateAvailable: false }) });
+    await vi.waitFor(() => expect(terminal.hasKeyListener()).toBe(true));
+    terminal.emitKey("ENTER"); terminal.emitKey("TAB"); terminal.emitKey("/"); terminal.emitKey("f");
+    expect(stripAnsi(terminal.frames.at(-1) ?? "")).toContain("Search: f");
+    expect(stripAnsi(terminal.frames.at(-1) ?? "")).not.toContain("FURY PLANS");
+    terminal.emitKey("ESCAPE"); terminal.emitKey("q");
+    await expect(app).resolves.toBe(0);
+  });
+
   test("does not expose Fury plan approval with the preview disabled", async () => {
     const root = await mkdtemp(join(tmpdir(), "craig-ui-fury-disabled-"));
     tempRoots.push(root);

@@ -452,7 +452,6 @@ export async function startTerminalApp(options: TerminalAppOptions = {}): Promis
     };
 
     ctx.render = () => {
-      if (appClosed) return;
       syncInputCapture(ctx);
       const renderState = ctx.state;
       ctx.ptyRuntime.setPullRequestPollView?.(getPullRequestPollView(renderState));
@@ -634,7 +633,7 @@ export async function startTerminalApp(options: TerminalAppOptions = {}): Promis
         hadWorkingAgentActivity = working;
       },
     });
-    heartbeat.register({ id: "fury.pending-plans", intervalMs: 1_000, run: () => refreshPendingFuryPlans(ctx) });
+    heartbeat.register({ id: "fury.pending-plans", intervalMs: 1_000, run: (signal) => refreshPendingFuryPlans(ctx, signal) });
     heartbeat.start();
     void (options.checkForUpdate ?? configService.version.checkForUpdate)().then((result) => {
       if (result.updateAvailable && result.latest) {

@@ -7,7 +7,7 @@ import { approvePlan } from "../../shell/fury-runtime.js";
 import type { AppContext } from "../app-context.js";
 import { characterWidth } from "../render.js";
 import type { Viewport } from "../layout.js";
-import { isEnterKey } from "../state.js";
+import { isEnterKey, restoreShellState } from "../state.js";
 
 export interface FuryPlansView {
   plans: FuryPlan[];
@@ -19,9 +19,10 @@ export interface FuryPlansView {
   message: string | null;
 }
 
-export async function refreshPendingFuryPlans(ctx: AppContext): Promise<void> {
+export async function refreshPendingFuryPlans(ctx: AppContext, signal?: AbortSignal): Promise<void> {
   const plans = configService.previews.isEnabled(ctx.config, "agentOrchestration")
     ? await listPendingFuryPlans(ctx.paths) : [];
+  if (signal?.aborted) return;
   let changed = false;
   if (JSON.stringify(plans) !== JSON.stringify(ctx.model.furyPendingPlans ?? [])) {
     const previousCount = ctx.model.furyPendingPlans?.length ?? 0;
@@ -71,7 +72,7 @@ export function handleFuryPlansKey(ctx: AppContext, key: string): void {
   if (key === "ESCAPE") {
     if (view.confirming) update({ ...view, confirming: false });
     else if (view.plan) update({ ...view, plan: null, scrollOffset: 0, message: null, plans: ctx.model.furyPendingPlans ?? [], selectedIndex: 0 });
-    else { ctx.state = { mode: "main", shell: ctx.state.shell }; ctx.pendingClear = true; ctx.render(); }
+    else { ctx.state = { mode: "main", shell: restoreShellState(ctx.state.shell, ctx.model) }; ctx.pendingClear = true; ctx.render(); }
     return;
   }
   if (!view.plan) {

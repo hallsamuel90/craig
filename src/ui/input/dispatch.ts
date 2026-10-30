@@ -772,7 +772,8 @@ export function onKey(ctx: AppContext, name: unknown): void {
   }
 
   if (ctx.state.mode === "main" && ctx.state.shell.inputMode === "control") {
-    if (key === "f" || (isEnterKey(key) && ctx.state.shell.focusedRegion === "tasks" && ctx.state.shell.selectedLeftItemId === "fury-plans")) {
+    if (configService.previews.isEnabled(ctx.config, "agentOrchestration") && ctx.state.shell.fileSearchQuery === null &&
+      (key === "f" || (isEnterKey(key) && ctx.state.shell.focusedRegion === "tasks" && ctx.state.shell.selectedLeftItemId === "fury-plans"))) {
       openFuryPlans(ctx);
       return;
     }
