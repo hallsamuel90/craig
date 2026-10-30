@@ -7,7 +7,9 @@
   },
   "scripts": {
     "dev": "astro dev",
-    "build": "astro build && node --test tests/navigation.test.mjs",
+    "build": "node scripts/generate-brand.mjs --check && astro build && node --test tests/*.test.mjs",
+    "brand:generate": "node scripts/generate-brand.mjs",
+    "brand:check": "node scripts/generate-brand.mjs --check",
     "preview": "astro preview",
     "astro": "astro"
   },
