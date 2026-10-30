@@ -803,10 +803,14 @@ function renderTreeRow(row: ShellTreeRow, width: number, color: boolean): Surfac
   if (row.activity) {
     const prefix = `${indent}${row.selected ? "▸" : " "} `;
     const labelAndPadding = base.slice(prefix.length + 2);
+    const title = labelAndPadding.trimEnd();
+    const padding = labelAndPadding.slice(title.length);
     const segments: TerminalRowSegment[] = [
       { text: prefix },
-      activityDotSegment(row.activity, row.activityAnimationFrame ?? 0, row.unread),
-      { text: ` ${labelAndPadding}${status}${accentDot}` },
+      activityDotSegment(row.activity, row.activityAnimationFrame ?? 0),
+      { text: " " },
+      { text: title, style: { bold: row.unread === true } },
+      { text: `${padding}${status}${accentDot}` },
       ...(row.prBadge ?? []),
     ];
     const plainText = segmentsToPlainText(segments);
@@ -853,20 +857,23 @@ function renderRunnersCompact(runners: ShellRunnerRow[]): SurfaceLine {
 function renderTabLine(tabs: ShellTab[], color: boolean, centerFocused: boolean): string {
   return tabs
     .map((tab) => {
-      const label = tab.active
+      let label = tab.active
         ? centerFocused
           ? green(tab.label, color, PALETTE.panelBg)
           : accent(tab.label, color, PALETTE.panelBg)
         : muted(tab.label, color, PALETTE.panelBg);
+      if (tab.unread) {
+        label = renderTerminalSegment({ text: label, style: { bold: true } }, color, PALETTE.panelBg);
+      }
       const activityDot = tab.activity
-        ? renderTerminalSegment(activityDotSegment(tab.activity, tab.activityAnimationFrame ?? 0, tab.unread), color, PALETTE.panelBg)
+        ? renderTerminalSegment(activityDotSegment(tab.activity, tab.activityAnimationFrame ?? 0), color, PALETTE.panelBg)
         : "";
       return `${label}${activityDot ? ` ${activityDot}` : ""}`;
     })
     .join("   ");
 }
 
-function activityDotSegment(activity: AgentActivityState, animationFrame: number, unread = true): TerminalRowSegment {
+function activityDotSegment(activity: AgentActivityState, animationFrame: number): TerminalRowSegment {
   const fg = activity === "working"
     ? WORKING_DOT_COLORS[animationFrame % WORKING_DOT_COLORS.length] ?? WORKING_DOT_COLORS[0]
     : activity === "ready"
@@ -874,7 +881,7 @@ function activityDotSegment(activity: AgentActivityState, animationFrame: number
       : activity === "error"
         ? PALETTE.error.fg
         : PALETTE.panelMuted.fg;
-  return { text: activity === "ready" && !unread ? "○" : "●", style: { fg } };
+  return { text: "●", style: { fg } };
 }
 
 function renderContextRow(row: ShellContextRow, color: boolean): SurfaceLine {

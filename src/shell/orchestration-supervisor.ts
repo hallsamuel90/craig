@@ -4,6 +4,8 @@ import { getTaskAgentTabActivity, type PtyActivitySnapshot } from "../domain/age
 import type { RunnerType } from "../domain/config/index.js";
 import {
   listPromptCommands,
+  readFuryReview,
+  readFuryRun,
   promptCommandService,
   type PromptCommandError,
   type PromptDispatch,
@@ -110,6 +112,17 @@ export class OrchestrationSupervisor {
   }
 
   private async reconcileCommand(command: PromptDispatch): Promise<void> {
+    const feedback = command.idempotencyKey?.match(/^fury-review:([^:]+):([0-9]+)$/);
+    if (feedback) {
+      const review = await readFuryReview(this.paths, feedback[1]!);
+      const run = await readFuryRun(this.paths, review.runId);
+      if (review.state !== "changes_requested" || review.round !== Number(feedback[2]) ||
+        ["succeeded", "failed", "cancelled", "timed_out"].includes(run.state) ||
+        Date.now() >= Math.min(Date.parse(run.deadlineAt), Date.parse(review.deadlineAt))) {
+        await promptCommandService.cancel(this.paths, command.id, { type: "system", component: "orchestration-supervisor" });
+        return;
+      }
+    }
     if (Date.now() >= Date.parse(command.expiresAt)) {
       await this.failCommand(command, commandError(
         "PROMPT_DELIVERY_TIMEOUT",

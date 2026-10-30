@@ -230,6 +230,7 @@ export async function reconcileFuryRun(
     return;
   }
   run = await reconcileReviewDecisions(paths, run);
+  await reconcileReviewFeedback(paths, run);
   if (Date.now() >= Date.parse(run.deadlineAt)) {
     run = await mutateFuryRun(paths, runId, (current) => isTerminalRun(current) ? current : finishTimedOut(current));
     if (run.state !== "timed_out") return;
@@ -506,19 +507,13 @@ export async function actOnReview(
   if (!allowed) throw new CraigError("FURY_STATE_CONFLICT", `Review ${id} cannot ${action} while ${review.state}.`, {});
   if ((action === "reject" || action === "request_changes") && !message?.trim()) throw new CraigError("CLI_USAGE", `${action} requires a reason.`, {});
   if (action === "request_changes" && !review.feedbackTarget) throw new CraigError("FURY_STATE_CONFLICT", `Review ${id} has no feedback target.`, {});
-  let feedbackCommandId: string | null = null;
+  const feedbackCommandId: string | null = null;
   if (action === "request_changes") {
     const task = await taskService.getTask(paths, review.feedbackTarget!.taskId);
     const tab = review.feedbackTarget!.agentTabId
       ? task.ptyTabs.find((candidate) => candidate.kind === "agent" && candidate.id === review.feedbackTarget!.agentTabId)
       : task.ptyTabs.find((candidate) => candidate.kind === "agent");
     if (!tab) throw new CraigError("TASK_CONTEXT_CONFLICT", `Feedback task ${task.id} has no agent tab.`, {});
-    const result = await promptCommandService.create(paths, {
-      taskId: task.id, agentTabId: tab.id, prompt: { source: "inline", text: `Fury review ${id} changes requested:\n\n${message}\n\nAfter revisions, resubmit with: craig fury review resubmit ${id} --summary '<revised summary>' --json\nOnly a human can approve this review.` },
-      delivery: "when-ready", timeoutMs: Math.min(run.limits.timeoutMs, 86_400_000),
-      idempotencyKey: `fury-review:${id}:${review.round}`, actor,
-    });
-    feedbackCommandId = result.command.id;
   }
   const now = new Date().toISOString();
   const decision = { sequence: review.history.length + 1, round: review.round, action, message, actor, feedbackCommandId, occurredAt: now };
@@ -689,7 +684,12 @@ async function setRunState(paths: CraigPaths, id: string, state: FuryRun["state"
   const run = await mutateFuryRun(paths, id, (current) => isTerminalRun(current)
     ? current
     : ({ ...current, state, updatedAt: now, stateChangedAt: now, completedAt: terminal ? now : null,
-      ...(["failed", "cancelled", "timed_out"].includes(state) ? { cleanupPending: true, cleanupError: null } : {}),
+      ...(["failed", "cancelled", "timed_out"].includes(state) ? { cleanupPending: true, cleanupError: null,
+        stepRuns: Object.fromEntries(Object.entries(current.stepRuns).map(([stepId, step]) => [stepId,
+          ["pending", "running", "waiting_for_review", "changes_requested"].includes(step.state)
+            ? { ...step, state: "cancelled" as const, completedAt: now, completedBy: SYSTEM_ACTOR } : step,
+        ])),
+      } : {}),
     }));
   if (run.state !== state) return run;
   await event(paths, run, null, `fury.run.${state}`, actor, { state });
@@ -751,13 +751,17 @@ async function cleanupFuryRun(paths: CraigPaths, run: FuryRun): Promise<void> {
       (run.state === "cancelled" || run.stepRuns[task.furyStepId ?? ""]?.state !== "succeeded"));
     const taskIds = new Set(owned.map((task) => task.id));
     const commandIds = new Set(Object.values(run.stepRuns).map((step) => step.commandId).filter(Boolean));
+    const reviews = (await listFuryReviews(paths)).filter((item) => item.runId === run.id);
+    const reviewIds = new Set(reviews.map((review) => review.id));
     for (const command of await listPromptCommands(paths)) {
-      if (command.state === "queued" && (commandIds.has(command.id) || taskIds.has(command.taskId))) {
+      const feedbackReviewId = command.idempotencyKey?.match(/^fury-review:([^:]+):[0-9]+$/)?.[1];
+      if (command.state === "queued" && (commandIds.has(command.id) || taskIds.has(command.taskId) ||
+        (feedbackReviewId && reviewIds.has(feedbackReviewId)))) {
         await promptCommandService.cancel(paths, command.id, SYSTEM_ACTOR);
       }
     }
     for (const task of owned) await cancelTaskTreeAndSessions(paths, task.id);
-    for (const review of (await listFuryReviews(paths)).filter((item) => item.runId === run.id)) {
+    for (const review of reviews) {
       await mutateFuryReview(paths, review.id, (current) =>
         ["waiting_for_review", "changes_requested"].includes(current.state)
           ? { ...current, state: run.state === "timed_out" ? "timed_out" : "cancelled", version: current.version + 1, updatedAt: new Date().toISOString() }
@@ -777,6 +781,37 @@ async function requireFuryWake(paths: CraigPaths, runId: string): Promise<void> 
   throw new CraigError("PARTIAL_RESULT", `Fury run ${runId} was saved, but its supervisor is unavailable. Start Craig for this workspace and resume the run.`, {
     retryable: true, details: { runId, persisted: true, reason: "ORCHESTRATION_UNAVAILABLE" },
   });
+}
+
+// The committed review decision is durable dispatch intent. Enqueueing before
+// that decision wins its version check can leak feedback from a losing caller.
+async function reconcileReviewFeedback(paths: CraigPaths, run: FuryRun): Promise<void> {
+  for (const step of Object.values(run.stepRuns)) {
+    if (!step.reviewId) continue;
+    const review = await readFuryReview(paths, step.reviewId);
+    const decision = review.lastDecision;
+    if (review.state !== "changes_requested" || !review.feedbackTarget ||
+      decision?.action !== "request_changes" || decision.feedbackCommandId ||
+      Date.now() >= Math.min(Date.parse(run.deadlineAt), Date.parse(review.deadlineAt))) continue;
+    const task = await taskService.getTask(paths, review.feedbackTarget.taskId);
+    const tab = review.feedbackTarget.agentTabId
+      ? task.ptyTabs.find((candidate) => candidate.kind === "agent" && candidate.id === review.feedbackTarget!.agentTabId)
+      : task.ptyTabs.find((candidate) => candidate.kind === "agent");
+    if (!tab) throw new CraigError("TASK_CONTEXT_CONFLICT", `Feedback task ${task.id} has no agent tab.`, {});
+    const { command } = await promptCommandService.create(paths, {
+      taskId: task.id, agentTabId: tab.id,
+      prompt: { source: "inline", text: `Fury review ${review.id} changes requested:\n\n${decision.message}\n\nAfter revisions, resubmit with: craig fury review resubmit ${review.id} --summary '<revised summary>' --json\nOnly a human can approve this review.` },
+      delivery: "when-ready", timeoutMs: Math.min(run.limits.timeoutMs, 86_400_000),
+      idempotencyKey: `fury-review:${review.id}:${decision.round}`, actor: decision.actor,
+    });
+    await mutateFuryReview(paths, review.id, (current) => {
+      if (current.state !== "changes_requested" || current.version !== review.version) return current;
+      const bound = { ...decision, feedbackCommandId: command.id };
+      return { ...current, lastDecision: bound,
+        history: current.history.map((item) => item.sequence === decision.sequence ? bound : item),
+      };
+    });
+  }
 }
 
 async function reconcileReviewDecisions(paths: CraigPaths, run: FuryRun): Promise<FuryRun> {

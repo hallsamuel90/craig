@@ -109,7 +109,7 @@ craig fury watch &lt;run-id&gt; --format jsonl</code></pre>
       a replacement plan or manually launch duplicate workers.
     </p>
     <p>
-      Review feedback includes the review id and resubmission command. Resubmitting records a revised summary in
+      Review feedback includes the review id and resubmission command. Craig saves the review decision before the daemon queues feedback, so interrupted dispatch can recover without duplicate requests. Superseded feedback is cancelled before delivery. Resubmitting records a revised summary in
       the decision history; it does not change an already completed step's structured output. Use an explicit
       follow-on step to produce a revised structured artifact when downstream work needs one.
     </p>

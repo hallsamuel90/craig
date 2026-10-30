@@ -438,10 +438,12 @@ steps:
     await vi.waitFor(() => expect(terminal.hasKeyListener()).toBe(true));
     terminal.emitKey("\r");
     await vi.waitFor(() => expect(stripAnsi(terminal.frames.join(""))).toContain("CODEX ●"));
+    expect(terminal.frames.join("")).toContain("\u001B[1mtest task\u001B[0m");
     expect(JSON.parse(await readFile(paths.uiStateFile, "utf8")).readAgentActivityAt?.[tabId]).toBeUndefined();
     terminal.frames.length = 0;
     terminal.emitKey("TAB");
-    await vi.waitFor(() => expect(stripAnsi(terminal.frames.join(""))).toContain("CODEX ○"));
+    await vi.waitFor(() => expect(stripAnsi(terminal.frames.join(""))).toContain("CODEX ●"));
+    expect(terminal.frames.join("")).not.toContain("\u001B[1m");
     await vi.waitFor(async () => {
       expect(JSON.parse(await readFile(paths.uiStateFile, "utf8")).readAgentActivityAt[tabId]).toBe(lastActivityAt);
     });

@@ -14,6 +14,7 @@ import { configService } from "../src/domain/config/index.js";
 import { taskService } from "../src/domain/task/index.js";
 import {
   listPromptCommands,
+  promptCommandService,
   listFuryReviews,
   listPendingFuryPlans,
   mutateFuryRun,
@@ -31,12 +32,14 @@ import {
   reconcileFuryRuns,
   approvePlan,
   completeFuryStep,
+  failFuryStep,
   createPlan,
   reconcileFuryRun,
   runFury,
 } from "../src/shell/fury-runtime.js";
+import { OrchestrationSupervisor } from "../src/shell/orchestration-supervisor.js";
 import { loadWorkspaceShellModel } from "../src/ui/shell/loader.js";
-import { disposeDaemonSessions, wakeOrchestrationSupervisor } from "../src/shell/pty-daemon-orchestration.js";
+import { disposeDaemonSessions, ensureDaemonAgentSession, wakeOrchestrationSupervisor } from "../src/shell/pty-daemon-orchestration.js";
 import { createCraigState, createStubCommands, writeRepoRecord, writeTaskRecord } from "./test-helpers.js";
 
 const roots: string[] = [];
@@ -147,6 +150,7 @@ describe("durable fury runtime", () => {
     await writeFile(path.join(furyDirs(fixture.paths).plans, "plan_disabled.json"), "invalid JSON");
     expect((await loadWorkspaceShellModel(fixture.root)).furyApprovalCount).toBe(1);
     await actOnReview(fixture.paths, review!.id, "request_changes", "Explain the tests", human);
+    await reconcileFuryRun(fixture.paths, started.run.id);
     const feedback = (await listPromptCommands(fixture.paths)).find((command) => command.idempotencyKey?.startsWith("fury-review:"));
     expect(feedback?.prompt.text).toContain(`craig fury review resubmit ${review!.id}`);
     expect((await loadWorkspaceShellModel(fixture.root)).furyApprovalCount).toBe(1);
@@ -162,6 +166,118 @@ describe("durable fury runtime", () => {
     await mutateFuryRun(children.paths, pending.run.id, (run) => ({ ...run, deadlineAt: new Date(0).toISOString() }));
     await reconcileFuryRuns(children.paths);
     expect((await readFuryRun(children.paths, pending.run.id)).state).toBe("timed_out");
+  });
+
+  test("cancels unfinished siblings and their sessions when one parallel child fails", async () => {
+    const fixture = await setupChildGraph();
+    await writeFile(fixture.file, (await readFile(fixture.file, "utf8"))
+      .replace("max_concurrency: 1", "max_concurrency: 2").replace("    needs: [first]\n", ""));
+    const { plan } = await createPlan(fixture.paths, fixture.file, {}, "task_planning", human);
+    await approvePlan(fixture.paths, plan.id, human);
+    const { run } = await runAndReconcile(fixture.paths, plan.id, human);
+    expect(run.stepRuns.second?.state).toBe("running");
+    await failFuryStep(fixture.paths, run.id, "first", "Injected worker failure", human);
+    expect(await readFuryRun(fixture.paths, run.id)).toMatchObject({
+      state: "failed", stepRuns: { first: { state: "failed" }, second: { state: "cancelled" } },
+    });
+    await reconcileFuryRun(fixture.paths, run.id);
+    const children = (await taskService.listTasks(fixture.paths, { includeClosed: true })).tasks.filter((task) => task.furyRunId === run.id);
+    expect(children).toHaveLength(2);
+    expect(children.every((task) => task.status === "closed")).toBe(true);
+  });
+
+  test("cleans up a child launched concurrently with run cancellation without reviving the run", async () => {
+    const fixture = await setupChildGraph();
+    const { plan } = await createPlan(fixture.paths, fixture.file, {}, "task_planning", human);
+    await approvePlan(fixture.paths, plan.id, human);
+    const { run } = await runFury(fixture.paths, plan.id, human);
+    vi.mocked(ensureDaemonAgentSession).mockImplementationOnce(async () => {
+      await cancelFury(fixture.paths, run.id, human);
+    });
+    await reconcileFuryRun(fixture.paths, run.id);
+    expect(await readFuryRun(fixture.paths, run.id)).toMatchObject({ state: "cancelled", cleanupPending: true });
+    await reconcileFuryRun(fixture.paths, run.id);
+    await reconcileFuryRun(fixture.paths, run.id);
+    const tasks = (await taskService.listTasks(fixture.paths, { includeClosed: true })).tasks;
+    expect(tasks).toHaveLength(2);
+    expect(tasks.find((task) => task.furyRunId === run.id)?.status).toBe("closed");
+    expect((await listPromptCommands(fixture.paths)).every((command) => command.state === "cancelled")).toBe(true);
+    expect(await readFuryRun(fixture.paths, run.id)).toMatchObject({ state: "cancelled", cleanupPending: false });
+  });
+
+  test("recovers feedback creation and binding crash gaps without losing or duplicating the request", async () => {
+    const fixture = await setup();
+    const { started } = await start(fixture);
+    await completeAndReconcile(fixture.paths, started.run.id, "inspect", { findings: [] }, human);
+    const [review] = await listFuryReviews(fixture.paths);
+    await actOnReview(fixture.paths, review!.id, "request_changes", "Add recovery evidence", human);
+    expect((await listPromptCommands(fixture.paths)).filter((command) => command.idempotencyKey?.startsWith("fury-review:"))).toHaveLength(0);
+    const failure = vi.spyOn(promptCommandService, "create").mockRejectedValueOnce(new Error("interrupted feedback creation"));
+    try {
+      await expect(reconcileFuryRun(fixture.paths, started.run.id)).rejects.toThrow("interrupted feedback creation");
+    } finally { failure.mockRestore(); }
+    await reconcileFuryRun(fixture.paths, started.run.id);
+    const bound = (await showReview(fixture.paths, review!.id)).review;
+    const commandId = bound.lastDecision!.feedbackCommandId;
+    expect(commandId).toEqual(expect.any(String));
+    // Simulate command creation surviving a crash before the review binding.
+    await mutateFuryReview(fixture.paths, review!.id, (current) => ({
+      ...current, lastDecision: { ...current.lastDecision!, feedbackCommandId: null },
+      history: current.history.map((decision) => ({ ...decision, feedbackCommandId: null })),
+    }));
+    await reconcileFuryRun(fixture.paths, started.run.id);
+    const recovered = (await showReview(fixture.paths, review!.id)).review;
+    expect(recovered.lastDecision?.feedbackCommandId).toBe(commandId);
+    expect(recovered.history).toHaveLength(1);
+    expect((await listPromptCommands(fixture.paths)).filter((command) => command.idempotencyKey?.startsWith("fury-review:"))).toHaveLength(1);
+  });
+
+  test("cancels queued feedback on an existing target when its Fury is cancelled", async () => {
+    const fixture = await setup();
+    const { started } = await start(fixture);
+    await completeAndReconcile(fixture.paths, started.run.id, "inspect", { findings: [] }, human);
+    const [review] = await listFuryReviews(fixture.paths);
+    await reviewAndReconcile(fixture.paths, review!.id, "request_changes", "Add evidence", human);
+    await cancelFury(fixture.paths, started.run.id, human);
+    await reconcileFuryRun(fixture.paths, started.run.id);
+    const feedback = (await listPromptCommands(fixture.paths)).filter((command) => command.idempotencyKey?.startsWith("fury-review:"));
+    expect(feedback).toMatchObject([{ state: "cancelled" }]);
+    expect((await taskService.getTask(fixture.paths, "task_root")).status).not.toBe("closed");
+  });
+
+  test("does not deliver feedback superseded by a resubmission", async () => {
+    const fixture = await setup();
+    const { started } = await start(fixture);
+    await completeAndReconcile(fixture.paths, started.run.id, "inspect", { findings: [] }, human);
+    const [review] = await listFuryReviews(fixture.paths);
+    await reviewAndReconcile(fixture.paths, review!.id, "request_changes", "Superseded feedback", human);
+    await actOnReview(fixture.paths, review!.id, "resubmit", "Already revised", human);
+    const writes: string[] = [];
+    const supervisor = new OrchestrationSupervisor(fixture.paths, {
+      hasRunningSession: () => true, getActivitySnapshots: () => [],
+      writeToSession: (_tabId, input) => { writes.push(input); },
+    });
+    try { await supervisor.start(); } finally { await supervisor.stop(); }
+    const feedback = (await listPromptCommands(fixture.paths)).filter((command) => command.idempotencyKey?.startsWith("fury-review:"));
+    expect(feedback).toMatchObject([{ state: "cancelled", attempts: 0 }]);
+    expect(writes.join("")).not.toContain("Superseded feedback");
+  });
+
+  test("dispatches review feedback only for the winning concurrent decision", async () => {
+    const fixture = await setup();
+    const { started } = await start(fixture);
+    await completeAndReconcile(fixture.paths, started.run.id, "inspect", { findings: [] }, human);
+    const [review] = await listFuryReviews(fixture.paths);
+    const decisions = await Promise.allSettled([
+      actOnReview(fixture.paths, review!.id, "request_changes", "Add edge cases", human),
+      actOnReview(fixture.paths, review!.id, "approve", "Accepted", human),
+    ]);
+    expect(decisions.filter((decision) => decision.status === "fulfilled")).toHaveLength(1);
+    await reconcileFuryRun(fixture.paths, started.run.id);
+    const winner = (await showReview(fixture.paths, review!.id)).review;
+    expect(winner.history).toHaveLength(1);
+    const feedback = (await listPromptCommands(fixture.paths)).filter((command) => command.idempotencyKey?.startsWith("fury-review:"));
+    expect(feedback).toHaveLength(winner.state === "changes_requested" ? 1 : 0);
   });
 
   test("retries failed cancellation cleanup without replaying tasks or claiming stopped sessions", async () => {
@@ -515,5 +631,5 @@ async function completeAndReconcile(...args: Parameters<typeof completeFuryStep>
 async function reviewAndReconcile(...args: Parameters<typeof actOnReview>) {
   const result = await actOnReview(...args);
   await reconcileFuryRun(args[0], result.run.id);
-  return { ...result, run: await readFuryRun(args[0], result.run.id) };
+  return { ...result, review: (await showReview(args[0], args[1])).review, run: await readFuryRun(args[0], result.run.id) };
 }
