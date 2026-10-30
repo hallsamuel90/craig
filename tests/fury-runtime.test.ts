@@ -54,6 +54,16 @@ afterEach(async () => {
 });
 
 describe("durable fury runtime", () => {
+  test("refuses approval when the reviewed plan hash does not match", async () => {
+    const fixture = await setup();
+    const { plan } = await createPlan(fixture.paths, fixture.file, { task_id: "task_root" }, "task_root", human);
+    await expect(approvePlan(fixture.paths, plan.id, human, "0".repeat(64)))
+      .rejects.toMatchObject({ code: "FURY_STATE_CONFLICT" });
+    expect(await listPendingFuryPlans(fixture.paths)).toHaveLength(1);
+    const approved = await approvePlan(fixture.paths, plan.id, human, plan.planHash);
+    expect(approved.approval.planHash).toBe(plan.planHash);
+  });
+
   test("the downloadable quickstart waits for review after schema-checked completion", async () => {
     // Contract test only: the agent session is mocked by this suite. This is not
     // evidence of a live model turn or human approval in a marketing recording.

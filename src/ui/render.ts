@@ -1155,7 +1155,7 @@ function clipStringToWidth(value: string, width: number): string {
   return clipped;
 }
 
-function characterWidth(character: string): number {
+export function characterWidth(character: string): number {
   const codePoint = character.codePointAt(0);
   if (codePoint === undefined) {
     return 0;
