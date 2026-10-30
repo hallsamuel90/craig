@@ -18,6 +18,25 @@ function contentCenter(line: string): number {
 }
 
 describe("terminal shell renderer", () => {
+  test.each([false, true])("uses title weight for unread responses without moving rows with panel polish %s", (panelPolish) => {
+    for (const selected of [false, true]) {
+      const data = getMockShellData({ focusedRegion: "tasks" });
+      data.leftTree = [{ text: "Review response", activity: "ready", unread: true, selected, indent: 2 }];
+      data.tabs = [{ id: "agent", label: "CODEX", activity: "ready", unread: true, active: true }];
+      const unread = renderMainShellFrame(MIN_VIEWPORT, data, { panelPolish, color: true });
+      expect(unread).toContain("\u001B[1mReview response\u001B[0m");
+      expect(unread).toContain("38;2;158;206;106");
+      data.leftTree[0]!.unread = false;
+      data.tabs[0]!.unread = false;
+      const read = renderMainShellFrame(MIN_VIEWPORT, data, { panelPolish, color: true });
+      expect(read).not.toContain("\u001B[1m");
+      expect(read).toContain("38;2;158;206;106");
+      expect(stripVTControlCharacters(unread)).toBe(stripVTControlCharacters(read));
+      expect(stripVTControlCharacters(read)).toContain("CODEX ●");
+      expect(stripVTControlCharacters(read)).not.toContain("○ Review response");
+    }
+  });
+
   test.each([false, true])("keeps update notices at the top right with panel polish %s", (panelPolish) => {
     const data = getMockShellData();
     data.topRail.workspacePath = "/very/long/workspace/".repeat(20);
@@ -548,8 +567,8 @@ describe("terminal shell renderer", () => {
     expect(partial.tabs.filter((tab) => tab.activity).map((tab) => tab.unread)).toEqual([false, true]);
     const allRead = buildShellData({ ...state, readAgentActivityAt: Object.fromEntries(snapshots.map((entry) => [entry.tabId, entry.lastActivityAt])) }, model, ready);
     const readFrame = renderMainShellFrame(MIN_VIEWPORT, allRead, { color: false });
-    expect(readFrame).toContain("▸ ○ observe agents");
-    expect(readFrame).toContain("CODEX ○");
+    expect(readFrame).toContain("▸ ● observe agents");
+    expect(readFrame).toContain("CODEX ●");
     expect(allRead.leftTree.find((row) => row.taskId === task.id)?.unread).toBe(false);
   });
 

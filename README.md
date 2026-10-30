@@ -64,7 +64,7 @@ Run `craig` in a full-screen terminal, then work through the TUI:
 5. Press `n` again to start more tasks while the first agent keeps working. Each task remains isolated in its own worktree.
 6. Use **Files** to inspect the worktree and **Review** to follow diffs, pull requests, checks, and review state. Ask the agent to commit, push, create the PR, or merge from its PTY; Craig keeps the status in sync.
 
-Agent dots animate while working. A solid green dot means the agent is ready with unread output; a hollow green dot means you have viewed it. Focus the agent pane or attach to it to mark the latest output read. Highlighting a task in the sidebar does not clear unread output, and read state survives restarts.
+Agent dots animate while working. Green dots mean the agent is ready. Bold task titles and agent tab labels indicate unread output; viewed responses use normal text weight. Focus the agent pane or attach to it to mark the latest output read. Highlighting a task in the sidebar does not clear unread output, and read state survives restarts.
 
 The top-right of the main shell and splash/pause screens shows the current Craig version, such as `v0.19.0`. When an update is available, the same label reads `v0.19.0 → v0.20.0 available`. Ignoring a version returns the label to the current version alone.
 
