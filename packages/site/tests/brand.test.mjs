@@ -5,7 +5,7 @@ import { URL } from "node:url";
 import { inflateSync } from "node:zlib";
 import { brandBackground, brandGreen, rabbitPath, rabbitRows, rabbitSize, rabbitSvg } from "../src/brand/rabbit.mjs";
 
-test("the rabbit has a bounded pixel grid, a visible eye, and safe icon margins", () => {
+test("the rabbit pixelates the original solid silhouette without added details", () => {
   assert.equal(rabbitRows.length, 32);
   const ink = [];
   rabbitRows.forEach((row, y) => {
@@ -13,10 +13,21 @@ test("the rabbit has a bounded pixel grid, a visible eye, and safe icon margins"
     [...row].forEach((pixel, x) => { if (pixel === "#") ink.push([x, y]); });
   });
   assert.ok(ink.length > 150);
-  assert.ok(ink.every(([x, y]) => x >= 3 && y >= 3 && x < 29 && y < 29));
-  assert.equal(rabbitRows[12][11], " ");
-  assert.equal(rabbitRows[12][10], "#");
-  assert.equal(rabbitRows[12][12], "#");
+  assert.ok(ink.every(([x, y]) => x >= 1 && y >= 1 && x < 31 && y < 31));
+  const originalShapes = [
+    [10, 5, 2, 6], [14, 4, 1.8, 5.5], [12, 14, 5, 5],
+    [17, 22, 7.5, 7.5], [24, 18, 2.5, 2.5],
+    [10, 29, 3.5, 1.5], [21, 29, 4, 1.5],
+  ];
+  for (let y = 1; y < 31; y++) {
+    for (let x = 1; x < 31; x++) {
+      const ox = x + 0.5 - 1;
+      const oy = y + 0.5 - 1;
+      const solid = originalShapes.some(([cx, cy, rx, ry]) =>
+        ((ox - cx) / rx) ** 2 + ((oy - cy) / ry) ** 2 <= 1);
+      assert.equal(rabbitRows[y][x], solid ? "#" : " ", `${x},${y}`);
+    }
+  }
   assert.match(rabbitPath, /^[M\dhvHz ]+$/);
 });
 
