@@ -1,4 +1,4 @@
-import { mkdir, realpath, rm, writeFile } from "node:fs/promises";
+import { mkdir, readFile, realpath, rm, writeFile } from "node:fs/promises";
 import path from "node:path";
 
 import { afterEach, describe, expect, test, vi } from "vitest";
@@ -196,6 +196,42 @@ describe("CLI execution contract", () => {
       worktreePath: worktree,
       prompt: { source: "inline", value: "random investigation" },
     });
+  });
+
+  test.each([false, true])("reports an expired agent capability with recovery guidance (JSON: %s)", async (json) => {
+    const root = await createRepoRoot("craig-cli-expired-capability-");
+    tempRoots.push(root);
+    const paths = await createCraigState(root, ["task_1"]);
+    const task = await writeTaskRecord(root, { id: "task_1" });
+    await configService.save(paths, { previews: { agentOrchestration: true } });
+    const environment = await ensureTaskCapabilities(paths, task);
+    const current = await taskService.getTask(paths, task.id);
+    const tab = current.ptyTabs.find((candidate) => candidate.kind === "agent")!;
+    const file = path.join(paths.orchestrationDir, "capabilities", `${tab.capabilityId}.json`);
+    const record = JSON.parse(await readFile(file, "utf8"));
+    await writeFile(file, JSON.stringify({ ...record, expiresAt: "2020-01-01T00:00:00.000Z" }));
+    const output = createOutput();
+
+    const exitCode = await runCli({
+      ...createOptions(root, [...(json ? ["--json"] : []), "task", "children"], output),
+      env: {
+        CRAIG_WORKSPACE_ROOT: root,
+        CRAIG_TASK_ID: task.id,
+        CRAIG_AGENT_TAB_ID: tab.id,
+        ...environment,
+      },
+    });
+
+    expect(exitCode).toBe(CRAIG_EXIT_CODE_BY_ERROR.CAPABILITY_DENIED);
+    expect(output.stdout).toEqual([]);
+    expect(output.stderr.join("")).toContain("expired");
+    expect(output.stderr.join("")).toContain("Restart the agent tab");
+    expect(output.stderr.join("")).not.toContain(environment.CRAIG_AGENT_CAPABILITY);
+    if (json) {
+      expect(JSON.parse(output.stderr[0]!)).toMatchObject({
+        ok: false, error: { code: "CAPABILITY_DENIED", details: { reason: "expired" } },
+      });
+    }
   });
 
   test("denies delegation commands from agent context without a capability", async () => {

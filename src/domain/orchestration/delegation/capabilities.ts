@@ -36,16 +36,21 @@ export async function ensureTaskCapabilities(
   await mutateTask(paths, task.id, async (current) => {
     const tab = current.ptyTabs.find((candidate) => candidate.id === requestedTab.id && candidate.kind === "agent");
     if (!tab) throw new CraigError("CAPABILITY_DENIED", `Agent tab ${requestedTab.id} no longer exists.`, {});
-    const capabilityId = tab.capabilityId ?? `capability_${randomUUID()}`;
+    let capabilityId = tab.capabilityId ?? `capability_${randomUUID()}`;
     const existing = await readCapabilityIfExists(paths, capabilityId);
     if (existing && (existing.taskId !== current.id || existing.agentTabId !== tab.id)) {
       throw new CraigError("CAPABILITY_DENIED", `Capability ${capabilityId} is bound to another agent.`, {
         details: { capabilityId, taskId: current.id, agentTabId: tab.id },
       });
     }
-    const persisted = existing ?? await createCapability(paths, capabilityId, current.id, tab.id, issuedBy);
+    const needsReplacement = existing !== null &&
+      (existing.revokedAt !== null || Date.parse(existing.expiresAt) <= Date.now());
+    if (needsReplacement) capabilityId = `capability_${randomUUID()}`;
+    const persisted = existing && !needsReplacement
+      ? existing
+      : await createCapability(paths, capabilityId, current.id, tab.id, issuedBy, existing ?? undefined);
     persistedToken = persisted.token;
-    if (tab.capabilityId) return current;
+    if (tab.capabilityId === capabilityId) return current;
     return {
       ...current,
       ptyTabs: current.ptyTabs.map((candidate) => candidate.id === tab.id
@@ -63,6 +68,7 @@ async function createCapability(
   taskId: string,
   agentTabId: string,
   issuedBy: CraigActor,
+  policy?: Pick<AgentCapabilityRecord, "allowedCommandFamilies" | "targetPolicy" | "limits">,
 ): Promise<AgentCapabilityRecord> {
   const now = new Date();
   const record: AgentCapabilityRecord = {
@@ -71,9 +77,10 @@ async function createCapability(
     token: `${capabilityId}.${randomUUID()}`,
     taskId,
     agentTabId,
-    allowedCommandFamilies: [...STABLE_COMMAND_FAMILIES],
-    targetPolicy: "children-only",
-    limits: { ...DEFAULT_LIMITS },
+    // Replacing a token must not broaden the previous capability's authority.
+    allowedCommandFamilies: [...(policy?.allowedCommandFamilies ?? STABLE_COMMAND_FAMILIES)],
+    targetPolicy: policy?.targetPolicy ?? "children-only",
+    limits: { ...(policy?.limits ?? DEFAULT_LIMITS) },
     issuedBy,
     createdAt: now.toISOString(),
     expiresAt: new Date(now.getTime() + CAPABILITY_TTL_MS).toISOString(),
@@ -201,7 +208,8 @@ function isActor(value: unknown): boolean {
 }
 
 function denied(capabilityId: string, reason: string): never {
-  throw new CraigError("CAPABILITY_DENIED", `Craig capability ${capabilityId} was denied: ${reason}.`, {
+  const recovery = reason === "expired" ? " Restart the agent tab in Craig to obtain a fresh capability." : "";
+  throw new CraigError("CAPABILITY_DENIED", `Craig capability ${capabilityId} was denied: ${reason}.${recovery}`, {
     details: { capabilityId, reason },
   });
 }

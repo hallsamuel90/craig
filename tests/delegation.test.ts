@@ -176,6 +176,62 @@ describe("capability-scoped delegation", () => {
     });
   });
 
+  test.each(["expired", "revoked"] as const)("replaces a capability that is %s and preserves its restrictions", async (reason) => {
+    const stale = structuredClone(mocks.tasks.find((task) => task.id === parent.id)!);
+    const oldId = stale.ptyTabs[0]!.capabilityId!;
+    const directory = path.join(paths.orchestrationDir, "capabilities");
+    const oldFile = path.join(directory, `${oldId}.json`);
+    const original = JSON.parse(await readFile(oldFile, "utf8"));
+    const unusable = {
+      ...original,
+      allowedCommandFamilies: ["task.children"],
+      limits: { ...original.limits, maxChildren: 1 },
+      ...(reason === "expired"
+        ? { expiresAt: new Date().toISOString() }
+        : { revokedAt: new Date().toISOString(), revokedBy: { type: "human", source: "cli", processId: 1 } }),
+    };
+    await writeFile(oldFile, JSON.stringify(unusable));
+
+    const before = Date.now();
+    const environment = await ensureTaskCapabilities(paths, stale);
+    const after = Date.now();
+    const current = mocks.tasks.find((task) => task.id === parent.id)!;
+    const newId = current.ptyTabs[0]!.capabilityId!;
+    const replacement = JSON.parse(await readFile(path.join(directory, `${newId}.json`), "utf8"));
+    expect(newId).not.toBe(oldId);
+    expect(environment.CRAIG_AGENT_CAPABILITY).toBe(replacement.token);
+    expect(replacement.token).not.toBe(original.token);
+    expect(replacement).toMatchObject({
+      taskId: parent.id,
+      agentTabId: stale.ptyTabs[0]!.id,
+      allowedCommandFamilies: ["task.children"],
+      limits: unusable.limits,
+      revokedAt: null,
+      revokedBy: null,
+    });
+    const ttl = 7 * 24 * 60 * 60 * 1_000;
+    expect(Date.parse(replacement.expiresAt)).toBeGreaterThanOrEqual(before + ttl);
+    expect(Date.parse(replacement.expiresAt)).toBeLessThanOrEqual(after + ttl);
+    expect(JSON.parse(await readFile(oldFile, "utf8"))).toEqual(unusable);
+    expect((await stat(path.join(directory, `${newId}.json`))).mode & 0o777).toBe(0o600);
+    await expect(authorizeCapability(paths, original.token, "task.children", parent.id))
+      .rejects.toMatchObject({ code: "CAPABILITY_DENIED", details: { reason } });
+    await expect(authorizeCapability(paths, replacement.token, "task.children", parent.id))
+      .resolves.toMatchObject({ actor: { capabilityId: newId } });
+    await expect(authorizeCapability(paths, replacement.token, "task.create-child", parent.id))
+      .rejects.toMatchObject({ code: "CAPABILITY_DENIED", details: { reason: "command family is not allowed" } });
+    expect(await ensureTaskCapabilities(paths, stale)).toEqual(environment);
+    expect((await readdir(directory)).sort()).toEqual([`${oldId}.json`, `${newId}.json`].sort());
+  });
+
+  test("rejects a capability bound to another agent before considering rotation", async () => {
+    const id = mocks.tasks.find((task) => task.id === parent.id)!.ptyTabs[0]!.capabilityId!;
+    const file = path.join(paths.orchestrationDir, "capabilities", `${id}.json`);
+    const record = JSON.parse(await readFile(file, "utf8"));
+    await writeFile(file, JSON.stringify({ ...record, agentTabId: "other:agent", expiresAt: "2020-01-01T00:00:00.000Z" }));
+    await expect(ensureTaskCapabilities(paths, parent)).rejects.toMatchObject({ code: "CAPABILITY_DENIED" });
+  });
+
   test("reuses a capability when issuance is repeated from a stale task snapshot", async () => {
     const legacy = taskRecord("legacy", { rootTaskId: "legacy" });
     legacy.ptyTabs = legacy.ptyTabs.map(({ capabilityId: _capabilityId, ...tab }) => tab);
