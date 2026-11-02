@@ -101,6 +101,12 @@ craig fury watch &lt;run-id&gt; --format jsonl</code></pre>
     </p>
 
     <p>
+      To approve a plan in Craig, select the pending Fury plans row or press <code>f</code> in control mode
+      (<code>Ctrl+]</code> leaves an agent terminal). Press Enter to review a plan, scroll through its scope and
+      prompts, then press <code>a</code> and Enter to confirm. Escape goes back without approving.
+      Approval applies to the exact plan shown and does not start workers; the planning agent can start the approved plan afterward.
+    </p>
+    <p>
       Starting a run or reporting a step result saves durable state and notifies the workspace daemon. Scheduling
       happens asynchronously in that daemon. A fresh supervisor heartbeat also permits durable submission from
       a sandboxed worker that cannot connect to the daemon socket; the daemon picks it up by polling. Use <code>fury status</code> or <code>fury watch</code> to observe

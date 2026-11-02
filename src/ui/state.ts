@@ -130,6 +130,7 @@ export interface MainKeyResult {
 }
 
 export interface RestoreShellModel {
+  furyPendingPlans?: readonly unknown[];
   workspaces?: WorkspaceRecord[];
   repos: RepoRecord[];
   tasks: TaskRecord[];
@@ -542,8 +543,8 @@ function resolveLeftItemId(state: ControlShellState, model: RestoreShellModel): 
   return leftItemIds[0] ?? null;
 }
 
-export function getLeftItemIds(model: { workspaces?: WorkspaceRecord[]; repos: RepoRecord[]; tasks: TaskRecord[] }): string[] {
-  const itemIds: string[] = [];
+export function getLeftItemIds(model: { furyPendingPlans?: readonly unknown[]; workspaces?: WorkspaceRecord[]; repos: RepoRecord[]; tasks: TaskRecord[] }): string[] {
+  const itemIds: string[] = model.furyPendingPlans?.length ? ["fury-plans"] : [];
 
   if (model.workspaces?.length) {
     for (const workspace of model.workspaces) {

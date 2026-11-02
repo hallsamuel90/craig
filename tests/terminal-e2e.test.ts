@@ -12,6 +12,8 @@ import { getCraigPaths } from "../src/state/craig-paths.js";
 import { createDaemonPtyRuntime, requestDaemonShutdown, servePtyDaemon } from "../src/ui/pty/daemon.js";
 import { resolveExecutablePath } from "../src/shared/command-path.js";
 import { configService } from "../src/domain/config/index.js";
+import { createPlan } from "../src/shell/fury-runtime.js";
+import { readFuryApproval, listFuryRuns } from "../src/domain/orchestration/index.js";
 import { taskService } from "../src/domain/task/index.js";
 import { createChildTaskAndSession } from "../src/shell/delegation.js";
 
@@ -25,6 +27,60 @@ function withoutAgentContext(): Record<string, string | undefined> {
 }
 
 describe("Craig terminal mode E2E", () => {
+  test("approves the reviewed Fury plan through real terminal keys without starting a run", async () => {
+    const repoRoot = process.cwd();
+    const workspaceRoot = await mkdtemp(join(tmpdir(), "craig-terminal-fury-approval-")).then((value) => realpath(value));
+    const paths = await createCraigState(workspaceRoot, ["task_20260430_02"]);
+    const sourceRepo = join(workspaceRoot, "repo-a");
+    await mkdir(sourceRepo);
+    await createGitRepo(sourceRepo);
+    await writeFile(join(sourceRepo, "README.md"), "# Fury approval fixture\n");
+    await runCommand("git", ["add", "README.md"], { cwd: sourceRepo });
+    await runCommand("git", ["commit", "-m", "fixture"], { cwd: sourceRepo });
+    const timestamp = new Date().toISOString();
+    await writeRepoRecord(workspaceRoot, {
+      id: "repo_a", name: "repo-a", rootPath: sourceRepo, defaultBranch: "main", createdAt: timestamp, updatedAt: timestamp,
+    }, {
+      id: "workspace_repo_a", primaryRepoId: "repo_a", branch: "main", status: "active", linkedRepoIds: [],
+      archivedAt: null, createdAt: timestamp, updatedAt: timestamp,
+    });
+    await writeTaskRecord(workspaceRoot, {
+      id: "task_20260430_02", repoId: "repo_a", workspaceId: "workspace_repo_a", repoRoot: sourceRepo,
+      worktreePath: sourceRepo, selectedPtyTabId: "task_20260430_02:agent",
+    });
+    const stubDir = await createCodexHarnessStub(workspaceRoot);
+    await configService.save(paths, { previews: { agentOrchestration: true }, runners: { codex: { path: join(stubDir, "codex") } } });
+    await writeLeftPaneTaskUiState(workspaceRoot);
+    const file = join(workspaceRoot, ".craig", "fury", "approve.yaml");
+    await mkdir(join(workspaceRoot, ".craig", "fury"), { recursive: true });
+    await writeFile(file, `version: 1
+name: terminal-approval
+limits: { max_concurrency: 1, max_tasks: 1, timeout: 10m }
+steps:
+  review:
+    human_review: { title: Review the scope, summary: Explicit human approval is required. }
+`);
+    const { plan } = await createPlan(paths, file, {}, "task_20260430_02", { type: "human", source: "cli", processId: process.pid });
+    const output = new PtyOutputBuffer();
+    const child = spawn(resolveTestTsxBin(repoRoot), [resolve(repoRoot, "src/cli.ts"), "--workspace-root", workspaceRoot], {
+      cwd: workspaceRoot, cols: 120, rows: 36,
+      env: { ...withoutAgentContext(), CI: "", PATH: `${stubDir}:${process.env.PATH ?? ""}`, TERM: "xterm-256color" },
+    });
+    child.onData((chunk) => output.append(chunk));
+    try {
+      await output.waitFor("> Start"); child.write("\r");
+      await output.waitFor("Fury plan to approve"); child.write("f");
+      await output.waitFor("FURY PLANS"); child.write("\r");
+      await output.waitFor(plan.planHash); child.write("a");
+      await output.waitFor("Approve terminal-approval?");
+      await expect(readFuryApproval(paths, plan.id)).rejects.toMatchObject({ code: "FURY_APPROVAL_REQUIRED" });
+      child.write("\r");
+      await output.waitFor("Plan approved. No workers started");
+      expect(await readFuryApproval(paths, plan.id)).toMatchObject({ planHash: plan.planHash, approvedBy: { source: "tui" } });
+      expect(await listFuryRuns(paths)).toHaveLength(0);
+    } finally { child.kill(); await cleanupTerminalWorkspace(workspaceRoot); }
+  }, 15000);
+
   test("enters terminal mode and supports detach and reattach", async () => {
     const repoRoot = process.cwd();
     const workspaceRoot = await mkdtemp(join(tmpdir(), "craig-terminal-e2e-")).then((value) => realpath(value));

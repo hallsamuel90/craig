@@ -1,3 +1,4 @@
+import type { FuryPlan } from "../../domain/orchestration/index.js";
 import path from "node:path";
 
 import type { InspectionDiffGroup, InspectionDiffRow, TaskLocalInspection } from "./task-local-inspection.js";
@@ -139,6 +140,8 @@ export interface ShellData {
 }
 
 export interface WorkspaceShellModel {
+  furyPlansEnabled?: boolean;
+  furyPendingPlans?: FuryPlan[];
   workspaces?: WorkspaceRecord[];
   repos: RepoRecord[];
   tasks: TaskRecord[];
@@ -213,10 +216,12 @@ export function buildShellData(
             || state.selectedLeftItemId?.startsWith("new-task-workspace:")
             ? `r runner [${configService.runners.getDisplayName(state.selectedRunner)}]   Enter create task   Esc pause   ? help`
             : isTaskLeftItemId(state.selectedLeftItemId)
-            ? "n new task   Enter attach   X close task   Esc pause   ? help"
+            ? `n new task   ${model.furyPlansEnabled ? "f Fury plans   " : ""}Enter attach   X close task   Esc pause   ? help`
             : state.selectedLeftItemId?.startsWith("workspace:")
             ? "n new task   Enter select   X remove workspace   Esc pause   ? help"
-            : "n new task   Enter select   Esc pause   ? help"
+            : state.selectedLeftItemId === "fury-plans"
+            ? "Enter review Fury plans   f Fury plans   Esc pause   ? help"
+            : `n new task   ${model.furyPlansEnabled ? "f Fury plans   " : ""}Enter select   Esc pause   ? help`
         : state.focusedRegion === "center"
           ? selectedTask === null
             ? "n new task   Tab tasks   Esc pause   ? help"
@@ -259,8 +264,13 @@ function buildLeftTree(
   activity: AgentActivityPresentation | undefined,
 ): ShellTreeRow[] {
   const rows: ShellTreeRow[] = [{ text: "WORKSPACES", muted: true, panelHeader: true, focused: state.focusedRegion === "tasks" }];
-  if ((model.furyApprovalCount ?? 0) > 0) {
-    rows.push({ text: `● ${model.furyApprovalCount} Fury approval${model.furyApprovalCount === 1 ? "" : "s"} waiting`, indent: 1, status: "pending" });
+  if (model.furyPendingPlans?.length) {
+    rows.push({ text: `● ${model.furyPendingPlans.length} Fury plan${model.furyPendingPlans.length === 1 ? "" : "s"} to approve`, indent: 1, status: "pending",
+      selected: state.selectedLeftItemId === "fury-plans", focused: state.focusedRegion === "tasks" && state.selectedLeftItemId === "fury-plans" });
+  }
+  const reviewCount = (model.furyApprovalCount ?? 0) - (model.furyPendingPlans?.length ?? 0);
+  if (reviewCount > 0) {
+    rows.push({ text: `● ${reviewCount} Fury approval${reviewCount === 1 ? "" : "s"} waiting`, indent: 1, status: "pending" });
   }
 
   if (!model.workspaces) {

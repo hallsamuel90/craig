@@ -1,3 +1,4 @@
+import type { FuryPlansView } from "./shell/fury-plans.js";
 import type { CraigConfig, RunnerType } from "../domain/config/index.js";
 import type { CraigUiRuntime } from "../state/ui-runtime.js";
 import type { CraigPaths } from "../state/craig-paths.js";
@@ -16,7 +17,7 @@ export interface CraigUpdateOverlayState {
   error?: string;
 }
 
-type OverlayVariant = "boot" | "pause" | "help" | "options" | "runners" | "previews" | "logs" | "update";
+type OverlayVariant = "boot" | "pause" | "help" | "options" | "runners" | "previews" | "logs" | "update" | "fury-plans";
 
 export type AppState =
   | {
@@ -31,6 +32,7 @@ export type AppState =
       previewOptions?: PreviewOptionsState;
       log?: CraigLogSnapshot;
       update?: CraigUpdateOverlayState;
+      furyPlans?: FuryPlansView;
     }
   | { mode: "main"; shell: ControlShellState };
 

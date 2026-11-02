@@ -5,6 +5,7 @@ import { readUiState } from "../state/ui-state-store.js";
 import { configService } from "../domain/config/index.js";
 import { taskService } from "../domain/task/index.js";
 import { getCraigPaths } from "../state/craig-paths.js";
+import { refreshPendingFuryPlans, renderFuryPlansFrame } from "./shell/fury-plans.js";
 import { loadWorkspaceShellModel } from "./shell/loader.js";
 import { resolvePtySessionSpec, getPtySize } from "./pty/session.js";
 import { isAgentTabId, positionFrameRows } from "./input/keyboard.js";
@@ -525,7 +526,9 @@ export async function startTerminalApp(options: TerminalAppOptions = {}): Promis
                         logPath: renderState.log?.path ?? paths.logFile,
                         logLines: renderState.log?.lines ?? [],
                       })
-                    : renderHelpOverlayFrame(viewport);
+                    : renderState.variant === "fury-plans" && renderState.furyPlans
+                      ? renderFuryPlansFrame(viewport, renderState.furyPlans)
+                      : renderHelpOverlayFrame(viewport);
         lastShellData = null;
         lastRenderedCenter = null;
         lastRenderedRegions = null;
@@ -626,6 +629,7 @@ export async function startTerminalApp(options: TerminalAppOptions = {}): Promis
         hadWorkingAgentActivity = working;
       },
     });
+    heartbeat.register({ id: "fury.pending-plans", intervalMs: 1_000, run: (signal) => refreshPendingFuryPlans(ctx, signal) });
     heartbeat.start();
     void (options.checkForUpdate ?? configService.version.checkForUpdate)().then((result) => {
       if (result.updateAvailable && result.latest) {
