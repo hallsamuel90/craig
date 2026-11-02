@@ -407,7 +407,14 @@ export async function startTerminalApp(options: TerminalAppOptions = {}): Promis
           }
         }
       }
+      ctx.pointerTargets = [];
+      const mouseSupport = configService.previews.isEnabled(ctx.config, "mouseSupport");
+      ctx.pointerLeftScroll ??= { offset: 0, maxOffset: 0 };
+      ctx.pointerInspectorScroll ??= { offset: 0, maxOffset: 0 };
       const mainPresentation = renderMainShellPresentation(viewport, mainShellData, {
+        hitTargets: ctx.pointerTargets,
+        leftScroll: mouseSupport ? ctx.pointerLeftScroll : undefined,
+        inspectorScroll: mouseSupport && renderState.shell.inspectionMode === "files" ? ctx.pointerInspectorScroll : undefined,
         versionText: ctx.versionText,
         updateText: ctx.updateText,
         centerOnly: renderState.shell.centerZoomed,
@@ -484,11 +491,13 @@ export async function startTerminalApp(options: TerminalAppOptions = {}): Promis
         lastShellData = rendered.data;
         lastRenderedCenter = mainPresentation.center;
       } else {
+        ctx.pointerTargets = [];
         frame = renderState.variant === "boot" || renderState.variant === "pause"
           ? (renderState.variant === "boot" ? renderBootOverlayFrame : renderPauseOverlayFrame)(viewport, {
               ...(configService.previews.isEnabled(ctx.config, "panelPolish") ? {
                 splashSummary: buildSplashSummary(ctx.model, ctx.ptyRuntime.getActivitySnapshots?.() ?? [], Date.now(), bootActivityKnown && ctx.ptyRuntime.getActivitySnapshots !== undefined),
               } : {}),
+              hitTargets: ctx.pointerTargets,
               panelPolish: configService.previews.isEnabled(ctx.config, "panelPolish"),
               menuIndex: renderState.menuIndex,
               optionsMessage: renderState.optionsMessage,
@@ -497,12 +506,14 @@ export async function startTerminalApp(options: TerminalAppOptions = {}): Promis
             })
           : renderState.variant === "options"
             ? renderOptionsOverlayFrame(viewport, {
+                hitTargets: ctx.pointerTargets,
                 panelPolish: configService.previews.isEnabled(ctx.config, "panelPolish"),
                 menuIndex: renderState.menuIndex,
                 optionsMenuItems: buildOptionsMenuItems(ctx.runtimeState?.seenPreviewIds),
               })
             : renderState.variant === "runners"
               ? renderOptionsOverlayFrame(viewport, {
+                  hitTargets: ctx.pointerTargets,
                   panelPolish: configService.previews.isEnabled(ctx.config, "panelPolish"),
                   menuIndex: getRunnerOptionsState(renderState).menuIndex,
                   optionsMenuItems: buildRunnersSubmenuItems(ctx.config, getRunnerOptionsState(renderState)),
@@ -511,6 +522,7 @@ export async function startTerminalApp(options: TerminalAppOptions = {}): Promis
                 })
               : renderState.variant === "previews"
                 ? renderOptionsOverlayFrame(viewport, {
+                    hitTargets: ctx.pointerTargets,
                     panelPolish: configService.previews.isEnabled(ctx.config, "panelPolish"),
                     menuIndex: getPreviewOptionsState(renderState).menuIndex,
                     optionsMenuItems: buildPreviewSubmenuItems(ctx.config, ctx.runtimeState?.seenPreviewIds),
@@ -548,12 +560,15 @@ export async function startTerminalApp(options: TerminalAppOptions = {}): Promis
 
     const boundOnKey = (name: unknown) => onKey(ctx, name);
     const boundOnUnknown = (input: unknown) => onUnknown(ctx, input);
-    const boundOnMouse = (name: unknown) => onMouse(ctx, name);
+    const boundOnMouse = (name: unknown, data: unknown) => onMouse(ctx, name, data);
 
     const cleanup = () => {
       appClosed = true;
       process.stdout.off("resize", handleResize);
       process.off("SIGCONT", handleResume);
+      process.off("SIGTSTP", handleSuspend);
+      process.off("SIGTERM", handleTerminate);
+      process.off("SIGINT", handleInterrupt);
       activeTerminal.removeListener("key", boundOnKey);
       activeTerminal.removeListener("unknown", boundOnUnknown);
       activeTerminal.removeListener("mouse", boundOnMouse);
@@ -585,7 +600,17 @@ export async function startTerminalApp(options: TerminalAppOptions = {}): Promis
       ctx.render();
     };
 
+    const handleSuspend = () => {
+      activeTerminal.grabInput(false);
+      ctx.inputCaptureMode = null;
+      activeTerminal.hideCursor(false);
+      activeTerminal.fullscreen(false);
+      process.kill(process.pid, "SIGSTOP");
+    };
+    const handleTerminate = () => ctx.exit(143);
+    const handleInterrupt = () => ctx.exit(130);
     const handleResume = () => {
+      ctx.inputCaptureMode = null;
       restoreTerminalScreen(ctx);
       if (ctx.state.mode === "main" && ctx.state.shell.inputMode === "terminal") {
         ctx.ptyRuntime.resize(getPtySize(getViewport(activeTerminal.width, activeTerminal.height), configService.previews.isEnabled(ctx.config, "panelPolish"), ctx.state.shell.centerZoomed));
@@ -596,6 +621,9 @@ export async function startTerminalApp(options: TerminalAppOptions = {}): Promis
 
     process.stdout.on("resize", handleResize);
     process.on("SIGCONT", handleResume);
+    process.on("SIGTSTP", handleSuspend);
+    process.on("SIGTERM", handleTerminate);
+    process.on("SIGINT", handleInterrupt);
     activeTerminal.grabInput(true);
     ctx.inputCaptureMode = "control";
     activeTerminal.hideCursor(true);

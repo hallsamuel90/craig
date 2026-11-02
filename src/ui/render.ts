@@ -1,3 +1,5 @@
+import { INSPECTION_MODE_TABS } from "./shell/data.js";
+import type { HitTarget, PointerAction } from "./input/pointer.js";
 import type { SplashSummary } from "./splash.js";
 import { getBannerArtLines } from "./banner.js";
 import type {
@@ -8,7 +10,7 @@ import type {
   ShellTab,
   ShellTreeRow,
 } from "./shell/data.js";
-import { SHELL_LAYOUT, getFramedPanelBounds, type PanelBounds, type Viewport } from "./layout.js";
+import { SHELL_LAYOUT, getFramedPanelBounds, type ListViewport, type PanelBounds, type Viewport } from "./layout.js";
 import type { TerminalCellStyle, TerminalRowSegment } from "./terminal-emulator.js";
 import type { FooterToast } from "./state.js";
 import { isPtyTab } from "./state.js";
@@ -16,6 +18,9 @@ import type { AgentActivityState } from "./agent-activity.js";
 import type { CraigUpdateOverlayState } from "./app-context.js";
 
 export interface RenderOptions {
+  hitTargets?: HitTarget[] | undefined;
+  leftScroll?: ListViewport | undefined;
+  inspectorScroll?: ListViewport | undefined;
   color?: boolean;
   menuIndex?: number;
   optionsMessage?: string | null;
@@ -71,6 +76,7 @@ interface PaletteColor {
 }
 
 interface SurfaceLine {
+  pointer?: PointerAction;
   text: string;
   segments?: TerminalRowSegment[];
   tone?: "default" | "muted" | "selected" | "focused" | "info" | "warning" | "error";
@@ -119,6 +125,7 @@ function renderWorkspaceOverlayFrame(viewport: Viewport, variant: "boot" | "paus
   const summary = options.panelPolish ? options.splashSummary : undefined;
   const hasWork = summary && (summary.workspaceCount > 0 || summary.taskCount > 0);
   return renderOverlayFrame(viewport, {
+    hitTargets: options.hitTargets,
     panelPolish: options.panelPolish ?? false,
     subtitle: options.panelPolish ? "A workspace for your coding agents." : variant === "boot" ? "crAIg is that you?" : "Control mode is paused.",
     details: summary ? splashDetails(summary, options.color ?? true) : [],
@@ -211,6 +218,7 @@ const OVERLAY_BODY_ROWS = 5;
 
 export function renderOptionsOverlayFrame(viewport: Viewport, options: RenderOptions = {}): string {
   return renderOverlayFrame(viewport, {
+    hitTargets: options.hitTargets,
     panelPolish: options.panelPolish ?? false,
     subtitle: options.optionsSubtitle ?? "Configuration",
     menuItems: options.optionsMenuItems ?? OPTIONS_MENU,
@@ -302,7 +310,7 @@ function getLogTone(line: string): NonNullable<SurfaceLine["tone"]> {
 export function renderMainShellFrame(
   viewport: Viewport,
   data: ShellData,
-  options: Pick<RenderOptions, "color" | "centerOnly" | "focusFlashActive" | "panelPolish" | "versionText" | "updateText"> = {},
+  options: Pick<RenderOptions, "color" | "centerOnly" | "focusFlashActive" | "panelPolish" | "versionText" | "updateText" | "hitTargets" | "leftScroll" | "inspectorScroll"> = {},
 ): string {
   return renderMainShellPresentation(viewport, data, options).frame;
 }
@@ -310,7 +318,7 @@ export function renderMainShellFrame(
 export function renderMainShellPresentation(
   viewport: Viewport,
   data: ShellData,
-  options: Pick<RenderOptions, "color" | "centerOnly" | "focusFlashActive" | "panelPolish" | "versionText" | "updateText"> = {},
+  options: Pick<RenderOptions, "color" | "centerOnly" | "focusFlashActive" | "panelPolish" | "versionText" | "updateText" | "hitTargets" | "leftScroll" | "inspectorScroll"> = {},
 ): MainShellPresentation {
   if (options.panelPolish) return renderFramedShellPresentation(viewport, data, options);
   const color = options.color ?? true;
@@ -326,10 +334,15 @@ export function renderMainShellPresentation(
   const railText = `CRAIG  |  ${data.topRail.workspacePath}  |  ${data.topRail.agent}`;
   const railTop = renderVersionRail(railText, viewport.width, options, color, PALETTE.rail);
 
-  const leftLines = toLeftLines(data, leftWidth - LEFT_PANEL_INSET - LEFT_PANEL_GUTTER, bodyHeight, color);
+  const leftLines = toLeftLines(data, leftWidth - LEFT_PANEL_INSET - LEFT_PANEL_GUTTER, bodyHeight, color, options.leftScroll);
   const centerRegion = renderCenterPaneRegion(viewport, data, { color, centerOnly });
-  const rightLines = toRightLines(data, rightWidth, bodyHeight, color);
+  const rightLines = toRightLines(data, rightWidth, bodyHeight, color, options.inspectorScroll);
 
+  collectPanelTargets(options.hitTargets, { row: 2, column: 1, width: leftWidth, height: bodyHeight }, leftLines, "tasks", centerOnly);
+  collectPanelTargets(options.hitTargets, { row: centerRegion.row, column: centerRegion.column, width: centerRegion.width, height: bodyHeight }, [], "center");
+  collectCenterTargets(options.hitTargets, data, centerRegion, false);
+  collectPanelTargets(options.hitTargets, { row: 2, column: centerRegion.column + centerRegion.width + 1, width: rightWidth, height: bodyHeight }, rightLines, "inspector", centerOnly);
+  collectInspectorTabs(options.hitTargets, data, 2, centerRegion.column + centerRegion.width + 5, rightWidth - 4, centerOnly);
   const ptyAttached = data.inputMode === "terminal";
   const leftRows: string[] = [];
   const rightRows: string[] = [];
@@ -445,6 +458,8 @@ function renderFramedShellPresentation(viewport: Viewport, data: ShellData, opti
   const color = options.color ?? true;
   const bounds = getFramedPanelBounds(viewport, options.centerOnly);
   const center = renderFramedCenterRegion(viewport, data, options);
+  collectPanelTargets(options.hitTargets, bounds.center, [], "center");
+  collectCenterTargets(options.hitTargets, data, center, true);
   const blank = fillSurface(" ", color, PALETTE.panelBg);
   const railText = ` CRAIG  ${muted("/", color, PALETTE.panelBg)}  ${muted(data.topRail.workspacePath, color, PALETTE.panelBg)}`;
   const rail: RenderedRegion = { row: 1, column: 1, width: viewport.width, rows: [renderVersionRail(railText, viewport.width, options, color, PALETTE.rail)] };
@@ -453,13 +468,18 @@ function renderFramedShellPresentation(viewport: Viewport, data: ShellData, opti
   if (bounds.left && bounds.right) {
     const leftTree = data.leftTree.filter((row) => !row.panelHeader)
       .map((row) => ({ ...row, indent: Math.floor((row.indent ?? 0) / 2) }));
-    const leftBody = toLeftLines({ ...data, leftTree }, bounds.left.width - 4, bounds.left.height - 2, color);
+    const leftBody = toLeftLines({ ...data, leftTree }, bounds.left.width - 4, bounds.left.height - 2, color, options.leftScroll);
+    collectPanelTargets(options.hitTargets, bounds.left, [], "tasks");
+    collectPanelTargets(options.hitTargets, { ...bounds.left, column: bounds.left.column + 1, width: bounds.left.width - 2, row: bounds.left.row + 1, height: bounds.left.height - 2 }, leftBody, "tasks");
     const workspaceTitle = data.focusedRegion === "tasks"
       ? green("WORKSPACES", color, PALETTE.panelBg)
       : accent("WORKSPACES", color, PALETTE.panelBg);
     const leftRows = framePanel(leftBody, workspaceTitle, bounds.left, data.focusedRegion === "tasks", color, "left");
     left = { row: bounds.left.row, column: 1, width: bounds.left.width + 2, rows: leftRows.map((row) => `${blank}${row}${blank}`) };
-    const rightLines = toRightLines(data, bounds.right.width - 2, bounds.right.height - 1, color);
+    const rightLines = toRightLines(data, bounds.right.width - 2, bounds.right.height - 1, color, options.inspectorScroll);
+    collectPanelTargets(options.hitTargets, bounds.right, [], "inspector");
+    collectPanelTargets(options.hitTargets, { ...bounds.right, column: bounds.right.column + 1, width: bounds.right.width - 2, row: bounds.right.row + 1, height: bounds.right.height - 2 }, rightLines.slice(1), "inspector");
+    collectInspectorTabs(options.hitTargets, data, bounds.right.row, bounds.right.column + 3, bounds.right.width - 6);
     const title = renderLineContent(rightLines[0] ?? { text: "Inspector" }, color, PALETTE.panelBg).trim();
     const rightRows = framePanel(rightLines.slice(1), title, bounds.right, data.focusedRegion === "inspector" || data.focusedRegion === "actions", color, "right");
     right = { row: bounds.right.row, column: center.column + center.width, width: bounds.right.width + 2, rows: rightRows.map((row) => `${blank}${row}${blank}`) };
@@ -556,12 +576,15 @@ interface OverlayInput {
   versionText?: string | null;
   updateText?: string | null;
   panelPolish?: boolean;
+  hitTargets?: HitTarget[] | undefined;
 }
 
 function renderOverlayFrame(viewport: Viewport, input: OverlayInput): string {
   if (!input.panelPolish) return renderOverlayContent(viewport, input);
   const innerWidth = viewport.width - 4;
-  const content = renderOverlayContent({ width: innerWidth, height: viewport.height - 4 }, { ...input, versionText: null, updateText: null }).split("\n");
+  const innerTargets: HitTarget[] = [];
+  const content = renderOverlayContent({ width: innerWidth, height: viewport.height - 4 }, { ...input, hitTargets: innerTargets, versionText: null, updateText: null }).split("\n");
+  input.hitTargets?.push(...innerTargets.map((target) => ({ ...target, row: target.row + 2, column: target.column + 2 })));
   const border = { bg: PALETTE.overlay.bg, fg: PALETTE.accent.fg };
   const blank = fillSurface(" ", input.color, PALETTE.overlay);
   const side = fillSurface("│", input.color, border);
@@ -588,7 +611,8 @@ function renderOverlayContent(viewport: Viewport, input: OverlayInput): string {
   const startLine = Math.max(1, Math.floor((viewport.height - content.length) / 2));
 
   for (let index = 0; index < content.length; index += 1) {
-    const centered = centerText(content[index] ?? "", viewport.width);
+    const visibleContent = truncate(content[index] ?? "", viewport.width);
+    const centered = centerText(visibleContent, viewport.width);
 
     if (index < logo.length) {
       lines[startLine + index] = fillSurface(centered, input.color, PALETTE.overlayLogo);
@@ -602,6 +626,10 @@ function renderOverlayContent(viewport: Viewport, input: OverlayInput): string {
 
     const menuOffset = index - (logo.length + 3 + details.length);
     const isMenuItem = menuOffset >= 0 && menuOffset < input.menuItems.length;
+    if (isMenuItem && startLine + index < viewport.height) {
+      const itemWidth = stringWidth(visibleContent);
+      input.hitTargets?.push({ row: startLine + index + 1, column: Math.floor((viewport.width - itemWidth) / 2) + 1, width: itemWidth, height: 1, action: { kind: "menu", index: menuOffset } });
+    }
     const itemPalette = isMenuItem && menuOffset === input.menuIndex
       ? input.panelPolish ? { ...PALETTE.overlayMenuSelected, fg: PALETTE.success.fg } : PALETTE.overlayMenuSelected
       : PALETTE.overlay;
@@ -622,11 +650,13 @@ function renderVersionRail(left: string, width: number, versions: Pick<RenderOpt
   return fillSurface(`${pad(left, leftWidth)} ${styledNotice} `, color, palette);
 }
 
-function toLeftLines(data: ShellData, width: number, height: number, color: boolean): SurfaceLine[] {
+function toLeftLines(data: ShellData, width: number, height: number, color: boolean, scroll?: ListViewport): SurfaceLine[] {
   const runnerLine = renderRunnersCompact(data.runners);
   const reservedLines = 1; // runner line
-  const treeLines = data.leftTree.map((row) => renderTreeRow(row, width, color));
-  const fittedTree = fitLines(treeLines, height - reservedLines);
+  const treeLines = data.leftTree.map((row) => ({ ...renderTreeRow(row, width, color), ...(row.id && !row.panelHeader ? { pointer: { kind: "left" as const, id: row.id } } : {}) }));
+  const treeHeight = Math.max(0, height - reservedLines);
+  const start = scroll ? fitListViewport(scroll, data.leftTree, treeHeight) : 0;
+  const fittedTree = fitLines(treeLines.slice(start, start + treeHeight), treeHeight);
   return [
     ...fittedTree,
     runnerLine,
@@ -704,7 +734,7 @@ function renderTerminalRow(row: ShellData["terminal"]["rows"][number]): SurfaceL
   };
 }
 
-function toRightLines(data: ShellData, width: number, height: number, color: boolean): SurfaceLine[] {
+function toRightLines(data: ShellData, width: number, height: number, color: boolean, scroll?: ListViewport): SurfaceLine[] {
   const topSection = data.rightInspection
     ? renderInspectionSection(
         data.actionMessage
@@ -716,6 +746,7 @@ function toRightLines(data: ShellData, width: number, height: number, color: boo
             ]
           : data.rightInspection.rows,
         height,
+        data.rightInspection.rows[0]?.id === "inspection-mode" ? scroll : undefined,
       )
     : fitLines([
         { text: "CONTEXT" },
@@ -727,15 +758,15 @@ function toRightLines(data: ShellData, width: number, height: number, color: boo
   return fitLines(topSection, height);
 }
 
-function renderInspectionSection(rows: ShellInspectionRow[], height: number): SurfaceLine[] {
+function renderInspectionSection(rows: ShellInspectionRow[], height: number, scroll?: ListViewport): SurfaceLine[] {
   const modeRows = rows.slice(0, 2);
   const itemRows = rows.slice(2);
   const itemHeight = Math.max(0, height - modeRows.length);
   const selectedIndex = itemRows.findIndex((row) => row.focused || row.selected);
-  const start = selectedIndex === -1 ? 0 : clamp(selectedIndex - Math.floor(itemHeight / 2), 0, Math.max(0, itemRows.length - itemHeight));
+  const start = scroll ? fitListViewport(scroll, itemRows, itemHeight) : selectedIndex === -1 ? 0 : clamp(selectedIndex - Math.floor(itemHeight / 2), 0, Math.max(0, itemRows.length - itemHeight));
   return [
-    ...modeRows.map((row) => renderInspectionRow(row)),
-    ...itemRows.slice(start, start + itemHeight).map((row) => renderInspectionRow(row)),
+    ...modeRows.map((row) => ({ ...renderInspectionRow(row), pointer: { kind: "inspection" as const, id: row.id } })),
+    ...itemRows.slice(start, start + itemHeight).map((row) => ({ ...renderInspectionRow(row), pointer: { kind: "inspection" as const, id: row.id } })),
   ];
 }
 
@@ -1263,4 +1294,55 @@ function inlineColor(value: string, color: boolean, fg: string, base: PaletteCol
 
   const inlinePalette: PaletteColor = base.bg ? { fg, bg: base.bg } : { fg };
   return `${toAnsi(inlinePalette)}${value}${toAnsi(base)}`;
+}
+
+// Targets are emitted from the fitted lines that are actually painted, including
+// inspector windowing. Coordinates are terminal cells (one based).
+function collectPanelTargets(targets: HitTarget[] | undefined, bounds: PanelBounds, lines: SurfaceLine[], region: "tasks" | "center" | "inspector", hidden = false): void {
+  if (!targets || hidden) return;
+  targets.push({ ...bounds, action: { kind: "focus", region } });
+  lines.slice(0, bounds.height).forEach((line, index) => {
+    if (line.pointer) targets.push({ ...bounds, row: bounds.row + index, height: 1, action: line.pointer });
+  });
+}
+
+function collectCenterTargets(targets: HitTarget[] | undefined, data: ShellData, bounds: RenderedRegion, framed: boolean): void {
+  if (!targets) return;
+  let column = bounds.column + (framed ? 3 : 2);
+  const availableWidth = bounds.width - (framed ? 6 : 2);
+  const clipped = stringWidth(renderTabLine(data.tabs, false, false)) > availableWidth;
+  const end = bounds.column + bounds.width - (framed ? 3 : 0) - (clipped ? 1 : 0);
+  for (const tab of data.tabs) {
+    const width = stringWidth(tab.label) + (tab.activity ? 2 : 0);
+    if (column < end) targets.push({ row: bounds.row, column, width: Math.min(width, end - column), height: 1, action: { kind: "tab", id: tab.id } });
+    column += width + 3;
+  }
+  const offset = framed ? 2 : toCenterHeaderLines(data, bounds.width, false).length;
+  const height = bounds.rows.length - offset - (framed ? 1 : 0);
+  if (height > 0 && data.centerHeader.tabLabel !== "BROWSER" && isPtyTab(data.tabs.find((tab) => tab.active)?.id ?? "")) {
+    targets.push({ row: bounds.row + offset, column: bounds.column + (framed ? 1 : 0), width: bounds.width - (framed ? 2 : 0), height, action: { kind: "engage" } });
+  }
+}
+
+function collectInspectorTabs(targets: HitTarget[] | undefined, data: ShellData, row: number, column: number, width: number, hidden = false): void {
+  if (hidden || !data.rightInspection || !targets) return;
+  let offset = 0;
+  for (const tab of INSPECTION_MODE_TABS) {
+    const size = stringWidth(tab.label);
+    if (offset + size <= width) targets.push({ row, column: column + offset, width: size, height: 1, action: { kind: "mode", mode: tab.mode } });
+    offset += size + 2;
+  }
+}
+
+function fitListViewport(scroll: ListViewport, rows: Array<{ id?: string; selected?: boolean; focused?: boolean }>, height: number): number {
+  scroll.maxOffset = Math.max(0, rows.length - height);
+  const selected = rows.findIndex((row) => row.selected || (row.focused && row.id !== undefined));
+  const selectedId = rows[selected]?.id ?? null;
+  if (selectedId !== scroll.selectedId && selected >= 0) {
+    if (selected < scroll.offset) scroll.offset = selected;
+    else if (selected >= scroll.offset + height) scroll.offset = selected - height + 1;
+  }
+  scroll.selectedId = selectedId;
+  scroll.offset = clamp(scroll.offset, 0, scroll.maxOffset);
+  return scroll.offset;
 }

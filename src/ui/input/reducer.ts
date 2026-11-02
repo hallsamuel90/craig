@@ -1,3 +1,4 @@
+import type { PointerAction } from "./pointer.js";
 import { STABLE_RUNNER_IDS } from "../../domain/config/index.js";
 import type { RunnerType } from "../../domain/config/index.js";
 import type { TaskPtyTabKind } from "../../domain/task/index.js";
@@ -447,7 +448,7 @@ function updateFocus(state: ControlShellState, direction: -1 | 1): MainKeyResult
   return updateIndexedValue(state, "focusedRegion", NAVIGABLE_FOCUS_REGIONS, direction);
 }
 
-function moveTab(state: ControlShellState, direction: -1 | 1, centerTabIds: CenterTabId[] | undefined): MainKeyResult {
+function moveTab(state: ControlShellState, direction: number, centerTabIds: CenterTabId[] | undefined): MainKeyResult {
   const next = updateIndexedValue(
     state,
     "activeTab",
@@ -472,7 +473,7 @@ function moveTab(state: ControlShellState, direction: -1 | 1, centerTabIds: Cent
   };
 }
 
-function moveSelection(state: ControlShellState, direction: -1 | 1, options: ReduceMainKeyOptions): MainKeyResult {
+function moveSelection(state: ControlShellState, direction: number, options: ReduceMainKeyOptions): MainKeyResult {
   if (state.focusedRegion === "tasks") {
     return moveLeftSelection(state, direction, options.leftItemIds);
   }
@@ -508,7 +509,7 @@ function moveSelection(state: ControlShellState, direction: -1 | 1, options: Red
   return updateIndexedValue(state, "selectedActionId", ACTION_IDS, direction);
 }
 
-function moveLeftSelection(state: ControlShellState, direction: -1 | 1, leftItemIds: LeftNavItemId[]): MainKeyResult {
+function moveLeftSelection(state: ControlShellState, direction: number, leftItemIds: LeftNavItemId[]): MainKeyResult {
   const next = updateDynamicValue(state, "selectedLeftItemId", leftItemIds, direction);
   if (!next.changed) {
     return next;
@@ -928,4 +929,39 @@ function buildCenterTabIdsFromState(state: ControlShellState): CenterTabId[] {
 
 function clamp(value: number, min: number, max: number): number {
   return Math.min(max, Math.max(min, value));
+}
+
+// Reuse keyboard transitions, including their refresh and PTY selection effects.
+export function reducePointerAction(state: ControlShellState, action: PointerAction, options: ReduceMainKeyOptions): MainKeyResult {
+  const region = action.kind === "focus" ? action.region
+    : action.kind === "left" ? "tasks"
+    : action.kind === "tab" || action.kind === "engage" ? "center" : "inspector";
+  const controlled = { ...state, inputMode: "control" as const, focusedRegion: region as FocusRegion };
+  if (action.kind === "left") {
+    const current = Math.max(0, options.leftItemIds.indexOf(state.selectedLeftItemId ?? ""));
+    const target = options.leftItemIds.indexOf(action.id);
+    if (target !== -1) return { ...moveLeftSelection(controlled, target - current, options.leftItemIds), changed: true };
+  }
+  if (action.kind === "tab") {
+    const tabs = options.centerTabIds ?? [];
+    const target = tabs.indexOf(action.id);
+    if (target !== -1) return { ...moveTab(controlled, target - tabs.indexOf(state.activeTab), tabs), changed: true };
+  }
+  if (action.kind === "mode") return { ...setInspectionMode(controlled, action.mode), changed: true };
+  if (action.kind === "engage") return reduceMainKey(controlled, "ENTER", options);
+  if (action.kind === "inspection") {
+    const files = options.fileTreeRowIds ?? options.filePathIds ?? [];
+    if (controlled.inspectionMode === "files" && files.includes(action.id)) {
+      const current = files.indexOf(state.selectedFileTreePath ?? state.selectedFilePath ?? files[0] ?? "");
+      return { ...moveFileTreeSelection(controlled, files.indexOf(action.id) - Math.max(0, current), options), changed: true };
+    }
+    const project = action.id.startsWith("project-review:") ? action.id.slice("project-review:".length) : null;
+    if (project && options.projectTargetIds?.includes(project)) {
+      return { ...moveSelection(controlled, options.projectTargetIds.indexOf(project) - Math.max(0, options.projectTargetIds.indexOf(state.selectedProjectTargetId ?? "")), options), changed: true };
+    }
+    const diffPaths = options.diffPathIds ?? [];
+    const diff = diffPaths.includes(action.id) ? action.id : action.id.slice(action.id.indexOf(":") + 1);
+    if (diffPaths.includes(diff)) return { ...moveSelection(controlled, diffPaths.indexOf(diff) - Math.max(0, diffPaths.indexOf(state.selectedDiffPath ?? "")), options), changed: true };
+  }
+  return result({ state: controlled, changed: true });
 }

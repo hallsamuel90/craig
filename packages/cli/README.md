@@ -55,6 +55,13 @@ The Pi coding agent is available as an opt-in feature preview under Options &gt;
 
 The Agent file opening preview lets an attached agent run `craig file open <path>` to display any readable text file directly in the active Craig TUI.
 
+The **Mouse support** feature preview (Options > Feature Previews) is off by default and works independently of Panel polish. Click pane headers or content to focus, workspace/task rows and tabs to select, and agent/terminal content to engage its PTY. Clicking another pane returns control to Craig. Wheel scrolling follows the pointer without changing keyboard focus or PTY engagement. Start, pause, Options, and their runner/preview menus are clickable. Clicks stay in Craig; nested terminal applications do not receive them. Drag resizing, context menus, and hover effects are outside this preview.
+
+Mouse capture can interfere with terminal-native text selection and copy. No native selection/copy modifier has been manually verified for this preview, so there is no documented supported modifier escape hatch yet. For native selection, return to Craig with `Ctrl+]`, press `Esc`, and use the keyboard to disable Mouse support in Options > Feature Previews. Modified pointer reports are ignored by Craig, but whether a modifier bypasses reporting depends on the terminal. Automated tests cover cell coordinates and PTY routing, not physical mouse gestures or clipboard behavior in specific terminals.
+
+Pointer scrolling of a detached PTY requires a daemon running this version (protocol 11). An older compatible daemon continues to support attached-PTY scrolling; detached scrolling is ignored to avoid moving another session. Restart Craig's daemon when no running tasks need it to enable detached scrolling.
+
+
 ## Quick start
 
 Run `craig` in a full-screen terminal, then work through the TUI:

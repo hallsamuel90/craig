@@ -187,8 +187,8 @@ export class PtyRuntime {
     this.touchActivity(session);
   }
 
-  scrollViewport(lines: number): void {
-    const session = this.getAttachedSession();
+  scrollViewport(lines: number, tabId?: string): void {
+    const session = tabId ? this.sessions.get(tabId) : this.getAttachedSession();
     if (!session || lines === 0) {
       return;
     }

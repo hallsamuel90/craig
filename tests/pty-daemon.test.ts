@@ -1148,6 +1148,35 @@ steps:
     }
   }, DAEMON_TEST_TIMEOUT_MS);
 
+  test("scrolls a detached view by tab ID without redirecting attached input", async () => {
+    const root = await createWorkspace();
+    const paths = getCraigPaths(root);
+    const agent = createFakePty();
+    const terminal = createFakePty();
+    const daemon = servePtyDaemon(paths, { spawn: vi.fn().mockReturnValueOnce(agent).mockReturnValueOnce(terminal), pullRequestSync: false });
+    const client = await createDaemonPtyRuntime({ paths, workspaceRoot: root, resolveSessionSpec: () => ({ cwd: root, command: [] }) });
+    try {
+      await client.ensureSession("task_1", "task_1:agent", { columns: 20, rows: 3 });
+      agent.emitData("one\r\ntwo\r\nthree\r\nfour\r\nfive\r\n");
+      await client.ensureSession("task_1", "task_1:terminal", { columns: 20, rows: 3 });
+      client.setViewedTab("task_1:agent");
+      await vi.waitFor(() => expect(viewText(client.getViewState("task_1:agent"))).toContain("five"));
+      client.scrollViewport(-2, "task_1:agent");
+      await vi.waitFor(() => expect(client.getViewState("task_1:agent").scrolledBack).toBe(true));
+      client.writeKey("q");
+      await vi.waitFor(() => expect(terminal.writes).toContain("q"));
+      expect(agent.writes).not.toContain("q");
+      client.detach();
+      client.scrollViewport(2, "task_1:agent");
+      await vi.waitFor(() => expect(client.getViewState("task_1:agent").scrolledBack).toBe(false));
+    } finally {
+      client.disposeAll();
+      await requestDaemonShutdown(paths);
+      await daemon;
+      await rm(root, { recursive: true, force: true });
+    }
+  }, DAEMON_TEST_TIMEOUT_MS);
+
   test("pruneStale kills sessions not in the keep list and leaves kept sessions running", async () => {
     const root = await createWorkspace();
     const paths = getCraigPaths(root);

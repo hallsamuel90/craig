@@ -373,6 +373,27 @@ describe("PTY runtime", () => {
     );
   });
 
+  test("scrolls a pointed-at PTY without attaching it or redirecting keyboard input", async () => {
+    const first = createFakePty();
+    const second = createFakePty();
+    const runtime = new PtyRuntime({ workspaceRoot: "/tmp/craig", spawn: vi.fn().mockReturnValueOnce(first).mockReturnValueOnce(second) });
+    try {
+      runtime.ensureSession("a", "a:agent", { columns: 20, rows: 3 });
+      first.emitData("one\r\ntwo\r\nthree\r\nfour\r\nfive\r\n");
+      runtime.ensureSession("b", "b:agent", { columns: 20, rows: 3 });
+      await vi.waitFor(() => expect(runtime.getViewState("a:agent").rows.some((row) => row.segments.some((segment) => segment.text.includes("five")))).toBe(true));
+      runtime.scrollViewport(-2, "a:agent");
+      expect(runtime.getViewState("a:agent").scrolledBack).toBe(true);
+      expect(runtime.getViewState("b:agent").scrolledBack).toBe(false);
+      runtime.writeKey("q");
+      expect(second.writes).toContain("q");
+      expect(first.writes).not.toContain("q");
+      runtime.detach();
+      runtime.scrollViewport(2, "a:agent");
+      expect(runtime.getViewState("a:agent").scrolledBack).toBe(false);
+    } finally { runtime.disposeAll(); }
+  });
+
   test("scrolls the attached terminal viewport through scrollback", async () => {
     const fakePty = createFakePty();
     const runtime = new PtyRuntime({

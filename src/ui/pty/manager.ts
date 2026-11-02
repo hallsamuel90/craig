@@ -59,14 +59,14 @@ export async function warmSelectedPtyTab(ctx: AppContext, shell: ControlShellSta
 }
 
 export function syncInputCapture(ctx: AppContext): void {
-  const nextMode =
+  const nextMode = configService.previews.isEnabled(ctx.config, "mouseSupport") ? "mouse" :
     ctx.state.mode === "main" && ctx.state.shell.inputMode === "terminal" ? "terminal" : "control";
   if (nextMode === ctx.inputCaptureMode) {
     return;
   }
 
   ctx.inputCaptureMode = nextMode;
-  ctx.activeTerminal.grabInput(nextMode === "terminal" ? { mouse: "button" } : true);
+  ctx.activeTerminal.grabInput(nextMode === "terminal" || nextMode === "mouse" ? { mouse: "button" } : true);
 }
 
 export async function attachPtyFromShell(ctx: AppContext, shell: ControlShellState): Promise<void> {
@@ -192,7 +192,7 @@ async function ensureDefaultAgentTab(ctx: AppContext, task: TaskRecord): Promise
   return ensureAgentTab(task, buildActionContext(ctx));
 }
 
-export function scheduleTerminalViewportScroll(ctx: AppContext, lines: number): void {
+export function scheduleTerminalViewportScroll(ctx: AppContext, lines: number, tabId?: string): void {
   ctx.pendingScrollLines += lines;
 
   if (ctx.scrollRenderTimer) {
@@ -208,7 +208,8 @@ export function scheduleTerminalViewportScroll(ctx: AppContext, lines: number): 
       return;
     }
 
-    ctx.ptyRuntime.scrollViewport(linesToScroll);
+    if (tabId) ctx.ptyRuntime.scrollViewport(linesToScroll, tabId);
+    else ctx.ptyRuntime.scrollViewport(linesToScroll);
     ctx.state = { mode: "main", shell: withTerminalView(ctx, (ctx.state as { mode: "main"; shell: ControlShellState }).shell) };
     ctx.render();
   }, 16);

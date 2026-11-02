@@ -1,3 +1,5 @@
+import type { ListViewport } from "./layout.js";
+import type { HitTarget } from "./input/pointer.js";
 import type { FuryPlansView } from "./shell/fury-plans.js";
 import type { CraigConfig, RunnerType } from "../domain/config/index.js";
 import type { CraigUiRuntime } from "../state/ui-runtime.js";
@@ -59,7 +61,7 @@ export interface PtyRuntimePort {
   pruneStale?(...args: [string[]]): void | Promise<void>;
   write(...args: [string]): void;
   writeKey(...args: [string]): void;
-  scrollViewport(...args: [number]): void;
+  scrollViewport(...args: [number, string?]): void;
   resize(...args: [PtySize]): void;
   detach(): void;
   disposeSession(...args: [string]): void;
@@ -75,6 +77,9 @@ export interface PtyRuntimePort {
 /* eslint-enable no-unused-vars */
 
 export type AppContext = {
+  pointerTargets?: HitTarget[];
+  pointerLeftScroll?: ListViewport;
+  pointerInspectorScroll?: ListViewport;
   // Mutable state — mutated in place: ctx.state = ..., ctx.model = ..., etc.
   state: AppState;
   model: WorkspaceShellModel;
@@ -99,7 +104,7 @@ export type AppContext = {
   updateText: string | null;
   inspectionRefreshSequence: number;
   pendingClear: boolean;
-  inputCaptureMode: "control" | "terminal" | null;
+  inputCaptureMode: "control" | "terminal" | "mouse" | null;
   runtimeState: CraigUiRuntime | null;
   persistQueue: Promise<void>;
   taskMutationQueue: Promise<void>;

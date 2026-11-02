@@ -40,7 +40,7 @@ type DaemonRequest =
   | { id: number; type: "pruneStale"; keepTabIds: string[] }
   | { id: number; type: "write"; input: string }
   | { id: number; type: "writeKey"; key: string }
-  | { id: number; type: "scrollViewport"; lines: number }
+  | { id: number; type: "scrollViewport"; lines: number; tabId?: string }
   | { id: number; type: "resize"; size: PtySize }
   | { id: number; type: "detach" }
   | { id: number; type: "disposeSession"; tabId: string }
@@ -296,9 +296,12 @@ export class DaemonPtyRuntimeClient {
     void this.send({ type: "writeKey", key }).catch(() => undefined);
   }
 
-  scrollViewport(lines: number): void {
-    const tabId = this.attachedTabId;
-    void this.send({ type: "scrollViewport", lines }).then((response) => {
+  scrollViewport(lines: number, targetTabId?: string): void {
+    const tabId = targetTabId ?? this.attachedTabId;
+    // Older daemons can scroll only their attached PTY. Do not scroll the wrong
+    // session when a newer client points at a different, detached view.
+    if (targetTabId && this.protocolVersion < 11 && targetTabId !== this.attachedTabId) return;
+    void this.send({ type: "scrollViewport", lines, ...(targetTabId ? { tabId: targetTabId } : {}) }).then((response) => {
       if (tabId && response.view) {
         this.viewCache.set(tabId, response.view);
         this.notifyFullUpdate(tabId);
@@ -815,8 +818,8 @@ class PtyDaemonServer {
         this.runtime.writeKey(request.key);
         return null;
       case "scrollViewport":
-        this.runtime.scrollViewport(request.lines);
-        return this.runtime.getViewState(this.attachedTabId);
+        this.runtime.scrollViewport(request.lines, request.tabId);
+        return this.runtime.getViewState(request.tabId ?? this.attachedTabId);
       case "resize":
         this.runtime.resize(request.size);
         return this.runtime.getViewState(this.attachedTabId);
