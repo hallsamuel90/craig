@@ -12,6 +12,7 @@ export async function withTaskLock<T>(
   paths: CraigPaths,
   taskId: string,
   operation: () => Promise<T>,
+  options: { timeoutMs?: number } = {},
 ): Promise<T> {
   const locksDir = path.join(paths.runtimeDir, "task-locks");
   const lockPath = path.join(locksDir, `${taskId}.lock`);
@@ -39,7 +40,7 @@ export async function withTaskLock<T>(
       if (await removeStaleLock(lockPath)) {
         continue;
       }
-      if (Date.now() - startedAt >= LOCK_TIMEOUT_MS) {
+      if (Date.now() - startedAt >= (options.timeoutMs ?? LOCK_TIMEOUT_MS)) {
         throw new CraigError(
           "OPERATION_TIMEOUT",
           `Timed out waiting to update task ${taskId}.`,

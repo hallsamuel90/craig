@@ -7,9 +7,11 @@ import { atomicWriteJson } from "../../../shared/atomic-write.js";
 import { CraigError } from "../../error/index.js";
 import { mutateTask, taskService, type TaskRecord } from "../../task/index.js";
 import type { CraigActor } from "../types.js";
-import type { AgentCapabilityRecord, DelegationCommandFamily } from "./types.js";
+import { withTaskLock } from "../../task/adapters/task-lock.js";
+import type { AgentCapabilitySession, AgentCapabilityRecord, DelegationCommandFamily } from "./types.js";
 
 const CAPABILITY_TTL_MS = 7 * 24 * 60 * 60 * 1_000;
+const CAPABILITY_REFRESH_WINDOW_MS = 24 * 60 * 60 * 1_000;
 const DEFAULT_LIMITS = {
   maxChildren: 8,
   maxDepth: 4,
@@ -45,7 +47,7 @@ export async function ensureTaskCapabilities(
     }
     const persisted = existing ?? await createCapability(paths, capabilityId, current.id, tab.id, issuedBy);
     persistedToken = persisted.token;
-    if (tab.capabilityId) return current;
+    if (tab.capabilityId === capabilityId) return current;
     return {
       ...current,
       ptyTabs: current.ptyTabs.map((candidate) => candidate.id === tab.id
@@ -82,6 +84,54 @@ async function createCapability(
   };
   await atomicWriteJson(capabilityPath(paths, record.id), record, { mode: 0o600 });
   return record;
+}
+
+export async function isAgentCapabilityRefreshDue(paths: CraigPaths, session: AgentCapabilitySession): Promise<boolean> {
+  const record = await readSessionCapability(paths, session);
+  return record !== null && needsRefresh(record);
+}
+
+// Callers must establish trusted session startup or daemon-confirmed liveness;
+// possession of a token alone must not bypass expiry or revocation.
+export async function refreshAgentCapability(paths: CraigPaths, session: AgentCapabilitySession): Promise<void> {
+  const existing = await readSessionCapability(paths, session);
+  if (!existing || !needsRefresh(existing)) return;
+  const id = existing.id;
+  await withTaskLock(paths, session.taskId, async () => {
+    const task = await taskService.getTask(paths, session.taskId).catch((error: unknown) => {
+      if (error instanceof CraigError && error.code === "TASK_NOT_FOUND") return null;
+      throw error;
+    });
+    if (!task || task.status === "closed") return;
+    const tab = task.ptyTabs.find((candidate) => candidate.id === session.agentTabId && candidate.kind === "agent");
+    if (tab?.capabilityId !== id) return;
+    const record = await readCapabilityIfExists(paths, id);
+    if (matchesSession(record, session)) await renewCapability(paths, record);
+  }, { timeoutMs: 1_000 });
+}
+
+async function readSessionCapability(paths: CraigPaths, session: AgentCapabilitySession): Promise<AgentCapabilityRecord | null> {
+  const id = session.capabilityToken.split(".")[0]!;
+  if (!/^capability_[A-Za-z0-9-]+$/.test(id)) return null;
+  const record = await readCapabilityIfExists(paths, id);
+  return matchesSession(record, session) ? record : null;
+}
+
+function matchesSession(record: AgentCapabilityRecord | null, session: AgentCapabilitySession): record is AgentCapabilityRecord {
+  if (!record || record.revokedAt || record.taskId !== session.taskId || record.agentTabId !== session.agentTabId) return false;
+  const expected = Buffer.from(record.token);
+  const supplied = Buffer.from(session.capabilityToken);
+  return expected.length === supplied.length && timingSafeEqual(expected, supplied);
+}
+
+const needsRefresh = (record: AgentCapabilityRecord): boolean =>
+  !record.revokedAt && Date.parse(record.expiresAt) <= Date.now() + CAPABILITY_REFRESH_WINDOW_MS;
+
+async function renewCapability(paths: CraigPaths, record: AgentCapabilityRecord): Promise<AgentCapabilityRecord> {
+  if (!needsRefresh(record)) return record;
+  const renewed = { ...record, expiresAt: new Date(Date.now() + CAPABILITY_TTL_MS).toISOString() };
+  await atomicWriteJson(capabilityPath(paths, record.id), renewed, { mode: 0o600 });
+  return renewed;
 }
 
 export async function authorizeCapability(
@@ -122,12 +172,15 @@ async function isTaskInSubtree(paths: CraigPaths, ownerTaskId: string, targetTas
 export async function revokeCapability(paths: CraigPaths, capabilityId: string, actor: CraigActor): Promise<void> {
   const record = await readCapabilityIfExists(paths, capabilityId);
   if (!record) return;
-  if (record.revokedAt) return;
-  await atomicWriteJson(capabilityPath(paths, capabilityId), {
-    ...record,
-    revokedAt: new Date().toISOString(),
-    revokedBy: actor,
-  }, { mode: 0o600 });
+  await withTaskLock(paths, record.taskId, async () => {
+    const current = await readCapabilityIfExists(paths, capabilityId);
+    if (!current || current.revokedAt) return;
+    await atomicWriteJson(capabilityPath(paths, capabilityId), {
+      ...current,
+      revokedAt: new Date().toISOString(),
+      revokedBy: actor,
+    }, { mode: 0o600 });
+  });
 }
 
 export async function revokeTaskCapabilities(paths: CraigPaths, taskIds: Set<string>, actor: CraigActor): Promise<string[]> {
@@ -201,7 +254,10 @@ function isActor(value: unknown): boolean {
 }
 
 function denied(capabilityId: string, reason: string): never {
-  throw new CraigError("CAPABILITY_DENIED", `Craig capability ${capabilityId} was denied: ${reason}.`, {
+  const recovery = reason === "expired"
+    ? " Craig's daemon refreshes active sessions automatically. Restart the agent tab if its session is no longer running."
+    : "";
+  throw new CraigError("CAPABILITY_DENIED", `Craig capability ${capabilityId} was denied: ${reason}.${recovery}`, {
     details: { capabilityId, reason },
   });
 }

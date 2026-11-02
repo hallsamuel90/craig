@@ -51,6 +51,13 @@ craig task wait &lt;task-id&gt; --state ready,error --timeout 10m --json</code><
       Agents cannot approve human-review checkpoints. After enabling the preview, create or restart an agent tab
       so its PTY receives a capability.
     </p>
+    <p>
+      Capabilities last seven days. While an agent session is running, Craig's daemon automatically extends
+      its expiry before it runs out, even with the TUI disconnected. No tab restart is needed for routine
+      renewal. Exited sessions stop refreshing, and revoked capabilities stay denied.
+      Agent commands also check for renewal on demand after a long sleep or when connected to an older
+      compatible daemon, without restarting its sessions.
+    </p>
     <pre><code>craig task create-child --parent &lt;task-id&gt; --runner codex "Investigate the failing test" --json
 craig task children &lt;task-id&gt; --json
 craig task cancel-tree &lt;task-id&gt; --json</code></pre>

@@ -14,17 +14,142 @@ import { ensureCraigState } from "../src/domain/workspace/workspaces/ensure.js";
 import { configService } from "../src/domain/config/index.js";
 import { taskService } from "../src/domain/task/index.js";
 import { appendTaskId } from "../src/domain/task/adapters/task-store.js";
-import { ensureTaskCapabilities, mutateFuryRun, readFuryRun, promptCommandService, readAllEvents } from "../src/domain/orchestration/index.js";
+import { authorizeCapability, ensureTaskCapabilities, mutateFuryRun, readFuryRun, promptCommandService, readAllEvents } from "../src/domain/orchestration/index.js";
 import { approvePlan, createPlan, runFury } from "../src/shell/fury-runtime.js";
 import { watchWorkspaceEvents } from "../src/shell/events.js";
 import { disposeDaemonSessions, wakeOrchestrationSupervisor } from "../src/shell/pty-daemon-orchestration.js";
 import { requestOpenFile } from "../src/shell/ui-navigation.js";
+import { refreshLiveAgentCapability } from "../src/shell/refresh-agent-capability.js";
+import * as capabilities from "../src/domain/orchestration/delegation/capabilities.js";
 import { runCommand } from "../src/shared/exec.js";
 import { createCraigState, createGitRepo, createStubCommands, writeRepoRecord, writeTaskRecord } from "./test-helpers.js";
 
 const DAEMON_TEST_TIMEOUT_MS = 15000;
 
 describe("PTY daemon", () => {
+  test("an optional startup refresh failure does not prevent spawning an agent", async () => {
+    const root = await mkdtemp(join(tmpdir(), "craig-refresh-startup-failure-"));
+    const paths = await createCraigState(root, ["task_1"]);
+    const task = await writeTaskRecord(root, { id: "task_1" });
+    const environment = await ensureTaskCapabilities(paths, task);
+    const spawn = vi.fn(() => createFakePty());
+    const refresh = vi.spyOn(capabilities, "refreshAgentCapability").mockRejectedValueOnce(new Error("Storage unavailable"));
+    const daemon = servePtyDaemon(paths, { spawn, pullRequestSync: false });
+    try {
+      const client = await createDaemonPtyRuntime({
+        paths, workspaceRoot: root,
+        resolveSessionSpec: () => ({ cwd: root, command: ["/bin/sh"], env: environment }),
+      });
+      try {
+        const view = await client.ensureSession(task.id, task.ptyTabs[0]!.id, { columns: 80, rows: 24 });
+        expect(view.status).toBe("running");
+        expect(spawn).toHaveBeenCalledOnce();
+        expect(refresh).toHaveBeenCalledOnce();
+      } finally {
+        client.disposeAll();
+      }
+    } finally {
+      refresh.mockRestore();
+      await requestDaemonShutdown(paths);
+      await daemon;
+      await rm(root, { recursive: true, force: true });
+    }
+  }, DAEMON_TEST_TIMEOUT_MS);
+
+  test("on-demand refresh does not trust stale running activity after an unobserved process exit", async () => {
+    const root = await mkdtemp(join(tmpdir(), "craig-refresh-stale-activity-"));
+    const paths = await createCraigState(root, ["task_1"]);
+    const task = await writeTaskRecord(root, { id: "task_1" });
+    const environment = await ensureTaskCapabilities(paths, task);
+    const token = environment.CRAIG_AGENT_CAPABILITY!;
+    const file = join(paths.orchestrationDir, "capabilities", `${token.split(".")[0]}.json`);
+    const agent = createFakePty();
+    const daemon = servePtyDaemon(paths, { spawn: vi.fn(() => agent), pullRequestSync: false });
+    try {
+      const client = await createDaemonPtyRuntime({
+        paths, workspaceRoot: root, activityEnabled: true,
+        resolveSessionSpec: () => ({ cwd: root, command: ["/bin/sh"], env: environment }),
+      });
+      try {
+        await client.ensureSession(task.id, task.ptyTabs[0]!.id, { columns: 80, rows: 24 });
+        client.setActivityEnabled(false);
+        await client.ready(); // Wait for the daemon to disable observation.
+        agent.emitExit(0);
+        const record = JSON.parse(await readFile(file, "utf8"));
+        const expired = { ...record, expiresAt: "2020-01-01T00:00:00.000Z" };
+        await writeFile(file, JSON.stringify(expired));
+        await refreshLiveAgentCapability(paths, {
+          taskId: task.id, agentTabId: task.ptyTabs[0]!.id, capabilityToken: token,
+        });
+        expect(JSON.parse(await readFile(file, "utf8"))).toEqual(expired);
+        await expect(authorizeCapability(paths, token, "task.children", task.id))
+          .rejects.toMatchObject({ code: "CAPABILITY_DENIED", details: { reason: "expired" } });
+      } finally {
+        client.disposeAll();
+      }
+    } finally {
+      await requestDaemonShutdown(paths);
+      await daemon;
+      await rm(root, { recursive: true, force: true });
+    }
+  }, DAEMON_TEST_TIMEOUT_MS);
+
+  test("automatically refreshes a detached live agent's token beyond seven days without respawning", async () => {
+    const root = await mkdtemp(join(tmpdir(), "craig-capability-refresh-"));
+    const paths = await createCraigState(root, ["task_1"]);
+    const task = await writeTaskRecord(root, { id: "task_1", status: "running" });
+    await configService.save(paths, { previews: { agentOrchestration: true } });
+    const environment = await ensureTaskCapabilities(paths, task);
+    const token = environment.CRAIG_AGENT_CAPABILITY!;
+    const id = token.split(".")[0]!;
+    const file = join(paths.orchestrationDir, "capabilities", `${id}.json`);
+    const original = JSON.parse(await readFile(file, "utf8"));
+    let clock = Date.now();
+    const now = vi.spyOn(Date, "now").mockImplementation(() => clock);
+    const agentPty = createFakePty();
+    const spawn = vi.fn(() => agentPty);
+    const daemon = servePtyDaemon(paths, {
+      shell: "/bin/zsh", env: { TERM: "xterm-256color" }, spawn, pullRequestSync: false,
+    });
+    try {
+      const client = await createDaemonPtyRuntime({
+        paths, workspaceRoot: root,
+        resolveSessionSpec: () => ({ cwd: root, command: ["/bin/sh"], env: environment }),
+      });
+      await client.ensureSession(task.id, task.ptyTabs[0]!.id, { columns: 80, rows: 24 });
+      client.disposeAll(); // The daemon must refresh even without a connected TUI.
+
+      clock += 6.5 * 24 * 60 * 60 * 1_000;
+      await vi.waitFor(async () => {
+        expect(Date.parse(JSON.parse(await readFile(file, "utf8")).expiresAt))
+          .toBeGreaterThanOrEqual(clock + 7 * 24 * 60 * 60 * 1_000);
+      });
+      // Also recover after a machine sleep spans the previous expiry.
+      clock += 8 * 24 * 60 * 60 * 1_000;
+      await vi.waitFor(async () => {
+        expect(Date.parse(JSON.parse(await readFile(file, "utf8")).expiresAt))
+          .toBeGreaterThanOrEqual(clock + 7 * 24 * 60 * 60 * 1_000);
+      });
+      await expect(authorizeCapability(paths, token, "task.children", task.id))
+        .resolves.toMatchObject({ actor: { capabilityId: id } });
+      const refreshed = JSON.parse(await readFile(file, "utf8"));
+      expect(refreshed).toEqual({ ...original, expiresAt: refreshed.expiresAt });
+      expect(spawn).toHaveBeenCalledOnce();
+
+      agentPty.emitExit(0);
+      clock += 8 * 24 * 60 * 60 * 1_000;
+      await new Promise((resolve) => setTimeout(resolve, 600));
+      expect(JSON.parse(await readFile(file, "utf8"))).toEqual(refreshed);
+      await expect(authorizeCapability(paths, token, "task.children", task.id))
+        .rejects.toMatchObject({ code: "CAPABILITY_DENIED", details: { reason: "expired" } });
+    } finally {
+      await requestDaemonShutdown(paths);
+      await daemon;
+      now.mockRestore();
+      await rm(root, { recursive: true, force: true });
+    }
+  }, DAEMON_TEST_TIMEOUT_MS);
+
   test("delivers prompts after a newer CLI adds an unknown preview to the running daemon's config", async () => {
     const root = await mkdtemp(join(tmpdir(), "craig-daemon-future-preview-"));
     const paths = await createCraigState(root, ["task_1"]);

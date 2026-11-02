@@ -13,6 +13,7 @@ import {
 import { requireExecutablePath, withDefaultCommandPath } from "../../shared/command-path.js";
 import type { PtyActivitySnapshot } from "../../domain/agent/index.js";
 import type { RunnerType } from "../../domain/config/index.js";
+import type { AgentCapabilitySession } from "../../domain/orchestration/index.js";
 import { findRunnerStartupBlocker } from "../../shell/prompt-delivery.js";
 
 export interface PtySize {
@@ -45,6 +46,7 @@ export interface PtyRuntimeOptions {
 /* eslint-enable no-unused-vars */
 
 interface PtySession {
+  capabilityToken: string | undefined;
   taskId: string;
   tabId: string;
   pty: NodePty.IPty;
@@ -144,6 +146,13 @@ export class PtyRuntime {
     this.notifyActivity(session);
     this.attachedTabId = tabId;
     return this.getViewState(tabId);
+  }
+
+  getRunningAgentCapabilities(): AgentCapabilitySession[] {
+    return [...this.sessions.values()].flatMap((session) =>
+      session.status === "running" && session.capabilityToken
+        ? [{ taskId: session.taskId, agentTabId: session.tabId, capabilityToken: session.capabilityToken }]
+        : []);
   }
 
   write(input: string): void {
@@ -287,6 +296,7 @@ export class PtyRuntime {
       env: toPtyEnv(env),
     });
     const session: PtySession = {
+      capabilityToken: spec.env?.CRAIG_AGENT_CAPABILITY,
       taskId,
       tabId,
       pty,

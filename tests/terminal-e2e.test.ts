@@ -16,6 +16,7 @@ import { createPlan } from "../src/shell/fury-runtime.js";
 import { readFuryApproval, listFuryRuns } from "../src/domain/orchestration/index.js";
 import { taskService } from "../src/domain/task/index.js";
 import { createChildTaskAndSession } from "../src/shell/delegation.js";
+import { ensureTaskCapabilities } from "../src/domain/orchestration/index.js";
 
 function withoutAgentContext(): Record<string, string | undefined> {
   const environment = { ...process.env };
@@ -157,11 +158,15 @@ steps:
     }
   }, 15000);
 
-  test.each([false, true])("incremental center rendering starts Codex in the selected task worktree with panel polish %s", async (panelPolish) => {
+  test.each([
+    { panelPolish: false, expiredCapability: false },
+    { panelPolish: true, expiredCapability: false },
+    { panelPolish: false, expiredCapability: true },
+  ])("incremental center rendering starts Codex in the selected task worktree (panel polish: $panelPolish, expired capability: $expiredCapability)", async ({ panelPolish, expiredCapability }) => {
     const repoRoot = process.cwd();
     const workspaceRoot = await mkdtemp(join(tmpdir(), "craig-terminal-e2e-")).then((value) => realpath(value));
     await createCraigState(workspaceRoot, ["task_20260430_02"]);
-    await configService.save(getCraigPaths(workspaceRoot), { previews: { panelPolish } });
+    await configService.save(getCraigPaths(workspaceRoot), { previews: { panelPolish, agentOrchestration: expiredCapability } });
     const sourceRepo = join(workspaceRoot, "repo-a");
     await mkdir(sourceRepo, { recursive: true });
     await createGitRepo(sourceRepo);
@@ -198,6 +203,15 @@ steps:
       worktreePath: taskWorktree,
       selectedPtyTabId: "task_20260430_02:agent",
     });
+    if (expiredCapability) {
+      const paths = getCraigPaths(workspaceRoot);
+      const task = await taskService.getTask(paths, "task_20260430_02");
+      const environment = await ensureTaskCapabilities(paths, task);
+      const id = environment.CRAIG_AGENT_CAPABILITY!.split(".")[0]!;
+      const file = join(paths.orchestrationDir, "capabilities", `${id}.json`);
+      const record = JSON.parse(await readFile(file, "utf8"));
+      await writeFile(file, JSON.stringify({ ...record, expiresAt: "2020-01-01T00:00:00.000Z" }));
+    }
     const codexStubDir = await createCodexHarnessStub(workspaceRoot);
     await writeAgentUiState(workspaceRoot);
     const output = new PtyOutputBuffer();
@@ -232,6 +246,7 @@ steps:
       expect(frame).toContain("48;2;42;42;42");
       expect(frame).toContain("codex_stub_task_dir:task_20260430_02");
       expect(frame).toContain("codex_embedded_flags:yes");
+      if (expiredCapability) expect(frame).toContain("codex_stub_capability_valid:yes");
       expect(frame).toContain("\x1b]8;;http://127.0.0.1:4325/\x1b\\Open preview");
 
       child.write("craig_scroll_probe\r");
@@ -858,6 +873,14 @@ const maybeAdvance = () => {
       const fs = require("node:fs");
       const current = Number(fs.existsSync(process.env.CODEX_STUB_LAUNCH_FILE) ? fs.readFileSync(process.env.CODEX_STUB_LAUNCH_FILE, "utf8") : "0");
       fs.writeFileSync(process.env.CODEX_STUB_LAUNCH_FILE, String(current + 1));
+    }
+    if (process.env.CRAIG_AGENT_CAPABILITY) {
+      const fs = require("node:fs");
+      const token = process.env.CRAIG_AGENT_CAPABILITY;
+      const id = token.split(".")[0];
+      const record = JSON.parse(fs.readFileSync(process.env.CRAIG_WORKSPACE_ROOT + "/.craig/orchestration/capabilities/" + id + ".json", "utf8"));
+      const valid = record.token === token && !record.revokedAt && Date.parse(record.expiresAt) > Date.now();
+      process.stdout.write("codex_stub_capability_valid:" + (valid ? "yes" : "no") + "\\n");
     }
     process.stdout.write("codex_stub_started\\n");
     process.stdout.write(\`codex_stub_cwd:\${process.cwd()}\\n\`);

@@ -8,7 +8,7 @@ import type { TerminalScreenRow } from "../terminal-emulator.js";
 import type { PtyActivitySnapshot } from "../../domain/agent/index.js";
 import { configService } from "../../domain/config/index.js";
 import { errorService } from "../../domain/error/index.js";
-import { listFuryRuns, listPromptCommands } from "../../domain/orchestration/index.js";
+import { listFuryRuns, listPromptCommands, refreshAgentCapability } from "../../domain/orchestration/index.js";
 import {
   getPtyDaemonEndpoint,
   isCompatiblePtyDaemonProtocol,
@@ -778,6 +778,20 @@ class PtyDaemonServer {
       case "ensureSession":
         {
           const existed = this.runtime.hasRunningSession(request.tabId);
+          const capabilityToken = request.spec.env?.CRAIG_AGENT_CAPABILITY;
+          if (!existed && capabilityToken) {
+            try {
+              await refreshAgentCapability(this.paths, {
+                taskId: request.taskId, agentTabId: request.tabId, capabilityToken,
+              });
+            } catch {
+              this.log({
+                level: "warn", component: "orchestration", event: "capability.refresh.failed",
+                message: "Could not refresh capability before launch; normal authorization still applies.",
+                taskId: request.taskId, tabId: request.tabId,
+              });
+            }
+          }
           const view = this.runtime.ensureSession(request.taskId, request.tabId, request.size, request.spec);
           if (!existed) {
             this.log({

@@ -5,6 +5,7 @@ import { formatJsonError, formatJsonSuccess } from "./format-json.js";
 import { hasJsonOutputFlag, parseArgv } from "./parse-argv.js";
 import { CraigError, toCraigError } from "../domain/error/index.js";
 import { resolveCliContext } from "../shell/context.js";
+import { refreshLiveAgentCapability } from "../shell/refresh-agent-capability.js";
 
 export interface RunCliOptions {
   argv: string[];
@@ -109,6 +110,13 @@ export async function runCli(options: RunCliOptions): Promise<number> {
       resolveTask: taskResolution !== "none",
       requireTask: taskResolution === "required",
     });
+    if (options.env.CRAIG_TASK_ID && options.env.CRAIG_AGENT_TAB_ID && options.env.CRAIG_AGENT_CAPABILITY) {
+      await refreshLiveAgentCapability(context.paths, {
+        taskId: options.env.CRAIG_TASK_ID,
+        agentTabId: options.env.CRAIG_AGENT_TAB_ID,
+        capabilityToken: options.env.CRAIG_AGENT_CAPABILITY,
+      });
+    }
     const cancellation = createCommandCancellation(command, options.signal);
     let result: Awaited<ReturnType<typeof executeCommand>>;
     try {
