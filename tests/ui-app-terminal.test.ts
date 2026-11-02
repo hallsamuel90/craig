@@ -81,6 +81,41 @@ describe("terminal app PTY attach flow", () => {
     await expect(app).resolves.toBe(0);
   });
 
+  test.each([false, true])("pause shares the splash summary and refreshes activity with panel polish %s", async (panelPolish) => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    const root = await mkdtemp(join(tmpdir(), "craig-ui-pause-"));
+    tempRoots.push(root);
+    const paths = await setupWorkspace(root);
+    await configService.save(paths, { previews: { panelPolish } });
+    const terminal = new FakeTerminal();
+    const activitySnapshots: PtyActivitySnapshot[] = [{
+      taskId: "task_20260430_02", tabId: "task_20260430_02:agent",
+      sessionState: "running", lastActivityAt: Date.now(), exitCode: null, error: null,
+    }];
+    const ptyRuntime = new FakePtyRuntime({ activitySnapshots });
+    const app = startTerminalApp({ terminal, ptyRuntime, uiStateFile: paths.uiStateFile, workspaceRoot: root, checkForUpdate: async () => ({ current: "0.19.6", latest: null, updateAvailable: false }) });
+    await vi.waitFor(() => expect(terminal.hasKeyListener()).toBe(true));
+    if (panelPolish) await vi.waitFor(() => expect(stripAnsi(terminal.frames.join(""))).toContain("1 agent working"));
+    terminal.emitKey("ENTER");
+    terminal.frames.length = 0;
+    terminal.emitKey("ESCAPE");
+    await vi.waitFor(() => expect(stripAnsi(terminal.frames.join(""))).toContain(panelPolish ? "> Resume workspace" : "> Resume"));
+    const paused = stripAnsi(terminal.frames.join(""));
+    if (panelPolish) {
+      expect(paused).toContain("A workspace for your coding agents.");
+      expect(paused).toContain("1 workspace · 1 open task · 1 agent working");
+      terminal.frames.length = 0;
+      await vi.advanceTimersByTimeAsync(10_000);
+      await vi.waitFor(() => expect(stripAnsi(terminal.frames.join(""))).toContain("1 workspace · 1 open task · 1 ready"));
+    } else {
+      expect(paused).toContain("Control mode is paused.");
+      expect(paused).not.toContain("open task");
+    }
+    terminal.emitKey("ENTER");
+    terminal.emitKey("q");
+    await expect(app).resolves.toBe(0);
+  });
+
   test("offers and installs an available Craig update before entering the shell", async () => {
     const root = await mkdtemp(join(tmpdir(), "craig-ui-app-update-"));
     tempRoots.push(root);
@@ -162,7 +197,7 @@ describe("terminal app PTY attach flow", () => {
     expect(terminal.frames.join("")).not.toContain("Ignore this version");
     terminal.frames.length = 0;
     terminal.emitKey("ESCAPE");
-    await vi.waitFor(() => expect(stripAnsi(terminal.frames.join(""))).toContain("Control mode is paused."));
+    await vi.waitFor(() => expect(stripAnsi(terminal.frames.join(""))).toContain(panelPolish ? "A workspace for your coding agents." : "Control mode is paused."));
     expect(stripAnsi(terminal.frames.join(""))).toContain(`v${configService.version.getCurrent()} → v0.20.0 available`);
     terminal.frames.length = 0;
     terminal.emitKey("ESCAPE");
