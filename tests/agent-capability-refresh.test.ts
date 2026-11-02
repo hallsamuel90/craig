@@ -7,6 +7,7 @@ import { runCli } from "../src/commands/run.js";
 import { configService } from "../src/domain/config/index.js";
 import { ensureTaskCapabilities, revokeCapability } from "../src/domain/orchestration/index.js";
 import * as capabilities from "../src/domain/orchestration/delegation/capabilities.js";
+import { withTaskLock } from "../src/domain/task/adapters/task-lock.js";
 import { getPtyDaemonEndpoint } from "../src/shell/pty-daemon-protocol.js";
 import { createCraigState, createRepoRoot, writeTaskRecord } from "./test-helpers.js";
 
@@ -146,6 +147,16 @@ describe("agent capability refresh before CLI authorization", () => {
     const refresh = vi.spyOn(capabilities, "refreshAgentCapability").mockRejectedValueOnce(new Error("Storage unavailable"));
     expect((await fixture.run()).exitCode).toBe(0);
     expect(refresh).toHaveBeenCalledOnce();
+    expect(JSON.parse(await readFile(fixture.file, "utf8"))).toEqual(expiring);
+  });
+
+  test("an occupied task lock cannot hold a valid command behind a long task mutation", async () => {
+    const fixture = await setup();
+    const expiring = { ...fixture.record, expiresAt: new Date(Date.now() + 60_000).toISOString() };
+    await writeFile(fixture.file, JSON.stringify(expiring));
+    await withTaskLock(fixture.paths, "task_1", async () => {
+      expect((await fixture.run()).exitCode).toBe(0);
+    });
     expect(JSON.parse(await readFile(fixture.file, "utf8"))).toEqual(expiring);
   });
 });

@@ -107,7 +107,7 @@ export async function refreshAgentCapability(paths: CraigPaths, session: AgentCa
     if (tab?.capabilityId !== id) return;
     const record = await readCapabilityIfExists(paths, id);
     if (matchesSession(record, session)) await renewCapability(paths, record);
-  });
+  }, { timeoutMs: 1_000 });
 }
 
 async function readSessionCapability(paths: CraigPaths, session: AgentCapabilitySession): Promise<AgentCapabilityRecord | null> {
