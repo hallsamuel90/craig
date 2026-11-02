@@ -224,6 +224,10 @@ export async function startTerminalApp(options: TerminalAppOptions = {}): Promis
     };
     ctx.ptyRuntime.setActivityEnabled?.(true);
 
+    const isPreviewSplash = () => ctx.state.mode === "overlay"
+      && (ctx.state.variant === "boot" || ctx.state.variant === "pause")
+      && configService.previews.isEnabled(ctx.config, "panelPolish");
+
     handlePtyUpdate = (invalidation) => {
       if (ctx.state.mode !== "main") {
         return;
@@ -275,7 +279,7 @@ export async function startTerminalApp(options: TerminalAppOptions = {}): Promis
     };
 
     handlePtyActivity = (snapshot: PtyActivitySnapshot) => {
-      if (ctx.state.mode === "overlay" && ctx.state.variant === "boot" && configService.previews.isEnabled(ctx.config, "panelPolish")) {
+      if (isPreviewSplash()) {
         ctx.render();
         return;
       }
@@ -291,7 +295,7 @@ export async function startTerminalApp(options: TerminalAppOptions = {}): Promis
     };
 
     handlePtyActivityRemoved = (tabId: string) => {
-      if (ctx.state.mode === "overlay" && ctx.state.variant === "boot" && configService.previews.isEnabled(ctx.config, "panelPolish")) {
+      if (isPreviewSplash()) {
         ctx.render();
         return;
       }
@@ -480,8 +484,8 @@ export async function startTerminalApp(options: TerminalAppOptions = {}): Promis
         lastShellData = rendered.data;
         lastRenderedCenter = mainPresentation.center;
       } else {
-        frame = renderState.variant === "boot"
-          ? renderBootOverlayFrame(viewport, {
+        frame = renderState.variant === "boot" || renderState.variant === "pause"
+          ? (renderState.variant === "boot" ? renderBootOverlayFrame : renderPauseOverlayFrame)(viewport, {
               ...(configService.previews.isEnabled(ctx.config, "panelPolish") ? {
                 splashSummary: buildSplashSummary(ctx.model, ctx.ptyRuntime.getActivitySnapshots?.() ?? [], Date.now(), bootActivityKnown && ctx.ptyRuntime.getActivitySnapshots !== undefined),
               } : {}),
@@ -491,47 +495,39 @@ export async function startTerminalApp(options: TerminalAppOptions = {}): Promis
               versionText: ctx.versionText,
               updateText: ctx.updateText,
             })
-          : renderState.variant === "pause"
-            ? renderPauseOverlayFrame(viewport, {
+          : renderState.variant === "options"
+            ? renderOptionsOverlayFrame(viewport, {
                 panelPolish: configService.previews.isEnabled(ctx.config, "panelPolish"),
                 menuIndex: renderState.menuIndex,
-                optionsMessage: renderState.optionsMessage,
-                versionText: ctx.versionText,
-                updateText: ctx.updateText,
+                optionsMenuItems: buildOptionsMenuItems(ctx.runtimeState?.seenPreviewIds),
               })
-            : renderState.variant === "options"
+            : renderState.variant === "runners"
               ? renderOptionsOverlayFrame(viewport, {
                   panelPolish: configService.previews.isEnabled(ctx.config, "panelPolish"),
-                  menuIndex: renderState.menuIndex,
-                  optionsMenuItems: buildOptionsMenuItems(ctx.runtimeState?.seenPreviewIds),
+                  menuIndex: getRunnerOptionsState(renderState).menuIndex,
+                  optionsMenuItems: buildRunnersSubmenuItems(ctx.config, getRunnerOptionsState(renderState)),
+                  optionsMessage: getRunnersSubmenuMessage(getRunnerOptionsState(renderState)),
+                  optionsSubtitle: "Runners",
                 })
-              : renderState.variant === "runners"
+              : renderState.variant === "previews"
                 ? renderOptionsOverlayFrame(viewport, {
                     panelPolish: configService.previews.isEnabled(ctx.config, "panelPolish"),
-                    menuIndex: getRunnerOptionsState(renderState).menuIndex,
-                    optionsMenuItems: buildRunnersSubmenuItems(ctx.config, getRunnerOptionsState(renderState)),
-                    optionsMessage: getRunnersSubmenuMessage(getRunnerOptionsState(renderState)),
-                    optionsSubtitle: "Runners",
+                    menuIndex: getPreviewOptionsState(renderState).menuIndex,
+                    optionsMenuItems: buildPreviewSubmenuItems(ctx.config, ctx.runtimeState?.seenPreviewIds),
+                    optionsMessage: getPreviewSubmenuMessage(getPreviewOptionsState(renderState)),
+                    optionsSubtitle: "Feature Previews - Experimental",
                   })
-                : renderState.variant === "previews"
-                  ? renderOptionsOverlayFrame(viewport, {
-                      panelPolish: configService.previews.isEnabled(ctx.config, "panelPolish"),
-                      menuIndex: getPreviewOptionsState(renderState).menuIndex,
-                      optionsMenuItems: buildPreviewSubmenuItems(ctx.config, ctx.runtimeState?.seenPreviewIds),
-                      optionsMessage: getPreviewSubmenuMessage(getPreviewOptionsState(renderState)),
-                      optionsSubtitle: "Feature Previews - Experimental",
+                : renderState.variant === "update" && renderState.update
+                  ? renderCraigUpdateOverlayFrame(viewport, renderState.update, {
+                      menuIndex: renderState.menuIndex,
                     })
-                  : renderState.variant === "update" && renderState.update
-                    ? renderCraigUpdateOverlayFrame(viewport, renderState.update, {
-                        menuIndex: renderState.menuIndex,
+                  : renderState.variant === "logs"
+                    ? renderLogsOverlayFrame(viewport, {
+                        logPath: renderState.log?.path ?? paths.logFile,
+                        logLines: renderState.log?.lines ?? [],
                       })
                     : renderState.variant === "fury-plans" && renderState.furyPlans
                       ? renderFuryPlansFrame(viewport, renderState.furyPlans)
-                      : renderState.variant === "logs"
-                      ? renderLogsOverlayFrame(viewport, {
-                          logPath: renderState.log?.path ?? paths.logFile,
-                          logLines: renderState.log?.lines ?? [],
-                        })
                       : renderHelpOverlayFrame(viewport);
         lastShellData = null;
         lastRenderedCenter = null;
@@ -626,7 +622,7 @@ export async function startTerminalApp(options: TerminalAppOptions = {}): Promis
         );
         if (working || hadWorkingAgentActivity) {
           agentActivityAnimationFrame = (agentActivityAnimationFrame + 1) % AGENT_ACTIVITY_ANIMATION_FRAMES;
-          if (ctx.state.mode === "main" || (ctx.state.mode === "overlay" && ctx.state.variant === "boot" && configService.previews.isEnabled(ctx.config, "panelPolish"))) {
+          if (ctx.state.mode === "main" || isPreviewSplash()) {
             ctx.render();
           }
         }
@@ -666,7 +662,7 @@ export async function startTerminalApp(options: TerminalAppOptions = {}): Promis
       .then(() => { bootActivityKnown = true; })
       .catch(() => undefined)
       .finally(() => {
-        if (!appClosed && ctx.state.mode === "overlay" && ctx.state.variant === "boot" && configService.previews.isEnabled(ctx.config, "panelPolish")) ctx.render();
+        if (!appClosed && isPreviewSplash()) ctx.render();
       });
     ctx.render();
   });

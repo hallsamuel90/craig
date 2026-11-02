@@ -111,13 +111,18 @@ const PALETTE = {
 const WORKING_DOT_COLORS = ["3d59a1", "506eb8", "6386d0", "7aa2f7", "6386d0", "506eb8"] as const;
 
 export function renderBootOverlayFrame(viewport: Viewport, options: RenderOptions = {}): string {
+  return renderWorkspaceOverlayFrame(viewport, "boot", options);
+}
+
+// Start and pause share preview content; only their stable copy and primary action differ.
+function renderWorkspaceOverlayFrame(viewport: Viewport, variant: "boot" | "pause", options: RenderOptions): string {
   const summary = options.panelPolish ? options.splashSummary : undefined;
   const hasWork = summary && (summary.workspaceCount > 0 || summary.taskCount > 0);
   return renderOverlayFrame(viewport, {
     panelPolish: options.panelPolish ?? false,
-    subtitle: options.panelPolish ? "A workspace for your coding agents." : "crAIg is that you?",
+    subtitle: options.panelPolish ? "A workspace for your coding agents." : variant === "boot" ? "crAIg is that you?" : "Control mode is paused.",
     details: summary ? splashDetails(summary, options.color ?? true) : [],
-    menuItems: hasWork ? ["Resume workspace", "Options", "Exit"] : BOOT_MENU,
+    menuItems: options.panelPolish && (hasWork || variant === "pause") ? ["Resume workspace", "Options", "Exit"] : variant === "boot" ? BOOT_MENU : PAUSE_MENU,
     menuIndex: options.menuIndex ?? 0,
     optionsMessage: options.optionsMessage ?? null,
     color: options.color ?? true,
@@ -142,16 +147,7 @@ function splashDetails(summary: SplashSummary, color: boolean): string[] {
 }
 
 export function renderPauseOverlayFrame(viewport: Viewport, options: RenderOptions = {}): string {
-  return renderOverlayFrame(viewport, {
-    panelPolish: options.panelPolish ?? false,
-    subtitle: "Control mode is paused.",
-    menuItems: PAUSE_MENU,
-    menuIndex: options.menuIndex ?? 0,
-    optionsMessage: options.optionsMessage ?? null,
-    color: options.color ?? true,
-    versionText: options.versionText ?? null,
-    updateText: options.updateText ?? null,
-  });
+  return renderWorkspaceOverlayFrame(viewport, "pause", options);
 }
 
 export function renderCraigUpdateOverlayFrame(

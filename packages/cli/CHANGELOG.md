@@ -1,5 +1,18 @@
 # craig-cli
 
+## 0.19.7
+
+### Patch Changes
+
+- 2153388: Keep the Panel polish pause menu consistent with the start menu, including the shared tagline, live workspace/task/agent summary, and Resume workspace action.
+
+## 0.19.6
+
+### Patch Changes
+
+- 658e106: Dispatch Fury review feedback only after its human decision is durably accepted. Recover interrupted feedback dispatch without duplicating commands, cancel superseded feedback before delivery, and clean up queued feedback on existing task targets when a run terminates. Mark unfinished steps cancelled when a sibling failure ends the run.
+- a32419f: Make unread agent responses easier to spot with bold task titles and agent tab labels. Keep ready dots solid green for both read and unread responses, preserving the working animation and row layout.
+
 ## 0.19.5
 
 ### Patch Changes
