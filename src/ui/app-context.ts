@@ -42,6 +42,7 @@ export type AppState =
 export type TerminalEventListener = (...args: unknown[]) => void;
 
 export interface TerminalRuntime {
+  onStdin?: (chunk: Buffer) => void;
   width: number | undefined;
   height: number | undefined;
   moveTo(...args: [number, number]): void;
@@ -80,6 +81,8 @@ export type AppContext = {
   pointerTargets?: HitTarget[];
   pointerLeftScroll?: ListViewport;
   pointerInspectorScroll?: ListViewport;
+  pointerInspectorScrollKey?: string;
+  ptyAttachSequence?: number;
   // Mutable state — mutated in place: ctx.state = ..., ctx.model = ..., etc.
   state: AppState;
   model: WorkspaceShellModel;

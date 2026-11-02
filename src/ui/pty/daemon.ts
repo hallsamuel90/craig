@@ -195,6 +195,7 @@ export class DaemonPtyRuntimeClient {
   private readonly activityRevisionByTabId = new Map<string, number>();
   private activityRevision = 0;
   private attachedTabId: string | null = null;
+  private attachmentSequence = 0;
   private viewedTabId: string | null = null;
   private subscribedTabId: string | null = null;
   private activityEnabled: boolean;
@@ -243,6 +244,7 @@ export class DaemonPtyRuntimeClient {
   }
 
   async ensureSession(taskId: string, tabId: string, size: PtySize): Promise<TerminalViewState> {
+    const sequence = ++this.attachmentSequence;
     const response = await this.send({
       type: "ensureSession",
       taskId,
@@ -250,9 +252,11 @@ export class DaemonPtyRuntimeClient {
       size,
       spec: this.options.resolveSessionSpec?.(taskId, tabId) ?? { cwd: this.options.workspaceRoot, command: [] },
     });
-    this.attachedTabId = tabId;
-    this.viewedTabId = tabId;
-    this.subscribedTabId = tabId;
+    if (sequence === this.attachmentSequence) {
+      this.attachedTabId = tabId;
+      this.viewedTabId = tabId;
+      this.subscribedTabId = tabId;
+    }
     const view = response.view ?? { status: "idle", rows: [], error: null };
     this.viewCache.set(tabId, view);
     return view;
@@ -320,6 +324,7 @@ export class DaemonPtyRuntimeClient {
   }
 
   detach(): void {
+    this.attachmentSequence++;
     this.attachedTabId = null;
     void this.send({ type: "detach" }).catch(() => undefined);
   }

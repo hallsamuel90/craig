@@ -805,6 +805,8 @@ export function onKey(ctx: AppContext, name: unknown, pointerResult?: MainKeyRes
   if (ctx.state.mode === "main") {
     const result = pointerResult ?? reduceMainKey(ctx.state.shell, key, getShellKeyOptions(ctx, ctx.state.shell));
 
+    if (result.changed || result.pause || result.exit) ctx.ptyAttachSequence = (ctx.ptyAttachSequence ?? 0) + 1;
+
     if (result.exit) {
       ctx.exit(0);
       return;
@@ -1234,6 +1236,7 @@ export function onUnknown(ctx: AppContext, input: unknown): void {
   }
 
   if (raw.includes("")) {
+    ctx.ptyAttachSequence = (ctx.ptyAttachSequence ?? 0) + 1;
     ctx.ptyRuntime.detach();
     ctx.suppressTerminalEnterOnAttach = false;
     ctx.lastTerminalKey = null;
@@ -1338,6 +1341,11 @@ function clearPendingTerminalKeySequence(ctx: AppContext): void {
 
 export function onMouse(ctx: AppContext, name: unknown, data?: unknown): void {
   if (configService.previews.isEnabled(ctx.config, "mouseSupport")) {
+    const viewport = getViewport(ctx.activeTerminal.width, ctx.activeTerminal.height);
+    // The minimum-width frame can wrap on a smaller physical terminal. Its
+    // logical cell coordinates are unsafe until the terminal is enlarged.
+    if ((ctx.activeTerminal.width ?? viewport.width) < viewport.width ||
+      (ctx.activeTerminal.height ?? viewport.height) < viewport.height) return;
     if (!data || typeof data !== "object") return;
     const { x, y, shift, alt, ctrl } = data as { x: number; y: number; shift?: boolean; alt?: boolean; ctrl?: boolean };
     // Leave modified pointer gestures to the host terminal. Whether a modifier
@@ -1363,7 +1371,7 @@ export function onMouse(ctx: AppContext, name: unknown, data?: unknown): void {
     const lines = getTerminalScrollLinesForMouseEvent(name);
     if (lines) {
       const list = region === "tasks" ? ctx.pointerLeftScroll
-        : region === "inspector" && ctx.state.shell.inspectionMode === "files" ? ctx.pointerInspectorScroll : undefined;
+        : region === "inspector" ? ctx.pointerInspectorScroll : undefined;
       if (list) {
         list.offset = Math.max(0, Math.min(list.maxOffset, list.offset + lines));
         ctx.render();
@@ -1385,6 +1393,7 @@ export function onMouse(ctx: AppContext, name: unknown, data?: unknown): void {
       return;
     }
     if (name !== "MOUSE_LEFT_BUTTON_PRESSED") return;
+    ctx.ptyAttachSequence = (ctx.ptyAttachSequence ?? 0) + 1;
     clearPendingTerminalKeySequence(ctx);
     if (ctx.scrollRenderTimer) { clearTimeout(ctx.scrollRenderTimer); ctx.scrollRenderTimer = null; }
     ctx.pendingScrollLines = 0;

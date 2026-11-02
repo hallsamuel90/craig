@@ -10,7 +10,7 @@ import type {
   ShellTab,
   ShellTreeRow,
 } from "./shell/data.js";
-import { SHELL_LAYOUT, getFramedPanelBounds, type ListViewport, type PanelBounds, type Viewport } from "./layout.js";
+import { SHELL_LAYOUT, getCenterPanelBounds, getFramedPanelBounds, type ListViewport, type PanelBounds, type Viewport } from "./layout.js";
 import type { TerminalCellStyle, TerminalRowSegment } from "./terminal-emulator.js";
 import type { FooterToast } from "./state.js";
 import { isPtyTab } from "./state.js";
@@ -535,14 +535,8 @@ function renderFramedPanelRow(line: SurfaceLine, width: number, focused: boolean
 }
 
 function getCenterPaneGeometry(viewport: Viewport, centerOnly: boolean): Omit<RenderedRegionPatch, "rows"> {
-  return {
-    row: SHELL_LAYOUT.topRailHeight + 1,
-    column: centerOnly ? 1 : SHELL_LAYOUT.leftWidth + SHELL_LAYOUT.dividerWidth + 1,
-    width: centerOnly
-      ? viewport.width
-      : viewport.width - SHELL_LAYOUT.leftWidth - SHELL_LAYOUT.rightWidth - SHELL_LAYOUT.dividerWidth * 2,
-    rowCount: viewport.height - SHELL_LAYOUT.topRailHeight - 1,
-  };
+  const { height, ...bounds } = getCenterPanelBounds(viewport, centerOnly);
+  return { ...bounds, rowCount: height };
 }
 
 function renderFooterLine(footerText: string, footerToast: FooterToast | null, width: number, color: boolean, palette: PaletteColor): string {
@@ -1137,7 +1131,8 @@ function centerText(value: string, width: number): string {
 function pad(value: string, width: number): string {
   const visibleWidth = stringWidth(value);
   if (visibleWidth >= width) {
-    return truncate(value, width);
+    const clipped = truncate(value, width);
+    return clipped + " ".repeat(Math.max(0, width - stringWidth(clipped)));
   }
 
   return value + " ".repeat(width - visibleWidth);
@@ -1310,8 +1305,9 @@ function collectCenterTargets(targets: HitTarget[] | undefined, data: ShellData,
   if (!targets) return;
   let column = bounds.column + (framed ? 3 : 2);
   const availableWidth = bounds.width - (framed ? 6 : 2);
-  const clipped = stringWidth(renderTabLine(data.tabs, false, false)) > availableWidth;
-  const end = bounds.column + bounds.width - (framed ? 3 : 0) - (clipped ? 1 : 0);
+  const title = renderTabLine(data.tabs, false, false);
+  const clipped = stringWidth(title) > availableWidth;
+  const end = column + stringWidth(truncate(title, availableWidth)) - (clipped ? 1 : 0);
   for (const tab of data.tabs) {
     const width = stringWidth(tab.label) + (tab.activity ? 2 : 0);
     if (column < end) targets.push({ row: bounds.row, column, width: Math.min(width, end - column), height: 1, action: { kind: "tab", id: tab.id } });

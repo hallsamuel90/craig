@@ -42,6 +42,31 @@ for (const panelPolish of [false, true]) {
       }
     });
 
+    test("ellipsis cells and styled inspector tabs match their painted hit spans", () => {
+      const data = getMockShellData();
+      data.rightInspection = { title: "", rows: [
+        { id: "inspection-mode", text: "FILES  REVIEW", segments: [
+          { text: "FILES", style: { fg: "9ece6a" } }, { text: "  " }, { text: "REVIEW", style: { fg: "565f89" } },
+        ] }, { id: "spacer", text: "" },
+      ] };
+      const initial = renderMainShellPresentation({ width: 120, height: 36 }, data, { panelPolish });
+      const available = initial.center.width - (panelPolish ? 6 : 2);
+      data.tabs = [{ id: "agent", label: "a".repeat(available - 2) + "界z", active: true }];
+      for (const color of [false, true]) {
+        const targets: HitTarget[] = [];
+        const { frame, center } = renderMainShellPresentation({ width: 120, height: 36 }, data, { color, panelPolish, hitTargets: targets });
+        const rows = frame.split("\n").map(stripVTControlCharacters);
+        const ellipsis = rows[center.row - 1]!.indexOf("…");
+        expect(ellipsis).toBeGreaterThan(center.column);
+        expect(hitTest(targets, ellipsis + 1, center.row)).toEqual({ kind: "focus", region: "center" });
+        for (const target of targets) {
+          if (target.action.kind !== "mode") continue;
+          expect(rows[target.row - 1]!.slice(target.column - 1, target.column - 1 + target.width)).toBe(target.action.mode.toUpperCase());
+          for (let column = target.column; column < target.column + target.width; column++) expect(hitTest(targets, column, target.row)).toEqual(target.action);
+        }
+      }
+    });
+
     test("scrolls list viewports without changing selections and maps clicks to painted rows", () => {
       const data = getMockShellData();
       data.leftTree = [{ text: "WORKSPACES", panelHeader: true, focused: true }, ...Array.from({ length: 90 }, (_, i) => ({ id: `task:${i}`, text: `TASK ${i}`, selected: i === 0 }))];

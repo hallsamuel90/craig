@@ -70,6 +70,9 @@ export function syncInputCapture(ctx: AppContext): void {
 }
 
 export async function attachPtyFromShell(ctx: AppContext, shell: ControlShellState): Promise<void> {
+  const sequence = (ctx.ptyAttachSequence ?? 0) + 1;
+  ctx.ptyAttachSequence = sequence;
+  const isCurrent = () => ctx.ptyAttachSequence === sequence && ctx.state.mode === "main";
   try {
     const syncedShell = syncShell(ctx, shell);
     let selectedTask = getSelectedTask(ctx.model.tasks, syncedShell);
@@ -92,6 +95,7 @@ export async function attachPtyFromShell(ctx: AppContext, shell: ControlShellSta
       tabId = selectedTask.selectedPtyTabId;
     }
 
+    if (!isCurrent()) return;
     const nextShell = syncShell(ctx, {
       ...syncedShell,
       activeTab: tabId ?? syncedShell.activeTab,
@@ -110,21 +114,25 @@ export async function attachPtyFromShell(ctx: AppContext, shell: ControlShellSta
       shell: updateTerminalViewState({ ...nextShell, inputMode: "terminal" }, ctx.ptyRuntime.getViewState(tabId)),
     };
     persistShellState(ctx, ctx.state.shell);
+    ctx.render();
     const view = await ctx.ptyRuntime.ensureSession(
       nextShell.selectedTaskId,
       tabId,
       getPtySize(getViewport(ctx.activeTerminal.width, ctx.activeTerminal.height), configService.previews.isEnabled(ctx.config, "panelPolish"), nextShell.centerZoomed),
     );
+    if (!isCurrent()) return;
     ctx.suppressTerminalEnterOnAttach = isAgentTabId(tabId);
     ctx.lastTerminalKey = null;
     ctx.state = { mode: "main", shell: updateTerminalViewState({ ...nextShell, inputMode: "terminal" }, view) };
     persistShellState(ctx, ctx.state.shell);
   } catch (error) {
+    if (!isCurrent()) return;
     const message = reportRecoverableError(ctx, "attach PTY", error, "Failed to start PTY.");
     if (shell.selectedTaskId && shell.selectedPtyTabId && isAgentTabId(shell.selectedPtyTabId)) {
       await markTaskRunnerFailed(ctx, shell.selectedTaskId, message).catch(() => undefined);
       await reloadModel(ctx).catch(() => undefined);
     }
+    if (!isCurrent()) return;
     ctx.state = {
       mode: "main",
       shell: applyErrorToast(ctx, markTerminalAttachFailed(syncShell(ctx, shell), message), message),
@@ -193,6 +201,8 @@ async function ensureDefaultAgentTab(ctx: AppContext, task: TaskRecord): Promise
 }
 
 export function scheduleTerminalViewportScroll(ctx: AppContext, lines: number, tabId?: string): void {
+  const taskId = ctx.state.shell.selectedTaskId;
+  const activeTab = ctx.state.shell.activeTab;
   ctx.pendingScrollLines += lines;
 
   if (ctx.scrollRenderTimer) {
@@ -204,13 +214,14 @@ export function scheduleTerminalViewportScroll(ctx: AppContext, lines: number, t
     const linesToScroll = ctx.pendingScrollLines;
     ctx.pendingScrollLines = 0;
 
-    if (linesToScroll === 0) {
+    if (linesToScroll === 0 || ctx.state.mode !== "main" ||
+      ctx.state.shell.selectedTaskId !== taskId || ctx.state.shell.activeTab !== activeTab) {
       return;
     }
 
     if (tabId) ctx.ptyRuntime.scrollViewport(linesToScroll, tabId);
     else ctx.ptyRuntime.scrollViewport(linesToScroll);
-    ctx.state = { mode: "main", shell: withTerminalView(ctx, (ctx.state as { mode: "main"; shell: ControlShellState }).shell) };
+    ctx.state = { mode: "main", shell: withTerminalView(ctx, ctx.state.shell) };
     ctx.render();
   }, 16);
 }

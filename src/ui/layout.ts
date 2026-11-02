@@ -29,6 +29,15 @@ export interface PanelBounds {
   height: number;
 }
 
+export function getCenterPanelBounds(viewport: Viewport, centerOnly = false): PanelBounds {
+  return {
+    row: SHELL_LAYOUT.topRailHeight + 1,
+    column: centerOnly ? 1 : SHELL_LAYOUT.leftWidth + SHELL_LAYOUT.dividerWidth + 1,
+    width: centerOnly ? viewport.width : viewport.width - SHELL_LAYOUT.leftWidth - SHELL_LAYOUT.rightWidth - SHELL_LAYOUT.dividerWidth * 2,
+    height: viewport.height - SHELL_LAYOUT.topRailHeight - 1,
+  };
+}
+
 // Frames, terminal dimensions, and pointer targets share these bounds.
 export function getFramedPanelBounds(viewport: Viewport, centerOnly = false) {
   const leftWidth = 32;
