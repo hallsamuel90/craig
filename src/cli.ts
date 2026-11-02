@@ -4,6 +4,7 @@ import { realpath } from "node:fs/promises";
 
 import { getCraigPaths } from "./state/craig-paths.js";
 import { runCli } from "./commands/run.js";
+import { CRAIG_RESTART_EXIT_CODE, restartCraig } from "./shell/craig-update.js";
 import { startTerminalApp } from "./ui/app.js";
 import { requestDaemonShutdown, servePtyDaemon } from "./ui/pty/daemon.js";
 async function main(): Promise<number> {
@@ -41,11 +42,30 @@ async function main(): Promise<number> {
       for await (const chunk of process.stdin) value += chunk;
       return value;
     },
-    runInteractive: (workspaceRoot) =>
-      startTerminalApp({
+    runInteractive: async (workspaceRoot) => {
+      const code = await startTerminalApp({
         uiStateFile: getCraigPaths(workspaceRoot).uiStateFile,
         workspaceRoot,
-      }),
+      });
+      if (code !== CRAIG_RESTART_EXIT_CODE) {
+        return code;
+      }
+
+      try {
+        return await restartCraig({
+          argv: process.argv.slice(2),
+          cwd: process.cwd(),
+          env: process.env,
+        });
+      } catch (error) {
+        const message = (error instanceof Error ? error.message : "Unknown restart error")
+          .replace(/\s+/g, " ")
+          .trim()
+          .slice(0, 200);
+        process.stderr.write(`Craig updated, but could not restart automatically: ${message}\nRun \`craig\` again to use the new version.\n`);
+        return 1;
+      }
+    },
   });
 }
 

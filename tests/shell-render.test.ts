@@ -259,6 +259,20 @@ describe("terminal shell renderer", () => {
     expect(frame).toContain("npm install -g craig-cli@0.14.0");
   });
 
+  test("renders explicit restart, continue, and exit actions after an update", () => {
+    const frame = renderCraigUpdateOverlayFrame(MIN_VIEWPORT, {
+      current: "0.13.0",
+      latest: "0.14.0",
+      phase: "success",
+    }, { color: false });
+
+    expect(frame).toContain("Craig v0.14.0 installed");
+    expect(frame).toContain("> Restart Craig");
+    expect(frame).toContain("  Continue with v0.13.0");
+    expect(frame).toContain("  Exit Craig");
+    expect(frame).toContain("Restart loads v0.14.0. Continuing keeps this session on v0.13.0.");
+  });
+
   test("renders leveled log overlay entries", () => {
     const frame = renderLogsOverlayFrame(MIN_VIEWPORT, {
       color: false,

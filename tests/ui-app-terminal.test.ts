@@ -15,6 +15,7 @@ import { runCommand, runCommandAllowingFailure } from "../src/shared/exec.js";
 import { readTask, taskService, writeTask } from "../src/domain/task/index.js";
 import { appendTaskId } from "../src/domain/task/adapters/task-store.js";
 import { configService } from "../src/domain/config/index.js";
+import { CRAIG_RESTART_EXIT_CODE } from "../src/shell/craig-update.js";
 import { createCraigState, createGitRepo, createStubCommands, writeRepoRecord, writeTaskRecord } from "./test-helpers.js";
 
 /* eslint-disable no-unused-vars */
@@ -263,10 +264,64 @@ steps:
     expect(installUpdate).toHaveBeenCalledWith("0.14.0");
 
     finishInstall();
-    await vi.waitFor(() => expect(stripAnsi(terminal.frames.at(-1) ?? "")).toContain("restart to use it"));
+    await vi.waitFor(() => expect(stripAnsi(terminal.frames.at(-1) ?? "")).toContain("Craig v0.14.0 installed"));
+    const success = stripAnsi(terminal.frames.at(-1) ?? "");
+    expect(success).toContain("> Restart Craig");
+    expect(success).toContain("Continue with v0.13.0");
+    terminal.emitKey("ESCAPE");
+    expect(stripAnsi(terminal.frames.at(-1) ?? "")).toContain("> Restart Craig");
+    terminal.emitKey("ENTER");
+    await expect(app).resolves.toBe(CRAIG_RESTART_EXIT_CODE);
+    expect(terminal.grabInput).toHaveBeenLastCalledWith(false);
+    expect(terminal.hideCursor).toHaveBeenLastCalledWith(false);
+    expect(terminal.fullscreen).toHaveBeenLastCalledWith(false);
+  });
+
+  test("can continue the current version after installing an update", async () => {
+    const root = await mkdtemp(join(tmpdir(), "craig-ui-app-update-continue-"));
+    tempRoots.push(root);
+    const paths = await setupWorkspace(root);
+    const terminal = new FakeTerminal();
+    const app = startTerminalApp({
+      terminal,
+      ptyRuntime: new FakePtyRuntime(),
+      uiStateFile: paths.uiStateFile,
+      workspaceRoot: root,
+      checkForUpdate: async () => ({ current: "0.13.0", latest: "0.14.0", updateAvailable: true }),
+      installUpdate: async () => undefined,
+    });
+    await vi.waitFor(() => expect(stripAnsi(terminal.frames.at(-1) ?? "")).toContain("Update available"));
+    terminal.emitKey("ENTER");
+    await vi.waitFor(() => expect(stripAnsi(terminal.frames.at(-1) ?? "")).toContain("Craig v0.14.0 installed"));
+
+    terminal.emitKey("DOWN");
     terminal.emitKey("ENTER");
     await vi.waitFor(() => expect(stripAnsi(terminal.frames.at(-1) ?? "")).toContain("CRAIG"));
+    expect(stripAnsi(terminal.frames.at(-1) ?? "")).toContain(`v${configService.version.getCurrent()} · restart for v0.14.0`);
     terminal.emitKey("q");
+    await expect(app).resolves.toBe(0);
+  });
+
+  test("can exit after installing an update", async () => {
+    const root = await mkdtemp(join(tmpdir(), "craig-ui-app-update-exit-"));
+    tempRoots.push(root);
+    const paths = await setupWorkspace(root);
+    const terminal = new FakeTerminal();
+    const app = startTerminalApp({
+      terminal,
+      ptyRuntime: new FakePtyRuntime(),
+      uiStateFile: paths.uiStateFile,
+      workspaceRoot: root,
+      checkForUpdate: async () => ({ current: "0.13.0", latest: "0.14.0", updateAvailable: true }),
+      installUpdate: async () => undefined,
+    });
+    await vi.waitFor(() => expect(stripAnsi(terminal.frames.at(-1) ?? "")).toContain("Update available"));
+    terminal.emitKey("ENTER");
+    await vi.waitFor(() => expect(stripAnsi(terminal.frames.at(-1) ?? "")).toContain("Craig v0.14.0 installed"));
+
+    terminal.emitKey("DOWN");
+    terminal.emitKey("DOWN");
+    terminal.emitKey("ENTER");
     await expect(app).resolves.toBe(0);
   });
 

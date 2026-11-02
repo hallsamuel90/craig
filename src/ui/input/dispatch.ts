@@ -2,6 +2,7 @@ import { openFuryPlans, handleFuryPlansKey } from "../shell/fury-plans.js";
 import path from "node:path";
 
 import { configService, PREVIEW_FEATURE_IDS } from "../../domain/config/index.js";
+import { CRAIG_RESTART_EXIT_CODE } from "../../shell/craig-update.js";
 import { mutateTask } from "../../domain/task/index.js";
 import { errorService } from "../../domain/error/index.js";
 import { getViewport } from "../layout.js";
@@ -691,6 +692,7 @@ function beginCraigUpdate(ctx: AppContext): void {
       if (ctx.state.mode !== "overlay" || ctx.state.variant !== "update" || !ctx.state.update) {
         return;
       }
+      ctx.updateText = `· restart for v${latest}`;
       ctx.state = { ...ctx.state, menuIndex: 0, update: { ...ctx.state.update, phase: "success" } };
       ctx.pendingClear = true;
       ctx.render();
@@ -719,11 +721,14 @@ function handleCraigUpdateKey(ctx: AppContext, key: string): void {
   if (phase === "installing") {
     return;
   }
+  if (key === "ESCAPE" && phase === "success") {
+    return;
+  }
   if (key === "ESCAPE") {
     enterCraigFromBoot(ctx);
     return;
   }
-  const maxIndex = phase === "ready" ? 2 : 1;
+  const maxIndex = phase === "ready" || phase === "success" ? 2 : 1;
   if (key === "UP" || key === "k") {
     ctx.state = { ...ctx.state, menuIndex: Math.max(0, ctx.state.menuIndex - 1) };
     ctx.render();
@@ -751,7 +756,11 @@ function handleCraigUpdateKey(ctx: AppContext, key: string): void {
     beginCraigUpdate(ctx);
     return;
   }
-  if (phase === "success" && ctx.state.menuIndex === 1) {
+  if (phase === "success" && ctx.state.menuIndex === 0) {
+    ctx.exit(CRAIG_RESTART_EXIT_CODE);
+    return;
+  }
+  if (phase === "success" && ctx.state.menuIndex === 2) {
     ctx.exit(0);
     return;
   }
