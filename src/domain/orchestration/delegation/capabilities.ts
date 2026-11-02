@@ -86,13 +86,17 @@ async function createCapability(
   return record;
 }
 
-// Only trusted daemon session startup and its live-session inventory may call
-// this; possession of a token alone must not bypass expiry or revocation.
+export async function isAgentCapabilityRefreshDue(paths: CraigPaths, session: AgentCapabilitySession): Promise<boolean> {
+  const record = await readSessionCapability(paths, session);
+  return record !== null && needsRefresh(record);
+}
+
+// Callers must establish trusted session startup or daemon-confirmed liveness;
+// possession of a token alone must not bypass expiry or revocation.
 export async function refreshAgentCapability(paths: CraigPaths, session: AgentCapabilitySession): Promise<void> {
-  const id = session.capabilityToken.split(".")[0]!;
-  if (!/^capability_[A-Za-z0-9-]+$/.test(id)) return;
-  const existing = await readCapabilityIfExists(paths, id);
-  if (!matchesSession(existing, session) || !needsRefresh(existing)) return;
+  const existing = await readSessionCapability(paths, session);
+  if (!existing || !needsRefresh(existing)) return;
+  const id = existing.id;
   await withTaskLock(paths, session.taskId, async () => {
     const task = await taskService.getTask(paths, session.taskId).catch((error: unknown) => {
       if (error instanceof CraigError && error.code === "TASK_NOT_FOUND") return null;
@@ -104,6 +108,13 @@ export async function refreshAgentCapability(paths: CraigPaths, session: AgentCa
     const record = await readCapabilityIfExists(paths, id);
     if (matchesSession(record, session)) await renewCapability(paths, record);
   });
+}
+
+async function readSessionCapability(paths: CraigPaths, session: AgentCapabilitySession): Promise<AgentCapabilityRecord | null> {
+  const id = session.capabilityToken.split(".")[0]!;
+  if (!/^capability_[A-Za-z0-9-]+$/.test(id)) return null;
+  const record = await readCapabilityIfExists(paths, id);
+  return matchesSession(record, session) ? record : null;
 }
 
 function matchesSession(record: AgentCapabilityRecord | null, session: AgentCapabilitySession): record is AgentCapabilityRecord {

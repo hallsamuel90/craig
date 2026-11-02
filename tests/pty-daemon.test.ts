@@ -19,12 +19,81 @@ import { approvePlan, createPlan, runFury } from "../src/shell/fury-runtime.js";
 import { watchWorkspaceEvents } from "../src/shell/events.js";
 import { disposeDaemonSessions, wakeOrchestrationSupervisor } from "../src/shell/pty-daemon-orchestration.js";
 import { requestOpenFile } from "../src/shell/ui-navigation.js";
+import { refreshLiveAgentCapability } from "../src/shell/refresh-agent-capability.js";
+import * as capabilities from "../src/domain/orchestration/delegation/capabilities.js";
 import { runCommand } from "../src/shared/exec.js";
 import { createCraigState, createGitRepo, createStubCommands, writeRepoRecord, writeTaskRecord } from "./test-helpers.js";
 
 const DAEMON_TEST_TIMEOUT_MS = 15000;
 
 describe("PTY daemon", () => {
+  test("an optional startup refresh failure does not prevent spawning an agent", async () => {
+    const root = await mkdtemp(join(tmpdir(), "craig-refresh-startup-failure-"));
+    const paths = await createCraigState(root, ["task_1"]);
+    const task = await writeTaskRecord(root, { id: "task_1" });
+    const environment = await ensureTaskCapabilities(paths, task);
+    const spawn = vi.fn(() => createFakePty());
+    const refresh = vi.spyOn(capabilities, "refreshAgentCapability").mockRejectedValueOnce(new Error("Storage unavailable"));
+    const daemon = servePtyDaemon(paths, { spawn, pullRequestSync: false });
+    try {
+      const client = await createDaemonPtyRuntime({
+        paths, workspaceRoot: root,
+        resolveSessionSpec: () => ({ cwd: root, command: ["/bin/sh"], env: environment }),
+      });
+      try {
+        const view = await client.ensureSession(task.id, task.ptyTabs[0]!.id, { columns: 80, rows: 24 });
+        expect(view.status).toBe("running");
+        expect(spawn).toHaveBeenCalledOnce();
+        expect(refresh).toHaveBeenCalledOnce();
+      } finally {
+        client.disposeAll();
+      }
+    } finally {
+      refresh.mockRestore();
+      await requestDaemonShutdown(paths);
+      await daemon;
+      await rm(root, { recursive: true, force: true });
+    }
+  }, DAEMON_TEST_TIMEOUT_MS);
+
+  test("on-demand refresh does not trust stale running activity after an unobserved process exit", async () => {
+    const root = await mkdtemp(join(tmpdir(), "craig-refresh-stale-activity-"));
+    const paths = await createCraigState(root, ["task_1"]);
+    const task = await writeTaskRecord(root, { id: "task_1" });
+    const environment = await ensureTaskCapabilities(paths, task);
+    const token = environment.CRAIG_AGENT_CAPABILITY!;
+    const file = join(paths.orchestrationDir, "capabilities", `${token.split(".")[0]}.json`);
+    const agent = createFakePty();
+    const daemon = servePtyDaemon(paths, { spawn: vi.fn(() => agent), pullRequestSync: false });
+    try {
+      const client = await createDaemonPtyRuntime({
+        paths, workspaceRoot: root, activityEnabled: true,
+        resolveSessionSpec: () => ({ cwd: root, command: ["/bin/sh"], env: environment }),
+      });
+      try {
+        await client.ensureSession(task.id, task.ptyTabs[0]!.id, { columns: 80, rows: 24 });
+        client.setActivityEnabled(false);
+        await client.ready(); // Wait for the daemon to disable observation.
+        agent.emitExit(0);
+        const record = JSON.parse(await readFile(file, "utf8"));
+        const expired = { ...record, expiresAt: "2020-01-01T00:00:00.000Z" };
+        await writeFile(file, JSON.stringify(expired));
+        await refreshLiveAgentCapability(paths, {
+          taskId: task.id, agentTabId: task.ptyTabs[0]!.id, capabilityToken: token,
+        });
+        expect(JSON.parse(await readFile(file, "utf8"))).toEqual(expired);
+        await expect(authorizeCapability(paths, token, "task.children", task.id))
+          .rejects.toMatchObject({ code: "CAPABILITY_DENIED", details: { reason: "expired" } });
+      } finally {
+        client.disposeAll();
+      }
+    } finally {
+      await requestDaemonShutdown(paths);
+      await daemon;
+      await rm(root, { recursive: true, force: true });
+    }
+  }, DAEMON_TEST_TIMEOUT_MS);
+
   test("automatically refreshes a detached live agent's token beyond seven days without respawning", async () => {
     const root = await mkdtemp(join(tmpdir(), "craig-capability-refresh-"));
     const paths = await createCraigState(root, ["task_1"]);
