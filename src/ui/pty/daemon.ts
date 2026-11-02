@@ -8,7 +8,7 @@ import type { TerminalScreenRow } from "../terminal-emulator.js";
 import type { PtyActivitySnapshot } from "../../domain/agent/index.js";
 import { configService } from "../../domain/config/index.js";
 import { errorService } from "../../domain/error/index.js";
-import { listFuryRuns, listPromptCommands } from "../../domain/orchestration/index.js";
+import { listFuryRuns, listPromptCommands, refreshAgentCapability } from "../../domain/orchestration/index.js";
 import {
   getPtyDaemonEndpoint,
   isCompatiblePtyDaemonProtocol,
@@ -778,6 +778,12 @@ class PtyDaemonServer {
       case "ensureSession":
         {
           const existed = this.runtime.hasRunningSession(request.tabId);
+          const capabilityToken = request.spec.env?.CRAIG_AGENT_CAPABILITY;
+          if (!existed && capabilityToken) {
+            await refreshAgentCapability(this.paths, {
+              taskId: request.taskId, agentTabId: request.tabId, capabilityToken,
+            });
+          }
           const view = this.runtime.ensureSession(request.taskId, request.tabId, request.size, request.spec);
           if (!existed) {
             this.log({

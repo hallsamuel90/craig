@@ -13,6 +13,12 @@ export type DelegationCommandFamily =
   | "fury.resume"
   | "fury.review.resubmit";
 
+export interface AgentCapabilitySession {
+  taskId: string;
+  agentTabId: string;
+  capabilityToken: string;
+}
+
 export interface AgentCapabilityRecord {
   schemaVersion: 1;
   id: string;

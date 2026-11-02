@@ -96,6 +96,7 @@ import {
   cancelTaskTree,
   createChildTask,
   ensureTaskCapabilities,
+  refreshAgentCapability,
   revokeCapability,
 } from "../src/domain/orchestration/index.js";
 
@@ -176,52 +177,91 @@ describe("capability-scoped delegation", () => {
     });
   });
 
-  test.each(["expired", "revoked"] as const)("replaces a capability that is %s and preserves its restrictions", async (reason) => {
+  test("only trusted session startup renews an expired capability; reading its environment does not", async () => {
     const stale = structuredClone(mocks.tasks.find((task) => task.id === parent.id)!);
-    const oldId = stale.ptyTabs[0]!.capabilityId!;
+    const id = stale.ptyTabs[0]!.capabilityId!;
     const directory = path.join(paths.orchestrationDir, "capabilities");
-    const oldFile = path.join(directory, `${oldId}.json`);
-    const original = JSON.parse(await readFile(oldFile, "utf8"));
-    const unusable = {
-      ...original,
-      allowedCommandFamilies: ["task.children"],
-      limits: { ...original.limits, maxChildren: 1 },
-      ...(reason === "expired"
-        ? { expiresAt: new Date().toISOString() }
-        : { revokedAt: new Date().toISOString(), revokedBy: { type: "human", source: "cli", processId: 1 } }),
+    const file = path.join(directory, `${id}.json`);
+    const original = JSON.parse(await readFile(file, "utf8"));
+    const expired = {
+      ...original, expiresAt: new Date().toISOString(),
+      allowedCommandFamilies: ["task.children"], limits: { ...original.limits, maxChildren: 1 },
     };
-    await writeFile(oldFile, JSON.stringify(unusable));
-
+    await writeFile(file, JSON.stringify(expired));
     const before = Date.now();
     const environment = await ensureTaskCapabilities(paths, stale);
-    const after = Date.now();
-    const current = mocks.tasks.find((task) => task.id === parent.id)!;
-    const newId = current.ptyTabs[0]!.capabilityId!;
-    const replacement = JSON.parse(await readFile(path.join(directory, `${newId}.json`), "utf8"));
-    expect(newId).not.toBe(oldId);
-    expect(environment.CRAIG_AGENT_CAPABILITY).toBe(replacement.token);
-    expect(replacement.token).not.toBe(original.token);
-    expect(replacement).toMatchObject({
-      taskId: parent.id,
-      agentTabId: stale.ptyTabs[0]!.id,
-      allowedCommandFamilies: ["task.children"],
-      limits: unusable.limits,
-      revokedAt: null,
-      revokedBy: null,
+    expect(JSON.parse(await readFile(file, "utf8"))).toEqual(expired);
+    await refreshAgentCapability(paths, {
+      taskId: parent.id, agentTabId: original.agentTabId, capabilityToken: environment.CRAIG_AGENT_CAPABILITY!,
     });
-    const ttl = 7 * 24 * 60 * 60 * 1_000;
-    expect(Date.parse(replacement.expiresAt)).toBeGreaterThanOrEqual(before + ttl);
-    expect(Date.parse(replacement.expiresAt)).toBeLessThanOrEqual(after + ttl);
-    expect(JSON.parse(await readFile(oldFile, "utf8"))).toEqual(unusable);
-    expect((await stat(path.join(directory, `${newId}.json`))).mode & 0o777).toBe(0o600);
+    const renewed = JSON.parse(await readFile(file, "utf8"));
+    expect(environment.CRAIG_AGENT_CAPABILITY).toBe(original.token);
+    expect(renewed).toEqual({ ...expired, expiresAt: renewed.expiresAt });
+    expect(Date.parse(renewed.expiresAt)).toBeGreaterThanOrEqual(before + 7 * 24 * 60 * 60 * 1_000);
+    expect((await stat(file)).mode & 0o777).toBe(0o600);
     await expect(authorizeCapability(paths, original.token, "task.children", parent.id))
-      .rejects.toMatchObject({ code: "CAPABILITY_DENIED", details: { reason } });
-    await expect(authorizeCapability(paths, replacement.token, "task.children", parent.id))
-      .resolves.toMatchObject({ actor: { capabilityId: newId } });
-    await expect(authorizeCapability(paths, replacement.token, "task.create-child", parent.id))
+      .resolves.toMatchObject({ actor: { capabilityId: id } });
+    await expect(authorizeCapability(paths, original.token, "task.create-child", parent.id))
       .rejects.toMatchObject({ code: "CAPABILITY_DENIED", details: { reason: "command family is not allowed" } });
     expect(await ensureTaskCapabilities(paths, stale)).toEqual(environment);
-    expect((await readdir(directory)).sort()).toEqual([`${oldId}.json`, `${newId}.json`].sort());
+    expect(await readdir(directory)).toEqual([`${id}.json`]);
+  });
+
+  test("refreshes a live session before expiry without changing its token or scope", async () => {
+    const token = await capabilityToken(paths, parent);
+    const id = token.split(".")[0]!;
+    const file = path.join(paths.orchestrationDir, "capabilities", `${id}.json`);
+    const original = JSON.parse(await readFile(file, "utf8"));
+    const now = Date.now();
+    const expiring = { ...original, expiresAt: new Date(now + 60_000).toISOString() };
+    await writeFile(file, JSON.stringify(expiring));
+    await refreshAgentCapability(paths, { taskId: parent.id, agentTabId: parent.ptyTabs[0]!.id, capabilityToken: token });
+    const refreshed = JSON.parse(await readFile(file, "utf8"));
+    expect(refreshed).toEqual({ ...expiring, expiresAt: refreshed.expiresAt });
+    expect(Date.parse(refreshed.expiresAt)).toBeGreaterThanOrEqual(now + 7 * 24 * 60 * 60 * 1_000);
+    await refreshAgentCapability(paths, { taskId: parent.id, agentTabId: parent.ptyTabs[0]!.id, capabilityToken: token });
+    expect(JSON.parse(await readFile(file, "utf8"))).toEqual(refreshed);
+  });
+
+  test.each(["revoked", "closed", "removed", "superseded", "wrong-token", "wrong-tab", "wrong-task"])(
+    "does not refresh a capability when %s", async (condition) => {
+      const token = await capabilityToken(paths, parent);
+      const id = token.split(".")[0]!;
+      const file = path.join(paths.orchestrationDir, "capabilities", `${id}.json`);
+      const original = JSON.parse(await readFile(file, "utf8"));
+      await writeFile(file, JSON.stringify({ ...original, expiresAt: "2020-01-01T00:00:00.000Z" }));
+      const current = mocks.tasks.find((task) => task.id === parent.id)!;
+      if (condition === "revoked") await revokeCapability(paths, id, { type: "human", source: "cli", processId: 1 });
+      if (condition === "closed") current.status = "closed";
+      if (condition === "removed") current.ptyTabs = [];
+      if (condition === "superseded") current.ptyTabs[0]!.capabilityId = "capability_superseded";
+      const before = await readFile(file, "utf8");
+      await refreshAgentCapability(paths, {
+        taskId: condition === "wrong-task" ? "unrelated" : parent.id,
+        agentTabId: condition === "wrong-tab" ? "other:agent" : original.agentTabId,
+        capabilityToken: condition === "wrong-token" ? `${id}.wrong` : token,
+      });
+      expect(await readFile(file, "utf8")).toBe(before);
+      await expect(authorizeCapability(paths, token, "task.children", parent.id)).rejects.toMatchObject({ code: "CAPABILITY_DENIED" });
+      if (condition === "revoked") {
+        await ensureTaskCapabilities(paths, current);
+        expect(await readFile(file, "utf8")).toBe(before);
+      }
+    },
+  );
+
+  test("a concurrent refresh cannot undo revocation", async () => {
+    const token = await capabilityToken(paths, parent);
+    const id = token.split(".")[0]!;
+    const file = path.join(paths.orchestrationDir, "capabilities", `${id}.json`);
+    const record = JSON.parse(await readFile(file, "utf8"));
+    await writeFile(file, JSON.stringify({ ...record, expiresAt: "2020-01-01T00:00:00.000Z" }));
+    await Promise.all([
+      refreshAgentCapability(paths, { taskId: parent.id, agentTabId: parent.ptyTabs[0]!.id, capabilityToken: token }),
+      revokeCapability(paths, id, { type: "human", source: "cli", processId: 1 }),
+    ]);
+    await expect(authorizeCapability(paths, token, "task.children", parent.id))
+      .rejects.toMatchObject({ code: "CAPABILITY_DENIED", details: { reason: "revoked" } });
   });
 
   test("rejects a capability bound to another agent before considering rotation", async () => {

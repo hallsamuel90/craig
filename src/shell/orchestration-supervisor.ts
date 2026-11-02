@@ -4,6 +4,8 @@ import { getTaskAgentTabActivity, type PtyActivitySnapshot } from "../domain/age
 import type { RunnerType } from "../domain/config/index.js";
 import {
   listPromptCommands,
+  refreshAgentCapability,
+  type AgentCapabilitySession,
   readFuryReview,
   readFuryRun,
   promptCommandService,
@@ -20,6 +22,7 @@ import { reconcilePromptCommandEvents } from "./command-event-reconciliation.js"
 import { reconcileFuryRuns } from "./fury-runtime.js";
 
 export interface OrchestrationDeliveryRuntime {
+  getRunningAgentCapabilities?(): AgentCapabilitySession[];
   getActivitySnapshots(): PtyActivitySnapshot[];
   /* eslint-disable-next-line no-unused-vars */
   hasRunningSession(tabId: string): boolean;
@@ -33,6 +36,7 @@ export class OrchestrationSupervisor {
   private readonly heartbeat: Heartbeat;
   private lease: OrchestrationLeaderLease | null = null;
   private reconciliation: Promise<void> | null = null;
+  private capabilityRefresh: Promise<void> | null = null;
 
   /* eslint-disable no-unused-vars */
   constructor(
@@ -50,6 +54,11 @@ export class OrchestrationSupervisor {
       id: "orchestration.commands",
       intervalMs,
       run: () => this.reconcile(),
+    });
+    this.heartbeat.register({
+      id: "orchestration.capabilities",
+      intervalMs: 60_000,
+      run: () => this.refreshCapabilities(),
     });
     this.heartbeat.register({
       id: "orchestration.liveness",
@@ -72,12 +81,14 @@ export class OrchestrationSupervisor {
   }
 
   async wake(): Promise<void> {
+    await this.refreshCapabilities();
     await this.reconcile();
   }
 
   async stop(): Promise<void> {
     this.heartbeat.stop();
     await this.reconciliation?.catch(() => undefined);
+    await this.capabilityRefresh?.catch(() => undefined);
     await this.lease?.release();
     this.lease = null;
   }
@@ -88,6 +99,17 @@ export class OrchestrationSupervisor {
       this.reconciliation = null;
     });
     return this.reconciliation;
+  }
+
+  private refreshCapabilities(): Promise<void> {
+    if (this.capabilityRefresh) return this.capabilityRefresh;
+    this.capabilityRefresh = Promise.allSettled(
+      (this.runtime.getRunningAgentCapabilities?.() ?? []).map((session) => refreshAgentCapability(this.paths, session)),
+    ).then((results) => {
+      const failed = results.find((result) => result.status === "rejected");
+      if (failed?.status === "rejected") throw failed.reason;
+    }).finally(() => { this.capabilityRefresh = null; });
+    return this.capabilityRefresh;
   }
 
   private async reconcileCommands(): Promise<void> {

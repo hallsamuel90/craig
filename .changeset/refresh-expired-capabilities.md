@@ -2,4 +2,4 @@
 "craig-cli": patch
 ---
 
-Replace expired or revoked agent capabilities when preparing an agent session, preserving their scope and limits. Expired-capability errors now explain that the agent tab must be restarted to obtain a fresh token.
+Automatically refresh agent capabilities while their daemon-owned sessions are running, preserving the existing token, scope, and limits so long-running agents keep working beyond seven days. Revoked credentials remain denied, and inactive sessions retain their expiry.

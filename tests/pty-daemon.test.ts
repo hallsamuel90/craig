@@ -14,7 +14,7 @@ import { ensureCraigState } from "../src/domain/workspace/workspaces/ensure.js";
 import { configService } from "../src/domain/config/index.js";
 import { taskService } from "../src/domain/task/index.js";
 import { appendTaskId } from "../src/domain/task/adapters/task-store.js";
-import { ensureTaskCapabilities, mutateFuryRun, readFuryRun, promptCommandService, readAllEvents } from "../src/domain/orchestration/index.js";
+import { authorizeCapability, ensureTaskCapabilities, mutateFuryRun, readFuryRun, promptCommandService, readAllEvents } from "../src/domain/orchestration/index.js";
 import { approvePlan, createPlan, runFury } from "../src/shell/fury-runtime.js";
 import { watchWorkspaceEvents } from "../src/shell/events.js";
 import { disposeDaemonSessions, wakeOrchestrationSupervisor } from "../src/shell/pty-daemon-orchestration.js";
@@ -25,6 +25,62 @@ import { createCraigState, createGitRepo, createStubCommands, writeRepoRecord, w
 const DAEMON_TEST_TIMEOUT_MS = 15000;
 
 describe("PTY daemon", () => {
+  test("automatically refreshes a detached live agent's token beyond seven days without respawning", async () => {
+    const root = await mkdtemp(join(tmpdir(), "craig-capability-refresh-"));
+    const paths = await createCraigState(root, ["task_1"]);
+    const task = await writeTaskRecord(root, { id: "task_1", status: "running" });
+    await configService.save(paths, { previews: { agentOrchestration: true } });
+    const environment = await ensureTaskCapabilities(paths, task);
+    const token = environment.CRAIG_AGENT_CAPABILITY!;
+    const id = token.split(".")[0]!;
+    const file = join(paths.orchestrationDir, "capabilities", `${id}.json`);
+    const original = JSON.parse(await readFile(file, "utf8"));
+    let clock = Date.now();
+    const now = vi.spyOn(Date, "now").mockImplementation(() => clock);
+    const agentPty = createFakePty();
+    const spawn = vi.fn(() => agentPty);
+    const daemon = servePtyDaemon(paths, {
+      shell: "/bin/zsh", env: { TERM: "xterm-256color" }, spawn, pullRequestSync: false,
+    });
+    try {
+      const client = await createDaemonPtyRuntime({
+        paths, workspaceRoot: root,
+        resolveSessionSpec: () => ({ cwd: root, command: ["/bin/sh"], env: environment }),
+      });
+      await client.ensureSession(task.id, task.ptyTabs[0]!.id, { columns: 80, rows: 24 });
+      client.disposeAll(); // The daemon must refresh even without a connected TUI.
+
+      clock += 6.5 * 24 * 60 * 60 * 1_000;
+      await vi.waitFor(async () => {
+        expect(Date.parse(JSON.parse(await readFile(file, "utf8")).expiresAt))
+          .toBeGreaterThanOrEqual(clock + 7 * 24 * 60 * 60 * 1_000);
+      });
+      // Also recover after a machine sleep spans the previous expiry.
+      clock += 8 * 24 * 60 * 60 * 1_000;
+      await vi.waitFor(async () => {
+        expect(Date.parse(JSON.parse(await readFile(file, "utf8")).expiresAt))
+          .toBeGreaterThanOrEqual(clock + 7 * 24 * 60 * 60 * 1_000);
+      });
+      await expect(authorizeCapability(paths, token, "task.children", task.id))
+        .resolves.toMatchObject({ actor: { capabilityId: id } });
+      const refreshed = JSON.parse(await readFile(file, "utf8"));
+      expect(refreshed).toEqual({ ...original, expiresAt: refreshed.expiresAt });
+      expect(spawn).toHaveBeenCalledOnce();
+
+      agentPty.emitExit(0);
+      clock += 8 * 24 * 60 * 60 * 1_000;
+      await new Promise((resolve) => setTimeout(resolve, 600));
+      expect(JSON.parse(await readFile(file, "utf8"))).toEqual(refreshed);
+      await expect(authorizeCapability(paths, token, "task.children", task.id))
+        .rejects.toMatchObject({ code: "CAPABILITY_DENIED", details: { reason: "expired" } });
+    } finally {
+      await requestDaemonShutdown(paths);
+      await daemon;
+      now.mockRestore();
+      await rm(root, { recursive: true, force: true });
+    }
+  }, DAEMON_TEST_TIMEOUT_MS);
+
   test("delivers prompts after a newer CLI adds an unknown preview to the running daemon's config", async () => {
     const root = await mkdtemp(join(tmpdir(), "craig-daemon-future-preview-"));
     const paths = await createCraigState(root, ["task_1"]);
