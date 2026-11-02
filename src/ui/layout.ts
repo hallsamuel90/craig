@@ -29,8 +29,16 @@ export interface PanelBounds {
   height: number;
 }
 
-// The preview's frames and terminal dimensions share these bounds. Pointer
-// targeting can use the same rectangles when mouse interaction is introduced.
+export function getCenterPanelBounds(viewport: Viewport, centerOnly = false): PanelBounds {
+  return {
+    row: SHELL_LAYOUT.topRailHeight + 1,
+    column: centerOnly ? 1 : SHELL_LAYOUT.leftWidth + SHELL_LAYOUT.dividerWidth + 1,
+    width: centerOnly ? viewport.width : viewport.width - SHELL_LAYOUT.leftWidth - SHELL_LAYOUT.rightWidth - SHELL_LAYOUT.dividerWidth * 2,
+    height: viewport.height - SHELL_LAYOUT.topRailHeight - 1,
+  };
+}
+
+// Frames, terminal dimensions, and pointer targets share these bounds.
 export function getFramedPanelBounds(viewport: Viewport, centerOnly = false) {
   const leftWidth = 32;
   const rightWidth = 34;
@@ -56,4 +64,11 @@ export function getFramedTerminalBounds(viewport: Viewport, centerOnly = false):
     width: center.width - 6,
     height: center.height - 3, // title, context, bottom border
   };
+}
+
+// Mutable viewport metadata shared by list painting and pointer scrolling.
+export interface ListViewport {
+  offset: number;
+  maxOffset: number;
+  selectedId?: string | null;
 }

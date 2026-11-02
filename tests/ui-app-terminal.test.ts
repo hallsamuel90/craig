@@ -51,6 +51,136 @@ describe("terminal app PTY attach flow", () => {
     );
   });
 
+  test.each([false, true])("mouse preview clicks menus, rows, tabs and PTYs across resize/zoom, polish %s", async (panelPolish) => {
+    const root = await mkdtemp(join(tmpdir(), "craig-ui-mouse-"));
+    tempRoots.push(root);
+    const paths = await setupWorkspace(root);
+    await configService.save(paths, { previews: { mouseSupport: true, panelPolish } });
+    const terminal = new FakeTerminal();
+    const ptyRuntime = new FakePtyRuntime();
+    const app = startTerminalApp({ terminal, ptyRuntime, workspaceRoot: root, uiStateFile: paths.uiStateFile,
+      checkForUpdate: async () => ({ current: "0.19.5", latest: "0.19.5", updateAvailable: false }) });
+    await vi.waitFor(() => expect(terminal.hasKeyListener()).toBe(true));
+    const clickText = (text: string) => terminal.emitMouse("MOUSE_LEFT_BUTTON_PRESSED", locateScreenText(terminal, text));
+    expect(terminal.grabInput).toHaveBeenLastCalledWith({ mouse: "button" });
+    terminal.width = 100;
+    process.stdout.emit("resize");
+    const smallFrameCount = terminal.frames.length;
+    clickText("Options");
+    expect(terminal.frames).toHaveLength(smallFrameCount);
+    terminal.width = 120;
+    process.stdout.emit("resize");
+    const stop = vi.spyOn(process, "kill").mockReturnValue(true);
+    try {
+      process.emit("SIGTSTP");
+      expect(terminal.grabInput).toHaveBeenLastCalledWith(false);
+      expect(terminal.fullscreen).toHaveBeenLastCalledWith(false);
+      expect(stop).toHaveBeenCalledWith(process.pid, "SIGSTOP");
+      process.emit("SIGCONT");
+      expect(terminal.grabInput).toHaveBeenLastCalledWith({ mouse: "button" });
+    } finally { stop.mockRestore(); }
+    clickText("Options");
+    clickText("Feature Previews");
+    clickText("Panel polish");
+    await vi.waitFor(async () => expect((await configService.load(paths)).previews?.panelPolish).toBe(!panelPolish));
+    clickText("Panel polish");
+    await vi.waitFor(async () => expect((await configService.load(paths)).previews?.panelPolish).toBe(panelPolish));
+    terminal.emitKey("ESCAPE"); terminal.emitKey("ESCAPE");
+    clickText(panelPolish ? "Resume workspace" : "Start");
+    clickText("test task");
+    clickText("TERMINAL");
+    const centerX = panelPolish ? 40 : 48;
+    terminal.emitMouse("MOUSE_LEFT_BUTTON_PRESSED", { x: centerX, y: 12 });
+    await vi.waitFor(() => expect(ptyRuntime.ensureSession).toHaveBeenCalled());
+    terminal.emitKey("w");
+    expect(ptyRuntime.writeKey).toHaveBeenCalledWith("w");
+    terminal.emitUnknown("\u001b[<0;40;12M");
+    terminal.emitUnknown("\u001b[M !!");
+    expect(ptyRuntime.write).not.toHaveBeenCalled();
+    terminal.emitMouse("MOUSE_WHEEL_UP", { x: centerX, y: 12 });
+    await vi.waitFor(() => expect(ptyRuntime.scrollViewport).toHaveBeenCalledWith(-3, "task_20260430_02:terminal"));
+    const calls = ptyRuntime.scrollViewport.mock.calls.length;
+    terminal.emitMouse("MOUSE_WHEEL_UP", { x: 110, y: 12 });
+    await new Promise((resolve) => setTimeout(resolve, 30));
+    expect(ptyRuntime.scrollViewport).toHaveBeenCalledTimes(calls);
+    terminal.emitKey("v");
+    expect(ptyRuntime.writeKey).toHaveBeenCalledWith("v"); // wheel preserved engagement
+    clickText("FILES");
+    expect(ptyRuntime.detach).toHaveBeenCalled();
+    terminal.emitMouse("MOUSE_WHEEL_UP", { x: centerX, y: 12 });
+    await vi.waitFor(() => expect(ptyRuntime.scrollViewport.mock.calls.length).toBe(calls + 1));
+    expect(ptyRuntime.scrollViewport).toHaveBeenLastCalledWith(-3, "task_20260430_02:terminal");
+    terminal.emitKey("z");
+    terminal.width = 150; terminal.height = 42;
+    process.stdout.emit("resize");
+    terminal.emitMouse("MOUSE_LEFT_BUTTON_PRESSED", { x: 5, y: 12 });
+    await vi.waitFor(() => expect(ptyRuntime.ensureSession).toHaveBeenCalledTimes(2));
+    terminal.emitKey("\u001d");
+    terminal.emitKey("z");
+    terminal.emitKey("ESCAPE");
+    clickText("Options");
+    clickText("Feature Previews");
+    clickText("Mouse support");
+    await vi.waitFor(async () => expect((await configService.load(paths)).previews?.mouseSupport).toBe(false));
+    expect(terminal.grabInput).toHaveBeenLastCalledWith(true);
+    terminal.emitKey("ESCAPE"); terminal.emitKey("ESCAPE");
+    clickText("Exit"); // preview off: click is inert
+    expect(terminal.hasKeyListener()).toBe(true);
+    terminal.emitKey("ESCAPE"); terminal.emitKey("q");
+    await expect(app).resolves.toBe(0);
+    expect(terminal.grabInput).toHaveBeenLastCalledWith(false);
+  });
+
+  test.each([false, true])("pointer review scrolling and delayed PTY work retain the current pane/overlay, polish %s", async (panelPolish) => {
+    const root = await mkdtemp(join(tmpdir(), "craig-ui-mouse-review-"));
+    tempRoots.push(root);
+    const paths = await setupWorkspace(root);
+    const task = await prepareInspectableTask(paths);
+    await Promise.all(Array.from({ length: 90 }, (_, i) => writeFile(join(task.worktreePath, `change-${String(i).padStart(2, "0")}.txt`), "new content\n")));
+    await configService.save(paths, { previews: { mouseSupport: true, panelPolish } });
+    const terminal = new FakeTerminal();
+    const ptyRuntime = new FakePtyRuntime();
+    const app = startTerminalApp({ terminal, ptyRuntime, workspaceRoot: root, uiStateFile: paths.uiStateFile,
+      checkForUpdate: async () => ({ current: "0.20.1", latest: "0.20.1", updateAvailable: false }) });
+    await vi.waitFor(() => expect(terminal.hasKeyListener()).toBe(true));
+    const click = (text: string) => terminal.emitMouse("MOUSE_LEFT_BUTTON_PRESSED", locateScreenText(terminal, text));
+    terminal.emitKey("ENTER");
+    await vi.waitFor(() => expect(locateScreenText(terminal, "FILES")).toBeDefined());
+    click("REVIEW");
+    click("TERMINAL");
+    const center = { x: panelPolish ? 40 : 48, y: 12 };
+    // eslint-disable-next-line no-unused-vars
+    let finishAttach!: (...args: [TerminalViewState]) => void;
+    ptyRuntime.ensureSession.mockImplementationOnce(() => new Promise((resolve) => { finishAttach = resolve; }));
+    terminal.emitMouse("MOUSE_LEFT_BUTTON_PRESSED", center);
+    await vi.waitFor(() => expect(finishAttach).toBeTypeOf("function"));
+    click("REVIEW"); // cancels a pending attach, even if its response arrives late
+    finishAttach(ptyRuntime.getViewState(`${task.id}:terminal`));
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    terminal.emitKey("v");
+    expect(ptyRuntime.writeKey).not.toHaveBeenCalledWith("v");
+    terminal.emitMouse("MOUSE_LEFT_BUTTON_PRESSED", center);
+    await vi.waitFor(() => expect(ptyRuntime.ensureSession).toHaveBeenCalledTimes(2));
+    terminal.emitKey("w");
+    expect(ptyRuntime.writeKey).toHaveBeenCalledWith("w");
+    const before = [...screenRows(terminal).values()].join("\n");
+    const detachCount = ptyRuntime.detach.mock.calls.length;
+    for (let i = 0; i < 20; i++) terminal.emitMouse("MOUSE_WHEEL_DOWN", { x: 110, y: 12 });
+    const after = [...screenRows(terminal).values()].join("\n");
+    expect(after).not.toBe(before);
+    expect(after).toContain("change-");
+    terminal.emitKey("v");
+    expect(ptyRuntime.writeKey).toHaveBeenCalledWith("v");
+    expect(ptyRuntime.detach).toHaveBeenCalledTimes(detachCount);
+    terminal.emitKey("\u001d");
+    terminal.emitMouse("MOUSE_WHEEL_UP", center);
+    terminal.emitKey("ESCAPE"); // queued scroll must not replace pause with main
+    await new Promise((resolve) => setTimeout(resolve, 30));
+    expect(locateScreenText(terminal, "Options")).toBeDefined();
+    terminal.emitKey("ESCAPE"); terminal.emitKey("q");
+    await expect(app).resolves.toBe(0);
+  });
+
   test("reviews and explicitly approves a Fury plan in the TUI without starting workers", async () => {
     const root = await mkdtemp(join(tmpdir(), "craig-ui-fury-approval-"));
     tempRoots.push(root);
@@ -1592,7 +1722,7 @@ steps:
       "task_20260430_02:cursor",
       expect.objectContaining({ columns: expect.any(Number) }),
     ));
-    await vi.waitFor(() => expect(stripAnsi(terminal.frames.at(-1) ?? "")).toContain("TERMINAL   ↑↓/PgUp/PgDn scroll"));
+    await vi.waitFor(() => expect([...screenRows(terminal).values()].join("\n")).toContain("TERMINAL   ↑↓/PgUp/PgDn scroll"));
     expect(stripAnsi(terminal.frames.at(-1) ?? "")).not.toContain("Press Enter to attach this PTY-backed agent session.");
     terminal.emitKey("\u001D");
     terminal.emitKey("q");
@@ -3503,8 +3633,8 @@ class FakeTerminal implements TerminalRuntime {
     this.unknownListener?.(Buffer.from(input));
   }
 
-  emitMouse(name: string): void {
-    this.mouseListener?.(name, {});
+  emitMouse(name: string, data: { x?: number; y?: number } = {}): void {
+    this.mouseListener?.(name, data);
   }
 
   hasKeyListener(): boolean {
@@ -3534,7 +3664,7 @@ class FakePtyRuntime implements PtyRuntimePort {
     this.managesPullRequestSync = options.managesPullRequestSync ?? false;
   }
 
-  ensureSession = vi.fn((taskId: string, tabId: string): TerminalViewState => this.getRunningView(taskId, tabId));
+  ensureSession = vi.fn((taskId: string, tabId: string): TerminalViewState | Promise<TerminalViewState> => this.getRunningView(taskId, tabId));
   hydrateSessions = vi.fn((tabIds: string[]) => {
     if (!this.hydrateRows) {
       return;
@@ -3718,4 +3848,28 @@ async function setupWorkspace(root: string) {
     }),
   );
   return paths;
+}
+
+function screenRows(terminal: FakeTerminal): Map<number, string> {
+  const rows = new Map<number, string>();
+  for (const frame of terminal.frames) {
+    const positions = [...frame.matchAll(new RegExp(`${String.fromCharCode(27)}\\[(\\d+);(\\d+)H`, "g"))];
+    for (let index = 0; index < positions.length; index++) {
+      const match = positions[index]!;
+      const row = Number(match[1]);
+      const column = Number(match[2]);
+      const content = stripAnsi(frame.slice(match.index! + match[0].length, positions[index + 1]?.index));
+      const previous = rows.get(row) ?? "";
+      rows.set(row, previous.padEnd(column - 1).slice(0, column - 1) + content + previous.slice(column - 1 + content.length));
+    }
+  }
+  return rows;
+}
+
+function locateScreenText(terminal: FakeTerminal, text: string): { x: number; y: number } {
+  for (const [row, line] of screenRows(terminal)) {
+    const index = line.indexOf(text);
+    if (index !== -1) return { x: index + 1, y: row };
+  }
+  throw new Error(`No rendered text: ${text}`);
 }

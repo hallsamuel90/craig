@@ -963,12 +963,14 @@ function buildInspectionSection(
   };
 }
 
+export const INSPECTION_MODE_TABS = [
+  { label: "FILES", mode: "files" },
+  { label: "REVIEW", mode: "review" },
+] as const;
+
 function renderInspectionModeRow(state: ControlShellState, pr: PrBadgeDetail | null): ShellInspectionRow {
   const mode = state.inspectionMode;
-  const modes = [
-    { label: "FILES", active: mode === "files" },
-    { label: "REVIEW", active: mode === "review" },
-  ];
+  const modes = INSPECTION_MODE_TABS.map((tab) => ({ ...tab, active: mode === tab.mode }));
   const segments: TerminalRowSegment[] = [];
   for (let i = 0; i < modes.length; i++) {
     const m = modes[i]!;

@@ -1,3 +1,5 @@
+import type { MainKeyResult } from "../state.js";
+import { hitTest, pointerRegion } from "./pointer.js";
 import { openFuryPlans, handleFuryPlansKey } from "../shell/fury-plans.js";
 import path from "node:path";
 
@@ -11,7 +13,7 @@ import { getWorkspaceBrowserVisibleEntries, openUrl } from "../workspace/browser
 import { getSelectedTask } from "../shell/sync.js";
 import { getTaskPrimaryPr } from "../../domain/task/index.js";
 import { isEnterKey, isPrintableKey, getNextRunner, updateTerminalViewState } from "../state.js";
-import { reduceMainKey } from "./reducer.js";
+import { reduceMainKey, reducePointerAction, scrollInspectionContent } from "./reducer.js";
 import {
   reduceOptionsMenuKey,
   reducePreviewOptionsKey,
@@ -767,7 +769,7 @@ function handleCraigUpdateKey(ctx: AppContext, key: string): void {
   enterCraigFromBoot(ctx);
 }
 
-export function onKey(ctx: AppContext, name: unknown): void {
+export function onKey(ctx: AppContext, name: unknown, pointerResult?: MainKeyResult): void {
   const key = typeof name === "string" ? name : "";
 
   if (ctx.state.mode === "main" && ctx.state.shell.taskPromptInput !== null) {
@@ -801,7 +803,9 @@ export function onKey(ctx: AppContext, name: unknown): void {
   }
 
   if (ctx.state.mode === "main") {
-    const result = reduceMainKey(ctx.state.shell, key, getShellKeyOptions(ctx, ctx.state.shell));
+    const result = pointerResult ?? reduceMainKey(ctx.state.shell, key, getShellKeyOptions(ctx, ctx.state.shell));
+
+    if (result.changed || result.pause || result.exit) ctx.ptyAttachSequence = (ctx.ptyAttachSequence ?? 0) + 1;
 
     if (result.exit) {
       ctx.exit(0);
@@ -1199,6 +1203,14 @@ export function onKey(ctx: AppContext, name: unknown): void {
 
 export function onUnknown(ctx: AppContext, input: unknown): void {
   const raw = inputToString(input);
+  // Craig owns mouse routing. Never pass mouse reports to nested applications.
+  if (new RegExp(`${String.fromCharCode(27)}\\[(?:<|M)`).test(raw)) {
+    if (!configService.previews.isEnabled(ctx.config, "mouseSupport")) {
+      const lines = getTerminalScrollLinesForRawInput(raw);
+      if (lines && ctx.state.mode === "main" && ctx.state.shell.inputMode === "terminal") scheduleTerminalViewportScroll(ctx, lines);
+    }
+    return;
+  }
   if (ctx.state.mode !== "main" || ctx.state.shell.inputMode !== "terminal" || raw.length === 0) {
     return;
   }
@@ -1224,6 +1236,7 @@ export function onUnknown(ctx: AppContext, input: unknown): void {
   }
 
   if (raw.includes("")) {
+    ctx.ptyAttachSequence = (ctx.ptyAttachSequence ?? 0) + 1;
     ctx.ptyRuntime.detach();
     ctx.suppressTerminalEnterOnAttach = false;
     ctx.lastTerminalKey = null;
@@ -1326,7 +1339,70 @@ function clearPendingTerminalKeySequence(ctx: AppContext): void {
   ctx.pendingTerminalKeySequence = null;
 }
 
-export function onMouse(ctx: AppContext, name: unknown): void {
+export function onMouse(ctx: AppContext, name: unknown, data?: unknown): void {
+  if (configService.previews.isEnabled(ctx.config, "mouseSupport")) {
+    const viewport = getViewport(ctx.activeTerminal.width, ctx.activeTerminal.height);
+    // The minimum-width frame can wrap on a smaller physical terminal. Its
+    // logical cell coordinates are unsafe until the terminal is enlarged.
+    if ((ctx.activeTerminal.width ?? viewport.width) < viewport.width ||
+      (ctx.activeTerminal.height ?? viewport.height) < viewport.height) return;
+    if (!data || typeof data !== "object") return;
+    const { x, y, shift, alt, ctrl } = data as { x: number; y: number; shift?: boolean; alt?: boolean; ctrl?: boolean };
+    // Leave modified pointer gestures to the host terminal. Whether a modifier
+    // bypasses reporting for native selection is terminal specific.
+    if (shift || alt || ctrl) return;
+    // Refuse coordinates beyond the physical terminal when the minimum layout clips.
+    if (x > (ctx.activeTerminal.width ?? Infinity) || y > (ctx.activeTerminal.height ?? Infinity)) return;
+    const action = hitTest(ctx.pointerTargets ?? [], x, y);
+    if (!action) return;
+    if (ctx.state.mode === "overlay") {
+      if (name !== "MOUSE_LEFT_BUTTON_PRESSED" || action.kind !== "menu") return;
+      if (ctx.state.runnerOptions?.pathEdit) return;
+      ctx.state = { ...ctx.state, menuIndex: action.index,
+        ...(ctx.state.variant === "previews" ? { previewOptions: { menuIndex: action.index, message: null } } : {}),
+        ...(ctx.state.variant === "runners" ? { runnerOptions: { menuIndex: action.index, message: null } } : {}),
+      };
+      onKey(ctx, "ENTER");
+      return;
+    }
+    if (ctx.state.shell.taskPromptInput !== null || ctx.state.shell.workspaceBrowser !== null) return;
+    const region = pointerRegion(action);
+    if (!region) return;
+    const lines = getTerminalScrollLinesForMouseEvent(name);
+    if (lines) {
+      const list = region === "tasks" ? ctx.pointerLeftScroll
+        : region === "inspector" ? ctx.pointerInspectorScroll : undefined;
+      if (list) {
+        list.offset = Math.max(0, Math.min(list.maxOffset, list.offset + lines));
+        ctx.render();
+        return;
+      }
+      if (region === "center" && ctx.state.shell.activeTab !== "inspection") {
+        scheduleTerminalViewportScroll(ctx, lines, ctx.state.shell.activeTab);
+      } else {
+        const shell = ctx.state.shell;
+        const options = getShellKeyOptions(ctx, { ...shell, focusedRegion: region });
+        const result = scrollInspectionContent({ ...shell, focusedRegion: region }, lines, options);
+        result.state = { ...result.state, focusedRegion: shell.focusedRegion, inputMode: shell.inputMode };
+        ctx.state = { mode: "main", shell: syncShell(ctx, result.state) };
+        if (result.refreshInspection) void refreshInspection(ctx, ctx.state.shell).catch((error: unknown) => {
+          reportRecoverableError(ctx, "scroll inspection", error, "Failed to refresh inspection.");
+        });
+        ctx.render();
+      }
+      return;
+    }
+    if (name !== "MOUSE_LEFT_BUTTON_PRESSED") return;
+    ctx.ptyAttachSequence = (ctx.ptyAttachSequence ?? 0) + 1;
+    clearPendingTerminalKeySequence(ctx);
+    if (ctx.scrollRenderTimer) { clearTimeout(ctx.scrollRenderTimer); ctx.scrollRenderTimer = null; }
+    ctx.pendingScrollLines = 0;
+    if (ctx.state.shell.inputMode === "terminal") ctx.ptyRuntime.detach();
+    const shell = { ...ctx.state.shell, inputMode: "control" as const };
+    ctx.state = { mode: "main", shell };
+    onKey(ctx, "", reducePointerAction(shell, action, getShellKeyOptions(ctx, { ...shell, focusedRegion: region })));
+    return;
+  }
   if (ctx.state.mode !== "main") {
     return;
   }

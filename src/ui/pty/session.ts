@@ -4,7 +4,7 @@ import type { TaskPtyTabRecord, TaskRecord } from "../../domain/task/index.js";
 import { buildEmbeddedAgentCommand } from "../../shell/agent-command.js";
 import type { WorkspaceShellModel } from "../shell/data.js";
 import { CENTER_TERMINAL_GUTTER } from "../render.js";
-import { SHELL_LAYOUT, getFramedTerminalBounds, type Viewport } from "../layout.js";
+import { getCenterPanelBounds, getFramedTerminalBounds, type Viewport } from "../layout.js";
 import type { PtySize } from "./runtime.js";
 
 export function resolvePtySessionSpec(model: WorkspaceShellModel, tabId: string, workspaceRoot: string) {
@@ -63,21 +63,9 @@ export function getPtySize(viewport: Viewport, panelPolish = false, centerOnly =
     const bounds = getFramedTerminalBounds(viewport, centerOnly);
     return { columns: bounds.width, rows: bounds.height };
   }
-  // The center PTY surface reserves:
-  // 1. tab strip
-  // 2. active-tab underline
-  // 3. task header
-  // 4. spacer before the PTY surface
-  // 5. full-width footer row
+  const bounds = getCenterPanelBounds(viewport, centerOnly);
   return {
-    columns: Math.max(
-      20,
-      viewport.width -
-        SHELL_LAYOUT.leftWidth -
-        SHELL_LAYOUT.rightWidth -
-        SHELL_LAYOUT.dividerWidth -
-        CENTER_TERMINAL_GUTTER * 2,
-    ),
-    rows: Math.max(5, viewport.height - SHELL_LAYOUT.topRailHeight - 5),
+    columns: bounds.width - CENTER_TERMINAL_GUTTER * 2,
+    rows: bounds.height - 4, // tab strip, underline, task header, spacer
   };
 }

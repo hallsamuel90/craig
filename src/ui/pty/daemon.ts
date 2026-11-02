@@ -40,7 +40,7 @@ type DaemonRequest =
   | { id: number; type: "pruneStale"; keepTabIds: string[] }
   | { id: number; type: "write"; input: string }
   | { id: number; type: "writeKey"; key: string }
-  | { id: number; type: "scrollViewport"; lines: number }
+  | { id: number; type: "scrollViewport"; lines: number; tabId?: string }
   | { id: number; type: "resize"; size: PtySize }
   | { id: number; type: "detach" }
   | { id: number; type: "disposeSession"; tabId: string }
@@ -195,6 +195,7 @@ export class DaemonPtyRuntimeClient {
   private readonly activityRevisionByTabId = new Map<string, number>();
   private activityRevision = 0;
   private attachedTabId: string | null = null;
+  private attachmentSequence = 0;
   private viewedTabId: string | null = null;
   private subscribedTabId: string | null = null;
   private activityEnabled: boolean;
@@ -243,6 +244,7 @@ export class DaemonPtyRuntimeClient {
   }
 
   async ensureSession(taskId: string, tabId: string, size: PtySize): Promise<TerminalViewState> {
+    const sequence = ++this.attachmentSequence;
     const response = await this.send({
       type: "ensureSession",
       taskId,
@@ -250,9 +252,11 @@ export class DaemonPtyRuntimeClient {
       size,
       spec: this.options.resolveSessionSpec?.(taskId, tabId) ?? { cwd: this.options.workspaceRoot, command: [] },
     });
-    this.attachedTabId = tabId;
-    this.viewedTabId = tabId;
-    this.subscribedTabId = tabId;
+    if (sequence === this.attachmentSequence) {
+      this.attachedTabId = tabId;
+      this.viewedTabId = tabId;
+      this.subscribedTabId = tabId;
+    }
     const view = response.view ?? { status: "idle", rows: [], error: null };
     this.viewCache.set(tabId, view);
     return view;
@@ -296,9 +300,12 @@ export class DaemonPtyRuntimeClient {
     void this.send({ type: "writeKey", key }).catch(() => undefined);
   }
 
-  scrollViewport(lines: number): void {
-    const tabId = this.attachedTabId;
-    void this.send({ type: "scrollViewport", lines }).then((response) => {
+  scrollViewport(lines: number, targetTabId?: string): void {
+    const tabId = targetTabId ?? this.attachedTabId;
+    // Older daemons can scroll only their attached PTY. Do not scroll the wrong
+    // session when a newer client points at a different, detached view.
+    if (targetTabId && this.protocolVersion < 11 && targetTabId !== this.attachedTabId) return;
+    void this.send({ type: "scrollViewport", lines, ...(targetTabId ? { tabId: targetTabId } : {}) }).then((response) => {
       if (tabId && response.view) {
         this.viewCache.set(tabId, response.view);
         this.notifyFullUpdate(tabId);
@@ -317,6 +324,7 @@ export class DaemonPtyRuntimeClient {
   }
 
   detach(): void {
+    this.attachmentSequence++;
     this.attachedTabId = null;
     void this.send({ type: "detach" }).catch(() => undefined);
   }
@@ -611,6 +619,8 @@ class PtyDaemonServer {
   private pullRequestEventReconciliationEnabled = false;
   private readonly pullRequestSyncOptions: false | PullRequestSyncSupervisorOptions | undefined;
   private attachedTabId: string | null = null;
+  private attachmentSequence = 0;
+  private disposed = false;
 
   constructor(paths: CraigPaths, options: PtyDaemonServerOptions) {
     this.paths = paths;
@@ -716,6 +726,8 @@ class PtyDaemonServer {
   }
 
   disposeAll(): void {
+    this.disposed = true;
+    this.attachmentSequence++;
     for (const timer of this.updateTimers.values()) {
       clearTimeout(timer);
     }
@@ -777,6 +789,7 @@ class PtyDaemonServer {
         return null;
       case "ensureSession":
         {
+          const sequence = ++this.attachmentSequence;
           const existed = this.runtime.hasRunningSession(request.tabId);
           const capabilityToken = request.spec.env?.CRAIG_AGENT_CAPABILITY;
           if (!existed && capabilityToken) {
@@ -792,7 +805,11 @@ class PtyDaemonServer {
               });
             }
           }
-          const view = this.runtime.ensureSession(request.taskId, request.tabId, request.size, request.spec);
+          if (this.disposed) return null;
+          const attach = sequence === this.attachmentSequence;
+          // Starting a session may await capability refresh. Complete that
+          // work without replacing a newer keyboard target or subscription.
+          const view = this.runtime.ensureSession(request.taskId, request.tabId, request.size, request.spec, attach);
           if (!existed) {
             this.log({
               level: "info",
@@ -803,6 +820,7 @@ class PtyDaemonServer {
               tabId: request.tabId,
             });
           }
+          if (!attach) return view;
           this.attachedTabId = request.tabId;
           return this.subscribe(socket, request.tabId, view);
         }
@@ -815,12 +833,13 @@ class PtyDaemonServer {
         this.runtime.writeKey(request.key);
         return null;
       case "scrollViewport":
-        this.runtime.scrollViewport(request.lines);
-        return this.runtime.getViewState(this.attachedTabId);
+        this.runtime.scrollViewport(request.lines, request.tabId);
+        return this.runtime.getViewState(request.tabId ?? this.attachedTabId);
       case "resize":
         this.runtime.resize(request.size);
         return this.runtime.getViewState(this.attachedTabId);
       case "detach":
+        this.attachmentSequence++;
         if (this.attachedTabId) {
           this.log({
             level: "debug",

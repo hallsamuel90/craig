@@ -56,6 +56,47 @@ describe("PTY daemon", () => {
     }
   }, DAEMON_TEST_TIMEOUT_MS);
 
+  test.each(["detach", "newer tab"])("a delayed capability refresh cannot override %s", async (navigation) => {
+    const root = await mkdtemp(join(tmpdir(), "craig-delayed-attach-"));
+    const paths = await createCraigState(root, ["task_1"]);
+    const task = await writeTaskRecord(root, { id: "task_1" });
+    const environment = await ensureTaskCapabilities(paths, task);
+    const terminal = createFakePty();
+    const agent = createFakePty();
+    const spawn = navigation === "detach" ? vi.fn(() => agent) : vi.fn().mockReturnValueOnce(terminal).mockReturnValueOnce(agent);
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => { release = resolve; });
+    let refreshing = false;
+    const originalRefresh = capabilities.refreshAgentCapability;
+    const refresh = vi.spyOn(capabilities, "refreshAgentCapability").mockImplementationOnce(async (...args) => {
+      refreshing = true;
+      await gate;
+      return originalRefresh(...args);
+    });
+    const daemon = servePtyDaemon(paths, { spawn, pullRequestSync: false });
+    const client = await createDaemonPtyRuntime({ paths, workspaceRoot: root,
+      resolveSessionSpec: (_taskId, tabId) => ({ cwd: root, command: [], env: tabId.endsWith(":agent") ? environment : {} }),
+    });
+    try {
+      const pending = client.ensureSession(task.id, "task_1:agent", { columns: 80, rows: 24 });
+      await vi.waitFor(() => expect(refreshing).toBe(true));
+      if (navigation === "detach") client.detach();
+      else await client.ensureSession(task.id, "task_1:terminal", { columns: 80, rows: 24 });
+      release();
+      await pending;
+      client.writeKey("q");
+      // A ping on the same socket confirms the preceding write was processed.
+      await client.ready();
+      if (navigation === "newer tab") await vi.waitFor(() => expect(terminal.writes).toContain("q"));
+      expect(agent.writes).not.toContain("q");
+      expect(spawn).toHaveBeenCalledTimes(navigation === "detach" ? 1 : 2);
+    } finally {
+      release(); refresh.mockRestore(); client.disposeAll();
+      await requestDaemonShutdown(paths); await daemon;
+      await rm(root, { recursive: true, force: true });
+    }
+  }, DAEMON_TEST_TIMEOUT_MS);
+
   test("on-demand refresh does not trust stale running activity after an unobserved process exit", async () => {
     const root = await mkdtemp(join(tmpdir(), "craig-refresh-stale-activity-"));
     const paths = await createCraigState(root, ["task_1"]);
@@ -1142,6 +1183,35 @@ steps:
       expect(onUpdate).toHaveBeenCalledWith({ tabId: "task_1:agent", kind: "full" });
       client.disposeAll();
     } finally {
+      await requestDaemonShutdown(paths);
+      await daemon;
+      await rm(root, { recursive: true, force: true });
+    }
+  }, DAEMON_TEST_TIMEOUT_MS);
+
+  test("scrolls a detached view by tab ID without redirecting attached input", async () => {
+    const root = await createWorkspace();
+    const paths = getCraigPaths(root);
+    const agent = createFakePty();
+    const terminal = createFakePty();
+    const daemon = servePtyDaemon(paths, { spawn: vi.fn().mockReturnValueOnce(agent).mockReturnValueOnce(terminal), pullRequestSync: false });
+    const client = await createDaemonPtyRuntime({ paths, workspaceRoot: root, resolveSessionSpec: () => ({ cwd: root, command: [] }) });
+    try {
+      await client.ensureSession("task_1", "task_1:agent", { columns: 20, rows: 3 });
+      agent.emitData("one\r\ntwo\r\nthree\r\nfour\r\nfive\r\n");
+      await client.ensureSession("task_1", "task_1:terminal", { columns: 20, rows: 3 });
+      client.setViewedTab("task_1:agent");
+      await vi.waitFor(() => expect(viewText(client.getViewState("task_1:agent"))).toContain("five"));
+      client.scrollViewport(-2, "task_1:agent");
+      await vi.waitFor(() => expect(client.getViewState("task_1:agent").scrolledBack).toBe(true));
+      client.writeKey("q");
+      await vi.waitFor(() => expect(terminal.writes).toContain("q"));
+      expect(agent.writes).not.toContain("q");
+      client.detach();
+      client.scrollViewport(2, "task_1:agent");
+      await vi.waitFor(() => expect(client.getViewState("task_1:agent").scrolledBack).toBe(false));
+    } finally {
+      client.disposeAll();
       await requestDaemonShutdown(paths);
       await daemon;
       await rm(root, { recursive: true, force: true });

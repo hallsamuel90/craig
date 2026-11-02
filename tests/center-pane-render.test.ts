@@ -49,6 +49,20 @@ describe("incremental center pane rendering", () => {
     expect(region.rows.join("\n")).not.toContain("hidden");
   });
 
+  test.each([false, true])("normal PTY dimensions match painted cells after resize, zoom %s", (centerOnly) => {
+    for (const viewport of [MIN_VIEWPORT, { width: 150, height: 42 }]) {
+      const size = getPtySize(viewport, false, centerOnly);
+      const data = getMockShellData({ terminal: { status: "running", error: null,
+        rows: Array.from({ length: size.rows }, () => ({ segments: [{ text: "x".repeat(size.columns - 1) + "!" }] })),
+      } });
+      const region = renderCenterPaneRegion(viewport, data, { color: false, centerOnly });
+      expect(region.rows[4]).toBe(`  ${"x".repeat(size.columns - 1)}!  `);
+      expect(region.rows.at(-1)).toBe(region.rows[4]);
+      expect(region.width).toBe(size.columns + 4);
+      expect(region.rows.length).toBe(size.rows + 4);
+    }
+  });
+
   test("writes terminal changes only at the center region column", () => {
     const initial = getMockShellData();
     const previous = renderCenterPaneRegion(MIN_VIEWPORT, initial);
