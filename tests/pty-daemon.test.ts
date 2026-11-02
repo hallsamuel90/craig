@@ -56,6 +56,47 @@ describe("PTY daemon", () => {
     }
   }, DAEMON_TEST_TIMEOUT_MS);
 
+  test.each(["detach", "newer tab"])("a delayed capability refresh cannot override %s", async (navigation) => {
+    const root = await mkdtemp(join(tmpdir(), "craig-delayed-attach-"));
+    const paths = await createCraigState(root, ["task_1"]);
+    const task = await writeTaskRecord(root, { id: "task_1" });
+    const environment = await ensureTaskCapabilities(paths, task);
+    const terminal = createFakePty();
+    const agent = createFakePty();
+    const spawn = navigation === "detach" ? vi.fn(() => agent) : vi.fn().mockReturnValueOnce(terminal).mockReturnValueOnce(agent);
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => { release = resolve; });
+    let refreshing = false;
+    const originalRefresh = capabilities.refreshAgentCapability;
+    const refresh = vi.spyOn(capabilities, "refreshAgentCapability").mockImplementationOnce(async (...args) => {
+      refreshing = true;
+      await gate;
+      return originalRefresh(...args);
+    });
+    const daemon = servePtyDaemon(paths, { spawn, pullRequestSync: false });
+    const client = await createDaemonPtyRuntime({ paths, workspaceRoot: root,
+      resolveSessionSpec: (_taskId, tabId) => ({ cwd: root, command: [], env: tabId.endsWith(":agent") ? environment : {} }),
+    });
+    try {
+      const pending = client.ensureSession(task.id, "task_1:agent", { columns: 80, rows: 24 });
+      await vi.waitFor(() => expect(refreshing).toBe(true));
+      if (navigation === "detach") client.detach();
+      else await client.ensureSession(task.id, "task_1:terminal", { columns: 80, rows: 24 });
+      release();
+      await pending;
+      client.writeKey("q");
+      // A ping on the same socket confirms the preceding write was processed.
+      await client.ready();
+      if (navigation === "newer tab") await vi.waitFor(() => expect(terminal.writes).toContain("q"));
+      expect(agent.writes).not.toContain("q");
+      expect(spawn).toHaveBeenCalledTimes(navigation === "detach" ? 1 : 2);
+    } finally {
+      release(); refresh.mockRestore(); client.disposeAll();
+      await requestDaemonShutdown(paths); await daemon;
+      await rm(root, { recursive: true, force: true });
+    }
+  }, DAEMON_TEST_TIMEOUT_MS);
+
   test("on-demand refresh does not trust stale running activity after an unobserved process exit", async () => {
     const root = await mkdtemp(join(tmpdir(), "craig-refresh-stale-activity-"));
     const paths = await createCraigState(root, ["task_1"]);

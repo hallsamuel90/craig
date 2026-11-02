@@ -113,7 +113,7 @@ export class PtyRuntime {
     this.resolveSessionSpec = options.resolveSessionSpec ?? (() => ({ cwd: options.workspaceRoot, command: [] }));
   }
 
-  ensureSession(taskId: string, tabId: string, size: PtySize, specOverride?: PtySessionSpec): TerminalViewState {
+  ensureSession(taskId: string, tabId: string, size: PtySize, specOverride?: PtySessionSpec, attach = true): TerminalViewState {
     const existing = this.sessions.get(tabId);
 
     if (existing) {
@@ -121,9 +121,11 @@ export class PtyRuntime {
         disposeSession(existing);
         this.sessions.delete(tabId);
       } else {
-        this.attachedTabId = tabId;
-        existing.scrollbackLines = 0;
-        resizeSession(existing, size);
+        if (attach) {
+          this.attachedTabId = tabId;
+          existing.scrollbackLines = 0;
+          resizeSession(existing, size);
+        }
         return this.getViewState(tabId);
       }
     }
@@ -144,7 +146,7 @@ export class PtyRuntime {
     }
     this.sessions.set(tabId, session);
     this.notifyActivity(session);
-    this.attachedTabId = tabId;
+    if (attach) this.attachedTabId = tabId;
     return this.getViewState(tabId);
   }
 

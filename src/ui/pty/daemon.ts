@@ -619,6 +619,8 @@ class PtyDaemonServer {
   private pullRequestEventReconciliationEnabled = false;
   private readonly pullRequestSyncOptions: false | PullRequestSyncSupervisorOptions | undefined;
   private attachedTabId: string | null = null;
+  private attachmentSequence = 0;
+  private disposed = false;
 
   constructor(paths: CraigPaths, options: PtyDaemonServerOptions) {
     this.paths = paths;
@@ -724,6 +726,8 @@ class PtyDaemonServer {
   }
 
   disposeAll(): void {
+    this.disposed = true;
+    this.attachmentSequence++;
     for (const timer of this.updateTimers.values()) {
       clearTimeout(timer);
     }
@@ -785,6 +789,7 @@ class PtyDaemonServer {
         return null;
       case "ensureSession":
         {
+          const sequence = ++this.attachmentSequence;
           const existed = this.runtime.hasRunningSession(request.tabId);
           const capabilityToken = request.spec.env?.CRAIG_AGENT_CAPABILITY;
           if (!existed && capabilityToken) {
@@ -800,7 +805,11 @@ class PtyDaemonServer {
               });
             }
           }
-          const view = this.runtime.ensureSession(request.taskId, request.tabId, request.size, request.spec);
+          if (this.disposed) return null;
+          const attach = sequence === this.attachmentSequence;
+          // Starting a session may await capability refresh. Complete that
+          // work without replacing a newer keyboard target or subscription.
+          const view = this.runtime.ensureSession(request.taskId, request.tabId, request.size, request.spec, attach);
           if (!existed) {
             this.log({
               level: "info",
@@ -811,6 +820,7 @@ class PtyDaemonServer {
               tabId: request.tabId,
             });
           }
+          if (!attach) return view;
           this.attachedTabId = request.tabId;
           return this.subscribe(socket, request.tabId, view);
         }
@@ -829,6 +839,7 @@ class PtyDaemonServer {
         this.runtime.resize(request.size);
         return this.runtime.getViewState(this.attachedTabId);
       case "detach":
+        this.attachmentSequence++;
         if (this.attachedTabId) {
           this.log({
             level: "debug",
