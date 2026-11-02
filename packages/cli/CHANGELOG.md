@@ -1,5 +1,11 @@
 # craig-cli
 
+## 0.19.7
+
+### Patch Changes
+
+- 2153388: Keep the Panel polish pause menu consistent with the start menu, including the shared tagline, live workspace/task/agent summary, and Resume workspace action.
+
 ## 0.19.6
 
 ### Patch Changes
