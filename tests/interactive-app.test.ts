@@ -68,6 +68,50 @@ describe("cli terminal startup", () => {
     expect(stderrWriteMock).not.toHaveBeenCalled();
   });
 
+  test("restarts from the newly installed global Craig after terminal cleanup", async () => {
+    const workspaceRoot = await createRepoRoot("craig-cli-restart-");
+    tempRoots.push(workspaceRoot);
+    process.chdir(workspaceRoot);
+    process.argv = ["node", "src/cli.ts"];
+
+    const startTerminalApp = vi.fn(async () => 75);
+    const restartCraig = vi.fn(async () => 0);
+    vi.doMock("../src/ui/app.js", () => ({ startTerminalApp }));
+    vi.doMock("../src/shell/craig-update.js", () => ({
+      CRAIG_RESTART_EXIT_CODE: 75,
+      restartCraig,
+    }));
+
+    await import("../src/cli.js");
+
+    expect(restartCraig).toHaveBeenCalledWith({
+      argv: [],
+      cwd: expect.stringContaining("craig-cli-restart-"),
+      env: process.env,
+    });
+    expect(process.exit).toHaveBeenCalledWith(0);
+  });
+
+  test("prints a relaunch instruction when automatic restart fails", async () => {
+    const workspaceRoot = await createRepoRoot("craig-cli-restart-failure-");
+    tempRoots.push(workspaceRoot);
+    process.chdir(workspaceRoot);
+
+    const startTerminalApp = vi.fn(async () => 75);
+    const restartCraig = vi.fn(async () => { throw new Error("global Craig was not found"); });
+    vi.doMock("../src/ui/app.js", () => ({ startTerminalApp }));
+    vi.doMock("../src/shell/craig-update.js", () => ({
+      CRAIG_RESTART_EXIT_CODE: 75,
+      restartCraig,
+    }));
+
+    await import("../src/cli.js");
+
+    expect(stderrWriteMock).toHaveBeenCalledWith(expect.stringContaining("could not restart automatically: global Craig was not found"));
+    expect(stderrWriteMock).toHaveBeenCalledWith(expect.stringContaining("Run `craig` again"));
+    expect(process.exit).toHaveBeenCalledWith(1);
+  });
+
   test("the CLI no longer references the deleted interactive stack", async () => {
     const source = await readFile(new URL("../src/cli.ts", import.meta.url), "utf8");
 

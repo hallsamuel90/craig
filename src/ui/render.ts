@@ -165,9 +165,9 @@ export function renderCraigUpdateOverlayFrame(
       }
     : update.phase === "success"
       ? {
-          subtitle: `Craig ${update.latest} installed · restart to use it`,
-          menuItems: ["Continue", "Exit Craig"],
-          message: "The current Craig session is still running the previous version.",
+          subtitle: `Craig v${update.latest} installed`,
+          menuItems: ["Restart Craig", `Continue with v${update.current}`, "Exit Craig"],
+          message: `Restart loads v${update.latest}. Continuing keeps this session on v${update.current}.`,
         }
       : update.phase === "error"
         ? {
