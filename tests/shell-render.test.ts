@@ -208,6 +208,23 @@ describe("terminal shell renderer", () => {
     expect(stable).not.toContain("open tasks");
   });
 
+  test.each([false, true])("keeps start and pause preview content identical with color %s", (color) => {
+    const base = { workspaceCount: 3, taskCount: 8, workingAgents: 2, readyAgents: 1, attentionAgents: 1, activityKnown: true };
+    for (const splashSummary of [base, { ...base, activityKnown: false }, { ...base, workingAgents: 0, readyAgents: 0, attentionAgents: 0 }]) {
+      for (const menuIndex of [0, 1, 2]) {
+        const options = { color, panelPolish: true, splashSummary, menuIndex, versionText: "v0.19.6", updateText: "→ v0.20.0 available", optionsMessage: "Settings saved" };
+        expect(renderPauseOverlayFrame(MIN_VIEWPORT, options)).toBe(renderBootOverlayFrame(MIN_VIEWPORT, options));
+      }
+    }
+    const empty = { ...base, workspaceCount: 0, taskCount: 0 };
+    const options = { color, panelPolish: true, splashSummary: empty };
+    for (const render of [renderBootOverlayFrame, renderPauseOverlayFrame]) {
+      const frame = stripVTControlCharacters(render(MIN_VIEWPORT, options));
+      expect(frame).toContain("Your workspace starts here.");
+      expect(frame).toContain("Add a repo, then start your first task.");
+    }
+  });
+
   test("experimental splash gives a fresh workspace a clear starting point", () => {
     const frame = renderBootOverlayFrame(MIN_VIEWPORT, { color: false, panelPolish: true, splashSummary: {
       workspaceCount: 0, taskCount: 0, workingAgents: 0, readyAgents: 0, attentionAgents: 0, activityKnown: true,
