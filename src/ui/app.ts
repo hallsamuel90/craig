@@ -5,7 +5,7 @@ import { readUiState } from "../state/ui-state-store.js";
 import { configService } from "../domain/config/index.js";
 import { taskService } from "../domain/task/index.js";
 import { getCraigPaths } from "../state/craig-paths.js";
-import { refreshPendingFuryPlans, renderFuryPlansFrame } from "./shell/fury-plans.js";
+import { refreshPendingFuryPlans, buildFuryPlansShellData } from "./shell/fury-plans.js";
 import { loadWorkspaceShellModel } from "./shell/loader.js";
 import { resolvePtySessionSpec, getPtySize } from "./pty/session.js";
 import { isAgentTabId, positionFrameRows } from "./input/keyboard.js";
@@ -388,17 +388,21 @@ export async function startTerminalApp(options: TerminalAppOptions = {}): Promis
       const snapshots = ctx.ptyRuntime.getActivitySnapshots?.() ?? [];
       const now = Date.now();
       const syncedShell = syncShell(ctx, renderState.shell);
-      const acknowledgedShell = acknowledgeAgentActivity(syncedShell, ctx.model.tasks, snapshots, now);
+      const acknowledgedShell = ctx.furyPlans ? syncedShell : acknowledgeAgentActivity(syncedShell, ctx.model.tasks, snapshots, now);
       if (acknowledgedShell !== syncedShell) {
         // Preserve shell identity: pending PTY warm-up uses it to detect navigation.
         renderState.shell.readAgentActivityAt = acknowledgedShell.readAgentActivityAt;
         persistShellState(ctx, renderState.shell);
       }
-      const mainShellData = buildShellData(
+      let mainShellData = buildShellData(
         acknowledgedShell,
         ctx.model,
         { snapshots, now, animationFrame: agentActivityAnimationFrame },
       );
+      if (ctx.furyPlans) {
+        mainShellData = buildFuryPlansShellData(mainShellData, ctx.furyPlans, viewport,
+          configService.previews.isEnabled(ctx.config, "panelPolish"), renderState.shell.centerZoomed);
+      }
       renderedAgentActivityByTabId.clear();
       for (const task of ctx.model.tasks) {
         for (const tab of task.ptyTabs) {
@@ -460,7 +464,7 @@ export async function startTerminalApp(options: TerminalAppOptions = {}): Promis
       const renderState = ctx.state;
       ctx.ptyRuntime.setPullRequestPollView?.(getPullRequestPollView(renderState));
       ctx.ptyRuntime.setViewedTab?.(
-        renderState.mode === "main" ? resolveTerminalViewTabId(ctx, renderState.shell) : null,
+        renderState.mode === "main" && !ctx.furyPlans ? resolveTerminalViewTabId(ctx, renderState.shell) : null,
       );
       const viewport = getViewport(activeTerminal.width, activeTerminal.height);
       let frame: string;
@@ -526,9 +530,7 @@ export async function startTerminalApp(options: TerminalAppOptions = {}): Promis
                         logPath: renderState.log?.path ?? paths.logFile,
                         logLines: renderState.log?.lines ?? [],
                       })
-                    : renderState.variant === "fury-plans" && renderState.furyPlans
-                      ? renderFuryPlansFrame(viewport, renderState.furyPlans)
-                      : renderHelpOverlayFrame(viewport);
+                    : renderHelpOverlayFrame(viewport);
         lastShellData = null;
         lastRenderedCenter = null;
         lastRenderedRegions = null;

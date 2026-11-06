@@ -770,6 +770,11 @@ function handleCraigUpdateKey(ctx: AppContext, key: string): void {
 export function onKey(ctx: AppContext, name: unknown): void {
   const key = typeof name === "string" ? name : "";
 
+  if (ctx.state.mode === "main" && ctx.furyPlans) {
+    handleFuryPlansKey(ctx, key);
+    return;
+  }
+
   if (ctx.state.mode === "main" && ctx.state.shell.taskPromptInput !== null) {
     handlePromptKey(ctx, key);
     return;
@@ -1067,8 +1072,6 @@ export function onKey(ctx: AppContext, name: unknown): void {
     return;
   }
 
-  if (ctx.state.variant === "fury-plans") { handleFuryPlansKey(ctx, key); return; }
-
   if (ctx.state.variant === "help") {
     if (ctx.state.viaOptions && ctx.state.parentVariant) {
       ctx.state = {
@@ -1327,6 +1330,11 @@ function clearPendingTerminalKeySequence(ctx: AppContext): void {
 }
 
 export function onMouse(ctx: AppContext, name: unknown): void {
+  if (ctx.state.mode === "main" && ctx.furyPlans) {
+    const lines = getTerminalScrollLinesForMouseEvent(name);
+    for (let index = 0; index < Math.abs(lines); index++) handleFuryPlansKey(ctx, lines < 0 ? "UP" : "DOWN");
+    return;
+  }
   if (ctx.state.mode !== "main") {
     return;
   }
