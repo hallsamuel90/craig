@@ -51,11 +51,11 @@ describe("terminal app PTY attach flow", () => {
     );
   });
 
-  test("reviews and explicitly approves a Fury plan in the TUI without starting workers", async () => {
+  test.each([false, true])("reviews Fury inside the workspace without starting workers (panel polish %s)", async (panelPolish) => {
     const root = await mkdtemp(join(tmpdir(), "craig-ui-fury-approval-"));
     tempRoots.push(root);
     const paths = await setupWorkspace(root);
-    await configService.save(paths, { previews: { agentOrchestration: true } });
+    await configService.save(paths, { previews: { agentOrchestration: true, panelPolish } });
     const file = join(root, ".craig", "fury", "ui.yaml");
     await mkdir(join(root, ".craig", "fury"), { recursive: true });
     await writeFile(file, `version: 1
@@ -82,15 +82,24 @@ steps:
     // The approval row is navigable using the same item order as the rendered sidebar.
     terminal.emitKey("SHIFT_TAB"); terminal.emitKey("UP"); terminal.emitKey("UP"); terminal.emitKey("ENTER");
     await vi.waitFor(() => expect(stripAnsi(terminal.frames.at(-1) ?? "")).toContain("FURY PLANS"));
+    const nativeFrame = stripAnsi(terminal.frames.at(-1) ?? "");
+    expect(nativeFrame).toContain("CRAIG");
+    expect(nativeFrame).toContain("test task");
+    expect(nativeFrame).toContain("EXECUTION ORDER");
     terminal.emitKey("ENTER");
     const frame = stripAnsi(terminal.frames.at(-1) ?? "");
-    expect(frame).toContain(plan.planHash);
-    expect(frame).toContain("1 tasks | 1 concurrent | 600s timeout");
+    expect(ptyRuntime.setViewedTab).toHaveBeenLastCalledWith(null);
+    expect(nativeFrame).toContain("Workers");
+    expect(frame).toContain("1 tasks");
     expect(frame).toContain("Detailed worker instructions");
     terminal.emitKey("END");
-    expect(stripAnsi(terminal.frames.at(-1) ?? "")).toContain("Confirm inspection findings");
+    expect(stripAnsi(terminal.frames.at(-1) ?? "")).toContain("PLAN IDENTITY");
     terminal.emitKey("a");
     expect(stripAnsi(terminal.frames.at(-1) ?? "")).toContain("Approve ux-approval-test?");
+    expect(stripAnsi(terminal.frames.at(-1) ?? "")).not.toContain("> Start");
+    terminal.emitKey("ESCAPE");
+    await expect(readFuryApproval(paths, plan.id)).rejects.toMatchObject({ code: "FURY_APPROVAL_REQUIRED" });
+    terminal.emitKey("a");
     await expect(readFuryApproval(paths, plan.id)).rejects.toMatchObject({ code: "FURY_APPROVAL_REQUIRED" });
     terminal.emitKey("ENTER");
     await vi.waitFor(async () => expect(await readFuryApproval(paths, plan.id)).toMatchObject({
@@ -98,7 +107,9 @@ steps:
     }));
     await vi.waitFor(() => expect(stripAnsi(terminal.frames.at(-1) ?? "")).toContain("Plan approved. No workers started"));
     expect(await listFuryRuns(paths)).toHaveLength(0);
-    terminal.emitKey("ESCAPE"); terminal.emitKey("q");
+    terminal.emitKey("TAB");
+    expect(stripAnsi(terminal.frames.at(-1) ?? "")).not.toContain("FURY PLANS");
+    terminal.emitKey("q");
     await expect(app).resolves.toBe(0);
   });
 
@@ -162,7 +173,7 @@ steps:
     await writeFile(file, yaml.replace("original-plan", "revised-plan"));
     await createPlan(paths, file, {}, "task_20260430_02", actor);
     terminal.emitKey("a"); terminal.emitKey("ENTER");
-    await vi.waitFor(() => expect(stripAnsi(terminal.frames.at(-1) ?? "")).toContain("replaced or already approved"));
+    await vi.waitFor(() => expect(stripAnsi(terminal.frames.at(-1) ?? "")).toContain("This plan was replaced"));
     await expect(readFuryApproval(paths, plan.id)).rejects.toMatchObject({ code: "FURY_APPROVAL_REQUIRED" });
     terminal.emitKey("ESCAPE");
     await vi.waitFor(() => expect(stripAnsi(terminal.frames.at(-1) ?? "")).toContain("revised-plan"));

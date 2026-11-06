@@ -72,7 +72,7 @@ steps:
       await output.waitFor("> Start"); child.write("\r");
       await output.waitFor("Fury plan to approve"); child.write("f");
       await output.waitFor("FURY PLANS"); child.write("\r");
-      await output.waitFor(plan.planHash); child.write("a");
+      await output.waitFor("Review each worker"); child.write("a");
       await output.waitFor("Approve terminal-approval?");
       await expect(readFuryApproval(paths, plan.id)).rejects.toMatchObject({ code: "FURY_APPROVAL_REQUIRED" });
       child.write("\r");
