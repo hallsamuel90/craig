@@ -222,7 +222,8 @@ async function waitForCraigBoot(craigBin, cwd, stubDir) {
   const exited = new Promise((resolveExit) => child.onExit(resolveExit));
 
   try {
-    await output.waitFor("> Start", 10000);
+    await output.waitFor("> Resume workspace", 10000);
+    await output.waitFor("A workspace for your coding agents.", 10000);
   } finally {
     child.kill();
     await Promise.race([exited, delay(2000)]);
