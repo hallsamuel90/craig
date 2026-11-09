@@ -171,7 +171,7 @@ function planLines(plan: FuryPlan, width: number): string[] {
 
 function furyContentSize(ctx: AppContext): { width: number; page: number } {
   return contentSize(getViewport(ctx.activeTerminal.width, ctx.activeTerminal.height),
-    configService.previews.isEnabled(ctx.config, "panelPolish"), ctx.state.shell.centerZoomed, ctx.furyPlans?.message);
+    true, ctx.state.shell.centerZoomed, ctx.furyPlans?.message);
 }
 
 function contentSize(viewport: Viewport, panelPolish: boolean, zoomed: boolean, message?: string | null) {

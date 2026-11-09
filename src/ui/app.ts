@@ -224,9 +224,8 @@ export async function startTerminalApp(options: TerminalAppOptions = {}): Promis
     };
     ctx.ptyRuntime.setActivityEnabled?.(true);
 
-    const isPreviewSplash = () => ctx.state.mode === "overlay"
-      && (ctx.state.variant === "boot" || ctx.state.variant === "pause")
-      && configService.previews.isEnabled(ctx.config, "panelPolish");
+    const isWorkspaceSplash = () => ctx.state.mode === "overlay"
+      && (ctx.state.variant === "boot" || ctx.state.variant === "pause");
 
     handlePtyUpdate = (invalidation) => {
       if (ctx.state.mode !== "main") {
@@ -256,7 +255,7 @@ export async function startTerminalApp(options: TerminalAppOptions = {}): Promis
               lastRenderedCenter,
               shell.centerZoomed,
               pendingInvalidation?.kind === "rows" ? pendingInvalidation.rowIndices : null,
-              configService.previews.isEnabled(ctx.config, "panelPolish"),
+              true,
             );
             if (!centerUpdate) {
               ctx.render();
@@ -279,7 +278,7 @@ export async function startTerminalApp(options: TerminalAppOptions = {}): Promis
     };
 
     handlePtyActivity = (snapshot: PtyActivitySnapshot) => {
-      if (isPreviewSplash()) {
+      if (isWorkspaceSplash()) {
         ctx.render();
         return;
       }
@@ -295,7 +294,7 @@ export async function startTerminalApp(options: TerminalAppOptions = {}): Promis
     };
 
     handlePtyActivityRemoved = (tabId: string) => {
-      if (isPreviewSplash()) {
+      if (isWorkspaceSplash()) {
         ctx.render();
         return;
       }
@@ -370,20 +369,17 @@ export async function startTerminalApp(options: TerminalAppOptions = {}): Promis
     };
     ctx.ptyRuntime.setOpenFileHandler?.(handleOpenFile);
 
-    let lastPreviewGeometry: string | null = null;
+    let lastPanelGeometry: string | null = null;
     const buildMainPresentation = (
       renderState: Extract<AppState, { mode: "main" }>,
     ): { data: ShellData; presentation: MainShellPresentation } => {
       const viewport = getViewport(activeTerminal.width, activeTerminal.height);
-      if (configService.previews.isEnabled(ctx.config, "panelPolish")) {
-        const geometry = `${viewport.width}:${viewport.height}:${renderState.shell.centerZoomed}`;
-        if (lastPreviewGeometry !== geometry) {
-          lastPreviewGeometry = geometry;
-          ctx.ptyRuntime.resize(getPtySize(viewport, true, renderState.shell.centerZoomed));
-          renderState.shell = withTerminalView(ctx, renderState.shell);
-        }
-      } else {
-        lastPreviewGeometry = null;
+      const geometry = `${viewport.width}:${viewport.height}:${renderState.shell.centerZoomed}`;
+      if (lastPanelGeometry !== geometry) {
+        lastPanelGeometry = geometry;
+        ctx.ptyRuntime.resize(getPtySize(viewport, true, renderState.shell.centerZoomed));
+        // Resizing must preserve shell identity for pending boot PTY warm-up.
+        renderState.shell.terminal = withTerminalView(ctx, renderState.shell).terminal;
       }
       const snapshots = ctx.ptyRuntime.getActivitySnapshots?.() ?? [];
       const now = Date.now();
@@ -401,7 +397,7 @@ export async function startTerminalApp(options: TerminalAppOptions = {}): Promis
       );
       if (ctx.furyPlans) {
         mainShellData = buildFuryPlansShellData(mainShellData, ctx.furyPlans, viewport,
-          configService.previews.isEnabled(ctx.config, "panelPolish"), renderState.shell.centerZoomed);
+          true, renderState.shell.centerZoomed);
       }
       renderedAgentActivityByTabId.clear();
       for (const task of ctx.model.tasks) {
@@ -415,7 +411,7 @@ export async function startTerminalApp(options: TerminalAppOptions = {}): Promis
         versionText: ctx.versionText,
         updateText: ctx.updateText,
         centerOnly: renderState.shell.centerZoomed,
-        panelPolish: configService.previews.isEnabled(ctx.config, "panelPolish"),
+        panelPolish: true,
         focusFlashActive: ctx.focusFlashUntil !== null && Date.now() < ctx.focusFlashUntil,
       });
       return { data: mainShellData, presentation: mainPresentation };
@@ -490,10 +486,8 @@ export async function startTerminalApp(options: TerminalAppOptions = {}): Promis
       } else {
         frame = renderState.variant === "boot" || renderState.variant === "pause"
           ? (renderState.variant === "boot" ? renderBootOverlayFrame : renderPauseOverlayFrame)(viewport, {
-              ...(configService.previews.isEnabled(ctx.config, "panelPolish") ? {
-                splashSummary: buildSplashSummary(ctx.model, ctx.ptyRuntime.getActivitySnapshots?.() ?? [], Date.now(), bootActivityKnown && ctx.ptyRuntime.getActivitySnapshots !== undefined),
-              } : {}),
-              panelPolish: configService.previews.isEnabled(ctx.config, "panelPolish"),
+              splashSummary: buildSplashSummary(ctx.model, ctx.ptyRuntime.getActivitySnapshots?.() ?? [], Date.now(), bootActivityKnown && ctx.ptyRuntime.getActivitySnapshots !== undefined),
+              panelPolish: true,
               menuIndex: renderState.menuIndex,
               optionsMessage: renderState.optionsMessage,
               versionText: ctx.versionText,
@@ -501,13 +495,13 @@ export async function startTerminalApp(options: TerminalAppOptions = {}): Promis
             })
           : renderState.variant === "options"
             ? renderOptionsOverlayFrame(viewport, {
-                panelPolish: configService.previews.isEnabled(ctx.config, "panelPolish"),
+                panelPolish: true,
                 menuIndex: renderState.menuIndex,
                 optionsMenuItems: buildOptionsMenuItems(ctx.runtimeState?.seenPreviewIds),
               })
             : renderState.variant === "runners"
               ? renderOptionsOverlayFrame(viewport, {
-                  panelPolish: configService.previews.isEnabled(ctx.config, "panelPolish"),
+                  panelPolish: true,
                   menuIndex: getRunnerOptionsState(renderState).menuIndex,
                   optionsMenuItems: buildRunnersSubmenuItems(ctx.config, getRunnerOptionsState(renderState)),
                   optionsMessage: getRunnersSubmenuMessage(getRunnerOptionsState(renderState)),
@@ -515,7 +509,7 @@ export async function startTerminalApp(options: TerminalAppOptions = {}): Promis
                 })
               : renderState.variant === "previews"
                 ? renderOptionsOverlayFrame(viewport, {
-                    panelPolish: configService.previews.isEnabled(ctx.config, "panelPolish"),
+                    panelPolish: true,
                     menuIndex: getPreviewOptionsState(renderState).menuIndex,
                     optionsMenuItems: buildPreviewSubmenuItems(ctx.config, ctx.runtimeState?.seenPreviewIds),
                     optionsMessage: getPreviewSubmenuMessage(getPreviewOptionsState(renderState)),
@@ -581,7 +575,7 @@ export async function startTerminalApp(options: TerminalAppOptions = {}): Promis
     const handleResize = () => {
       restoreTerminalScreen(ctx);
       if (ctx.state.mode === "main" && ctx.state.shell.inputMode === "terminal") {
-        ctx.ptyRuntime.resize(getPtySize(getViewport(activeTerminal.width, activeTerminal.height), configService.previews.isEnabled(ctx.config, "panelPolish"), ctx.state.shell.centerZoomed));
+        ctx.ptyRuntime.resize(getPtySize(getViewport(activeTerminal.width, activeTerminal.height), true, ctx.state.shell.centerZoomed));
         ctx.state = { mode: "main", shell: withTerminalView(ctx, ctx.state.shell) };
       }
       ctx.render();
@@ -590,7 +584,7 @@ export async function startTerminalApp(options: TerminalAppOptions = {}): Promis
     const handleResume = () => {
       restoreTerminalScreen(ctx);
       if (ctx.state.mode === "main" && ctx.state.shell.inputMode === "terminal") {
-        ctx.ptyRuntime.resize(getPtySize(getViewport(activeTerminal.width, activeTerminal.height), configService.previews.isEnabled(ctx.config, "panelPolish"), ctx.state.shell.centerZoomed));
+        ctx.ptyRuntime.resize(getPtySize(getViewport(activeTerminal.width, activeTerminal.height), true, ctx.state.shell.centerZoomed));
         ctx.state = { mode: "main", shell: withTerminalView(ctx, ctx.state.shell) };
       }
       ctx.render();
@@ -624,7 +618,7 @@ export async function startTerminalApp(options: TerminalAppOptions = {}): Promis
         );
         if (working || hadWorkingAgentActivity) {
           agentActivityAnimationFrame = (agentActivityAnimationFrame + 1) % AGENT_ACTIVITY_ANIMATION_FRAMES;
-          if (ctx.state.mode === "main" || isPreviewSplash()) {
+          if (ctx.state.mode === "main" || isWorkspaceSplash()) {
             ctx.render();
           }
         }
@@ -664,7 +658,7 @@ export async function startTerminalApp(options: TerminalAppOptions = {}): Promis
       .then(() => { bootActivityKnown = true; })
       .catch(() => undefined)
       .finally(() => {
-        if (!appClosed && isPreviewSplash()) ctx.render();
+        if (!appClosed && isWorkspaceSplash()) ctx.render();
       });
     ctx.render();
   });

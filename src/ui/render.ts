@@ -114,15 +114,15 @@ export function renderBootOverlayFrame(viewport: Viewport, options: RenderOption
   return renderWorkspaceOverlayFrame(viewport, "boot", options);
 }
 
-// Start and pause share preview content; only their stable copy and primary action differ.
+// Start and pause share workspace content; their primary action depends on whether work exists.
 function renderWorkspaceOverlayFrame(viewport: Viewport, variant: "boot" | "pause", options: RenderOptions): string {
-  const summary = options.panelPolish ? options.splashSummary : undefined;
+  const summary = options.panelPolish !== false ? options.splashSummary : undefined;
   const hasWork = summary && (summary.workspaceCount > 0 || summary.taskCount > 0);
   return renderOverlayFrame(viewport, {
-    panelPolish: options.panelPolish ?? false,
-    subtitle: options.panelPolish ? "A workspace for your coding agents." : variant === "boot" ? "crAIg is that you?" : "Control mode is paused.",
+    panelPolish: options.panelPolish ?? true,
+    subtitle: options.panelPolish !== false ? "A workspace for your coding agents." : variant === "boot" ? "crAIg is that you?" : "Control mode is paused.",
     details: summary ? splashDetails(summary, options.color ?? true) : [],
-    menuItems: options.panelPolish && (hasWork || variant === "pause") ? ["Resume workspace", "Options", "Exit"] : variant === "boot" ? BOOT_MENU : PAUSE_MENU,
+    menuItems: options.panelPolish !== false && (hasWork || variant === "pause") ? ["Resume workspace", "Options", "Exit"] : variant === "boot" ? BOOT_MENU : PAUSE_MENU,
     menuIndex: options.menuIndex ?? 0,
     optionsMessage: options.optionsMessage ?? null,
     color: options.color ?? true,
@@ -211,7 +211,7 @@ const OVERLAY_BODY_ROWS = 5;
 
 export function renderOptionsOverlayFrame(viewport: Viewport, options: RenderOptions = {}): string {
   return renderOverlayFrame(viewport, {
-    panelPolish: options.panelPolish ?? false,
+    panelPolish: options.panelPolish ?? true,
     subtitle: options.optionsSubtitle ?? "Configuration",
     menuItems: options.optionsMenuItems ?? OPTIONS_MENU,
     menuIndex: options.menuIndex ?? 0,
@@ -312,7 +312,7 @@ export function renderMainShellPresentation(
   data: ShellData,
   options: Pick<RenderOptions, "color" | "centerOnly" | "focusFlashActive" | "panelPolish" | "versionText" | "updateText"> = {},
 ): MainShellPresentation {
-  if (options.panelPolish) return renderFramedShellPresentation(viewport, data, options);
+  if (options.panelPolish !== false) return renderFramedShellPresentation(viewport, data, options);
   const color = options.color ?? true;
   const leftWidth = SHELL_LAYOUT.leftWidth;
   const rightWidth = SHELL_LAYOUT.rightWidth;
@@ -327,7 +327,7 @@ export function renderMainShellPresentation(
   const railTop = renderVersionRail(railText, viewport.width, options, color, PALETTE.rail);
 
   const leftLines = toLeftLines(data, leftWidth - LEFT_PANEL_INSET - LEFT_PANEL_GUTTER, bodyHeight, color);
-  const centerRegion = renderCenterPaneRegion(viewport, data, { color, centerOnly });
+  const centerRegion = renderCenterPaneRegion(viewport, data, { color, centerOnly, panelPolish: false });
   const rightLines = toRightLines(data, rightWidth, bodyHeight, color);
 
   const ptyAttached = data.inputMode === "terminal";
@@ -386,7 +386,7 @@ export function renderCenterPaneRegion(
   data: ShellData,
   options: Pick<RenderOptions, "color" | "centerOnly" | "panelPolish"> = {},
 ): RenderedRegion {
-  if (options.panelPolish) return renderFramedCenterRegion(viewport, data, options);
+  if (options.panelPolish !== false) return renderFramedCenterRegion(viewport, data, options);
   const color = options.color ?? true;
   const geometry = getCenterPaneGeometry(viewport, options.centerOnly ?? false);
   const lines = toCenterLines(data, geometry.width, geometry.rowCount, color);
@@ -414,7 +414,7 @@ export function renderCenterPaneTerminalRowPatch(
     return null;
   }
 
-  if (options.panelPolish) {
+  if (options.panelPolish !== false) {
     const bounds = getFramedPanelBounds(viewport, options.centerOnly).center;
     return {
       row: bounds.row, column: bounds.column, width: bounds.width, rowCount: bounds.height,
