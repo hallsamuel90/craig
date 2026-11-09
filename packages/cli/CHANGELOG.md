@@ -1,5 +1,11 @@
 # craig-cli
 
+## 0.20.2
+
+### Patch Changes
+
+- 0ce786f: Review and approve Fury plans inside Craig’s workspace, with the task sidebar, execution inspector, scrolling, and inline confirmation. Preserve task context when returning from plan review.
+
 ## 0.20.1
 
 ### Patch Changes
