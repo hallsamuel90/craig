@@ -1,7 +1,9 @@
 import { createRequire } from "node:module";
 import type * as TerminalKitModule from "terminal-kit";
 
-import { readUiState } from "../state/ui-state-store.js";
+import { randomUUID } from "node:crypto";
+import { processAlive } from "../shell/runtime/discovery.js";
+import { readUiState, writeUiState, getDefaultUiState } from "../state/ui-state-store.js";
 import { configService } from "../domain/config/index.js";
 import { taskService } from "../domain/task/index.js";
 import { getCraigPaths } from "../state/craig-paths.js";
@@ -127,7 +129,7 @@ export async function startTerminalApp(options: TerminalAppOptions = {}): Promis
   const paths = getCraigPaths(workspaceRoot);
   let config = await configService.load(paths);
   let enabledRunnerIds = configService.runners.getEnabled(config);
-  const runtimeState = options.uiStateFile ? await readUiState({ uiStateFile: options.uiStateFile }) : null;
+  let runtimeState = options.uiStateFile ? await readUiState({ uiStateFile: options.uiStateFile }) : null;
   let model = await loadWorkspaceShellModel(workspaceRoot, undefined, enabledRunnerIds);
   const initialShell = restoreShellState(createInitialShellState(runtimeState, config), model);
   model = await loadWorkspaceShellModel(workspaceRoot, initialShell, enabledRunnerIds);
@@ -142,12 +144,21 @@ export async function startTerminalApp(options: TerminalAppOptions = {}): Promis
     onActivityRemoved: (tabId) => handlePtyActivityRemoved(tabId),
     resolveSessionSpec: (_taskId, tabId) => resolvePtySessionSpec(modelRef.current, tabId, workspaceRoot),
   };
+  if (!options.ptyRuntime && options.uiStateFile) {
+    const previous = runtimeState?.runtimeViewClient;
+    const viewClient = previous && (previous.ownerPid === process.pid || !processAlive(previous.ownerPid))
+      ? { ...previous, ownerPid: process.pid }
+      : { clientId: randomUUID(), proof: randomUUID(), ownerPid: process.pid };
+    runtimeState = { ...(runtimeState ?? getDefaultUiState()), runtimeViewClient: viewClient };
+    await writeUiState({ uiStateFile: options.uiStateFile }, runtimeState);
+  }
   const initialPtyRuntime: PtyRuntimePort =
     options.ptyRuntime ??
     (await createDaemonPtyRuntime({
       ...ptyOptions,
       paths,
       activityEnabled: true,
+      ...(runtimeState?.runtimeViewClient ? { viewClient: runtimeState.runtimeViewClient } : {}),
     }));
 
   return new Promise<number>((resolve) => {

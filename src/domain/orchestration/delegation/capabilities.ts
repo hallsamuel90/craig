@@ -86,6 +86,13 @@ async function createCapability(
   return record;
 }
 
+export async function getExistingTaskAgentCapability(paths: CraigPaths, task: TaskRecord, agentTabId: string): Promise<string | null> {
+  const tab = task.ptyTabs.find((candidate) => candidate.id === agentTabId && candidate.kind === "agent");
+  if (!tab?.capabilityId) return null;
+  const record = await readCapabilityIfExists(paths, tab.capabilityId);
+  return record && record.taskId === task.id && record.agentTabId === agentTabId && !record.revokedAt ? record.token : null;
+}
+
 export async function isAgentCapabilityRefreshDue(paths: CraigPaths, session: AgentCapabilitySession): Promise<boolean> {
   const record = await readSessionCapability(paths, session);
   return record !== null && needsRefresh(record);

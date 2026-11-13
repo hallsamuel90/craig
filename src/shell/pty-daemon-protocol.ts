@@ -1,3 +1,4 @@
+import { realpathSync } from "node:fs";
 import { resolveRuntimeCompatibility } from "./runtime/compatibility.js";
 import { createHash } from "node:crypto";
 import { tmpdir } from "node:os";
@@ -12,7 +13,7 @@ export function isCompatiblePtyDaemonProtocol(version: number | undefined): bool
 }
 
 export function getPtyDaemonEndpoint(paths: CraigPaths): { socketPath: string; pidPath: string } {
-  const workspaceHash = createHash("sha256").update(paths.workspaceRoot).digest("hex").slice(0, 16);
+  const workspaceHash = createHash("sha256").update(realpathSync(paths.workspaceRoot)).digest("hex").slice(0, 16);
   return {
     socketPath: path.join(tmpdir(), `craig-${workspaceHash}.sock`),
     pidPath: path.join(paths.runtimeDir, "pty-daemon.pid"),

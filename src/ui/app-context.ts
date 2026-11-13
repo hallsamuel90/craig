@@ -53,6 +53,7 @@ export interface TerminalRuntime {
 
 export interface PtyRuntimePort {
   readonly managesPullRequestSync?: boolean;
+  readonly supportsTaskCreateAdmission?: boolean;
   ensureSession(...args: [string, string, PtySize]): ControlShellState["terminal"] | Promise<ControlShellState["terminal"]>;
   hydrateSessions?(...args: [string[]]): void | Promise<void>;
   pruneStale?(...args: [string[]]): void | Promise<void>;

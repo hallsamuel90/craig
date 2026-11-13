@@ -1,5 +1,5 @@
 import { createRequire } from "node:module";
-import { createHash } from "node:crypto";
+import { getPtyDaemonEndpoint } from "../src/shell/pty-daemon-protocol.js";
 import { createServer } from "node:net";
 import type { Socket } from "node:net";
 import { chmod, mkdir, mkdtemp, readFile, rm, symlink, writeFile } from "node:fs/promises";
@@ -1521,13 +1521,8 @@ function viewText(view: { rows: Array<{ segments: Array<{ text: string }> }> }):
   return view.rows.map((row) => row.segments.map((segment) => segment.text).join("")).join("\n");
 }
 
-function getDaemonEndpointForTest(workspaceRoot: string): { socketPath: string; pidPath: string } {
-  const workspaceHash = createHash("sha256").update(workspaceRoot).digest("hex").slice(0, 16);
-  const paths = getCraigPaths(workspaceRoot);
-  return {
-    socketPath: join(tmpdir(), `craig-${workspaceHash}.sock`),
-    pidPath: join(paths.runtimeDir, "pty-daemon.pid"),
-  };
+function getDaemonEndpointForTest(workspaceRoot: string) {
+  return getPtyDaemonEndpoint(getCraigPaths(workspaceRoot));
 }
 
 function createFakePty() {

@@ -1,3 +1,4 @@
+import { RuntimeAcknowledgementUncertainError } from "../../domain/runtime/errors.js";
 import type { TaskPtyTabRecord, TaskRecord } from "../../domain/task/index.js";
 import type { RunnerType } from "../../domain/config/index.js";
 import {
@@ -121,7 +122,7 @@ export async function attachPtyFromShell(ctx: AppContext, shell: ControlShellSta
     persistShellState(ctx, ctx.state.shell);
   } catch (error) {
     const message = reportRecoverableError(ctx, "attach PTY", error, "Failed to start PTY.");
-    if (shell.selectedTaskId && shell.selectedPtyTabId && isAgentTabId(shell.selectedPtyTabId)) {
+    if (!(error instanceof RuntimeAcknowledgementUncertainError) && shell.selectedTaskId && shell.selectedPtyTabId && isAgentTabId(shell.selectedPtyTabId)) {
       await markTaskRunnerFailed(ctx, shell.selectedTaskId, message).catch(() => undefined);
       await reloadModel(ctx).catch(() => undefined);
     }

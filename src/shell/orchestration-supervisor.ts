@@ -22,14 +22,14 @@ import { reconcilePromptCommandEvents } from "./command-event-reconciliation.js"
 import { reconcileFuryRuns } from "./fury-runtime.js";
 
 export interface OrchestrationDeliveryRuntime {
-  getRunningAgentCapabilities?(): AgentCapabilitySession[];
-  getActivitySnapshots(): PtyActivitySnapshot[];
+  getRunningAgentCapabilities?(): AgentCapabilitySession[] | Promise<AgentCapabilitySession[]>;
+  getActivitySnapshots(): PtyActivitySnapshot[] | Promise<PtyActivitySnapshot[]>;
   /* eslint-disable-next-line no-unused-vars */
-  hasRunningSession(tabId: string): boolean;
+  hasRunningSession(tabId: string): boolean | Promise<boolean>;
   /* eslint-disable-next-line no-unused-vars */
-  writeToSession(tabId: string, input: string): void;
+  writeToSession(tabId: string, input: string): void | Promise<void>;
   /* eslint-disable-next-line no-unused-vars */
-  getStartupBlocker?(tabId: string, runner: RunnerType): string | null;
+  getStartupBlocker?(tabId: string, runner: RunnerType): string | null | Promise<string | null>;
 }
 
 export class OrchestrationSupervisor {
@@ -103,12 +103,12 @@ export class OrchestrationSupervisor {
 
   private refreshCapabilities(): Promise<void> {
     if (this.capabilityRefresh) return this.capabilityRefresh;
-    this.capabilityRefresh = Promise.allSettled(
-      (this.runtime.getRunningAgentCapabilities?.() ?? []).map((session) => refreshAgentCapability(this.paths, session)),
-    ).then((results) => {
+    this.capabilityRefresh = (async () => {
+      const sessions = await this.runtime.getRunningAgentCapabilities?.() ?? [];
+      const results = await Promise.allSettled(sessions.map((session) => refreshAgentCapability(this.paths, session)));
       const failed = results.find((result) => result.status === "rejected");
       if (failed?.status === "rejected") throw failed.reason;
-    }).finally(() => { this.capabilityRefresh = null; });
+    })().finally(() => { this.capabilityRefresh = null; });
     return this.capabilityRefresh;
   }
 
@@ -170,7 +170,7 @@ export class OrchestrationSupervisor {
       return;
     }
 
-    const snapshot = this.runtime.getActivitySnapshots().find((candidate) => candidate.tabId === command.agentTabId);
+    const snapshot = (await this.runtime.getActivitySnapshots()).find((candidate) => candidate.tabId === command.agentTabId);
     if (snapshot && snapshot.sessionState !== "running") {
       await this.failCommand(command, commandError(
         "PROMPT_TARGET_UNAVAILABLE",
@@ -180,12 +180,12 @@ export class OrchestrationSupervisor {
       ));
       return;
     }
-    if (!this.runtime.hasRunningSession(command.agentTabId)) return;
+    if (!await this.runtime.hasRunningSession(command.agentTabId)) return;
     if (command.delivery === "when-ready") {
-      const state = getTaskAgentTabActivity(task, command.agentTabId, this.runtime.getActivitySnapshots(), Date.now());
+      const state = getTaskAgentTabActivity(task, command.agentTabId, await this.runtime.getActivitySnapshots(), Date.now());
       if (state !== "ready") return;
     }
-    const blocker = this.runtime.getStartupBlocker?.(command.agentTabId, tab.runner ?? task.runner);
+    const blocker = await this.runtime.getStartupBlocker?.(command.agentTabId, tab.runner ?? task.runner);
     if (blocker) {
       await this.failCommand(command, commandError("PROMPT_STARTUP_BLOCKED", blocker, true, false));
       return;
@@ -194,9 +194,9 @@ export class OrchestrationSupervisor {
     await promptCommandService.beginDelivery(this.paths, command.id);
     try {
       const submission = buildRunnerPromptSubmission(tab.runner ?? task.runner, command.prompt.text);
-      this.runtime.writeToSession(command.agentTabId, submission.paste);
+      await this.runtime.writeToSession(command.agentTabId, submission.paste);
       await wait(submission.submitDelayMs);
-      this.runtime.writeToSession(command.agentTabId, submission.submit);
+      await this.runtime.writeToSession(command.agentTabId, submission.submit);
     } catch (error) {
       await this.failCommand(command, commandError(
         "PROMPT_DELIVERY_UNCERTAIN",

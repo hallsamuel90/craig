@@ -1,20 +1,22 @@
+import { requireWorkspaceRuntimeCapabilities } from "./runtime/discovery.js";
+import { getClientRuntimeEndpoint } from "./runtime/endpoint.js";
 import { createConnection, type Socket } from "node:net";
 
 import type { CraigPaths } from "../state/craig-paths.js";
-import { getPtyDaemonEndpoint } from "./pty-daemon-protocol.js";
 import { ensureRuntimeRunning } from "./runtime/start.js";
-import { requireRuntimeCapabilities, resolveRuntimeCompatibility } from "./runtime/compatibility.js";
+import { resolveRuntimeCompatibility } from "./runtime/compatibility.js";
 import type { RuntimeHello } from "../domain/runtime/types.js";
 import { hasLiveOrchestrationSupervisor } from "./orchestration-leader.js";
 
 export async function wakeOrchestrationSupervisor(paths: CraigPaths): Promise<boolean> {
-  const socket = await connect(getPtyDaemonEndpoint(paths).socketPath).catch(() => null);
+  const socket = await connect(getClientRuntimeEndpoint(paths).socketPath).catch(() => null);
   // Sandboxed workers may read workspace state but cannot connect to Unix
   // sockets. A fresh, live leader will poll their already-persisted commands.
   if (!socket) return hasLiveOrchestrationSupervisor(paths);
   try {
     const ping = await request(socket, { type: "ping" });
     if (!resolveRuntimeCompatibility(ping, ["orchestration"]).compatible) return false;
+    await requireWorkspaceRuntimeCapabilities(paths, ping, ["orchestration"]);
     await request(socket, { type: "wakeOrchestration" });
     return true;
   } catch {
@@ -26,11 +28,12 @@ export async function wakeOrchestrationSupervisor(paths: CraigPaths): Promise<bo
 
 export async function disposeDaemonSessions(paths: CraigPaths, tabIds: string[]): Promise<boolean> {
   if (tabIds.length === 0) return true;
-  const socket = await connect(getPtyDaemonEndpoint(paths).socketPath).catch(() => null);
+  const socket = await connect(getClientRuntimeEndpoint(paths).socketPath).catch(() => null);
   if (!socket) return false;
   try {
     const ping = await request(socket, { type: "ping" });
     if (!resolveRuntimeCompatibility(ping, ["orchestration"]).compatible) return false;
+    await requireWorkspaceRuntimeCapabilities(paths, ping, ["orchestration"]);
     for (const tabId of tabIds) await request(socket, { type: "disposeSession", tabId });
     return true;
   } catch {
@@ -51,10 +54,10 @@ export async function ensureDaemonAgentSession(
   },
 ): Promise<void> {
   await ensureRuntimeRunning(paths);
-  const socket = await connect(getPtyDaemonEndpoint(paths).socketPath);
+  const socket = await connect(getClientRuntimeEndpoint(paths).socketPath);
   try {
     const ping = await request(socket, { type: "ping" });
-    requireRuntimeCapabilities(ping, ["delegatedLaunch"]);
+    await requireWorkspaceRuntimeCapabilities(paths, ping, ["delegatedLaunch"]);
     await request(socket, {
       type: "ensureSession",
       taskId: input.taskId,

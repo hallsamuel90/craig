@@ -1,3 +1,4 @@
+import { listTaskCreateOperations } from "../src/domain/runtime/task-create/store.js";
 import { stripVTControlCharacters } from "node:util";
 import { chmod, mkdir, mkdtemp, readFile, realpath, rm, writeFile } from "node:fs/promises";
 import { join, resolve } from "node:path";
@@ -18,8 +19,8 @@ import { taskService } from "../src/domain/task/index.js";
 import { createChildTaskAndSession } from "../src/shell/delegation.js";
 import { ensureTaskCapabilities } from "../src/domain/orchestration/index.js";
 
-function withoutAgentContext(): Record<string, string | undefined> {
-  const environment = { ...process.env };
+function withoutAgentContext(workspaceRoot: string): Record<string, string | undefined> {
+  const environment: Record<string, string | undefined> = { ...process.env, CRAIG_RUNTIME_CACHE: join(workspaceRoot, "runtime-cache") };
   delete environment.CRAIG_AGENT_CAPABILITY;
   delete environment.CRAIG_AGENT_TAB_ID;
   delete environment.CRAIG_TASK_ID;
@@ -65,7 +66,7 @@ steps:
     const output = new PtyOutputBuffer();
     const child = spawn(resolveTestTsxBin(repoRoot), [resolve(repoRoot, "src/cli.ts"), "--workspace-root", workspaceRoot], {
       cwd: workspaceRoot, cols: 120, rows: 36,
-      env: { ...withoutAgentContext(), CI: "", PATH: `${stubDir}:${process.env.PATH ?? ""}`, TERM: "xterm-256color" },
+      env: { ...withoutAgentContext(workspaceRoot), CI: "", PATH: `${stubDir}:${process.env.PATH ?? ""}`, TERM: "xterm-256color" },
     });
     child.onData((chunk) => output.append(chunk));
     try {
@@ -126,7 +127,7 @@ steps:
       cols: 120,
       rows: 36,
       env: {
-        ...withoutAgentContext(),
+        ...withoutAgentContext(workspaceRoot),
         CI: "",
         SHELL: process.env.SHELL ?? "/bin/zsh",
         TERM: "xterm-256color",
@@ -222,7 +223,7 @@ steps:
       cols: 120,
       rows: 36,
       env: {
-        ...withoutAgentContext(),
+        ...withoutAgentContext(workspaceRoot),
         CI: "",
         PATH: `${codexStubDir}:${process.env.PATH ?? ""}`,
         SHELL: process.env.SHELL ?? "/bin/zsh",
@@ -312,7 +313,7 @@ steps:
       cols: 120,
       rows: 36,
       env: {
-        ...withoutAgentContext(),
+        ...withoutAgentContext(workspaceRoot),
         CI: "",
         PATH: `${codexStubDir}:${process.env.PATH ?? ""}`,
         SHELL: process.env.SHELL ?? "/bin/zsh",
@@ -340,6 +341,10 @@ steps:
       expect(frame).toContain("codex_stub_capability:present");
       expect(frame).toContain("codex_embedded_flags:yes");
       expect(frame).not.toContain("[process exited");
+      const operations = await listTaskCreateOperations(getCraigPaths(workspaceRoot));
+      expect(operations).toHaveLength(1);
+      expect(operations[0]).toMatchObject({ state: "completed", agentTabId: `${operations[0]!.taskId}:agent` });
+      expect(operations[0]!.creationViewToken).toBeTruthy();
     } finally {
       child.kill();
       await cleanupTerminalWorkspace(workspaceRoot);
@@ -403,7 +408,7 @@ steps:
       cols: 120,
       rows: 36,
       env: {
-        ...withoutAgentContext(),
+        ...withoutAgentContext(workspaceRoot),
         CI: "",
         PATH: `${stubDir}:${process.env.PATH ?? ""}`,
         SHELL: process.env.SHELL ?? "/bin/zsh",
@@ -477,7 +482,7 @@ steps:
       cols: 120,
       rows: 36,
       env: {
-        ...withoutAgentContext(),
+        ...withoutAgentContext(workspaceRoot),
         CI: "",
         PATH: `${codexStubDir}:${process.env.PATH ?? ""}`,
         SHELL: process.env.SHELL ?? "/bin/zsh",
@@ -606,7 +611,7 @@ setInterval(() => {}, 1000);
         "--prompt", marker,
         "--delivery", "immediate",
         "--json",
-      ], { cwd: repoRoot, env: { ...withoutAgentContext(), CI: "1" } });
+      ], { cwd: repoRoot, env: { ...withoutAgentContext(workspaceRoot), CI: "1" } });
 
       const sendResult = JSON.parse(execution.stdout);
       expect(sendResult).toMatchObject({
@@ -630,7 +635,7 @@ setInterval(() => {}, 1000);
         "--workspace-root", workspaceRoot,
         "command", "show", sendResult.data.command.id,
         "--json",
-      ], { cwd: repoRoot, env: { ...withoutAgentContext(), CI: "1" } });
+      ], { cwd: repoRoot, env: { ...withoutAgentContext(workspaceRoot), CI: "1" } });
       expect(JSON.parse(inspection.stdout)).toMatchObject({
         data: { command: { state: "delivered", attempts: 1 } },
       });
@@ -693,7 +698,7 @@ setInterval(() => {}, 1000);
         cols: 120,
         rows: 36,
         env: {
-          ...withoutAgentContext(),
+          ...withoutAgentContext(workspaceRoot),
           CI: "",
           CODEX_STUB_LAUNCH_FILE: launchFile,
           PATH: `${codexStubDir}:${process.env.PATH ?? ""}`,
@@ -716,7 +721,7 @@ setInterval(() => {}, 1000);
         cols: 120,
         rows: 36,
         env: {
-          ...withoutAgentContext(),
+          ...withoutAgentContext(workspaceRoot),
           CI: "",
           CODEX_STUB_LAUNCH_FILE: launchFile,
           PATH: `${codexStubDir}:${process.env.PATH ?? ""}`,

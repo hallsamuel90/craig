@@ -4,6 +4,8 @@ import path from "node:path";
 import type { CraigPaths } from "../../state/craig-paths.js";
 import { daemonStatus } from "./discovery.js";
 import { acquireRuntimeLock } from "./ownership.js";
+import { bootstrapSplitRuntime } from "./bootstrap.js";
+import { readPrivateRecord, type RuntimeRecord } from "./records.js";
 import { spawnPtyDaemonProcess } from "../pty-daemon-process.js";
 
 // eslint-disable-next-line no-unused-vars
@@ -13,7 +15,7 @@ export async function ensureRuntimeRunning(paths: CraigPaths, spawnDaemon?: (wor
   while (!release) {
     try { release = await acquireRuntimeLock(paths, "lifecycle"); }
     catch (error) {
-      if (Date.now() - lockStarted >= 5000) throw error;
+      if (Date.now() - lockStarted >= 30000) throw error;
       await new Promise((resolve) => setTimeout(resolve, 50));
     }
   }
@@ -27,6 +29,9 @@ export async function ensureRuntimeRunning(paths: CraigPaths, spawnDaemon?: (wor
       status = await daemonStatus(paths);
     }
     if (status.state === "ready") return;
+    const split = await readPrivateRecord<RuntimeRecord>(path.join(paths.runtimeDir, "control.json"));
+    const guard = await readPrivateRecord<RuntimeRecord>(path.join(paths.runtimeDir, "guard.json"));
+    if (split || guard) { await bootstrapSplitRuntime(paths); return; }
     if (status.state !== "absent") {
       await errorService.appendLogBestEffort(paths, { level: "warn", component: "daemon", event: "upgrade.blocked", message: status.reason ?? "Runtime owner preserved.", details: { protocolVersion: status.runtime?.protocolVersion ?? "unknown", sessionCount: status.runtime?.sessionCount ?? "unknown" } });
       throw new Error(status.reason ?? "Workspace runtime is unavailable; existing sessions are preserved.");
@@ -41,7 +46,8 @@ export async function ensureRuntimeRunning(paths: CraigPaths, spawnDaemon?: (wor
         catch { return; } // A live owner may still be binding or exiting.
         await releaseOwner();
       }
-      spawnPtyDaemonProcess(paths, spawnDaemon);
+      if (spawnDaemon) spawnPtyDaemonProcess(paths, spawnDaemon);
+      else await bootstrapSplitRuntime(paths);
       spawned = true;
     };
     await trySpawn();

@@ -56,7 +56,7 @@ const SYSTEM_ACTOR = { type: "system" as const, component: "orchestration-superv
 const STEP_REFERENCE = /\$\{\{\s*steps\.([a-z][a-z0-9_-]{0,63})\.(task_id|output(?:\.[A-Za-z0-9_-]+)*)\s*\}\}/g;
 interface FuryReconcileOptions {
   /* eslint-disable-next-line no-unused-vars */
-  isAgentAvailable?: (tabId: string) => boolean;
+  isAgentAvailable?: (tabId: string) => boolean | Promise<boolean>;
   allowScheduling?: boolean;
 }
 
@@ -262,7 +262,7 @@ export async function reconcileFuryRun(
     const commandDelivered = !step.commandId || commands.get(step.commandId)?.state === "delivered";
     if (
       step.state === "running" && step.agentTabId && commandDelivered && options.isAgentAvailable &&
-      step.startedAt && Date.now() - Date.parse(step.startedAt) > 2_000 && !options.isAgentAvailable(step.agentTabId)
+      step.startedAt && Date.now() - Date.parse(step.startedAt) > 2_000 && !await options.isAgentAvailable(step.agentTabId)
     ) {
       run = await failStepRecord(paths, run.id, step.id, `Agent session ${step.agentTabId} disappeared.`, SYSTEM_ACTOR);
     }

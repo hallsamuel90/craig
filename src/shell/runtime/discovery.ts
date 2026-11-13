@@ -1,9 +1,11 @@
+import path from "node:path";
+import { readPrivateRecord, workspaceRuntimeId, type RuntimeRecord } from "./records.js";
+import { getClientRuntimeEndpoint } from "./endpoint.js";
 import { createConnection } from "node:net";
 import { lstat, readFile } from "node:fs/promises";
 import type { CraigPaths } from "../../state/craig-paths.js";
 import type { DaemonStatus, RuntimeHello, RuntimeCapability } from "../../domain/runtime/types.js";
-import { getPtyDaemonEndpoint } from "../pty-daemon-protocol.js";
-import { resolveRuntimeCompatibility } from "./compatibility.js";
+import { requireRuntimeCapabilities, resolveRuntimeCompatibility } from "./compatibility.js";
 import { runtimeIdentity } from "./identity.js";
 
 export function runtimeRequest(socketPath: string, input: Record<string, unknown>): Promise<RuntimeHello & { ok: boolean; error?: string }> {
@@ -28,15 +30,17 @@ export function runtimeRequest(socketPath: string, input: Record<string, unknown
   });
 }
 export function processAlive(pid: number): boolean {
+  if (!Number.isInteger(pid) || pid <= 0) return true; // Unknown identity cannot authorize takeover.
   try { process.kill(pid, 0); return true; }
   catch (error) { return (error as Error & { code?: string }).code !== "ESRCH"; }
 }
 export async function daemonStatus(paths: CraigPaths): Promise<DaemonStatus> {
-  const endpoint = getPtyDaemonEndpoint(paths);
+  const endpoint = getClientRuntimeEndpoint(paths);
   const base = { kind: "daemonStatus" as const, schemaVersion: 1 as const };
   try {
     const hello = await runtimeRequest(endpoint.socketPath, { type: "ping" });
     if (!hello.ok) throw new Error(hello.error ?? "Runtime rejected discovery.");
+    await validateWorkspaceRuntimeIdentity(paths, hello);
     const decision = resolveRuntimeCompatibility(hello, [], runtimeIdentity());
     return { ...base, state: decision.compatible ? hello.lifecycle ?? "ready" : "blocked", runtime: hello, reason: decision.reason, upgradePending: decision.upgradePending };
   } catch (error) {
@@ -57,4 +61,15 @@ export async function requireAvailableRuntimeCapabilities(paths: CraigPaths, req
   const decision = resolveRuntimeCompatibility(status.runtime, required, runtimeIdentity());
   if (!decision.compatible) throw new Error(decision.reason!);
   return decision.reason;
+}
+
+export async function validateWorkspaceRuntimeIdentity(paths: CraigPaths, hello: RuntimeHello): Promise<void> {
+  const expected = await workspaceRuntimeId(paths);
+  if (hello.workspaceId !== undefined && hello.workspaceId !== expected) throw new Error("Runtime belongs to another workspace; owner preserved.");
+  const control = await readPrivateRecord<RuntimeRecord>(path.join(paths.runtimeDir, "control.json"));
+  if (control && (hello.role !== "control" || hello.instanceId !== control.instanceId || hello.workspaceId !== expected)) throw new Error("Control instance discovery does not match its live endpoint; owner preserved.");
+}
+export async function requireWorkspaceRuntimeCapabilities(paths: CraigPaths, hello: RuntimeHello, required: RuntimeCapability[]): Promise<void> {
+  await validateWorkspaceRuntimeIdentity(paths, hello);
+  requireRuntimeCapabilities(hello, required);
 }

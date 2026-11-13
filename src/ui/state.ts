@@ -4,7 +4,6 @@ import type { CraigConfig, RunnerType } from "../domain/config/index.js";
 import type { TaskPtyTabKind, TaskRecord } from "../domain/task/index.js";
 import type { RepoRecord, WorkspaceRecord } from "../domain/workspace/index.js";
 import type { CraigUiRuntime } from "../state/ui-runtime.js";
-import type { TerminalScreenRow } from "./terminal-emulator.js";
 
 export const FOCUS_REGIONS = ["tasks", "center", "inspector", "actions"] as const;
 export const LEGACY_PTY_SURFACE_IDS = ["agent", "terminal"] as const;
@@ -24,7 +23,9 @@ export type InspectionMode = (typeof INSPECTION_MODE_IDS)[number];
 export type OpenInspectionKind = "file" | "diff";
 export type ActionId = (typeof ACTION_IDS)[number];
 export type InspectorSectionId = (typeof INSPECTOR_SECTION_IDS)[number];
-export type TerminalStatus = "idle" | "running" | "exited" | "failed";
+export type { TerminalStatus } from "../shell/runtime/terminal/types.js";
+import type { TerminalViewState } from "../shell/runtime/terminal/types.js";
+export type { TerminalViewState } from "../shell/runtime/terminal/types.js";
 export type LeftNavItemId = string;
 export type FooterToastTone = "success" | "error";
 
@@ -45,13 +46,6 @@ export interface WorkspaceBrowserState {
   selectedIndex: number;
   query: string | null;
   error: string | null;
-}
-
-export interface TerminalViewState {
-  status: TerminalStatus;
-  rows: TerminalScreenRow[];
-  error: string | null;
-  scrolledBack?: boolean;
 }
 
 export interface ControlShellState {
@@ -82,6 +76,7 @@ export interface ControlShellState {
   footerToast: FooterToast | null;
   taskPromptTarget: { repoId: string | null; workspaceId: string | null; name: string } | null;
   taskPromptInput: string | null;
+  taskCreateOperationId?: string | null;
   taskPromptError: string | null;
   fileSearchQuery: string | null;
   workspaceBrowser: WorkspaceBrowserState | null;
@@ -180,6 +175,7 @@ export function createInitialShellState(runtime: CraigUiRuntime | null, config: 
     footerToast: null,
     taskPromptTarget: null,
     taskPromptInput: null,
+    taskCreateOperationId: runtime?.pendingTaskCreateOperationId ?? null,
     taskPromptError: null,
     fileSearchQuery: null,
     workspaceBrowser: null,
@@ -199,8 +195,10 @@ export function createDefaultTerminalViewState(): TerminalViewState {
 }
 
 export function toPersistedUiState(runtime: CraigUiRuntime | null, state: ControlShellState): CraigUiRuntime {
+  const base = { ...(runtime ?? getDefaultUiState()) };
+  delete base.pendingTaskCreateOperationId;
   return {
-    ...(runtime ?? getDefaultUiState()),
+    ...base,
     selectedRepoId: state.selectedRepoId,
     selectedWorkspaceId: state.selectedWorkspaceId,
     selectedTaskId: state.selectedTaskId,
@@ -218,6 +216,7 @@ export function toPersistedUiState(runtime: CraigUiRuntime | null, state: Contro
     collapsedFileTreePaths: state.collapsedFileTreePaths,
     selectedActionId: state.selectedActionId,
     selectedRunner: state.selectedRunner,
+    ...(state.taskCreateOperationId ? { pendingTaskCreateOperationId: state.taskCreateOperationId } : {}),
     readAgentActivityAt: state.readAgentActivityAt,
   };
 }

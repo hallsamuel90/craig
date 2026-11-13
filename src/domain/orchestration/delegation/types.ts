@@ -43,6 +43,7 @@ export interface AgentCapabilityRecord {
 }
 
 export interface CreateChildInput {
+  operationId?: string;
   parentTaskId: string;
   repoId?: string;
   workspaceId?: string;

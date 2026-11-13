@@ -447,6 +447,7 @@ function parseTaskNew(args: string[]): AppCommand {
   let repoId: string | undefined;
   let workspaceId: string | undefined;
   let runner: ReturnType<typeof configService.runners.parse> | undefined;
+  let operationId: string | undefined;
   const promptParts: string[] = [];
   let parseOptions = true;
 
@@ -456,7 +457,7 @@ function parseTaskNew(args: string[]): AppCommand {
       parseOptions = false;
       continue;
     }
-    if (!parseOptions || !["--repo", "--workspace", "--runner"].includes(token)) {
+    if (!parseOptions || !["--repo", "--workspace", "--runner", "--operation-id"].includes(token)) {
       if (parseOptions && token.startsWith("--")) {
         throw usageError(`Unsupported task new option: ${token}`);
       }
@@ -476,6 +477,10 @@ function parseTaskNew(args: string[]): AppCommand {
     } else if (token === "--workspace") {
       if (workspaceId !== undefined) throw usageError("Task option --workspace may only be provided once.");
       workspaceId = requireNonEmpty(value, "Workspace id");
+    } else if (token === "--operation-id") {
+      if (operationId) throw usageError("Task option --operation-id may only be provided once.");
+      if (!/^[a-zA-Z0-9_-]{1,128}$/.test(value)) throw usageError("Invalid operation id.");
+      operationId = value;
     } else {
       if (runner !== undefined) throw usageError("Task option --runner may only be provided once.");
       try {
@@ -496,6 +501,7 @@ function parseTaskNew(args: string[]): AppCommand {
   const prompt = requireNonEmpty(promptParts.join(" "), "Task prompt");
   return {
     kind: "createTask",
+    ...(operationId ? { operationId } : {}),
     ...(repoId ? { repoId } : {}),
     ...(workspaceId ? { workspaceId } : {}),
     ...(runner ? { runner } : {}),
@@ -509,6 +515,7 @@ function parseTaskCreateChild(args: string[]): AppCommand {
   let workspaceId: string | undefined;
   let runner: ReturnType<typeof configService.runners.parse> | undefined;
   let idempotencyKey: string | undefined;
+  let operationId: string | undefined;
   const promptParts: string[] = [];
   let parseOptions = true;
   for (let index = 0; index < args.length; index += 1) {
@@ -517,7 +524,7 @@ function parseTaskCreateChild(args: string[]): AppCommand {
       parseOptions = false;
       continue;
     }
-    if (!parseOptions || !["--parent", "--repo", "--workspace", "--runner", "--idempotency-key"].includes(token)) {
+    if (!parseOptions || !["--parent", "--repo", "--workspace", "--runner", "--idempotency-key", "--operation-id"].includes(token)) {
       if (parseOptions && token.startsWith("--")) throw usageError(`Unsupported task create-child option: ${token}`);
       promptParts.push(token);
       continue;
@@ -539,6 +546,10 @@ function parseTaskCreateChild(args: string[]): AppCommand {
       try { runner = configService.runners.parse(value); } catch (error) {
         throw usageError(error instanceof Error ? error.message : "Unsupported runner.");
       }
+    } else if (token === "--operation-id") {
+      if (operationId) throw usageError("Task option --operation-id may only be provided once.");
+      if (!/^[a-zA-Z0-9_-]{1,128}$/.test(value)) throw usageError("Invalid operation id.");
+      operationId = value;
     } else {
       if (idempotencyKey) throw usageError("Task option --idempotency-key may only be provided once.");
       idempotencyKey = requireNonEmpty(value, "Idempotency key");
@@ -547,6 +558,7 @@ function parseTaskCreateChild(args: string[]): AppCommand {
   if (repoId && workspaceId) throw usageError("Child task creation accepts only one of --repo or --workspace.");
   return {
     kind: "createChildTask",
+    ...(operationId ? { operationId } : {}),
     ...(parentTaskId ? { parentTaskId } : {}),
     ...(repoId ? { repoId } : {}),
     ...(workspaceId ? { workspaceId } : {}),

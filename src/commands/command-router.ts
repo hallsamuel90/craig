@@ -94,7 +94,7 @@ export async function executeCommand(
         context.paths,
         command.repoId ?? command.workspaceId ?? "",
         command.prompt,
-        { ...(command.runner ? { runner: command.runner } : {}), ...(command.workspaceId ? { workspaceId: command.workspaceId } : {}) },
+        { ...(command.operationId ? { operationId: command.operationId } : {}), ...(command.runner ? { runner: command.runner } : {}), ...(command.workspaceId ? { workspaceId: command.workspaceId } : {}) },
       );
     case "createChildTask": {
       const config = await configService.load(context.paths);
@@ -108,6 +108,7 @@ export async function executeCommand(
       assertScopedAgent(context);
       return createChildTaskAndSession(context.paths, {
         parentTaskId: command.parentTaskId ?? requireResolvedTaskContext(context).task.id,
+        ...(command.operationId ? { operationId: command.operationId } : {}),
         ...(command.repoId ? { repoId: command.repoId } : {}),
         ...(command.workspaceId ? { workspaceId: command.workspaceId } : {}),
         prompt: command.prompt,

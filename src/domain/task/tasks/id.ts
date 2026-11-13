@@ -6,10 +6,10 @@ export const allocateTaskId = async (paths: CraigPaths): Promise<string> => {
   return allocateTaskIdForRepo(paths, paths.repoRoot);
 };
 
-export const allocateTaskIdForRepo = async (paths: CraigPaths, repoRoot: string): Promise<string> => {
+export const allocateTaskIdForRepo = async (paths: CraigPaths, repoRoot: string, reservedTaskIds: string[] = []): Promise<string> => {
   const index = await readCraigIndex(paths);
   const dateSegment = formatDate(new Date());
-  let sequence = nextSequence(index.taskIds, dateSegment);
+  let sequence = nextSequence([...index.taskIds, ...reservedTaskIds], dateSegment);
 
   while (true) {
     const taskId = `task_${dateSegment}_${String(sequence).padStart(2, "0")}`;
@@ -23,10 +23,10 @@ export const allocateTaskIdForRepo = async (paths: CraigPaths, repoRoot: string)
   }
 };
 
-export const allocateProjectTaskId = async (paths: CraigPaths): Promise<string> => {
+export const allocateProjectTaskId = async (paths: CraigPaths, reservedTaskIds: string[] = []): Promise<string> => {
   const index = await readCraigIndex(paths);
   const dateSegment = formatDate(new Date());
-  const sequence = nextSequence(index.taskIds, dateSegment);
+  const sequence = nextSequence([...index.taskIds, ...reservedTaskIds], dateSegment);
   return `task_${dateSegment}_${String(sequence).padStart(2, "0")}`;
 };
 
@@ -41,7 +41,7 @@ const formatDate = (date: Date): string => {
 const nextSequence = (taskIds: string[], dateSegment: string): number => {
   const matches = taskIds
     .filter((taskId) => taskId.startsWith(`task_${dateSegment}_`))
-    .map((taskId) => Number.parseInt(taskId.slice(-2), 10))
+    .map((taskId) => Number.parseInt(taskId.slice(`task_${dateSegment}_`.length), 10))
     .filter((value) => Number.isInteger(value));
 
   return matches.length === 0 ? 1 : Math.max(...matches) + 1;

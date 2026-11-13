@@ -45,7 +45,7 @@ _It's like a game, except the PRs are real._
 - **Stay in flow.** Launch agents, move between tasks, inspect changes, and watch PR checks without leaving the keyboard.
 - **Work across repositories.** Treat one repo or a directory of repos as a workspace while preserving real repository boundaries.
 - **Let agents operate the workspace.** The same task model backs the TUI and CLI, so agents and scripts can inspect context and perform Craig actions directly.
-- **Leave and come back.** A local daemon keeps agent sessions and PR synchronization alive when the foreground TUI closes. Use `craig daemon status --json` to inspect runtime compatibility without starting or replacing it. Updates retain existing legacy sessions; some newer features remain pending until those sessions finish.
+- **Leave and come back.** New workspaces keep agents, PTYs, and terminal history in independent session hosts, so closing the TUI or losing the control service preserves the running conversation. Runtime code and dependencies are pinned outside the launching installation. Use `craig daemon status --json` to inspect compatibility without starting or replacing anything. Existing legacy sessions retain their original owner; migration waits for an empty runtime. Automatic control updates and host rollover are not yet available.
 
 ## Install
 
@@ -102,3 +102,5 @@ pnpm package:smoke
 ```
 
 The npm package is published as [`craig-cli`](https://www.npmjs.com/package/craig-cli) from `packages/cli`.
+
+Task creation is admitted durably before provisioning on the split runtime. Supply `--operation-id <id>` to `craig task new` or `craig task create-child` to retry an uncertain result with the same identity. An interrupted, ambiguous provisioning operation reports `recovery_required` and preserves existing work for inspection.

@@ -1,9 +1,9 @@
-import { requireRuntimeCapabilities } from "./runtime/compatibility.js";
+import { requireWorkspaceRuntimeCapabilities } from "./runtime/discovery.js";
+import { getClientRuntimeEndpoint } from "./runtime/endpoint.js";
 import type { RuntimeHello } from "../domain/runtime/types.js";
 import { createConnection, type Socket } from "node:net";
 
 import type { CraigPaths } from "../state/craig-paths.js";
-import { getPtyDaemonEndpoint } from "./pty-daemon-protocol.js";
 
 interface NavigationResponse {
   ok: boolean;
@@ -13,11 +13,11 @@ interface NavigationResponse {
 }
 
 export async function requestOpenFile(paths: CraigPaths, filePath: string): Promise<boolean> {
-  const socket = await connect(getPtyDaemonEndpoint(paths).socketPath).catch(() => null);
+  const socket = await connect(getClientRuntimeEndpoint(paths).socketPath).catch(() => null);
   if (!socket) return false;
   try {
     const ping = await request(socket, { type: "ping" });
-    requireRuntimeCapabilities(ping, ["navigation"]);
+    await requireWorkspaceRuntimeCapabilities(paths, ping, ["navigation"]);
     const response = await request(socket, { type: "openFile", path: filePath });
     return (response.deliveredCount ?? 0) > 0;
   } catch {

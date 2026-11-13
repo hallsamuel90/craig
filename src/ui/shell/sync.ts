@@ -1,3 +1,5 @@
+import type { TaskCreationOptions } from "../../domain/task/index.js";
+import { createRootTaskAndSession } from "../../shell/delegation.js";
 import { writeUiState } from "../../state/ui-state-store.js";
 import type { CraigUiRuntime } from "../../state/ui-runtime.js";
 import { errorService } from "../../domain/error/index.js";
@@ -128,6 +130,7 @@ export function buildActionContext(ctx: AppContext): ActionContext {
     config: ctx.config,
     taskService,
     workspaceService,
+    ...(ctx.ptyRuntime.supportsTaskCreateAdmission ? { createRuntimeTask: (targetId: string, prompt: string, options: TaskCreationOptions) => createRootTaskAndSession(ctx.paths, targetId, prompt, options) } : {}),
     queueTaskMutation: (fn) => queueTaskMutation(ctx, fn),
   };
 }
