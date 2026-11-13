@@ -1,3 +1,4 @@
+import { withRuntimeMutation } from "../../shell/runtime/mutation.js";
 import { RuntimeAcknowledgementUncertainError } from "../../domain/runtime/errors.js";
 import type { TaskPtyTabRecord, TaskRecord } from "../../domain/task/index.js";
 import type { RunnerType } from "../../domain/config/index.js";
@@ -152,20 +153,28 @@ export async function createPtyTabFromShell(
 }
 
 export async function closePtyTabFromShell(ctx: AppContext, shell: ControlShellState): Promise<ControlShellState> {
+  return ctx.ptyRuntime.supportsTaskCreateAdmission ? withRuntimeMutation(ctx.paths, () => closeAdmittedPtyTab(ctx, shell)) : closeAdmittedPtyTab(ctx, shell);
+}
+async function closeAdmittedPtyTab(ctx: AppContext, shell: ControlShellState): Promise<ControlShellState> {
   const syncedShell = syncShell(ctx, shell);
   const { closedTab, nextShell } = await closePtyTab(syncedShell, buildActionContext(ctx));
-  ctx.ptyRuntime.disposeSession(closedTab.id);
+  if (ctx.ptyRuntime.disposeSessionConfirmed) await ctx.ptyRuntime.disposeSessionConfirmed(closedTab.id);
+  else ctx.ptyRuntime.disposeSession(closedTab.id);
   await reloadModel(ctx);
   return syncShell(ctx, { ...syncedShell, ...nextShell });
 }
 
 export async function closeTaskFromShell(ctx: AppContext, shell: ControlShellState): Promise<ControlShellState> {
+  return ctx.ptyRuntime.supportsTaskCreateAdmission ? withRuntimeMutation(ctx.paths, () => closeAdmittedTask(ctx, shell)) : closeAdmittedTask(ctx, shell);
+}
+async function closeAdmittedTask(ctx: AppContext, shell: ControlShellState): Promise<ControlShellState> {
   const syncedShell = syncShell(ctx, shell);
   const previousLeftItemIds = getLeftItemIds(ctx.model);
   const closedIndex = previousLeftItemIds.indexOf(syncedShell.selectedLeftItemId ?? "");
   const { closedTabIds, nextShell } = await closeTaskAction(syncedShell, buildActionContext(ctx));
   for (const tabId of closedTabIds) {
-    ctx.ptyRuntime.disposeSession(tabId);
+    if (ctx.ptyRuntime.disposeSessionConfirmed) await ctx.ptyRuntime.disposeSessionConfirmed(tabId);
+    else ctx.ptyRuntime.disposeSession(tabId);
   }
   await reloadModel(ctx);
   return syncShell(ctx, {

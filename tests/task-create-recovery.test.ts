@@ -1,3 +1,6 @@
+import { replaceControlUnderLock } from "../src/shell/runtime/replacement.js";
+import { acquireRuntimeLock } from "../src/shell/runtime/ownership.js";
+import { daemonStatus } from "../src/shell/runtime/discovery.js";
 import { stopFixtureRuntimes } from "./runtime-fixtures.js";
 import { runCommand } from "../src/shared/exec.js";
 import { createRequire } from "node:module";
@@ -21,7 +24,7 @@ import { readTaskCreateOperation } from "../src/domain/runtime/task-create/store
 import { requestDaemonShutdown } from "../src/ui/pty/daemon.js";
 
 const sourceRoot = process.cwd();
-test.each([["root", "admitted"], ["root", "provisioning_files"], ["root", "provisioned"], ["root", "spawned"], ["root", "task_started"], ["root", "completed"], ["child", "provisioned"], ["child", "completed"]] as const)("%s task-create recovery after a real control crash at %s", async (kind, checkpoint) => {
+test.each([["root", "admitted", "crash"], ["root", "provisioning_files", "crash"], ["root", "provisioned", "crash"], ["root", "spawned", "crash"], ["root", "task_started", "crash"], ["root", "completed", "crash"], ["child", "provisioned", "crash"], ["child", "completed", "crash"], ["root", "admitted", "drain_finish"], ["root", "provisioned", "drain_finish"], ["root", "admitted", "drain_timeout"], ["root", "provisioned", "drain_timeout"]] as const)("%s task-create checkpoint %s with %s", async (kind, checkpoint, behavior) => {
   const root = await mkdtemp(path.join(tmpdir(), "craig-create-crash-")).then((value) => realpath(value));
   const paths = await createCraigState(root, []);
   const previousCache = process.env.CRAIG_RUNTIME_CACHE; process.env.CRAIG_RUNTIME_CACHE = path.join(root, "cache");
@@ -56,7 +59,7 @@ const hostName=(await readdir(path.join(paths.runtimeDir,'hosts')))[0];const hos
 const release=await acquireRuntimeLock(paths,'control-owner');try{await serveSplitControl(paths,record,host,{checkpoint:async(stage,operation)=>{
 if(stage!==${JSON.stringify(checkpoint)})return;
 if(stage==='provisioning_files'){const task=await taskService.getTask(paths,operation.taskId);await mkdir(task.worktreePath,{recursive:true});await writeFile(path.join(task.worktreePath,'partial-fixture'),'preserve partial work');}
-await writeFile(path.join(root,'checkpoint.json'),JSON.stringify(operation));await new Promise(()=>{});
+await writeFile(path.join(root,'checkpoint.json'),JSON.stringify(operation));if(${JSON.stringify(behavior)}==='crash')await new Promise(()=>{});else {while(!await readFile(path.join(root,'continue-create'),'utf8').catch(()=>null))await new Promise(r=>setTimeout(r,20));}
 }});}finally{await release();}`);
     fixtureController = spawn(process.execPath, ["--import", createRequire(import.meta.url).resolve("tsx"), entry], { cwd: root, env: process.env, stdio: "ignore" });
     await vi.waitFor(async () => { const connection = await RuntimeTransport.connect(getClientRuntimeEndpoint(paths).socketPath); try { expect((await connection.request({ type: "ping" })).role).toBe("control"); } finally { connection.close(); } }, { timeout: 10000 });
@@ -65,6 +68,33 @@ await writeFile(path.join(root,'checkpoint.json'),JSON.stringify(operation));awa
     await vi.waitFor(async () => expect(JSON.parse(await readFile(path.join(root, "checkpoint.json"), "utf8")).operationId).toBe("fixture-operation"), { timeout: 10000 });
     const before = (await readTaskCreateOperation(paths, "fixture-operation"))!;
     expect((await readPrivateRecord<RuntimeRecord>(path.join(paths.runtimeDir, "control.json")))?.pid).toBe(fixtureController.pid);
+    if (behavior !== "crash") {
+      const release = await acquireRuntimeLock(paths, "lifecycle");
+      const replacement = replaceControlUnderLock(paths, true, { artifact: original.artifact }).finally(release);
+      // Attach a rejection handler immediately while intentionally holding create.
+      const observed = replacement.then((result) => ({ result }), (error: unknown) => ({ error }));
+      await vi.waitFor(async () => expect((await daemonStatus(paths)).state).toBe("draining"));
+      await expect(submitRuntimeTaskCreate(paths, "unadmitted-operation", request)).rejects.toThrow("not admitted");
+      expect(await readTaskCreateOperation(paths, "unadmitted-operation")).toBeNull();
+      if (behavior === "drain_timeout") {
+        const outcome = await observed;
+        expect("error" in outcome && String(outcome.error)).toContain("drain timed out");
+        expect((await daemonStatus(paths)).state).toBe("ready");
+        expect((await readPrivateRecord<RuntimeRecord>(path.join(paths.runtimeDir, "control.json")))?.pid).toBe(fixtureController.pid);
+      }
+      await writeFile(path.join(root, "continue-create"), "finish the admitted operation");
+      const result = await pending as { taskId: string };
+      expect(result.taskId).toBe(before.taskId);
+      if (behavior === "drain_finish") {
+        const outcome = await observed;
+        expect("result" in outcome && outcome.result.state).toBe("restarted");
+      }
+      expect((await readTaskCreateOperation(paths, "fixture-operation"))?.state).toBe("completed");
+      expect((await taskService.getTask(paths, before.taskId)).runnerSession.lastKnownState).not.toBe("failed");
+      await vi.waitFor(async () => expect((await readFile(path.join(root, "spawn-pids"), "utf8")).trim().split("\n")).toHaveLength(1));
+      expect((await submitRuntimeTaskCreate(paths, "fixture-operation", request)).taskId).toBe(before.taskId);
+      return;
+    }
     fixtureController.kill("SIGKILL"); await new Promise<void>((resolve) => fixtureController!.once("exit", () => resolve())); await pending;
     await ensureRuntimeRunning(paths);
     if (checkpoint === "provisioning_files") {

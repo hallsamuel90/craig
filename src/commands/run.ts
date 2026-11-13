@@ -110,7 +110,7 @@ export async function runCli(options: RunCliOptions): Promise<number> {
       resolveTask: taskResolution !== "none",
       requireTask: taskResolution === "required",
     });
-    if (command.kind !== "daemonStatus" && options.env.CRAIG_TASK_ID && options.env.CRAIG_AGENT_TAB_ID && options.env.CRAIG_AGENT_CAPABILITY) {
+    if (command.kind !== "daemonStatus" && command.kind !== "daemonRestart" && options.env.CRAIG_TASK_ID && options.env.CRAIG_AGENT_TAB_ID && options.env.CRAIG_AGENT_CAPABILITY) {
       await refreshLiveAgentCapability(context.paths, {
         taskId: options.env.CRAIG_TASK_ID,
         agentTabId: options.env.CRAIG_AGENT_TAB_ID,

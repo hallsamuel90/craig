@@ -1,14 +1,13 @@
 import { createRequire } from "node:module";
 import { getPtyDaemonEndpoint } from "../src/shell/pty-daemon-protocol.js";
-import { createServer } from "node:net";
-import type { Socket } from "node:net";
+import { createServer, createConnection, type Socket } from "node:net";
 import { chmod, mkdir, mkdtemp, readFile, rm, symlink, writeFile } from "node:fs/promises";
 import { join, resolve } from "node:path";
 import { tmpdir } from "node:os";
 
 import { describe, expect, test, vi } from "vitest";
 
-import { createDaemonPtyRuntime, requestDaemonShutdown, servePtyDaemon } from "../src/ui/pty/daemon.js";
+import { DaemonPtyRuntimeClient, createDaemonPtyRuntime, requestDaemonShutdown, servePtyDaemon } from "../src/ui/pty/daemon.js";
 import { tryConnectPtyDaemonActivity } from "../src/shell/pty-daemon-activity.js";
 import { getCraigPaths } from "../src/state/craig-paths.js";
 import { ensureCraigState } from "../src/domain/workspace/workspaces/ensure.js";
@@ -1572,3 +1571,61 @@ function createFakePty() {
     },
   };
 }
+
+test("an event before a scroll reply cannot override the newer authoritative viewport", async () => {
+  const root = await mkdtemp(join(tmpdir(), "craig-view-response-order-"));
+  const paths = await createCraigState(root, []);
+  const view = (text: string) => ({ status: "exited", error: null, scrolledBack: false, rows: [{ segments: [{ text }] }] });
+  const server = createServer((socket) => {
+    socket.on("error", () => undefined);
+    let buffer = "";
+    socket.on("data", (data) => {
+      buffer += String(data);
+      while (buffer.includes("\n")) {
+        const end = buffer.indexOf("\n"); const request = JSON.parse(buffer.slice(0, end)); buffer = buffer.slice(end + 1);
+        if (request.type === "scrollViewport") socket.write(JSON.stringify({ type: "update", tabId: "fixture:agent", view: view("previous top") }) + "\n");
+        socket.write(JSON.stringify({ id: request.id, ok: true, ...(request.type === "ping" ? { protocolVersion: 10 } : {}), view: view(request.type === "scrollViewport" ? "retained final output" : "previous top") }) + "\n");
+      }
+    });
+  });
+  const endpoint = getPtyDaemonEndpoint(paths);
+  await new Promise<void>((resolve) => server.listen(endpoint.socketPath, resolve));
+  const socket = createConnection(endpoint.socketPath);
+  await new Promise<void>((resolve) => socket.once("connect", resolve));
+  const client = new DaemonPtyRuntimeClient(socket, { paths, workspaceRoot: root });
+  try {
+    await client.ready(); await client.ensureSession("fixture", "fixture:agent", { columns: 80, rows: 24 });
+    client.scrollViewport(10000);
+    await vi.waitFor(() => expect(client.getViewState("fixture:agent").rows[0]?.segments[0]?.text).toBe("retained final output"));
+  } finally { client.disposeAll(); await new Promise<void>((resolve) => server.close(() => resolve())); await rm(root, { recursive: true, force: true }); }
+});
+
+test("a missing input acknowledgement becomes visible uncertainty and reconnect never replays the key", async () => {
+  const root = await mkdtemp(join(tmpdir(), "craig-input-ack-timeout-"));
+  const paths = await createCraigState(root, []);
+  let writes = 0; let ensures = 0;
+  const server = createServer((socket) => {
+    socket.on("error", () => undefined); let buffer = "";
+    socket.on("data", (data) => {
+      buffer += String(data);
+      while (buffer.includes("\n")) {
+        const end = buffer.indexOf("\n"); const request = JSON.parse(buffer.slice(0, end)); buffer = buffer.slice(end + 1);
+        if (request.type === "write") { writes++; continue; }
+        if (request.type === "ensureSession") ensures++;
+        socket.write(JSON.stringify({ id: request.id, ok: true, ...(request.type === "ping" ? { protocolVersion: 10, capabilities: ["terminal", "activity", "splitRuntime", "navigation", "pullRequestPolling"] } : {}), view: { status: "running", error: null, rows: [] } }) + "\n");
+      }
+    });
+  });
+  const endpoint = getPtyDaemonEndpoint(paths);
+  await new Promise<void>((resolve) => server.listen(endpoint.socketPath, resolve));
+  const socket = createConnection(endpoint.socketPath); await new Promise<void>((resolve) => socket.once("connect", resolve));
+  const client = new DaemonPtyRuntimeClient(socket, { paths, workspaceRoot: root });
+  try {
+    await client.ready(); await client.ensureSession("fixture", "fixture:agent", { columns: 80, rows: 24 });
+    client.write("one-key");
+    await vi.waitFor(() => expect(client.connectionMessage).toContain("uncertain"), { timeout: 7000 });
+    await new Promise((resolve) => setTimeout(resolve, 200));
+    expect(writes).toBe(1); expect(ensures).toBe(1);
+    expect(client.getViewState("fixture:agent").status).toBe("running");
+  } finally { client.disposeAll(); await new Promise<void>((resolve) => server.close(() => resolve())); await rm(root, { recursive: true, force: true }); }
+}, 10000);

@@ -1,4 +1,6 @@
-import { RuntimeAcknowledgementUncertainError } from "../../domain/runtime/errors.js";
+import { RuntimeTransport } from "./wire.js";
+import { runtimeMutationContext } from "./mutation-context.js";
+import { RuntimeAcknowledgementUncertainError, RuntimeUpgradeRetryError } from "../../domain/runtime/errors.js";
 import { requireWorkspaceRuntimeCapabilities } from "./discovery.js";
 import path from "node:path";
 import { readPrivateRecord, writePrivateRecord } from "./records.js";
@@ -48,6 +50,7 @@ type DaemonRequest =
   | { id: number; type: "ping" }
   | { id: number; type: "ensureSession"; taskId: string; tabId: string; size: PtySize; spec: PtySessionSpec }
   | { id: number; type: "hydrateSession"; tabId: string }
+  | { id: number; type: "attachExisting"; tabId: string }
   | { id: number; type: "pruneStale"; keepTabIds: string[] }
   | { id: number; type: "write"; input: string }
   | { id: number; type: "writeKey"; key: string }
@@ -69,7 +72,7 @@ type DaemonRequest =
 
 type DaemonResponse =
   | { id: number; ok: true; protocolVersion?: number; sessionCount?: number; viewId?: string; viewToken?: string; sessionId?: string; capabilities?: RuntimeHello["capabilities"]; buildId?: string; craigVersion?: string; lifecycle?: "ready" | "draining"; view?: TerminalViewState; activities?: PtyActivitySnapshot[]; deliveredCount?: number }
-  | { id: number; ok: false; error: string; uncertain?: boolean };
+  | { id: number; ok: false; error: string; uncertain?: boolean; retryable?: boolean };
 type DaemonOkResponse = Extract<DaemonResponse, { ok: true }>;
 
 interface TerminalViewPatch {
@@ -81,6 +84,7 @@ interface TerminalViewPatch {
 }
 
 type DaemonEvent =
+  | { type: "lifecycle"; state: "ready" | "draining" }
   | { type: "update"; tabId: string; view: TerminalViewState }
   | { type: "update"; tabId: string; patch: TerminalViewPatch }
   | { type: "activity"; snapshot: PtyActivitySnapshot }
@@ -109,6 +113,7 @@ export interface DaemonPtyRuntimeOptions extends PtyRuntimeOptions {
   spawnDaemon?: (workspaceRoot: string) => void;
   viewClient?: { clientId: string; proof: string };
   activityEnabled?: boolean;
+  onLifecycle?: (message: string | null) => void;
   onTasksChanged?: (taskIds: string[]) => void;
   onOpenFile?: (path: string) => void;
 }
@@ -232,27 +237,67 @@ export class DaemonPtyRuntimeClient {
   private openFileHandler: ((path: string) => void) | undefined;
   private buffer = "";
   private closed = false;
+  private disposed = false;
+  private reconnecting = false;
+  private controlDraining = false;
+  private inputUncertain = false;
+  connectionMessage: string | null = null;
   private protocolVersion = DAEMON_PROTOCOL_VERSION;
   private viewClient: { clientId: string; proof: string } | undefined;
   private splitRuntime = false;
   private readonly options: DaemonPtyRuntimeOptions;
 
-  constructor(private readonly socket: Socket, options: DaemonPtyRuntimeOptions) {
+  constructor(private socket: Socket, options: DaemonPtyRuntimeOptions) {
     this.options = options;
     this.activityEnabled = options.activityEnabled ?? false;
     this.tasksChangedHandler = options.onTasksChanged;
     this.openFileHandler = options.onOpenFile;
+    this.bindSocket(socket);
+  }
+  private lifecycle(message: string | null): void { this.connectionMessage = message; this.options.onLifecycle?.(message); }
+  private bindSocket(socket: Socket): void {
     socket.setEncoding("utf8");
-    socket.on("data", (chunk) => this.handleData(String(chunk)));
-    socket.on("error", (error) => this.rejectAll(this.splitRuntime ? new RuntimeAcknowledgementUncertainError("Control transport failed; existing processes are retained. Do not replay input.") : error instanceof Error ? error : new Error(String(error))));
+    socket.on("data", (chunk) => { if (this.socket === socket) this.handleData(String(chunk)); });
+    socket.on("error", (error) => { if (this.socket === socket) this.rejectAll(this.splitRuntime ? new RuntimeAcknowledgementUncertainError("Control transport failed; existing processes are retained. Do not replay input.") : error); });
     socket.on("close", () => {
-      if (this.closed) {
-        return;
-      }
+      if (this.socket !== socket || this.disposed || this.closed) return;
       this.closed = true;
-      this.rejectAll(this.splitRuntime ? new RuntimeAcknowledgementUncertainError("Control disconnected; existing sessions are retained. Reopen Craig to reattach.") : new Error("Craig PTY daemon connection closed."));
+      this.rejectAll(this.splitRuntime ? new RuntimeAcknowledgementUncertainError("Control disconnected; mutation acknowledgements are uncertain. Existing sessions are retained.") : new Error("Craig PTY daemon connection closed."));
       if (!this.splitRuntime) this.failRunningActivities("Craig PTY daemon connection closed.");
+      else if (!this.reconnecting) void this.reconnect();
     });
+  }
+  private async reconnect(): Promise<void> {
+    this.reconnecting = true;
+    this.lifecycle("Reconnecting to Craig control… Input paused; agents continue running.");
+    while (!this.disposed) {
+      let next: Socket | undefined;
+      try {
+        next = await connectToDaemon(getClientRuntimeEndpoint(this.options.paths).socketPath);
+        if (this.disposed) { next.destroy(); break; }
+        this.socket = next; this.closed = false; this.buffer = ""; this.bindSocket(next);
+        await this.ready();
+        // Only reads/subscriptions are retried. Never call ensure or replay input.
+        for (const tabId of this.viewCache.keys()) {
+          const response = await this.send({ type: "hydrateSession", tabId });
+          if (response.view) this.viewCache.set(tabId, response.view);
+        }
+        if (this.attachedTabId) await this.send({ type: "attachExisting", tabId: this.attachedTabId });
+        this.subscribedTabId = null;
+        const response = await this.send({ type: "subscribeView", tabId: this.viewedTabId });
+        if (this.viewedTabId && response.view) this.viewCache.set(this.viewedTabId, response.view);
+        this.subscribedTabId = this.viewedTabId;
+        await this.send({ type: "setPullRequestPollView", view: this.pullRequestPollView });
+        this.reconnecting = false;
+        this.lifecycle(this.inputUncertain ? "Reconnected. Previous input acknowledgement is uncertain; do not replay it." : this.upgradePendingMessage);
+        if (this.viewedTabId) this.notifyFullUpdate(this.viewedTabId);
+        return;
+      } catch {
+        this.closed = true; next?.destroy();
+        await new Promise((resolve) => setTimeout(resolve, 100));
+      }
+    }
+    this.reconnecting = false;
   }
 
   async ready(): Promise<void> {
@@ -262,7 +307,7 @@ export class DaemonPtyRuntimeClient {
     this.managesPullRequestSync = resolveRuntimeCompatibility(response, ["pullRequestPolling"]).compatible;
     if (response.capabilities?.includes("splitRuntime")) {
       this.splitRuntime = true;
-      const viewClient = this.options.viewClient ?? { clientId: randomUUID(), proof: randomUUID() };
+      const viewClient = this.viewClient ?? this.options.viewClient ?? { clientId: randomUUID(), proof: randomUUID() };
       if (!/^[A-Za-z0-9_-]{1,128}$/.test(viewClient.clientId)) throw new Error("Invalid persisted view-client id.");
       this.viewClient = viewClient;
       const file = path.join(this.options.paths.runtimeDir, "view-clients", `${viewClient.clientId}.json`);
@@ -271,6 +316,8 @@ export class DaemonPtyRuntimeClient {
       await writePrivateRecord(file, { ...viewClient, ownerPid: process.pid, leases: previous?.leases ?? {} });
       await this.send({ type: "registerViewClient", ...viewClient });
     }
+    if (response.lifecycle === "draining") throw new Error("Control is updating; reconnect after readiness.");
+    this.controlDraining = false;
     this.protocolVersion = response.protocolVersion!;
     if (this.protocolVersion <= 8) {
       await this.send({ type: "setViewUpdateMode", mode: "incremental" });
@@ -315,6 +362,7 @@ export class DaemonPtyRuntimeClient {
           }
         }
       } catch (error) {
+        if (this.splitRuntime) continue;
         const message = error instanceof Error ? error.message : String(error);
         this.viewCache.set(tabId, { status: "failed", rows: [], error: message });
       }
@@ -330,11 +378,19 @@ export class DaemonPtyRuntimeClient {
   }
 
   write(input: string): void {
-    void this.send({ type: "write", input }).catch(() => undefined);
+    this.sendInput({ type: "write", input });
   }
 
   writeKey(key: string): void {
-    void this.send({ type: "writeKey", key }).catch(() => undefined);
+    this.sendInput({ type: "writeKey", key });
+  }
+
+  private sendInput(request: { type: "write"; input: string } | { type: "writeKey"; key: string }): void {
+    if (this.splitRuntime && (this.closed || this.reconnecting || this.controlDraining)) { this.lifecycle("Craig control is updating or reconnecting… Input paused; this key was not sent."); return; }
+    void this.send(request).catch((error: unknown) => {
+      this.inputUncertain = error instanceof RuntimeAcknowledgementUncertainError;
+      this.lifecycle(this.inputUncertain ? "Input acknowledgement is uncertain; do not replay it." : error instanceof Error ? error.message : "Input was rejected.");
+    });
   }
 
   scrollViewport(lines: number): void {
@@ -412,15 +468,27 @@ export class DaemonPtyRuntimeClient {
   }
 
   disposeSession(tabId: string): void {
+    void this.disposeSessionConfirmed(tabId).catch((error: unknown) => this.lifecycle(error instanceof Error ? error.message : "Session closure was not acknowledged; inspect before retrying."));
+  }
+  async disposeSessionConfirmed(tabId: string): Promise<void> {
+    if (this.splitRuntime) {
+      // A domain close can outlive this foreground socket. Its admission token
+      // authorizes the one confirmed disposal on the current control service.
+      const transport = await RuntimeTransport.connect(getClientRuntimeEndpoint(this.options.paths).socketPath);
+      const admissionToken = runtimeMutationContext.getStore();
+      try {
+        const hello = await transport.request({ type: "ping", admissionToken });
+        await requireWorkspaceRuntimeCapabilities(this.options.paths, hello as RuntimeHello, ["terminal"]);
+        await transport.request({ type: "disposeSession", tabId, admissionToken });
+      } finally { transport.close(); }
+    } else await this.send({ type: "disposeSession", tabId });
     this.viewCache.delete(tabId);
     this.removeCachedActivity(tabId);
-    if (this.attachedTabId === tabId) {
-      this.attachedTabId = null;
-    }
-    void this.send({ type: "disposeSession", tabId }).catch(() => undefined);
+    if (this.attachedTabId === tabId) this.attachedTabId = null;
   }
 
   disposeAll(): void {
+    this.disposed = true;
     this.attachedTabId = null;
     if (this.closed) {
       return;
@@ -428,6 +496,7 @@ export class DaemonPtyRuntimeClient {
 
     this.socket.end();
     this.closed = true;
+    this.rejectAll(new RuntimeAcknowledgementUncertainError("Client closed; outstanding mutation outcomes are uncertain."));
   }
 
   getViewState(tabId: string | null): TerminalViewState {
@@ -447,29 +516,36 @@ export class DaemonPtyRuntimeClient {
   }
 
   private async send(request: Omit<DaemonRequest, "id"> & Record<string, unknown>): Promise<DaemonOkResponse> {
-    if (this.closed) {
+    if (this.closed || this.socket.destroyed) {
       if (this.splitRuntime) throw new RuntimeAcknowledgementUncertainError("Control is unavailable; reopen Craig to reattach to the existing session.");
       throw new Error("Craig PTY daemon connection is closed.");
     }
 
     const tabId = typeof request.tabId === "string" ? request.tabId : ["resize", "scrollViewport"].includes(request.type) ? this.attachedTabId : null;
-    const baselineRevision = tabId ? this.viewRevisionByTab.get(tabId) ?? 0 : 0;
+    let responseRevision = tabId ? this.viewRevisionByTab.get(tabId) ?? 0 : 0;
     const id = this.nextRequestId;
     this.nextRequestId += 1;
-    const payload = { ...request, id } as DaemonRequest;
+    const payload = { ...request, id, ...(runtimeMutationContext.getStore() ? { admissionToken: runtimeMutationContext.getStore() } : {}) } as DaemonRequest;
     const response = new Promise<DaemonResponse>((resolve, reject) => {
-      this.pending.set(id, { resolve, reject });
+      const timer = setTimeout(() => {
+        this.pending.delete(id);
+        reject(new RuntimeAcknowledgementUncertainError("Control acknowledgement timed out; do not replay input."));
+        this.socket.destroy();
+      }, 5000);
+      this.pending.set(id, { resolve: (value) => {
+        clearTimeout(timer);
+        // Events received before this reply cannot supersede its snapshot (in
+        // particular an explicit scroll). Only later events win while a view
+        // ownership token is being durably persisted.
+        responseRevision = tabId ? this.viewRevisionByTab.get(tabId) ?? 0 : 0;
+        resolve(value);
+      }, reject: (error) => { clearTimeout(timer); reject(error); } });
     });
-    if (this.socket.destroyed) {
-      this.pending.delete(id);
-      if (this.splitRuntime) throw new RuntimeAcknowledgementUncertainError("Control is unavailable; reopen Craig to reattach to the existing session.");
-      throw new Error("Craig PTY daemon connection is closed.");
-    }
-
     this.socket.write(`${JSON.stringify(payload)}\n`);
     const resolved = await response;
     if (!resolved.ok) {
       if (resolved.uncertain) throw new RuntimeAcknowledgementUncertainError(resolved.error);
+      if (resolved.retryable) throw new RuntimeUpgradeRetryError(resolved.error);
       throw new Error(resolved.error);
     }
     if (this.viewClient && typeof request.tabId === "string" && resolved.viewId && resolved.viewToken) {
@@ -483,7 +559,7 @@ export class DaemonPtyRuntimeClient {
       this.viewPersistence = this.viewPersistence.then(save, save);
       await this.viewPersistence;
     }
-    if (tabId && resolved.view && (this.viewRevisionByTab.get(tabId) ?? 0) > baselineRevision) resolved.view = this.viewCache.get(tabId) ?? resolved.view;
+    if (tabId && resolved.view && (this.viewRevisionByTab.get(tabId) ?? 0) > responseRevision) resolved.view = this.viewCache.get(tabId) ?? resolved.view;
     return resolved;
   }
 
@@ -522,6 +598,11 @@ export class DaemonPtyRuntimeClient {
       return;
     }
 
+    if (message.type === "lifecycle") {
+      this.controlDraining = message.state === "draining";
+      this.lifecycle(this.controlDraining ? "Craig control is updating… Input paused; agents continue running." : this.inputUncertain ? "Previous input acknowledgement is uncertain; do not replay it." : this.upgradePendingMessage);
+      return;
+    }
     if (message.type === "update") {
       this.viewRevisionByTab.set(message.tabId, (this.viewRevisionByTab.get(message.tabId) ?? 0) + 1);
       if ("view" in message) {
@@ -843,6 +924,7 @@ class PtyDaemonServer {
 
   private async handleRequest(socket: Socket, request: DaemonRequest): Promise<TerminalViewState | number | null> {
     switch (request.type) {
+      case "attachExisting": throw new Error("Logical attachment requires the split runtime.");
       case "ping":
         return null;
       case "acknowledgeView":

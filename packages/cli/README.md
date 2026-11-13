@@ -43,7 +43,7 @@ _It's like a game, except the PRs are real._
 - **Stay in flow.** Launch agents, move between tasks, inspect changes, and watch PR checks without leaving the keyboard.
 - **Work across repositories.** Treat one repo or a directory of repos as a workspace while preserving real repository boundaries.
 - **Let agents operate the workspace.** The same task model backs the TUI and CLI, so agents and scripts can inspect context and perform Craig actions directly.
-- **Leave and come back.** New workspaces keep agents, PTYs, and terminal history in independent session hosts, so closing the TUI or losing the control service preserves the running conversation. Runtime code and dependencies are pinned outside the launching installation. Use `craig daemon status --json` to inspect compatibility without starting or replacing anything. Existing legacy sessions retain their original owner; migration waits for an empty runtime. Automatic control updates and host rollover are not yet available.
+- **Leave and come back.** New workspaces keep agents, PTYs, and terminal history in independent session hosts, so closing the TUI or losing the control service preserves the running conversation. Runtime code and dependencies are pinned outside the launching installation. Use `craig daemon status --json` to inspect compatibility without starting or replacing anything. Existing legacy sessions retain their original owner; migration waits for an empty runtime. A newer stable release automatically replaces compatible control code on the next runtime invocation. The running agent process and its PTY stay in place. `craig daemon restart` explicitly selects the invoked build for control; older releases never downgrade a newer service. Host revision rollover is not yet available.
 
 ## Install
 
@@ -411,3 +411,5 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 THE SOFTWARE.
 ```
 Task creation is admitted durably before provisioning on the split runtime. Supply `--operation-id <id>` to `craig task new` or `craig task create-child` to retry an uncertain result with the same identity. An interrupted, ambiguous provisioning operation reports `recovery_required` and preserves existing work for inspection.
+
+Control replacement drains admitted work for up to five seconds, then reconnects existing clients to fresh terminal snapshots. Input is visibly paused during reconnection and uncertain prompt writes are never replayed. A drain timeout keeps the previous service running; failed startup restores the compatible pinned service when it can do so safely. An unresponsive living owner remains untouched. Equal-release development builds require explicit `craig daemon restart`. For a pre-RFC legacy runtime, finish all sessions and background work and close every old client before acknowledging the one-time transition with `craig daemon restart --migrate-legacy`; active or unverifiable owners block migration.

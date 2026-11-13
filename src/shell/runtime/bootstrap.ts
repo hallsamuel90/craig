@@ -1,5 +1,5 @@
 import { listTaskCreateOperations } from "../../domain/runtime/task-create/store.js";
-import { spawn } from "node:child_process";
+import { spawn, type ChildProcess } from "node:child_process";
 import { mkdir, readdir, open } from "node:fs/promises";
 import path from "node:path";
 import type { CraigPaths } from "../../state/craig-paths.js";
@@ -9,13 +9,14 @@ import { runtimeRequest, processAlive } from "./discovery.js";
 import { pinRuntimeArtifact, verifyRuntimeArtifact } from "./artifacts.js";
 import { newRuntimeRecord, readPrivateRecord, writePrivateRecord, privateRuntimeDirectory, type RuntimeRecord } from "./records.js";
 
-async function launch(paths: CraigPaths, record: RuntimeRecord, file: string): Promise<void> {
+export async function launchRuntimeRole(paths: CraigPaths, record: RuntimeRecord, file: string) {
   const manifest = await verifyRuntimeArtifact(record.artifact);
   await writePrivateRecord(file, record);
   const log = await open(path.join(paths.runtimeDir, `${record.role}.log`), "a", 0o600);
   try {
     const child = spawn(manifest.nodeExecutable, [path.join(record.artifact, "cli.js"), "__craig-runtime-role", record.role, paths.workspaceRoot, file], { cwd: paths.workspaceRoot, detached: true, stdio: ["ignore", log.fd, log.fd], env: process.env });
     child.unref();
+    return child;
   } finally { await log.close(); }
 }
 async function verifiedRole(record: RuntimeRecord): Promise<boolean> {
@@ -27,13 +28,14 @@ async function verifiedRole(record: RuntimeRecord): Promise<boolean> {
       return response.instanceId === record.instanceId && response.hostProtocol === 1;
     }
     const response = await runtimeRequest(record.endpoint, { type: "ping" });
-    return response.ok && (response as { instanceId?: unknown }).instanceId === record.instanceId;
+    return response.ok && (response as { instanceId?: unknown }).instanceId === record.instanceId && (record.role !== "control" || (record.ready && response.lifecycle === "ready"));
   } catch { return false; }
   finally { transport?.close(); }
 }
-async function awaitRole(file: string): Promise<RuntimeRecord> {
+export async function awaitRuntimeRole(file: string, child?: ChildProcess): Promise<RuntimeRecord> {
   const started = Date.now();
   while (Date.now() - started < 10000) {
+    if (child && (child.exitCode !== null || child.signalCode !== null)) throw new Error("Candidate control exited before readiness.");
     const record = await readPrivateRecord<RuntimeRecord>(file);
     if (record && await verifiedRole(record)) return record;
     await new Promise((resolve) => setTimeout(resolve, 50));
@@ -55,7 +57,7 @@ export async function bootstrapSplitRuntime(paths: CraigPaths): Promise<void> {
     if (legacy) throw new Error("A legacy owner won startup; migration aborted and its sessions preserved.");
     guard = await newRuntimeRecord(paths, "guard", artifact);
     guard.endpoint = getPtyDaemonEndpoint(paths).socketPath;
-    await launch(paths, guard, guardPath); guard = await awaitRole(guardPath);
+    await launchRuntimeRole(paths, guard, guardPath); guard = await awaitRuntimeRole(guardPath);
   }
   if (!await verifiedRole(guard)) throw new Error("Guard is not ready; split runtime must not launch sessions.");
   if (previous && processAlive(previous.pid)) {
@@ -77,11 +79,11 @@ export async function bootstrapSplitRuntime(paths: CraigPaths): Promise<void> {
     if (previous || endpoints.some((name) => name.startsWith("host-")) || (await listTaskCreateOperations(paths)).length > 0) throw new Error("Host discovery is missing or unverifiable; existing sessions must not be recreated.");
     host = await newRuntimeRecord(paths, "host", artifact);
     const file = path.join(hostDirectory, `${host.instanceId}.json`);
-    await launch(paths, host, file); host = await awaitRole(file);
+    await launchRuntimeRole(paths, host, file); host = await awaitRuntimeRole(file);
   }
   const control = await newRuntimeRecord(paths, "control", artifact);
-  await launch(paths, control, controlPath);
-  await awaitRole(controlPath);
+  await launchRuntimeRole(paths, control, controlPath);
+  await awaitRuntimeRole(controlPath);
 }
 
 /** Explicit fixture/user runtime termination. This is never called by upgrades. */

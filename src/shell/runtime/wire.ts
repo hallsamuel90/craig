@@ -1,4 +1,4 @@
-import { RuntimeAcknowledgementUncertainError } from "../../domain/runtime/errors.js";
+import { RuntimeAcknowledgementUncertainError, RuntimeUpgradeRetryError } from "../../domain/runtime/errors.js";
 import { createConnection, type Socket } from "node:net";
 
 export const MAX_RUNTIME_FRAME_BYTES = 2 * 1024 * 1024;
@@ -42,7 +42,7 @@ export class RuntimeTransport {
       this.pending.delete(frame.id); clearTimeout(pending.timer);
       if (frame.ok === false) {
         const message = typeof frame.error === "string" ? frame.error : "Runtime request rejected.";
-        pending.reject(frame.uncertain === true ? new RuntimeAcknowledgementUncertainError(message) : new Error(message));
+        pending.reject(frame.uncertain === true ? new RuntimeAcknowledgementUncertainError(message) : frame.retryable === true ? new RuntimeUpgradeRetryError(message) : new Error(message));
       }
       else pending.resolve(frame);
     });

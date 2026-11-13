@@ -1,3 +1,5 @@
+import type { RuntimeHello } from "../domain/runtime/types.js";
+import { withRuntimeMutation } from "./runtime/mutation.js";
 import { requireWorkspaceRuntimeCapabilities } from "./runtime/discovery.js";
 import { getClientRuntimeEndpoint } from "./runtime/endpoint.js";
 import { createConnection, type Socket } from "node:net";
@@ -7,7 +9,7 @@ import { isAgentCapabilityRefreshDue, refreshAgentCapability, type AgentCapabili
 import type { CraigPaths } from "../state/craig-paths.js";
 import { isCompatiblePtyDaemonProtocol } from "./pty-daemon-protocol.js";
 
-interface Response {
+interface Response extends RuntimeHello {
   id: number;
   ok: boolean;
   protocolVersion?: number;
@@ -34,7 +36,8 @@ export async function refreshLiveAgentCapability(paths: CraigPaths, session: Age
       socket.destroy();
       if (response.activities?.some((snapshot) =>
         snapshot.taskId === session.taskId && snapshot.tabId === session.agentTabId && snapshot.sessionState === "running")) {
-        await refreshAgentCapability(paths, session);
+        if (ping.capabilities?.includes("controlReplacement")) await withRuntimeMutation(paths, () => refreshAgentCapability(paths, session));
+        else await refreshAgentCapability(paths, session);
       }
     } finally {
       clearTimeout(timeout);

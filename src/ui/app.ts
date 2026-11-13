@@ -135,6 +135,8 @@ export async function startTerminalApp(options: TerminalAppOptions = {}): Promis
   model = await loadWorkspaceShellModel(workspaceRoot, initialShell, enabledRunnerIds);
   const modelRef = { current: model };
   let handlePtyUpdate: NonNullable<PtyRuntimeOptions["onUpdate"]> = () => undefined;
+  // eslint-disable-next-line no-unused-vars
+  let handlePtyLifecycle: (message: string | null) => void = () => undefined;
   let handlePtyActivity: NonNullable<PtyRuntimeOptions["onActivity"]> = () => undefined;
   let handlePtyActivityRemoved: NonNullable<PtyRuntimeOptions["onActivityRemoved"]> = () => undefined;
   const ptyOptions: PtyRuntimeOptions = {
@@ -158,6 +160,7 @@ export async function startTerminalApp(options: TerminalAppOptions = {}): Promis
       ...ptyOptions,
       paths,
       activityEnabled: true,
+      onLifecycle: (message) => handlePtyLifecycle(message),
       ...(runtimeState?.runtimeViewClient ? { viewClient: runtimeState.runtimeViewClient } : {}),
     }));
 
@@ -239,6 +242,10 @@ export async function startTerminalApp(options: TerminalAppOptions = {}): Promis
     const isWorkspaceSplash = () => ctx.state.mode === "overlay"
       && (ctx.state.variant === "boot" || ctx.state.variant === "pause");
 
+    handlePtyLifecycle = (message) => {
+      if (ctx.state.mode === "main" || ctx.state.mode === "overlay") ctx.state = { ...ctx.state, shell: { ...ctx.state.shell, actionMessage: message } };
+      ctx.render();
+    };
     handlePtyUpdate = (invalidation) => {
       if (ctx.state.mode !== "main") {
         return;

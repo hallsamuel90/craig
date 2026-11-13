@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+import { runtimePreflight } from "./shell/runtime/preflight.js";
 
 import { ensureRuntimeRunning } from "./shell/runtime/start.js";
 import { sessionHostRevision } from "./shell/runtime/host-identity.js";
@@ -19,6 +20,10 @@ import { startTerminalApp } from "./ui/app.js";
 import { requestDaemonShutdown, servePtyDaemon } from "./ui/pty/daemon.js";
 async function main(): Promise<number> {
   try {
+    if (process.argv[2] === "__craig-runtime-preflight") {
+      process.stdout.write(JSON.stringify(await runtimePreflight(getCraigPaths(await canonicalWorkspaceRoot(process.argv[3] ?? process.cwd())))) + "\n");
+      return 0;
+    }
     if (process.argv[2] === "__craig-runtime-bootstrap") {
       await ensureRuntimeRunning(getCraigPaths(await canonicalWorkspaceRoot(process.argv[3] ?? process.cwd())));
       return 0;

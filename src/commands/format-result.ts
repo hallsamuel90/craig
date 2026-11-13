@@ -129,6 +129,8 @@ export function formatCommandResult(result: CommandResult): string {
       return ["ID\tNAME\tBRANCH\tPATH", ...result.repos.map((repo) => `${repo.id}\t${repo.name}\t${repo.defaultBranch}\t${repo.rootPath}`)].join(
         "\n",
       );
+    case "daemonRestart":
+      return result.message;
     case "daemonStatus":
       return `Daemon: ${result.state}${result.reason ? `\n${result.reason}` : ""}`;
     case "help":

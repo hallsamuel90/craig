@@ -33,6 +33,10 @@ export function parseArgv(argv: string[]): ParsedArgvCommand {
   let command: AppCommand;
 
   switch (`${group ?? ""}:${action ?? ""}`) {
+    case "daemon:restart":
+      if (args.some((arg) => arg !== "--migrate-legacy") || args.length > 1) throw usageError("Usage: craig daemon restart [--migrate-legacy]");
+      command = { kind: "daemonRestart", migrateLegacy: args.includes("--migrate-legacy") };
+      break;
     case "daemon:status":
       requireNoArgs(args, "daemon status");
       command = { kind: "daemonStatus" };
@@ -295,6 +299,7 @@ export function getCommandName(command: AppCommand): string {
     commitSelectedTask: "task.commit",
     showContext: "context.show",
     daemonStatus: "daemon.status",
+    daemonRestart: "daemon.restart",
     help: "help",
     exit: "exit",
   };
@@ -341,6 +346,7 @@ export function getHelpText(): string {
     "  craig task wait [<id>] --state <states> [--tab <tab-id>] [--timeout <duration>]",
     "  craig events list [--task <task-id>] [--type <glob>] [--after <cursor>] --json",
     "  craig events watch [--task <task-id>] [--type <glob>] [--after <cursor>] [--format jsonl]",
+    "  craig daemon restart     Replace control while preserving sessions",
     "  craig daemon status      Inspect runtime without starting it",
     "  craig fury validate <file>  Validate a versioned fury YAML definition",
     "  craig fury plan <file> [--root-task <id>] [--input key=value]  Create an immutable approval plan",

@@ -36,9 +36,9 @@ export class HostClient {
     await this.refreshInventory();
     await this.request({ type: "subscribe" });
   }
-  async request(frame: RuntimeFrame): Promise<RuntimeFrame> {
+  async request(frame: RuntimeFrame, timeoutMs?: number): Promise<RuntimeFrame> {
     if (!this.transport) throw new Error("Host transport unavailable; sessions are preserved.");
-    return this.transport.request({ ...frame, credential: this.host.credential, workspaceId: this.host.workspaceId, instanceId: this.host.instanceId, controllerId: this.controller.instanceId });
+    return this.transport.request({ ...frame, credential: this.host.credential, workspaceId: this.host.workspaceId, instanceId: this.host.instanceId, controllerId: this.controller.instanceId }, timeoutMs);
   }
   async refreshInventory(): Promise<void> {
     if (this.refresh) return this.refresh;

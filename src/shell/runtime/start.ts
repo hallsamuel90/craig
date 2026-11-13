@@ -1,3 +1,4 @@
+import { replaceControlUnderLock, recoverReplacementUnderLock } from "./replacement.js";
 import { errorService } from "../../domain/error/index.js";
 import { readFile, lstat } from "node:fs/promises";
 import path from "node:path";
@@ -20,6 +21,7 @@ export async function ensureRuntimeRunning(paths: CraigPaths, spawnDaemon?: (wor
     }
   }
   try {
+    await recoverReplacementUnderLock(paths);
     // Preserve the launcher's bootstrap grace period: a concurrently invoked
     // server may not have published its endpoint/owner record yet.
     let status = await daemonStatus(paths);
@@ -28,7 +30,20 @@ export async function ensureRuntimeRunning(paths: CraigPaths, spawnDaemon?: (wor
       await new Promise((resolve) => setTimeout(resolve, 50));
       status = await daemonStatus(paths);
     }
-    if (status.state === "ready") return;
+    if (status.state === "ready") {
+      if (!spawnDaemon) {
+        try { await replaceControlUnderLock(paths); }
+        catch (error) {
+          // Preparation failure or drain timeout must not take compatible
+          // existing terminal access away. Explicit restart still reports the
+          // error, and a released/unavailable owner cannot use this fallback.
+          const retained = await daemonStatus(paths);
+          if (retained.state !== "ready") throw error;
+          await errorService.appendLogBestEffort(paths, { level: "warn", component: "daemon", event: "upgrade.blocked", message: error instanceof Error ? error.message : "Control replacement blocked; previous compatible service retained." });
+        }
+      }
+      return;
+    }
     const split = await readPrivateRecord<RuntimeRecord>(path.join(paths.runtimeDir, "control.json"));
     const guard = await readPrivateRecord<RuntimeRecord>(path.join(paths.runtimeDir, "guard.json"));
     if (split || guard) { await bootstrapSplitRuntime(paths); return; }

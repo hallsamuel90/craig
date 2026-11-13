@@ -19,7 +19,19 @@ export async function stopFixtureRuntimes(paths: CraigPaths, artifactRoot: strin
     if (!before) continue;
     const state = await execute("ps", ["-p", String(record.pid), "-o", "stat="]).then((result) => result.stdout.trim()).catch(() => "");
     if (!state || state.startsWith("Z")) continue; // Exited children awaiting OS reaping are not live owners.
-    if (!before.includes(record.artifact) || !before.includes("__craig-runtime-role") || !before.includes(paths.workspaceRoot)) throw new Error(`Fixture ${record.role} PID ${record.pid} identity changed (${state}); refusing to signal it.`);
+    if (!before.includes(record.artifact) || !before.includes("__craig-runtime-role") || !before.includes(paths.workspaceRoot)) {
+      // ps may observe a dying process after its command storage is gone but
+      // before its state becomes a zombie. Wait only; never signal ambiguity.
+      let exited = false;
+      const deadline = Date.now() + 1000;
+      while (Date.now() < deadline) {
+        await new Promise((resolve) => setTimeout(resolve, 25));
+        const latest = await execute("ps", ["-p", String(record.pid), "-o", "stat="]).then((result) => result.stdout.trim()).catch(() => "");
+        if (!latest || latest.startsWith("Z")) { exited = true; break; }
+      }
+      if (exited) continue;
+      throw new Error(`Fixture ${record.role} PID ${record.pid} identity changed (${state}); refusing to signal it.`);
+    }
     try { process.kill(record.pid, "SIGTERM"); } catch { /* Already exited. */ }
     const deadline = Date.now() + 3000;
     while (await command(record.pid)) {

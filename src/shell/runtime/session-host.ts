@@ -75,7 +75,7 @@ export class SessionHost {
     return { hostProtocol: SESSION_HOST_PROTOCOL, hostRevision: this.record.hostRevision ?? "fixture", instanceId: this.record.instanceId, revision: this.revision, pid: process.pid,
       sessions: [...this.sessions.values()].map((session) => ({ ...session, ...facts.get(session.sessionId) })),
       activities: this.runtime.getActivitySnapshots().map((snapshot) => ({ ...snapshot, tabId: this.sessions.get(snapshot.tabId)?.tabId ?? snapshot.tabId })),
-      leaseCount: this.leases.size, handoffHoldCount: this.holds.size, pendingCreates: this.pendingCreates + this.reservedCreations.size };
+      leases: [...this.leases.values()].map(({ sessionId, viewId }) => ({ sessionId, viewId })), holds: [...this.holds], leaseCount: this.leases.size, handoffHoldCount: this.holds.size, pendingCreates: this.pendingCreates + this.reservedCreations.size };
   }
   private async handle(socket: Socket, frame: RuntimeFrame): Promise<void> {
     try {
@@ -106,6 +106,7 @@ export class SessionHost {
       case "enumerate": return this.inventory();
       case "subscribe": this.subscribers.add(socket); return this.inventory();
       case "hold": this.holds.add(String(frame.holdId)); return {};
+      case "adoptHold": { if (!this.holds.has(String(frame.holdId))) throw new Error("Handoff hold is missing; readiness blocked."); return this.inventory(); }
       case "releaseHold": this.holds.delete(String(frame.holdId)); return {};
       case "reserveCreation": {
         const session = frame.session as SessionIdentity;

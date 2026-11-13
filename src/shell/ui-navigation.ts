@@ -1,3 +1,4 @@
+import { runtimeMutationContext } from "./runtime/mutation-context.js";
 import { requireWorkspaceRuntimeCapabilities } from "./runtime/discovery.js";
 import { getClientRuntimeEndpoint } from "./runtime/endpoint.js";
 import type { RuntimeHello } from "../domain/runtime/types.js";
@@ -52,7 +53,7 @@ function request(socket: Socket, input: { type: "ping" } | { type: "openFile"; p
       socket.off("data", onData);
     };
     socket.on("data", onData);
-    socket.write(`${JSON.stringify({ ...input, id })}\n`);
+    socket.write(`${JSON.stringify({ ...input, id, admissionToken: runtimeMutationContext.getStore() })}\n`);
   });
 }
 

@@ -42,7 +42,7 @@ export class OrchestrationSupervisor {
   constructor(
     private readonly paths: CraigPaths,
     private readonly runtime: OrchestrationDeliveryRuntime,
-    options: { intervalMs?: number; onError?: (error: unknown) => void } = {},
+    private readonly options: { intervalMs?: number; onError?: (error: unknown) => void; admit?: (work: () => Promise<void>) => Promise<void> } = {},
   ) {
     /* eslint-enable no-unused-vars */
     const intervalMs = options.intervalMs ?? 250;
@@ -95,7 +95,7 @@ export class OrchestrationSupervisor {
 
   private reconcile(): Promise<void> {
     if (this.reconciliation) return this.reconciliation;
-    this.reconciliation = this.reconcileCommands().finally(() => {
+    this.reconciliation = (this.options.admit ? this.options.admit(() => this.reconcileCommands()) : this.reconcileCommands()).finally(() => {
       this.reconciliation = null;
     });
     return this.reconciliation;
@@ -103,12 +103,13 @@ export class OrchestrationSupervisor {
 
   private refreshCapabilities(): Promise<void> {
     if (this.capabilityRefresh) return this.capabilityRefresh;
-    this.capabilityRefresh = (async () => {
+    const refresh = async () => {
       const sessions = await this.runtime.getRunningAgentCapabilities?.() ?? [];
       const results = await Promise.allSettled(sessions.map((session) => refreshAgentCapability(this.paths, session)));
       const failed = results.find((result) => result.status === "rejected");
       if (failed?.status === "rejected") throw failed.reason;
-    })().finally(() => { this.capabilityRefresh = null; });
+    };
+    this.capabilityRefresh = (this.options.admit ? this.options.admit(refresh) : refresh()).finally(() => { this.capabilityRefresh = null; });
     return this.capabilityRefresh;
   }
 
@@ -228,6 +229,7 @@ export class OrchestrationSupervisor {
       }
       return;
     }
+    if (command.lastError?.deliveryUncertain) return;
     if (task.runnerSession.lastKnownState !== "failed") {
       await taskService.recordStartupFailure(
         this.paths,

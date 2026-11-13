@@ -1,4 +1,5 @@
-import { RuntimeAcknowledgementUncertainError } from "../../domain/runtime/errors.js";
+import { RuntimeAdmissionGate } from "./admission-gate.js";
+import { RuntimeAcknowledgementUncertainError, RuntimeUpgradeRetryError } from "../../domain/runtime/errors.js";
 import { listTaskCreateOperations } from "../../domain/runtime/task-create/store.js";
 import { reconcileEvents } from "../event-reconciliation.js";
 import { runtimeRequest } from "./discovery.js";
@@ -34,6 +35,10 @@ const idle = (): TerminalViewState => ({ status: "idle", rows: [], error: null, 
 export async function serveSplitControl(paths: CraigPaths, record: RuntimeRecord, hostRecord: RuntimeRecord, admissionPorts: TaskCreateAdmissionPorts = {}): Promise<void> {
   const clients = new Map<Socket, ClientState>();
   let shuttingDown = false;
+  const gate = new RuntimeAdmissionGate();
+  let preparedTransaction: string | null = null;
+  let preparation: { id: string; promise: Promise<void> } | null = null;
+  const externalAdmissions = new Map<string, () => void>();
   const host = new HostClient(paths, hostRecord, record, (tabIds) => { void broadcast(tabIds); });
   await host.connect();
   for (const operation of await listTaskCreateOperations(paths)) {
@@ -41,14 +46,18 @@ export async function serveSplitControl(paths: CraigPaths, record: RuntimeRecord
     if (operation.state === "completed" || operation.state === "failed") await host.request({ type: "completeCreation", creationId: operation.creationId, reservationId: operation.operationId });
     else await host.request({ type: "reserveCreation", reservationId: operation.operationId, session: { taskId: operation.taskId, tabId: operation.agentTabId, sessionId: operation.sessionId, creationId: operation.creationId } });
   }
+  if (record.handoffId) await host.request({ type: "adoptHold", holdId: record.handoffId });
+  await host.refreshInventory();
   await host.request({ type: "releaseHold", holdId: `recovery:${record.instanceId}` });
   const admission = new TaskCreateAdmission(paths, host, admissionPorts);
   // Leadership is acquired by the supervisor and cannot overlap a living old owner.
   const config = await configService.load(paths);
-  const supervisor = new OrchestrationSupervisor(paths, host, { onError: (error) => { void errorService.appendErrorLogBestEffort(paths, { context: "split orchestration", message: error instanceof Error ? error.message : "Orchestration error" }); } });
+  const supervisor = new OrchestrationSupervisor(paths, host, { admit: (work) => gate.background(work), onError: (error) => { void errorService.appendErrorLogBestEffort(paths, { context: "split orchestration", message: error instanceof Error ? error.message : "Orchestration error" }); } });
   await supervisor.start({ deferReconciliation: true });
-  const polling = new PullRequestSyncSupervisor(paths, { reconcileEvents: async () => { const activities = await host.getActivitySnapshots(); return reconcileEvents(paths, { agentObserver: { daemonAvailable: true, getSnapshots: () => activities, subscribe: () => () => undefined, close: () => undefined } }); }, minimumIntervalMs: (config.github?.watchIntervalSeconds ?? 5) * 1000,
+  const polling = new PullRequestSyncSupervisor(paths, { admit: (work) => gate.background(work), reconcileEvents: async () => { let events: Awaited<ReturnType<typeof reconcileEvents>> = []; await gate.background(async () => { const activities = await host.getActivitySnapshots(); events = await reconcileEvents(paths, { agentObserver: { daemonAvailable: true, getSnapshots: () => activities, subscribe: () => () => undefined, close: () => undefined } }); }); return events; }, minimumIntervalMs: (config.github?.watchIntervalSeconds ?? 5) * 1000,
     onTasksChanged: async (taskIds) => { for (const socket of clients.keys()) writeRuntimeFrame(socket, { type: "tasksChanged", taskIds }); } });
+  const adoptedActivities = await host.getActivitySnapshots();
+  await reconcileEvents(paths, { agentObserver: { daemonAvailable: true, getSnapshots: () => adoptedActivities, subscribe: () => () => undefined, close: () => undefined } });
   polling.start();
 
   async function broadcast(tabIds: string[]): Promise<void> {
@@ -86,8 +95,11 @@ export async function serveSplitControl(paths: CraigPaths, record: RuntimeRecord
     readRuntimeFrames(socket, (frame) => {
       if (++pendingRequests > 128) { socket.destroy(); return; }
       chain = chain.then(async () => {
-        try { const result = await handle(socket, state, frame); writeRuntimeFrame(socket, { ...result, id: frame.id, ok: true }); }
-        catch (error) { writeRuntimeFrame(socket, { id: frame.id, ok: false, error: error instanceof Error ? error.message : "Runtime request failed.", uncertain: error instanceof RuntimeAcknowledgementUncertainError }); }
+        try { const ungated = ["ping", "getViewState", "getActivitySnapshots", "inspectTaskCreate", "prepareReplacement", "commitReplacement", "abortReplacement", "endMutation", "beginMutation"];
+          const admitted = typeof frame.admissionToken === "string" && externalAdmissions.has(frame.admissionToken);
+          if (frame.admissionToken !== undefined && !admitted) throw new RuntimeAcknowledgementUncertainError("Mutation admission belongs to another control; inspect its outcome before retrying.");
+          const result = admitted || ungated.includes(frame.type ?? "") ? await handle(socket, state, frame) : await gate.run(() => handle(socket, state, frame)); writeRuntimeFrame(socket, { ...result, id: frame.id, ok: true }); }
+        catch (error) { writeRuntimeFrame(socket, { id: frame.id, ok: false, error: error instanceof Error ? error.message : "Runtime request failed.", retryable: error instanceof RuntimeUpgradeRetryError, uncertain: error instanceof RuntimeAcknowledgementUncertainError }); }
         finally { pendingRequests--; }
       });
     });
@@ -100,8 +112,51 @@ export async function serveSplitControl(paths: CraigPaths, record: RuntimeRecord
       if (!guard || !response || (response as { instanceId?: unknown }).instanceId !== guard.instanceId || response.protocolVersion !== 0) throw new RuntimeAcknowledgementUncertainError("Compatibility guard is unavailable; runtime mutations are blocked until it is repaired.");
     }
     if (shuttingDown && frame.type !== "ping") throw new Error("Control is shutting down; retry reads after reconnect. Do not replay writes.");
+    if (["prepareReplacement", "commitReplacement", "abortReplacement"].includes(frame.type ?? "")) {
+      if (frame.credential !== record.credential || frame.instanceId !== record.instanceId || frame.workspaceId !== record.workspaceId || typeof frame.transactionId !== "string" || !/^[a-zA-Z0-9_-]{1,128}$/.test(frame.transactionId)) throw new Error("Control lifecycle authentication rejected.");
+    }
     switch (frame.type) {
-      case "ping": { const inventory = await host.inventory(); return { ...runtimeIdentity(), capabilities: [...runtimeIdentity().capabilities!, "splitRuntime"], lifecycle: "ready", sessionCount: (inventory.sessions as unknown[]).length, role: "control", instanceId: record.instanceId, workspaceId: record.workspaceId, hostInstanceId: hostRecord.instanceId, hosts: [{ instanceId: hostRecord.instanceId, pid: hostRecord.pid, hostRevision: hostRecord.hostRevision, sessionCount: (inventory.sessions as unknown[]).length, retainedViewCount: inventory.leaseCount, pendingCreates: inventory.pendingCreates, handoffHoldCount: inventory.handoffHoldCount }] }; }
+      case "beginMutation": { const release = gate.enter(); const token = randomUUID(); externalAdmissions.set(token, release); return { token }; }
+      case "endMutation": { const release = externalAdmissions.get(String(frame.token)); if (!release) throw new Error("Unknown mutation admission."); externalAdmissions.delete(String(frame.token)); release(); return {}; }
+      case "prepareReplacement": {
+        const transactionId = String(frame.transactionId);
+        if (preparedTransaction === transactionId) return { prepared: true };
+        if (preparation) {
+          if (preparation.id !== transactionId) throw new Error("Another replacement owns the drain.");
+          await preparation.promise; return { prepared: true };
+        }
+        if (preparedTransaction) throw new Error("Another replacement owns the drain.");
+        const prepare = async () => {
+          const deadline = Date.now() + 5000;
+          const draining = gate.drain(4900);
+          for (const client of clients.keys()) writeRuntimeFrame(client, { type: "lifecycle", state: "draining" });
+          try {
+            await draining;
+            await host.request({ type: "hold", holdId: `upgrade:${transactionId}` }, Math.max(1, deadline - Date.now()));
+            preparedTransaction = transactionId;
+          } catch (error) {
+            gate.reopen();
+            for (const client of clients.keys()) writeRuntimeFrame(client, { type: "lifecycle", state: "ready" });
+            throw error;
+          }
+        };
+        const pending = prepare(); preparation = { id: transactionId, promise: pending };
+        try { await pending; return { prepared: true }; } finally { preparation = null; }
+      }
+      case "abortReplacement": {
+        if (preparation) {
+          if (preparation.id !== frame.transactionId) throw new Error("Different replacement owns the drain.");
+          await preparation.promise.catch(() => undefined);
+        }
+        if (preparedTransaction && preparedTransaction !== frame.transactionId) throw new Error("Different replacement owns the drain.");
+        await host.request({ type: "releaseHold", holdId: `upgrade:${frame.transactionId}` });
+        preparedTransaction = null; gate.reopen(); for (const client of clients.keys()) writeRuntimeFrame(client, { type: "lifecycle", state: "ready" }); return {};
+      }
+      case "commitReplacement": {
+        if (preparedTransaction !== frame.transactionId || gate.state !== "draining" || gate.pendingCount) throw new Error("Control has not completed this drain.");
+        shuttingDown = true; setImmediate(() => stop?.()); return {};
+      }
+      case "ping": { const inventory = await host.inventory(); return { ...runtimeIdentity(), capabilities: [...runtimeIdentity().capabilities!, "splitRuntime", "controlReplacement"], lifecycle: record.ready ? gate.state : "draining", pendingMutations: gate.pendingCount, replacementProtocol: 1, durableStateVersions: [1], sessionCount: (inventory.sessions as unknown[]).length, role: "control", instanceId: record.instanceId, workspaceId: record.workspaceId, hostInstanceId: hostRecord.instanceId, hosts: [{ instanceId: hostRecord.instanceId, pid: hostRecord.pid, hostRevision: hostRecord.hostRevision, sessionCount: (inventory.sessions as unknown[]).length, retainedViewCount: inventory.leaseCount, pendingCreates: inventory.pendingCreates, handoffHoldCount: inventory.handoffHoldCount }] }; }
       case "registerViewClient": {
         if (typeof frame.clientId !== "string" || typeof frame.proof !== "string" || frame.clientId.length > 128 || frame.proof.length > 128) throw new Error("Invalid view client identity.");
         state.viewNamespace = frame.clientId; state.viewProof = frame.proof; return {};
@@ -117,6 +172,12 @@ export async function serveSplitControl(paths: CraigPaths, record: RuntimeRecord
         const route = await host.ensure(String(frame.taskId), String(frame.tabId), frame.size as PtySize, frame.spec as PtySessionSpec);
         const lease = await attachView(state, route); state.attached = route; state.subscribed = route;
         return { view: await host.snapshot(route, lease), viewToken: lease.token, viewId: lease.viewId, sessionId: route.sessionId };
+      }
+      case "attachExisting": {
+        const route = await routeFor(String(frame.tabId));
+        if (!route) return { view: idle() };
+        const lease = await attachView(state, route); state.attached = route;
+        return { view: await host.snapshot(route, lease), viewId: lease.viewId, viewToken: lease.token, sessionId: route.sessionId };
       }
       case "hydrateSession": { const route = await routeFor(String(frame.tabId)); if (!route) return { view: idle() }; const lease = await attachView(state, route); return { view: await host.snapshot(route, lease), viewId: lease.viewId, viewToken: lease.token, sessionId: route.sessionId }; }
       case "subscribeView": {
@@ -163,6 +224,9 @@ export async function serveSplitControl(paths: CraigPaths, record: RuntimeRecord
   }
   try {
     await new Promise<void>((resolve, reject) => { server.once("error", reject); server.listen(record.endpoint, resolve); });
+    // Host-held views/leases and durable create reservations are adopted before
+    // readiness. Release the transaction hold only after that adoption.
+    if (record.handoffId) await host.request({ type: "releaseHold", holdId: record.handoffId });
     record.ready = true; await writePrivateRecord(path.join(paths.runtimeDir, "control.json"), record);
     await new Promise<void>((resolve) => {
       stop = () => { shuttingDown = true; for (const socket of clients.keys()) socket.destroy(); server.close(() => resolve()); };

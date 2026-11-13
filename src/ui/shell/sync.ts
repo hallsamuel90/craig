@@ -1,3 +1,4 @@
+import { withRuntimeMutation } from "../../shell/runtime/mutation.js";
 import type { TaskCreationOptions } from "../../domain/task/index.js";
 import { createRootTaskAndSession } from "../../shell/delegation.js";
 import { writeUiState } from "../../state/ui-state-store.js";
@@ -116,7 +117,8 @@ export function persistUiPreferences(
 }
 
 export function queueTaskMutation<T>(ctx: AppContext, mutation: () => Promise<T>): Promise<T> {
-  const next = ctx.taskMutationQueue.then(mutation, mutation);
+  const run = () => ctx.ptyRuntime.supportsTaskCreateAdmission ? withRuntimeMutation(ctx.paths, mutation) : mutation();
+  const next = ctx.taskMutationQueue.then(run, run);
   ctx.taskMutationQueue = next.then(
     () => undefined,
     () => undefined,

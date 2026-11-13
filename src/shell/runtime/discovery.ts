@@ -1,3 +1,4 @@
+import { runtimeMutationContext } from "./mutation-context.js";
 import path from "node:path";
 import { readPrivateRecord, workspaceRuntimeId, type RuntimeRecord } from "./records.js";
 import { getClientRuntimeEndpoint } from "./endpoint.js";
@@ -57,7 +58,7 @@ export async function daemonStatus(paths: CraigPaths): Promise<DaemonStatus> {
 export async function requireAvailableRuntimeCapabilities(paths: CraigPaths, required: RuntimeCapability[]): Promise<string | null> {
   const status = await daemonStatus(paths);
   if (status.state === "absent") return null;
-  if (status.state !== "ready" || !status.runtime) throw new Error(status.reason ?? "Workspace runtime is not accepting mutations; existing sessions are preserved.");
+  if ((status.state !== "ready" && !(status.state === "draining" && runtimeMutationContext.getStore())) || !status.runtime) throw new Error(status.reason ?? "Workspace runtime is not accepting mutations; existing sessions are preserved.");
   const decision = resolveRuntimeCompatibility(status.runtime, required, runtimeIdentity());
   if (!decision.compatible) throw new Error(decision.reason!);
   return decision.reason;

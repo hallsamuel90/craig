@@ -23,6 +23,7 @@ export interface PullRequestSyncDependencies {
 }
 
 export interface PullRequestSyncSupervisorOptions {
+  admit?: (work: () => Promise<void>) => Promise<void>;
   minimumIntervalMs?: number;
   intervals?: Partial<GitHubPollIntervals>;
   heartbeatIntervalMs?: number;
@@ -58,7 +59,7 @@ export class PullRequestSyncSupervisor {
 
   constructor(
     private readonly paths: CraigPaths,
-    options: PullRequestSyncSupervisorOptions = {},
+    private readonly options: PullRequestSyncSupervisorOptions = {},
   ) {
     const heartbeatIntervalMs = options.heartbeatIntervalMs ?? 1_000;
     this.dependencies = options.dependencies ?? defaultDependencies;
@@ -131,7 +132,7 @@ export class PullRequestSyncSupervisor {
 
   private reconcile(): Promise<void> {
     if (this.reconciliation) return this.reconciliation;
-    this.reconciliation = this.drainReconciliations();
+    this.reconciliation = this.options.admit ? this.options.admit(() => this.drainReconciliations()).finally(() => { this.reconciliation = null; }) : this.drainReconciliations();
     return this.reconciliation;
   }
 

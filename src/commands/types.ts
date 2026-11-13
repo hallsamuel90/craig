@@ -1,4 +1,4 @@
-import type { DaemonStatus } from "../domain/runtime/types.js";
+import type { DaemonStatus, DaemonRestartResult } from "../domain/runtime/types.js";
 import type { RunnerType } from "../domain/task/index.js";
 import type {
   CommandCreateTaskResult,
@@ -64,6 +64,7 @@ import type { CommandOpenFileResult } from "../domain/file/index.js";
 
 export type AppCommand =
   | { kind: "daemonStatus" }
+  | { kind: "daemonRestart"; migrateLegacy: boolean }
   | { kind: "addWorkspace"; path: string }
   | { kind: "addRepo"; path: string }
   | { kind: "listRepos" }
@@ -193,6 +194,7 @@ export type {
 
 export type CommandResult =
   | DaemonStatus
+  | DaemonRestartResult
   | CommandCreateWorkspaceResult
   | CommandCreateRepoResult
   | CommandListReposResult

@@ -1,6 +1,9 @@
-export type RuntimeCapability = "terminal" | "activity" | "navigation" | "delegatedLaunch" | "orchestration" | "drainEmpty" | "pullRequestPolling" | "fury" | "splitRuntime";
+export type RuntimeCapability = "terminal" | "activity" | "navigation" | "delegatedLaunch" | "orchestration" | "drainEmpty" | "pullRequestPolling" | "fury" | "splitRuntime" | "controlReplacement";
 export interface RuntimeHello {
   protocolVersion?: number;
+  replacementProtocol?: number;
+  durableStateVersions?: number[];
+  pendingMutations?: number;
   role?: string;
   workspaceId?: string;
   instanceId?: string;
@@ -18,4 +21,12 @@ export interface DaemonStatus {
   runtime: RuntimeHello | null;
   reason: string | null;
   upgradePending: boolean;
+}
+
+export interface DaemonRestartResult {
+  kind: "daemonRestart";
+  state: "restarted" | "unchanged" | "rolled_back";
+  previousBuildId: string | null;
+  buildId: string | null;
+  message: string;
 }

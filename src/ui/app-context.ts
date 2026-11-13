@@ -63,6 +63,7 @@ export interface PtyRuntimePort {
   resize(...args: [PtySize]): void;
   detach(): void;
   disposeSession(...args: [string]): void;
+  disposeSessionConfirmed?(...args: [string]): Promise<void>;
   disposeAll(): void;
   getViewState(...args: [string | null]): ControlShellState["terminal"];
   getActivitySnapshots?(): PtyActivitySnapshot[];
