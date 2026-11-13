@@ -1,3 +1,4 @@
+import { logRuntimeEvent } from "./logging.js";
 import { RuntimeTransport } from "./wire.js";
 import { runtimeMutationContext } from "./mutation-context.js";
 import { RuntimeAcknowledgementUncertainError, RuntimeUpgradeRetryError } from "../../domain/runtime/errors.js";
@@ -289,6 +290,7 @@ export class DaemonPtyRuntimeClient {
         this.subscribedTabId = this.viewedTabId;
         await this.send({ type: "setPullRequestPollView", view: this.pullRequestPollView });
         this.reconnecting = false;
+        await logRuntimeEvent(this.options.paths, "client.reconnected", { protocolVersion: this.protocolVersion });
         this.lifecycle(this.inputUncertain ? "Reconnected. Previous input acknowledgement is uncertain; do not replay it." : this.upgradePendingMessage);
         if (this.viewedTabId) this.notifyFullUpdate(this.viewedTabId);
         return;
@@ -319,6 +321,7 @@ export class DaemonPtyRuntimeClient {
     if (response.lifecycle === "draining") throw new Error("Control is updating; reconnect after readiness.");
     this.controlDraining = false;
     this.protocolVersion = response.protocolVersion!;
+    await logRuntimeEvent(this.options.paths, "runtime.discovered", { protocolVersion: this.protocolVersion, buildId: response.buildId });
     if (this.protocolVersion <= 8) {
       await this.send({ type: "setViewUpdateMode", mode: "incremental" });
     }

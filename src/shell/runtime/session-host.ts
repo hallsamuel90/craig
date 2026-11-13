@@ -2,7 +2,8 @@ import { randomUUID, timingSafeEqual } from "node:crypto";
 import { createServer, type Socket } from "node:net";
 import type { CraigPaths } from "../../state/craig-paths.js";
 import { PtyRuntime, type PtyRuntimeOptions, type PtySessionSpec, type PtySize } from "./session-core.js";
-import type { RuntimeRecord } from "./records.js";
+import { readPrivateRecord, writePrivateRecord, type RuntimeRecord } from "./records.js";
+import path from "node:path";
 import { processAlive } from "./discovery.js";
 import { readRuntimeFrames, writeRuntimeFrame, type RuntimeFrame } from "./wire.js";
 
@@ -13,6 +14,7 @@ interface Controller { instanceId: string; pid: number }
 
 /** Owns raw PTYs/screens only. No task/config/runner/orchestration policy. */
 export interface SessionHostOptions extends Partial<PtyRuntimeOptions> {
+  retire?: () => Promise<void>;
   // eslint-disable-next-line no-unused-vars
   beforeReply?: (request: RuntimeFrame, result: RuntimeFrame) => Promise<void>;
 }
@@ -27,6 +29,7 @@ export class SessionHost {
   private readonly subscribers = new Set<Socket>();
   private controller: Controller | null = null;
   private revision = 0;
+  private retiring = false;
   private pendingCreates = 0;
   private readonly reservedCreations = new Map<string, SessionIdentity>();
   private readonly dirty = new Set<string>();
@@ -72,7 +75,7 @@ export class SessionHost {
   }
   private inventory(): RuntimeFrame {
     const facts = new Map(this.runtime.getProcessFacts().map((fact) => [fact.sessionId, fact]));
-    return { hostProtocol: SESSION_HOST_PROTOCOL, hostRevision: this.record.hostRevision ?? "fixture", instanceId: this.record.instanceId, revision: this.revision, pid: process.pid,
+    return { retirementProtocol: 1, retiring: this.retiring, hostProtocol: SESSION_HOST_PROTOCOL, hostRevision: this.record.hostRevision ?? "fixture", instanceId: this.record.instanceId, revision: this.revision, pid: process.pid,
       sessions: [...this.sessions.values()].map((session) => ({ ...session, ...facts.get(session.sessionId) })),
       activities: this.runtime.getActivitySnapshots().map((snapshot) => ({ ...snapshot, tabId: this.sessions.get(snapshot.tabId)?.tabId ?? snapshot.tabId })),
       leases: [...this.leases.values()].map(({ sessionId, viewId }) => ({ sessionId, viewId })), holds: [...this.holds], leaseCount: this.leases.size, handoffHoldCount: this.holds.size, pendingCreates: this.pendingCreates + this.reservedCreations.size };
@@ -80,6 +83,7 @@ export class SessionHost {
   private async handle(socket: Socket, frame: RuntimeFrame): Promise<void> {
     try {
       this.authenticated(frame);
+      if (this.retiring && frame.type !== "hello") throw new Error("Host retirement committed; no new mutations accepted.");
       let result: RuntimeFrame;
       if (frame.type === "registerController") {
         const pid = frame.controllerPid;
@@ -95,13 +99,13 @@ export class SessionHost {
       } else if (frame.type === "hello") result = this.inventory();
       else {
         this.assertController(frame);
-        result = this.operation(socket, frame);
+        result = await this.operation(socket, frame);
       }
       await this.options.beforeReply?.(frame, result);
       writeRuntimeFrame(socket, { ...result, id: frame.id, ok: true });
     } catch (error) { writeRuntimeFrame(socket, { id: frame.id, ok: false, error: error instanceof Error ? error.message : "Host request failed." }); }
   }
-  private operation(socket: Socket, frame: RuntimeFrame): RuntimeFrame {
+  private operation(socket: Socket, frame: RuntimeFrame): RuntimeFrame | Promise<RuntimeFrame> {
     switch (frame.type) {
       case "enumerate": return this.inventory();
       case "subscribe": this.subscribers.add(socket); return this.inventory();
@@ -165,7 +169,12 @@ export class SessionHost {
       case "dispose": { const session = this.identity(frame); this.runtime.disposeSession(session.sessionId); this.sessions.delete(session.sessionId); for (const [key, lease] of this.leases) if (lease.sessionId === session.sessionId) { this.leases.delete(key); this.released.set(key, lease.token); } this.changed(session.sessionId); return {}; }
       case "shutdownIfUnused": {
         if (this.runtime.getProcessFacts().some((fact) => fact.status === "running") || this.pendingCreates || this.reservedCreations.size || this.leases.size || this.holds.size) throw new Error("Host is retained by processes, views, pending creates, or handoff holds.");
-        setImmediate(() => this.onShutdown?.()); return {};
+        this.retiring = true;
+        return (async () => {
+          try { await this.options.retire?.(); }
+          catch (error) { this.retiring = false; throw error; }
+          setImmediate(() => this.onShutdown?.()); return {};
+        })();
       }
       default: throw new Error("Unsupported host operation.");
     }
@@ -173,9 +182,15 @@ export class SessionHost {
 }
 
 export async function serveSessionHost(_paths: CraigPaths, record: RuntimeRecord): Promise<void> {
-  const host = new SessionHost(record);
-  const server = createServer((socket) => host.handleConnection(socket));
+  const host = new SessionHost(record, { retire: async () => {
+    const file = path.join(_paths.runtimeDir, "hosts", `${record.instanceId}.json`);
+    const current = await readPrivateRecord<RuntimeRecord>(file);
+    if (current?.instanceId !== record.instanceId || current.pid !== process.pid) throw new Error("Host ownership changed during retirement.");
+    await writePrivateRecord(file, { ...record, retired: true, ready: false });
+  } });
+  const sockets = new Set<Socket>();
+  const server = createServer((socket) => { sockets.add(socket); socket.once("close", () => sockets.delete(socket)); host.handleConnection(socket); });
   await new Promise<void>((resolve, reject) => { server.once("error", reject); server.listen(record.endpoint, resolve); });
-  await new Promise<void>((resolve) => { host.onShutdown = () => server.close(() => resolve()); });
+  await new Promise<void>((resolve) => { host.onShutdown = () => { for (const socket of sockets) socket.end(() => socket.destroy()); server.close(() => resolve()); }; });
   // No disconnect or signal handler disposes sessions. Host termination is genuine process loss.
 }

@@ -19,6 +19,10 @@ export class RuntimeAdmissionGate {
     if (this.draining) return;
     await this.run(work);
   }
+  async whenIdle(work: () => Promise<void>): Promise<void> {
+    while (this.active && !this.draining) await new Promise((resolve) => setTimeout(resolve, 10));
+    if (!this.draining) await this.background(work);
+  }
   async drain(timeoutMs = 5000): Promise<void> {
     if (this.draining) throw new Error("Another control drain is already in progress.");
     this.draining = true;
@@ -28,5 +32,6 @@ export class RuntimeAdmissionGate {
       await new Promise((resolve) => setTimeout(resolve, 10));
     }
   }
+  closeAdmission(): void { this.draining = true; }
   reopen(): void { this.draining = false; }
 }

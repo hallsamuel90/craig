@@ -11,10 +11,11 @@ import { RuntimeTransport } from "./wire.js";
 export async function runtimePreflight(paths: CraigPaths) {
   const workspaceId = await workspaceRuntimeId(paths);
   const files = (await readdir(path.join(paths.runtimeDir, "hosts"))).filter((name) => name.endsWith(".json"));
-  if (files.length !== 1) throw new Error("Unsupported or missing host generations; replacement blocked.");
+  if (files.length === 0) throw new Error("Unsupported or missing host generations; replacement blocked.");
   for (const name of files) {
     const record = await readPrivateRecord<RuntimeRecord>(path.join(paths.runtimeDir, "hosts", name));
-    if (!record || record.schemaVersion !== 1 || record.role !== "host" || record.workspaceId !== workspaceId) throw new Error("Unsupported host discovery version/identity.");
+    if (!record || record.schemaVersion !== 1 || record.role !== "host" || record.workspaceId !== workspaceId || (record.retired !== undefined && typeof record.retired !== "boolean")) throw new Error("Unsupported host discovery version/identity.");
+    if (record.retired) continue;
     const transport = await RuntimeTransport.connect(record.endpoint);
     try {
       const hello = await transport.request({ type: "hello", instanceId: record.instanceId, workspaceId, credential: record.credential });

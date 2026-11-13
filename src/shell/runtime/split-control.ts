@@ -1,3 +1,4 @@
+import { HostPool } from "./host-pool.js";
 import { RuntimeAdmissionGate } from "./admission-gate.js";
 import { RuntimeAcknowledgementUncertainError, RuntimeUpgradeRetryError } from "../../domain/runtime/errors.js";
 import { listTaskCreateOperations } from "../../domain/runtime/task-create/store.js";
@@ -9,7 +10,7 @@ import { randomUUID } from "node:crypto";
 import { createServer, type Socket } from "node:net";
 import type { CraigPaths } from "../../state/craig-paths.js";
 import type { TerminalViewState } from "./terminal/types.js";
-import { HostClient, type SessionRoute, type LogicalView } from "./host-client.js";
+import { type SessionRoute, type LogicalView } from "./host-client.js";
 import { readRuntimeFrames, writeRuntimeFrame, type RuntimeFrame } from "./wire.js";
 import { writePrivateRecord, type RuntimeRecord } from "./records.js";
 import { runtimeIdentity } from "./identity.js";
@@ -32,19 +33,22 @@ interface ClientState {
 const idle = (): TerminalViewState => ({ status: "idle", rows: [], error: null, scrolledBack: false });
 
 /** Replaceable orchestration/presentation router. Owns no PTY or terminal emulator. */
-export async function serveSplitControl(paths: CraigPaths, record: RuntimeRecord, hostRecord: RuntimeRecord, admissionPorts: TaskCreateAdmissionPorts = {}): Promise<void> {
+export async function serveSplitControl(paths: CraigPaths, record: RuntimeRecord, hostRecord: RuntimeRecord | RuntimeRecord[], admissionPorts: TaskCreateAdmissionPorts = {}): Promise<void> {
   const clients = new Map<Socket, ClientState>();
   let shuttingDown = false;
   const gate = new RuntimeAdmissionGate();
   let preparedTransaction: string | null = null;
   let preparation: { id: string; promise: Promise<void> } | null = null;
   const externalAdmissions = new Map<string, () => void>();
-  const host = new HostClient(paths, hostRecord, record, (tabIds) => { void broadcast(tabIds); });
+  const host = new HostPool(paths, Array.isArray(hostRecord) ? hostRecord : [hostRecord], record, (tabIds) => { void broadcast(tabIds); });
   await host.connect();
   for (const operation of await listTaskCreateOperations(paths)) {
-    if (operation.hostId !== hostRecord.instanceId) throw new Error("Task-create recovery references an unsupported host; owner preserved.");
-    if (operation.state === "completed" || operation.state === "failed") await host.request({ type: "completeCreation", creationId: operation.creationId, reservationId: operation.operationId });
-    else await host.request({ type: "reserveCreation", reservationId: operation.operationId, session: { taskId: operation.taskId, tabId: operation.agentTabId, sessionId: operation.sessionId, creationId: operation.creationId } });
+    if (!host.hasHost(operation.hostId)) {
+      if (operation.state === "completed" || operation.state === "failed") continue;
+      throw new Error("Task-create recovery references an unsupported host; owner preserved.");
+    }
+    if (operation.state === "completed" || operation.state === "failed") await host.request({ type: "completeCreation", hostId: operation.hostId, creationId: operation.creationId, reservationId: operation.operationId });
+    else await host.request({ type: "reserveCreation", hostId: operation.hostId, reservationId: operation.operationId, session: { taskId: operation.taskId, tabId: operation.agentTabId, sessionId: operation.sessionId, creationId: operation.creationId } });
   }
   if (record.handoffId) await host.request({ type: "adoptHold", holdId: record.handoffId });
   await host.refreshInventory();
@@ -59,6 +63,10 @@ export async function serveSplitControl(paths: CraigPaths, record: RuntimeRecord
   const adoptedActivities = await host.getActivitySnapshots();
   await reconcileEvents(paths, { agentObserver: { daemonAvailable: true, getSnapshots: () => adoptedActivities, subscribe: () => () => undefined, close: () => undefined } });
   polling.start();
+  let retirementJob: Promise<void> | null = null;
+  const retirementTimer = setInterval(() => {
+    if (!retirementJob) retirementJob = gate.whenIdle(() => host.retireUnused()).catch(() => undefined).finally(() => { retirementJob = null; });
+  }, 1000);
 
   async function broadcast(tabIds: string[]): Promise<void> {
     try {
@@ -84,7 +92,7 @@ export async function serveSplitControl(paths: CraigPaths, record: RuntimeRecord
     const inventory = await host.inventory();
     const sessions = inventory.sessions as SessionRoute[];
     const session = sessions.find((entry) => entry.tabId === tabId);
-    return session ? { ...session, hostId: hostRecord.instanceId } : null;
+    return session ?? null;
   }
   const server = createServer((socket) => {
     const state: ClientState = { attached: null, subscribed: null, activity: false, navigation: false, views: new Map(), viewNamespace: randomUUID(), viewProof: randomUUID() };
@@ -156,7 +164,7 @@ export async function serveSplitControl(paths: CraigPaths, record: RuntimeRecord
         if (preparedTransaction !== frame.transactionId || gate.state !== "draining" || gate.pendingCount) throw new Error("Control has not completed this drain.");
         shuttingDown = true; setImmediate(() => stop?.()); return {};
       }
-      case "ping": { const inventory = await host.inventory(); return { ...runtimeIdentity(), capabilities: [...runtimeIdentity().capabilities!, "splitRuntime", "controlReplacement"], lifecycle: record.ready ? gate.state : "draining", pendingMutations: gate.pendingCount, replacementProtocol: 1, durableStateVersions: [1], sessionCount: (inventory.sessions as unknown[]).length, role: "control", instanceId: record.instanceId, workspaceId: record.workspaceId, hostInstanceId: hostRecord.instanceId, hosts: [{ instanceId: hostRecord.instanceId, pid: hostRecord.pid, hostRevision: hostRecord.hostRevision, sessionCount: (inventory.sessions as unknown[]).length, retainedViewCount: inventory.leaseCount, pendingCreates: inventory.pendingCreates, handoffHoldCount: inventory.handoffHoldCount }] }; }
+      case "ping": { const inventory = await host.inventory(); return { ...runtimeIdentity(), capabilities: [...runtimeIdentity().capabilities!, "splitRuntime", "controlReplacement"], lifecycle: record.ready ? gate.state : "draining", pendingMutations: gate.pendingCount, replacementProtocol: 1, durableStateVersions: [1], sessionCount: (inventory.sessions as unknown[]).length, role: "control", instanceId: record.instanceId, workspaceId: record.workspaceId, hosts: inventory.hosts }; }
       case "registerViewClient": {
         if (typeof frame.clientId !== "string" || typeof frame.proof !== "string" || frame.clientId.length > 128 || frame.proof.length > 128) throw new Error("Invalid view client identity.");
         state.viewNamespace = frame.clientId; state.viewProof = frame.proof; return {};
@@ -169,9 +177,13 @@ export async function serveSplitControl(paths: CraigPaths, record: RuntimeRecord
         return {};
       }
       case "ensureSession": {
-        const route = await host.ensure(String(frame.taskId), String(frame.tabId), frame.size as PtySize, frame.spec as PtySessionSpec);
-        const lease = await attachView(state, route); state.attached = route; state.subscribed = route;
-        return { view: await host.snapshot(route, lease), viewToken: lease.token, viewId: lease.viewId, sessionId: route.sessionId };
+        const holdId = `attach:${randomUUID()}`;
+        await host.request({ type: "hold", holdId });
+        try {
+          const route = await host.ensure(String(frame.taskId), String(frame.tabId), frame.size as PtySize, frame.spec as PtySessionSpec);
+          const lease = await attachView(state, route); state.attached = route; state.subscribed = route;
+          return { view: await host.snapshot(route, lease), viewToken: lease.token, viewId: lease.viewId, sessionId: route.sessionId };
+        } finally { await host.request({ type: "releaseHold", holdId }); }
       }
       case "attachExisting": {
         const route = await routeFor(String(frame.tabId));
@@ -233,7 +245,8 @@ export async function serveSplitControl(paths: CraigPaths, record: RuntimeRecord
       process.once("SIGTERM", stop); process.once("SIGINT", stop);
     });
   } finally {
-    shuttingDown = true;
+    shuttingDown = true; gate.closeAdmission(); clearInterval(retirementTimer);
+    await retirementJob;
     await polling.stop(); await supervisor.stop(); host.close();
     // Host, guard, logical leases and screens remain alive independently.
     record.ready = false; await writePrivateRecord(path.join(paths.runtimeDir, "control.json"), record);

@@ -35,7 +35,7 @@ async function main(): Promise<number> {
       if (!file.startsWith(`${paths.runtimeDir}${path.sep}`)) throw new Error("Runtime record is outside this workspace.");
       const record = await readPrivateRecord<RuntimeRecord>(file);
       if (!record || record.role !== role || record.workspaceId !== await workspaceRuntimeId(paths)) throw new Error("Runtime role identity rejected.");
-      if (record.role === "host") record.hostRevision = sessionHostRevision();
+      if (record.role === "host" || record.role === "control") record.hostRevision = sessionHostRevision();
       record.pid = process.pid; record.startedAt = new Date(Date.now() - process.uptime() * 1000).toISOString();
       await writePrivateRecord(file, record);
       if (role === "host") await serveSessionHost(paths, record);
@@ -44,10 +44,10 @@ async function main(): Promise<number> {
         const release = await acquireRuntimeLock(paths, "control-owner");
         try {
           const hosts = (await readdir(path.join(paths.runtimeDir, "hosts"))).filter((name) => name.endsWith(".json"));
-          if (hosts.length !== 1) throw new Error("Expected one verified host generation.");
-          const host = await readPrivateRecord<RuntimeRecord>(path.join(paths.runtimeDir, "hosts", hosts[0]!));
-          if (!host) throw new Error("Host discovery missing.");
-          await serveSplitControl(paths, record, host);
+          if (hosts.length === 0) throw new Error("Host discovery missing.");
+          const records = await Promise.all(hosts.map((name) => readPrivateRecord<RuntimeRecord>(path.join(paths.runtimeDir, "hosts", name))));
+          if (records.some((entry) => !entry)) throw new Error("Host discovery missing.");
+          await serveSplitControl(paths, record, records as RuntimeRecord[]);
         } finally { await release(); }
       } else throw new Error("Unknown runtime role.");
       return 0;

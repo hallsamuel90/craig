@@ -26,7 +26,7 @@ export class HostClient {
   constructor(readonly paths: CraigPaths, readonly host: RuntimeRecord, readonly controller: RuntimeRecord, private readonly changed?: (tabIds: string[]) => void) {}
   async connect(): Promise<void> {
     const workspaceId = await workspaceRuntimeId(this.paths);
-    if (this.host.role !== "host" || this.controller.role !== "control" || this.host.workspaceId !== workspaceId || this.controller.workspaceId !== workspaceId) throw new Error("Cross-workspace runtime registration rejected.");
+    if (this.host.schemaVersion !== 1 || this.controller.schemaVersion !== 1 || this.host.role !== "host" || this.controller.role !== "control" || this.host.workspaceId !== workspaceId || this.controller.workspaceId !== workspaceId) throw new Error("Cross-workspace runtime registration rejected.");
     this.transport = await RuntimeTransport.connect(this.host.endpoint, (frame) => {
       if (frame.type !== "changed" || frame.instanceId !== this.host.instanceId) return;
       const previousTabs = this.facts.map((fact) => fact.tabId);
@@ -54,7 +54,7 @@ export class HostClient {
     return this.facts.find((fact) => fact.taskId === taskId && fact.tabId === tabId) ?? null;
   }
   private routePath(tabId: string): string { return path.join(this.paths.runtimeDir, "sessions", `${createHash("sha256").update(tabId).digest("hex")}.json`); }
-  async route(taskId: string, tabId: string, reserve?: Pick<SessionRoute, "sessionId" | "creationId">): Promise<SessionRoute> {
+  async route(taskId: string, tabId: string, reserve?: Pick<SessionRoute, "sessionId" | "creationId"> & { hostId?: string }): Promise<SessionRoute> {
     await this.refreshInventory();
     const known = await readPrivateRecord<SessionRoute>(this.routePath(tabId));
     const actual = this.facts.filter((fact) => fact.tabId === tabId);
@@ -69,7 +69,7 @@ export class HostClient {
     const route: SessionRoute = recovered ? { taskId, tabId, sessionId: recovered.sessionId, creationId: recovered.creationId, hostId: this.host.instanceId } : { taskId, tabId, hostId: this.host.instanceId, sessionId: reserve?.sessionId ?? randomUUID(), creationId: reserve?.creationId ?? randomUUID() };
     await writePrivateRecord(this.routePath(tabId), route); return route;
   }
-  async ensure(taskId: string, tabId: string, size: PtySize, spec: PtySessionSpec, reserve?: Pick<SessionRoute, "sessionId" | "creationId">): Promise<SessionRoute> {
+  async ensure(taskId: string, tabId: string, size: PtySize, spec: PtySessionSpec, reserve?: Pick<SessionRoute, "sessionId" | "creationId"> & { hostId?: string }): Promise<SessionRoute> {
     const route = await this.route(taskId, tabId, reserve);
     const task = await taskService.getTask(this.paths, taskId).catch((error: unknown) => {
       if (error instanceof CraigError && error.code === "TASK_NOT_FOUND") return null;

@@ -1409,11 +1409,9 @@ steps:
       })).rejects.toThrow(/will not replace a live workspace daemon/);
       expect(spawnDaemon).not.toHaveBeenCalled();
       expect(shutdownRequested).toBe(false);
-      expect(JSON.parse((await readFile(paths.logFile, "utf8")).trim())).toMatchObject({
-        level: "warn",
-        component: "daemon",
-        event: "upgrade.blocked",
-      });
+      const diagnostics = (await readFile(paths.logFile, "utf8")).trim().split("\n").map((line) => JSON.parse(line));
+      expect(diagnostics).toContainEqual(expect.objectContaining({ level: "warn", component: "daemon", event: "upgrade.blocked" }));
+      expect(diagnostics).toContainEqual(expect.objectContaining({ level: "warn", component: "runtime", event: "compatibility.rejected" }));
     } finally {
       await new Promise<void>((resolve) => legacyServer.close(() => resolve()));
       await rm(endpoint.socketPath, { force: true });

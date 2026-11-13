@@ -1,3 +1,4 @@
+import { logRuntimeEvent } from "./logging.js";
 import { resolveRuntimeCompatibility } from "./compatibility.js";
 import { execFile, type ChildProcess } from "node:child_process";
 import { promisify } from "node:util";
@@ -82,6 +83,7 @@ export async function replaceControlUnderLock(paths: CraigPaths, explicit = fals
   if (status.state !== "ready") throw new Error("Control is not ready; existing ownership preserved.");
   if (!explicit && !ports.artifact && (!stableRelease(runtimeIdentity().craigVersion) || compareRuntimeReleases(runtimeIdentity().craigVersion, hello.craigVersion) !== 1)) return unchanged("Current/newer service retained; equal-release development builds require explicit daemon restart.");
   const artifact = ports.artifact ?? await pinRuntimeArtifact(paths);
+  await logRuntimeEvent(paths, "upgrade.requested", { previousBuildId: hello.buildId, explicit });
   const target = await inspectArtifact(paths, artifact);
   const required = hello.capabilities?.filter((capability) => capability !== "splitRuntime" && capability !== "controlReplacement") ?? [];
   if (!resolveRuntimeCompatibility(target, required).compatible) throw new Error("Candidate cannot preserve the current control capabilities; existing service retained.");
@@ -105,6 +107,7 @@ export async function replaceControlUnderLock(paths: CraigPaths, explicit = fals
   try {
     await save();
     await control.request({ type: "prepareReplacement", ...auth }, 6500);
+    await logRuntimeEvent(paths, "upgrade.draining", { transactionId: transaction.id, instanceId: previous.instanceId });
     await ports.checkpoint?.("prepared", transaction);
     commitAttempted = true;
     await control.request({ type: "commitReplacement", ...auth });
@@ -136,6 +139,7 @@ export async function replaceControlUnderLock(paths: CraigPaths, explicit = fals
     const ready = await daemonStatus(paths);
     if (ready.state !== "ready" || ready.runtime?.buildId !== target.buildId || ready.runtime?.instanceId !== next.instanceId) throw new Error("Replacement readiness identity mismatch.");
     transaction.state = "ready"; await save();
+    await logRuntimeEvent(paths, "upgrade.ready", { transactionId: transaction.id, buildId: target.buildId });
     await ports.checkpoint?.("ready", transaction);
     return { kind: "daemonRestart", state: "restarted", previousBuildId: hello.buildId ?? null, buildId: target.buildId!, message: "Control service replaced; agents, PTYs and retained views preserved." };
   } catch (error) {
@@ -151,6 +155,7 @@ export async function replaceControlUnderLock(paths: CraigPaths, explicit = fals
     const rollbackChild = await launchRuntimeRole(paths, rollback, file);
     await awaitRuntimeRole(file, rollbackChild);
     transaction.state = "rolled_back"; await save();
+    await logRuntimeEvent(paths, "upgrade.rollback", { transactionId: transaction.id, buildId: hello.buildId });
     return { kind: "daemonRestart", state: "rolled_back", previousBuildId: hello.buildId ?? null, buildId: hello.buildId ?? null, message: `Replacement failed readiness; compatible previous control restored. ${String(error)}` };
   }
 }
@@ -203,5 +208,7 @@ export async function restartDaemon(paths: CraigPaths, migrateLegacy = false): P
     await recoverReplacementUnderLock(paths);
     if ((await daemonStatus(paths)).state === "absent") await bootstrapSplitRuntime(paths);
     return await replaceControlUnderLock(paths, true);
+  } catch (error) {
+    await logRuntimeEvent(paths, "upgrade.blocked", { reason: "replacement_failed_or_incompatible" }); throw error;
   } finally { await release(); }
 }

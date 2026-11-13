@@ -1,3 +1,4 @@
+import { logRuntimeEvent } from "./logging.js";
 import { replaceControlUnderLock, recoverReplacementUnderLock } from "./replacement.js";
 import { errorService } from "../../domain/error/index.js";
 import { readFile, lstat } from "node:fs/promises";
@@ -48,6 +49,7 @@ export async function ensureRuntimeRunning(paths: CraigPaths, spawnDaemon?: (wor
     const guard = await readPrivateRecord<RuntimeRecord>(path.join(paths.runtimeDir, "guard.json"));
     if (split || guard) { await bootstrapSplitRuntime(paths); return; }
     if (status.state !== "absent") {
+      if (status.state === "blocked") await logRuntimeEvent(paths, "compatibility.rejected", { protocolVersion: status.runtime?.protocolVersion });
       await errorService.appendLogBestEffort(paths, { level: "warn", component: "daemon", event: "upgrade.blocked", message: status.reason ?? "Runtime owner preserved.", details: { protocolVersion: status.runtime?.protocolVersion ?? "unknown", sessionCount: status.runtime?.sessionCount ?? "unknown" } });
       throw new Error(status.reason ?? "Workspace runtime is unavailable; existing sessions are preserved.");
     }

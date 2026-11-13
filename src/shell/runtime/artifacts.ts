@@ -1,3 +1,4 @@
+import { reserveArtifactUnderLock } from "./artifact-retention.js";
 import { createHash, randomUUID } from "node:crypto";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
@@ -120,9 +121,10 @@ export async function pinRuntimeArtifact(paths: CraigPaths, bundleOverride?: str
     const manifest: ArtifactManifest = { schemaVersion: 1, artifactId, nodeExecutable: await realpath(process.execPath), nodeAbi, platform: process.platform, architecture: process.arch, files };
     await writeFile(path.join(temporary, "manifest.json"), JSON.stringify(manifest), { mode: 0o600 });
     const destination = path.join(cacheRoot, artifactId);
-    if (await lstat(destination).catch(() => null)) { await verifyRuntimeArtifact(destination); return destination; }
+    if (await lstat(destination).catch(() => null)) { await verifyRuntimeArtifact(destination); await reserveArtifactUnderLock(paths, cacheRoot, artifactId, false); return destination; }
     await rename(temporary, destination);
     await verifyRuntimeArtifact(destination);
+    await reserveArtifactUnderLock(paths, cacheRoot, artifactId, true);
     return destination;
   } finally { await rm(buildDirectory, { recursive: true, force: true }); await rm(temporary, { recursive: true, force: true }); await release(); }
 }

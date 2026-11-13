@@ -9,6 +9,7 @@ import { createChildTask, createRootTask, ensureTaskCapabilities, promptCommandS
 import { listTaskCreateOperations, readTaskCreateOperation, writeTaskCreateOperation, taskCreateRequestDigest, type TaskCreateOperation } from "../../domain/runtime/task-create/store.js";
 import { buildEmbeddedAgentCommand } from "../agent-command.js";
 import type { HostClient } from "./host-client.js";
+import type { HostPool } from "./host-pool.js";
 
 export type TaskCreateRequest =
   | { kind: "root"; targetId: string; prompt: string; options?: Pick<TaskCreationOptions, "runner" | "workspaceId" | "owningWorkspaceId" | "allowLinkedProjectRepo"> }
@@ -23,7 +24,7 @@ export class TaskCreateAdmission {
   private chain: Promise<unknown> = Promise.resolve();
   private readonly pending = new Map<string, Promise<TaskCreateResult>>();
   // eslint-disable-next-line no-unused-vars
-  constructor(private readonly paths: CraigPaths, private readonly host: HostClient, private readonly ports: TaskCreateAdmissionPorts = {}) {}
+  constructor(private readonly paths: CraigPaths, private readonly host: HostClient | HostPool, private readonly ports: TaskCreateAdmissionPorts = {}) {}
   submit(operationId: string, request: TaskCreateRequest): Promise<TaskCreateResult> {
     const existing = this.pending.get(operationId); if (existing) return existing.then(async (result) => {
       const record = await readTaskCreateOperation(this.paths, operationId);
@@ -62,9 +63,10 @@ export class TaskCreateAdmission {
       }
       const taskId = existing?.id ?? (project ? await taskService.allocateProjectTaskId(this.paths, [...reserved]) : await taskService.allocateTaskIdForRepo(this.paths, (await readRepo(this.paths, repoId)).rootPath, [...reserved]));
       const existingSession = existing ? await this.host.lookup(existing.id, existing.ptyTabs.find((tab) => tab.kind === "agent")?.id ?? `${taskId}:agent`) : null;
-      operation = { schemaVersion: 1, operationId, requestDigest: digest, taskId, agentTabId: existingSession?.tabId ?? `${taskId}:agent`, creationId: existingSession?.creationId ?? randomUUID(), sessionId: existingSession?.sessionId ?? randomUUID(), hostId: this.host.host.instanceId, state: "admitted", createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() };
+      const intendedHost = existingSession?.hostId ?? ("selectHostForCreation" in this.host ? (await this.host.selectHostForCreation(taskId, `${taskId}:agent`)).instanceId : this.host.host.instanceId);
+      operation = { schemaVersion: 1, operationId, requestDigest: digest, taskId, agentTabId: existingSession?.tabId ?? `${taskId}:agent`, creationId: existingSession?.creationId ?? randomUUID(), sessionId: existingSession?.sessionId ?? randomUUID(), hostId: intendedHost, state: "admitted", createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() };
       await writeTaskCreateOperation(this.paths, operation);
-      await this.host.request({ type: "reserveCreation", reservationId: operationId, session: { taskId: operation.taskId, tabId: operation.agentTabId, sessionId: operation.sessionId, creationId: operation.creationId } });
+      await this.host.request({ type: "reserveCreation", hostId: operation.hostId, reservationId: operationId, session: { taskId: operation.taskId, tabId: operation.agentTabId, sessionId: operation.sessionId, creationId: operation.creationId } });
       await this.ports.checkpoint?.("admitted", operation);
     }
     const record = operation;
@@ -73,7 +75,7 @@ export class TaskCreateAdmission {
     const launch = async (task: TaskRecord, environment?: Record<string, string>) => {
       await transition("launching");
       const tab = task.ptyTabs.find((entry) => entry.kind === "agent"); if (!tab || tab.id !== record.agentTabId) throw new Error("Reserved task/session identity mismatch.");
-      const route = await this.host.ensure(task.id, tab.id, { columns: 120, rows: 36 }, { cwd: task.worktreePath, command: buildEmbeddedAgentCommand(request.kind === "child" ? tab.command : task.runnerSession.command, task.runner), ...(environment ? { env: environment } : {}) }, { creationId: record.creationId, sessionId: record.sessionId });
+      const route = await this.host.ensure(task.id, tab.id, { columns: 120, rows: 36 }, { cwd: task.worktreePath, command: buildEmbeddedAgentCommand(request.kind === "child" ? tab.command : task.runnerSession.command, task.runner), ...(environment ? { env: environment } : {}) }, { creationId: record.creationId, sessionId: record.sessionId, hostId: record.hostId });
       await this.ports.checkpoint?.("spawned", record);
       const retainedView = await this.host.acquireView(route, { viewId: `creation:${record.creationId}`, proof: record.operationId });
       record.creationViewToken = retainedView.token!;
@@ -102,7 +104,7 @@ export class TaskCreateAdmission {
         if (request.kind === "root") result = await createRootTask(this.paths, request.targetId, request.prompt, createOptions(request.options));
         else result = await createChildTask(this.paths, request.input, { createTask: (paths, targetId, prompt, options) => taskService.createTask(paths, targetId, prompt, { ...createOptions(options), markStartedAfterLaunch: false }) });
       }
-      record.result = result; await transition("completed"); await this.host.request({ type: "completeCreation", creationId: record.creationId, reservationId: record.operationId }); return result;
+      record.result = result; await transition("completed"); await this.host.request({ type: "completeCreation", hostId: record.hostId, creationId: record.creationId, reservationId: record.operationId }); return result;
     } catch (error) {
       if (completionPersisted) return record.result!; // Lost reservation-release ack cannot undo a durable result.
       // A lost host acknowledgement after spawn is recoverable, never a fresh
@@ -114,7 +116,7 @@ export class TaskCreateAdmission {
         const footprint = await lstat(task?.worktreePath ?? path.join(this.paths.craigDir, "task-bundles", record.taskId)).catch(() => null);
         if (footprint) { await transition("recovery_required"); throw new Error(`recovery_required: operation ${record.operationId}, task ${record.taskId}; partial provisioning preserved. ${record.error}`); }
       }
-      await transition("failed"); await this.host.request({ type: "completeCreation", creationId: record.creationId, reservationId: record.operationId }); throw new Error(`Task-create operation ${record.operationId} failed for task ${record.taskId}: ${record.error}`);
+      await transition("failed"); await this.host.request({ type: "completeCreation", hostId: record.hostId, creationId: record.creationId, reservationId: record.operationId }); throw new Error(`Task-create operation ${record.operationId} failed for task ${record.taskId}: ${record.error}`);
     }
   }
 }

@@ -1,23 +1,28 @@
+import { logRuntimeEvent } from "./logging.js";
+import { withArtifactCacheLock, releaseArtifactReservationUnderLock, collectRuntimeArtifacts } from "./artifact-retention.js";
 import { listTaskCreateOperations } from "../../domain/runtime/task-create/store.js";
 import { spawn, type ChildProcess } from "node:child_process";
 import { mkdir, readdir, open } from "node:fs/promises";
 import path from "node:path";
-import type { CraigPaths } from "../../state/craig-paths.js";
+import { getCraigPaths, type CraigPaths } from "../../state/craig-paths.js";
 import { getPtyDaemonEndpoint } from "../pty-daemon-protocol.js";
 import { RuntimeTransport } from "./wire.js";
 import { runtimeRequest, processAlive } from "./discovery.js";
 import { pinRuntimeArtifact, verifyRuntimeArtifact } from "./artifacts.js";
-import { newRuntimeRecord, readPrivateRecord, writePrivateRecord, privateRuntimeDirectory, type RuntimeRecord } from "./records.js";
+import { newRuntimeRecord, readPrivateRecord, writePrivateRecord, privateRuntimeDirectory, workspaceRuntimeId, type RuntimeRecord } from "./records.js";
 
 export async function launchRuntimeRole(paths: CraigPaths, record: RuntimeRecord, file: string) {
+  return withArtifactCacheLock(paths, async (root) => {
   const manifest = await verifyRuntimeArtifact(record.artifact);
   await writePrivateRecord(file, record);
   const log = await open(path.join(paths.runtimeDir, `${record.role}.log`), "a", 0o600);
   try {
     const child = spawn(manifest.nodeExecutable, [path.join(record.artifact, "cli.js"), "__craig-runtime-role", record.role, paths.workspaceRoot, file], { cwd: paths.workspaceRoot, detached: true, stdio: ["ignore", log.fd, log.fd], env: process.env });
     child.unref();
+    await releaseArtifactReservationUnderLock(paths, root, record.artifact);
     return child;
   } finally { await log.close(); }
+  });
 }
 async function verifiedRole(record: RuntimeRecord): Promise<boolean> {
   let transport: RuntimeTransport | undefined;
@@ -37,7 +42,10 @@ export async function awaitRuntimeRole(file: string, child?: ChildProcess): Prom
   while (Date.now() - started < 10000) {
     if (child && (child.exitCode !== null || child.signalCode !== null)) throw new Error("Candidate control exited before readiness.");
     const record = await readPrivateRecord<RuntimeRecord>(file);
-    if (record && await verifiedRole(record)) return record;
+    if (record && await verifiedRole(record)) {
+      if (record.role === "host") await logRuntimeEvent(getCraigPaths(path.resolve(path.dirname(file), "../../..")), "host.started", { instanceId: record.instanceId, pid: record.pid, hostRevision: record.hostRevision });
+      return record;
+    }
     await new Promise((resolve) => setTimeout(resolve, 50));
   }
   throw new Error(`Runtime role failed readiness; existing sessions preserved (${path.basename(file)}).`);
@@ -70,11 +78,12 @@ export async function bootstrapSplitRuntime(paths: CraigPaths): Promise<void> {
   let host: RuntimeRecord | null = null;
   for (const name of hostFiles) {
     const record = await readPrivateRecord<RuntimeRecord>(path.join(hostDirectory, name));
+    if (!record || record.schemaVersion !== 1 || record.role !== "host" || record.workspaceId !== await workspaceRuntimeId(paths) || (record.retired !== undefined && typeof record.retired !== "boolean")) throw new Error("Host discovery identity is unverifiable.");
+    if (record.retired) continue;
     if (!record || !await verifiedRole(record)) throw new Error("A recorded session host is unavailable; do not recreate its sessions.");
-    if (host) throw new Error("Multiple host generations need an adapter before startup.");
     host = record;
   }
-  if (!host) {
+  if (!host && hostFiles.length === 0) {
     const endpoints = await readdir(await privateRuntimeDirectory(paths));
     if (previous || endpoints.some((name) => name.startsWith("host-")) || (await listTaskCreateOperations(paths)).length > 0) throw new Error("Host discovery is missing or unverifiable; existing sessions must not be recreated.");
     host = await newRuntimeRecord(paths, "host", artifact);
@@ -84,6 +93,7 @@ export async function bootstrapSplitRuntime(paths: CraigPaths): Promise<void> {
   const control = await newRuntimeRecord(paths, "control", artifact);
   await launchRuntimeRole(paths, control, controlPath);
   await awaitRuntimeRole(controlPath);
+  await collectRuntimeArtifacts(paths);
 }
 
 /** Explicit fixture/user runtime termination. This is never called by upgrades. */

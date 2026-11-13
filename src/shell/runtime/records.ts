@@ -17,6 +17,7 @@ export interface RuntimeRecord {
   ready: boolean;
   hostRevision?: string;
   handoffId?: string;
+  retired?: boolean;
 }
 export async function workspaceRuntimeId(paths: CraigPaths): Promise<string> {
   return createHash("sha256").update(await realpath(paths.workspaceRoot)).digest("hex").slice(0, 16);

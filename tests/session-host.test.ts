@@ -131,6 +131,38 @@ describe("session-host contract", () => {
       expect((await request({ type: "enumerate" })).handoffHoldCount).toBe(0);
     } finally { await f.close(); }
   });
+  test("retirement commits atomically against creation, logical attach and hold adoption", async () => {
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => { release = resolve; });
+    const f = await fixture({ retire: () => gate });
+    try {
+      const retiring = f.request({ type: "shutdownIfUnused" });
+      await vi.waitFor(async () => expect((await f.request({ type: "hello" })).retiring).toBe(true));
+      await expect(f.ensure()).rejects.toThrow("retirement committed");
+      await expect(f.request({ type: "reserveCreation", session: f.session })).rejects.toThrow("retirement committed");
+      await expect(f.request({ type: "acquireView", ...f.session, viewId: "racing", viewProof: "racing" })).rejects.toThrow("retirement committed");
+      await expect(f.request({ type: "hold", holdId: "handoff-race" })).rejects.toThrow("retirement committed");
+      await expect(f.request({ type: "adoptHold", holdId: "handoff-race" })).rejects.toThrow("retirement committed");
+      release(); await retiring;
+    } finally { release(); await f.close(); }
+  });
+  test("exited logical views and adopted handoff holds prevent retirement until deliberate release", async () => {
+    const f = await fixture();
+    try {
+      await f.ensure();
+      const view = await f.request({ type: "acquireView", ...f.session, viewId: "retained", viewProof: "retained" });
+      await vi.waitFor(async () => expect(((await f.request({ type: "enumerate" })).sessions as Array<{ status: string }>)[0]?.status).toBe("exited"));
+      f.disconnect(); await f.reconnect();
+      await expect(f.request({ type: "shutdownIfUnused" })).rejects.toThrow("retained");
+      expect(text((await f.request({ type: "view", ...f.session, viewId: "retained", viewToken: view.viewToken })).view)).toContain("HOST_BUFFER_BEFORE_EXIT");
+      await f.request({ type: "hold", holdId: "upgrade-transaction" });
+      await f.request({ type: "releaseView", ...f.session, viewId: "retained", viewToken: view.viewToken });
+      await f.request({ type: "adoptHold", holdId: "upgrade-transaction" });
+      await expect(f.request({ type: "shutdownIfUnused" })).rejects.toThrow("retained");
+      await f.request({ type: "releaseHold", holdId: "upgrade-transaction" });
+      await f.request({ type: "shutdownIfUnused" });
+    } finally { await f.close(); }
+  });
   test("workspace/instance credentials and living-controller takeover are rejected", async () => {
     const f = await fixture();
     try {
