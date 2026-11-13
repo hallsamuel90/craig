@@ -87,7 +87,7 @@ await writeFile(path.join(root,'checkpoint.json'),JSON.stringify(operation));if(
       expect(result.taskId).toBe(before.taskId);
       if (behavior === "drain_finish") {
         const outcome = await observed;
-        expect("result" in outcome && outcome.result.state).toBe("restarted");
+        expect(outcome).toMatchObject({ result: { state: "restarted" } });
       }
       expect((await readTaskCreateOperation(paths, "fixture-operation"))?.state).toBe("completed");
       expect((await taskService.getTask(paths, before.taskId)).runnerSession.lastKnownState).not.toBe("failed");

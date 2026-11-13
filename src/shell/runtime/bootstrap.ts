@@ -1,5 +1,5 @@
 import { logRuntimeEvent } from "./logging.js";
-import { withArtifactCacheLock, releaseArtifactReservationUnderLock, collectRuntimeArtifacts } from "./artifact-retention.js";
+import { withArtifactCacheLock, recordArtifactOwnerUnderLock, releaseArtifactReservationUnderLock, collectRuntimeArtifacts } from "./artifact-retention.js";
 import { listTaskCreateOperations } from "../../domain/runtime/task-create/store.js";
 import { spawn, type ChildProcess } from "node:child_process";
 import { mkdir, readdir, open } from "node:fs/promises";
@@ -14,11 +14,13 @@ import { newRuntimeRecord, readPrivateRecord, writePrivateRecord, privateRuntime
 export async function launchRuntimeRole(paths: CraigPaths, record: RuntimeRecord, file: string) {
   return withArtifactCacheLock(paths, async (root) => {
   const manifest = await verifyRuntimeArtifact(record.artifact);
+  await recordArtifactOwnerUnderLock(paths, root, record, file, null);
   await writePrivateRecord(file, record);
   const log = await open(path.join(paths.runtimeDir, `${record.role}.log`), "a", 0o600);
   try {
     const child = spawn(manifest.nodeExecutable, [path.join(record.artifact, "cli.js"), "__craig-runtime-role", record.role, paths.workspaceRoot, file], { cwd: paths.workspaceRoot, detached: true, stdio: ["ignore", log.fd, log.fd], env: process.env });
     child.unref();
+    if (child.pid) await recordArtifactOwnerUnderLock(paths, root, record, file, child.pid);
     await releaseArtifactReservationUnderLock(paths, root, record.artifact);
     return child;
   } finally { await log.close(); }

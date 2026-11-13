@@ -747,7 +747,9 @@ setInterval(() => {}, 1000);
 });
 
 async function cleanupTerminalWorkspace(workspaceRoot: string): Promise<void> {
-  await requestDaemonShutdown(getCraigPaths(workspaceRoot));
+  // Foreground teardown can still be releasing its last attach hold. Wait for
+  // verified shutdown rather than treating that short retention as test failure.
+  await vi.waitFor(() => requestDaemonShutdown(getCraigPaths(workspaceRoot)), { timeout: 10000, interval: 50 });
   await rm(workspaceRoot, {
     recursive: true,
     force: true,

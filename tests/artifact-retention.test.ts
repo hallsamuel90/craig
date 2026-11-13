@@ -10,7 +10,7 @@ import { materializeRuntimeDependencies, pinRuntimeArtifact } from "../src/shell
 import { collectRuntimeArtifacts, releaseRuntimeArtifactReservation } from "../src/shell/runtime/artifact-retention.js";
 import { ensureRuntimeRunning } from "../src/shell/runtime/start.js";
 import { launchRuntimeRole, awaitRuntimeRole } from "../src/shell/runtime/bootstrap.js";
-import { newRuntimeRecord, readPrivateRecord, type RuntimeRecord } from "../src/shell/runtime/records.js";
+import { newRuntimeRecord, readPrivateRecord, writePrivateRecord, workspaceRuntimeId, type RuntimeRecord } from "../src/shell/runtime/records.js";
 import { RuntimeTransport } from "../src/shell/runtime/wire.js";
 const execute = promisify(execFile);
 
@@ -39,6 +39,29 @@ test("shared cache retains guards, live hosts, rollback and preparation pins acr
     expect(collection.removed).not.toContain(path.basename(extra));
     const ready = await awaitRuntimeRole(file, child);
     expect((await collectRuntimeArtifacts(paths[1]!)).retained).toContain(path.basename(extra));
+    // Only one live host's discovery disappears. Both workspaces and their
+    // control/guard records remain intact; its launch reservation has ended.
+    expect(extra).not.toBe(guard.artifact);
+    const registry = path.join(cache, "references", `${await workspaceRuntimeId(paths[0]!)}.json`);
+    const reference = (await readPrivateRecord<{ owners: Array<{ instanceId: string; pid: number }>; reservations: Array<{ artifactId: string }> }>(registry))!;
+    expect(reference.owners).toContainEqual(expect.objectContaining({ instanceId: ready.instanceId, pid: ready.pid }));
+    expect(reference.reservations.some((entry) => entry.artifactId === path.basename(extra))).toBe(false);
+    await rm(file);
+    try {
+      expect((await collectRuntimeArtifacts(paths[1]!)).retained).toContain(path.basename(extra));
+      expect(await readPrivateRecord(path.join(paths[0]!.runtimeDir, "control.json"))).not.toBeNull();
+      expect(await readPrivateRecord(path.join(paths[0]!.runtimeDir, "guard.json"))).not.toBeNull();
+      expect((await RuntimeTransport.connect(ready.endpoint).then(async (connection) => {
+        try { return await connection.request({ type: "hello", credential: ready.credential, workspaceId: ready.workspaceId, instanceId: ready.instanceId }); }
+        finally { connection.close(); }
+      })).pid).toBe(ready.pid);
+      const savedRegistry = await readFile(registry, "utf8");
+      try {
+        // Recreating a lost registry cannot discard its published ownership.
+        await writePrivateRecord(registry, { ...JSON.parse(savedRegistry), registryId: "recreated-registry", owners: [], artifacts: [] });
+        expect((await collectRuntimeArtifacts(paths[1]!)).retained).toContain(path.basename(extra));
+      } finally { await writePrivateRecord(registry, JSON.parse(savedRegistry)); }
+    } finally { await writePrivateRecord(file, ready); }
     const transport = await RuntimeTransport.connect(ready.endpoint);
     try {
       const auth = { credential: ready.credential, workspaceId: ready.workspaceId, instanceId: ready.instanceId, controllerId: "cache-fixture" };
@@ -50,6 +73,21 @@ test("shared cache retains guards, live hosts, rollback and preparation pins acr
     expect((await readPrivateRecord<RuntimeRecord>(file))?.retired).toBe(true);
     expect((await collectRuntimeArtifacts(paths[1]!)).removed).toContain(path.basename(extra));
     expect((await collectRuntimeArtifacts(paths[1]!)).retained).toContain(path.basename(guard.artifact));
+    // A missing cache registry is also unknown, rather than an empty owner set.
+    const savedRegistry = await readFile(registry, "utf8");
+    await rm(registry);
+    try { expect((await collectRuntimeArtifacts(paths[1]!)).retained).toContain(path.basename(guard.artifact)); }
+    finally { await writePrivateRecord(registry, JSON.parse(savedRegistry)); }
+    // Existing registries cannot acquire a complete launch history retroactively.
+    const unowned = await pinRuntimeArtifact(paths[0]!, bundle);
+    await releaseRuntimeArtifactReservation(paths[0]!, unowned);
+    const previousRegistry = JSON.parse(await readFile(registry, "utf8"));
+    try {
+      const legacyRegistry = { ...previousRegistry }; delete legacyRegistry.owners;
+      await writePrivateRecord(registry, legacyRegistry);
+      expect((await collectRuntimeArtifacts(paths[1]!)).retained).toContain(path.basename(unowned));
+    } finally { await writePrivateRecord(registry, previousRegistry); }
+    expect((await collectRuntimeArtifacts(paths[1]!)).removed).toContain(path.basename(unowned));
     // Entries without a managed-publication ledger may predate this RFC.
     const legacyUnknown = await pinRuntimeArtifact(paths[0]!, bundle);
     await releaseRuntimeArtifactReservation(paths[0]!, legacyUnknown);

@@ -14,6 +14,7 @@ import {
 } from "../domain/orchestration/index.js";
 import { taskService } from "../domain/task/index.js";
 import type { CraigPaths } from "../state/craig-paths.js";
+import { requireAvailableRuntimeCapabilities } from "./runtime/discovery.js";
 import { wakeOrchestrationSupervisor } from "./pty-daemon-orchestration.js";
 
 export type PromptInput =
@@ -53,6 +54,7 @@ export async function sendAgentPrompt(
       { details: { taskId: task.id, tabId: input.tabId ?? null } },
     );
   }
+  await requireAvailableRuntimeCapabilities(paths, ["orchestration"]);
   const prompt = await resolvePrompt(input.prompt, input.readStdin);
   let result: CommandSendAgentPromptResult;
   try {

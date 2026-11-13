@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { RuntimeAcknowledgementUncertainError } from "../../domain/runtime/errors.js";
+import { RuntimeAcknowledgementUncertainError, RuntimeUpgradeRetryError } from "../../domain/runtime/errors.js";
 import { openFuryPlans, handleFuryPlansKey } from "../shell/fury-plans.js";
 import path from "node:path";
 
@@ -149,19 +149,17 @@ async function submitTaskPrompt(ctx: AppContext): Promise<void> {
       createdTask = error.task;
     }
     const message = reportRecoverableError(ctx, "create task", error, "Failed to create task.");
-    if (createdTask && !(error instanceof InteractiveTaskStartupError) && !(error instanceof RuntimeAcknowledgementUncertainError)) {
+    // A completed creation owns a durable running session. Attaching (including
+    // view acknowledgement) is reconnectable UI work, never startup evidence.
+    if (createdTask && !ctx.ptyRuntime.supportsTaskCreateAdmission && !(error instanceof InteractiveTaskStartupError) && !(error instanceof RuntimeAcknowledgementUncertainError) && !(error instanceof RuntimeUpgradeRetryError)) {
       await mutateTask(ctx.paths, createdTask.id, (current) => ({
         ...current,
         status: "draft",
-        runnerSession: {
-          ...current.runnerSession,
-          lastKnownState: "failed",
-          exitedAt: new Date().toISOString(),
-        },
+        runnerSession: { ...current.runnerSession, lastKnownState: "failed", exitedAt: new Date().toISOString() },
         lastFailureReason: message,
       })).catch(() => undefined);
       await reloadModel(ctx).catch(() => undefined);
-    } else if (createdTask && !(error instanceof RuntimeAcknowledgementUncertainError)) {
+    } else if (createdTask && error instanceof InteractiveTaskStartupError) {
       await mutateTask(ctx.paths, createdTask.id, (current) => ({
         ...current,
         lastFailureReason: message,

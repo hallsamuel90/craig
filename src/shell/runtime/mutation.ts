@@ -13,6 +13,7 @@ export async function withRuntimeMutation<T>(paths: CraigPaths, work: () => Prom
   if (runtimeMutationContext.getStore()) return work();
   const status = await daemonStatus(paths);
   if (!status.runtime && await readPrivateRecord(path.join(paths.runtimeDir, "control.json"))) throw new RuntimeUpgradeRetryError("CRAIG_UPGRADE_RETRY: control is unavailable; mutation was not admitted.");
+  if (status.state === "blocked" || status.state === "unavailable" || status.state === "draining") throw new RuntimeUpgradeRetryError(status.reason ?? "Workspace runtime is not accepting mutations; mutation was not admitted.");
   if (!status.runtime?.capabilities?.includes("controlReplacement")) return work();
   if (status.state === "ready") await ensureRuntimeRunning(paths);
   const transport = await RuntimeTransport.connect(getClientRuntimeEndpoint(paths).socketPath);

@@ -20,7 +20,11 @@ import { createDaemonPtyRuntime, requestDaemonShutdown, servePtyDaemon } from ".
 import { runCli } from "../src/commands/run.js";
 import { createPlan } from "../src/shell/fury-runtime.js";
 import { createChildTaskAndSession } from "../src/shell/delegation.js";
-import { createCraigState } from "./test-helpers.js";
+import { configService } from "../src/domain/config/index.js";
+import { promptCommandService, listEvents } from "../src/domain/orchestration/index.js";
+import { taskService } from "../src/domain/task/index.js";
+import { withRuntimeMutation } from "../src/shell/runtime/mutation.js";
+import { createCraigState, writeTaskRecord } from "./test-helpers.js";
 import * as oldTui from "./fixtures/lifecycle/pre-rfc-tui.js";
 import * as oldDelegated from "./fixtures/lifecycle/pre-rfc-delegated.js";
 import type { RuntimeHello } from "../src/domain/runtime/types.js";
@@ -54,6 +58,35 @@ async function fixture(hello: RuntimeHello, respond = true) {
 }
 
 describe("runtime lifecycle", () => {
+  test.each<RuntimeHello>([{ protocolVersion: 6 }, { protocolVersion: 10, capabilities: ["terminal"] }, { protocolVersion: 0 }])("CLI rejects prompt submission before durable writes for %j", async (hello) => {
+    const f = await fixture(hello);
+    try {
+      await createCraigState(f.root, ["task_prompt"]);
+      await writeTaskRecord(f.root, { id: "task_prompt" });
+      await configService.save(f.paths, { previews: { agentOrchestration: true } });
+      const before = { commands: await promptCommandService.list(f.paths), events: await listEvents(f.paths, {}), task: await taskService.getTask(f.paths, "task_prompt") };
+      const errors: string[] = [];
+      expect(await runCli({ argv: ["agent", "send", "--task", "task_prompt", "--prompt", "continue", "--json", "--workspace-root", f.root], cwd: f.root,
+        env: {}, isInputTty: false, isOutputTty: false, runInteractive: async () => 0, writeStdout: () => undefined, writeStderr: (text) => errors.push(text) })).not.toBe(0);
+      expect(errors.join("")).toMatch(/Missing capabilities: orchestration|incompatible/);
+      expect({ commands: await promptCommandService.list(f.paths), events: await listEvents(f.paths, {}), task: await taskService.getTask(f.paths, "task_prompt") }).toEqual(before);
+      expect(f.requests).not.toContain("wakeOrchestration");
+      if (hello.protocolVersion === 6) {
+        // Negotiated legacy operations remain usable without a split admission protocol.
+        expect(await withRuntimeMutation(f.paths, async () => "supported legacy work")).toBe("supported legacy work");
+      }
+    } finally { await f.close(); }
+  });
+
+  test("unresponsive legacy ownership blocks mutation before work", async () => {
+    const f = await fixture({ protocolVersion: 6 }, false);
+    try {
+      const work = vi.fn(async () => undefined);
+      await expect(withRuntimeMutation(f.paths, work)).rejects.toThrow("unresponsive");
+      expect(work).not.toHaveBeenCalled();
+    } finally { await f.close(); }
+  });
+
   test.each([6, 7, 8, 9, 10])("profile %i is shared by terminal, activity, navigation and delegated clients", async (protocolVersion) => {
     const f = await fixture({ protocolVersion });
     try {
