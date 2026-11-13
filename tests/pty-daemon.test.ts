@@ -1128,6 +1128,8 @@ steps:
         expect.objectContaining({ tabId: "task_1:agent", sessionState: "failed" }),
       ]);
       await second.pruneStale([]);
+      expect(second.getActivitySnapshots()).toHaveLength(1);
+      await second.disposeSession("task_1:agent");
       await vi.waitFor(() => expect(second.getActivitySnapshots()).toEqual([]));
       second.disposeAll();
     } finally {
@@ -1240,7 +1242,7 @@ steps:
     }
   }, DAEMON_TEST_TIMEOUT_MS);
 
-  test("pruneStale kills sessions not in the keep list and leaves kept sessions running", async () => {
+  test("pruneStale preserves sessions omitted by stale foreground inventory", async () => {
     const root = await createWorkspace();
     const paths = getCraigPaths(root);
     const agentPty = createFakePty();
@@ -1261,7 +1263,7 @@ steps:
 
       await client.pruneStale(["task_1:agent"]);
 
-      await vi.waitFor(() => expect(terminalPty.kill).toHaveBeenCalledTimes(1));
+      expect(terminalPty.kill).not.toHaveBeenCalled();
       expect(agentPty.kill).not.toHaveBeenCalled();
       client.disposeAll();
     } finally {
@@ -1271,7 +1273,7 @@ steps:
     }
   }, DAEMON_TEST_TIMEOUT_MS);
 
-  test("pruneStale from a new client cleans up ghost sessions from a previous crashed run", async () => {
+  test("pruneStale from a new client preserves sessions from the previous client", async () => {
     const root = await createWorkspace();
     const paths = getCraigPaths(root);
     const stalePty = createFakePty();
@@ -1303,7 +1305,7 @@ steps:
       await second.ensureSession("task_new", "task_new:agent", { columns: 80, rows: 24 });
       await second.pruneStale(["task_new:agent"]);
 
-      await vi.waitFor(() => expect(stalePty.kill).toHaveBeenCalledTimes(1));
+      expect(stalePty.kill).not.toHaveBeenCalled();
       expect(activePty.kill).not.toHaveBeenCalled();
       second.disposeAll();
     } finally {
@@ -1315,7 +1317,7 @@ steps:
     }
   }, DAEMON_TEST_TIMEOUT_MS);
 
-  test("pruneStale with an empty keep list disposes all open sessions", async () => {
+  test("pruneStale with an empty keep list preserves all open sessions", async () => {
     const root = await createWorkspace();
     const paths = getCraigPaths(root);
     const pty1 = createFakePty();
@@ -1336,8 +1338,8 @@ steps:
 
       await client.pruneStale([]);
 
-      await vi.waitFor(() => expect(pty1.kill).toHaveBeenCalledTimes(1));
-      await vi.waitFor(() => expect(pty2.kill).toHaveBeenCalledTimes(1));
+      expect(pty1.kill).not.toHaveBeenCalled();
+      expect(pty2.kill).not.toHaveBeenCalled();
       client.disposeAll();
     } finally {
       await requestDaemonShutdown(paths);

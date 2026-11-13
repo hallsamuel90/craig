@@ -1,3 +1,4 @@
+import { requireAvailableRuntimeCapabilities } from "./runtime/discovery.js";
 import { randomUUID } from "node:crypto";
 import { readFile, realpath } from "node:fs/promises";
 import path from "node:path";
@@ -67,6 +68,7 @@ export async function createPlan(
   actor: CraigActor,
   capabilityToken?: string,
 ): Promise<CommandPlanFuryResult> {
+  await requireAvailableRuntimeCapabilities(paths, ["fury"]);
   await assertEnabled(paths);
   const sourceFile = await assertFurySourcePath(paths, file);
   await taskService.getTask(paths, rootTaskId);
@@ -120,6 +122,7 @@ export async function approvePlan(
   actor: CraigActor,
   expectedPlanHash?: string,
 ): Promise<CommandApproveFuryResult> {
+  await requireAvailableRuntimeCapabilities(paths, ["fury"]);
   await assertEnabled(paths);
   if (actor.type !== "human") throw new CraigError("CAPABILITY_DENIED", "Only a human can approve a Fury plan.", {});
   const plan = await readFuryPlan(paths, planId);
@@ -151,6 +154,7 @@ export async function runFury(
   actor: CraigActor,
   capabilityToken?: string,
 ): Promise<CommandRunFuryResult> {
+  await requireAvailableRuntimeCapabilities(paths, ["fury"]);
   await assertEnabled(paths);
   const plan = await readFuryPlan(paths, planId);
   const approval = await readFuryApproval(paths, planId);
@@ -405,6 +409,7 @@ async function openReview(paths: CraigPaths, run: FuryRun, step: FuryStepRun): P
 export async function completeFuryStep(
   paths: CraigPaths, runId: string, stepId: string, output: unknown, actor: CraigActor, capabilityToken?: string,
 ): Promise<CommandStepFuryResult> {
+  await requireAvailableRuntimeCapabilities(paths, ["fury"]);
   let run = await readFuryRun(paths, runId);
   const step = requireRunningAgentStep(run, stepId);
   await authorizeStepActor(paths, step, actor, capabilityToken, "fury.step.complete");
@@ -425,6 +430,7 @@ export async function completeFuryStep(
 export async function failFuryStep(
   paths: CraigPaths, runId: string, stepId: string, reason: string, actor: CraigActor, capabilityToken?: string,
 ): Promise<CommandStepFuryResult> {
+  await requireAvailableRuntimeCapabilities(paths, ["fury"]);
   const run = await readFuryRun(paths, runId);
   const step = requireRunningAgentStep(run, stepId);
   await authorizeStepActor(paths, step, actor, capabilityToken, "fury.step.fail");
@@ -437,6 +443,7 @@ export async function failFuryStep(
 export async function cancelFury(
   paths: CraigPaths, runId: string, actor: CraigActor, capabilityToken?: string,
 ): Promise<CommandCancelFuryResult> {
+  await requireAvailableRuntimeCapabilities(paths, ["fury"]);
   const before = await readFuryRun(paths, runId);
   if (actor.type === "agent") {
     if (!capabilityToken) throw new CraigError("CAPABILITY_DENIED", "Fury cancellation requires an agent capability.", {});
@@ -467,6 +474,7 @@ export async function cancelFury(
 export async function resumeFury(
   paths: CraigPaths, runId: string, actor: CraigActor, capabilityToken?: string,
 ): Promise<CommandResumeFuryResult> {
+  await requireAvailableRuntimeCapabilities(paths, ["fury"]);
   const run = await readFuryRun(paths, runId);
   if (actor.type === "agent") {
     if (!capabilityToken) throw new CraigError("CAPABILITY_DENIED", "Fury resume requires an agent capability.", {});
@@ -488,6 +496,7 @@ export async function showReview(paths: CraigPaths, id: string): Promise<Command
 export async function actOnReview(
   paths: CraigPaths, id: string, action: FuryReviewAction, message: string | null, actor: CraigActor, capabilityToken?: string,
 ): Promise<CommandActFuryReviewResult> {
+  await requireAvailableRuntimeCapabilities(paths, ["fury"]);
   let review = await readFuryReview(paths, id);
   let run = await readFuryRun(paths, review.runId);
   if (action !== "resubmit" && actor.type !== "human") throw new CraigError("CAPABILITY_DENIED", "Only a human can decide a fury review.", {});

@@ -1,8 +1,10 @@
+import { requireRuntimeCapabilities } from "./runtime/compatibility.js";
+import type { RuntimeHello } from "../domain/runtime/types.js";
 import { createConnection, type Socket } from "node:net";
 
 import type { PtyActivitySnapshot } from "../domain/agent/index.js";
 import type { CraigPaths } from "../state/craig-paths.js";
-import { getPtyDaemonEndpoint, PTY_DAEMON_PROTOCOL_VERSION } from "./pty-daemon-protocol.js";
+import { getPtyDaemonEndpoint } from "./pty-daemon-protocol.js";
 
 type ActivityRequestInput =
   | { type: "ping" }
@@ -10,7 +12,7 @@ type ActivityRequestInput =
   | { type: "getActivitySnapshots" };
 
 type ActivityResponse =
-  | { id: number; ok: true; protocolVersion?: number; activities?: PtyActivitySnapshot[] }
+  | { id: number; ok: true; protocolVersion?: number; capabilities?: RuntimeHello["capabilities"]; activities?: PtyActivitySnapshot[] }
   | { id: number; ok: false; error: string };
 
 type ActivityEvent =
@@ -70,9 +72,7 @@ export class PtyDaemonActivityClient {
 
   async ready(): Promise<void> {
     const ping = await this.send({ type: "ping" });
-    if (ping.protocolVersion !== PTY_DAEMON_PROTOCOL_VERSION) {
-      throw new Error("Craig PTY daemon protocol mismatch.");
-    }
+    requireRuntimeCapabilities(ping, ["activity"]);
     await this.send({ type: "setActivityEnabled", enabled: true });
     const baselineRevision = this.revision;
     const response = await this.send({ type: "getActivitySnapshots" });

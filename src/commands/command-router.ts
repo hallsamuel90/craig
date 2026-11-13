@@ -1,3 +1,4 @@
+import { daemonStatus } from "../shell/runtime/discovery.js";
 import path from "node:path";
 import { readFile } from "node:fs/promises";
 
@@ -374,6 +375,8 @@ export async function executeCommand(
           : null,
       };
     }
+    case "daemonStatus":
+      return daemonStatus(context.paths);
     case "help":
       return { kind: "help", text: getHelpText() };
     case "exit":

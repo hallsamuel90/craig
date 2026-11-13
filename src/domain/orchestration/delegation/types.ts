@@ -54,6 +54,7 @@ export interface CreateChildInput {
 }
 
 export interface CommandCreateChildResult {
+  warnings?: string[];
   kind: "createChildTask";
   taskId: string;
   parentTaskId: string;

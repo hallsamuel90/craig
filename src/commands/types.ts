@@ -1,3 +1,4 @@
+import type { DaemonStatus } from "../domain/runtime/types.js";
 import type { RunnerType } from "../domain/task/index.js";
 import type {
   CommandCreateTaskResult,
@@ -62,6 +63,7 @@ import type { PromptInput } from "../shell/prompt-commands.js";
 import type { CommandOpenFileResult } from "../domain/file/index.js";
 
 export type AppCommand =
+  | { kind: "daemonStatus" }
   | { kind: "addWorkspace"; path: string }
   | { kind: "addRepo"; path: string }
   | { kind: "listRepos" }
@@ -190,6 +192,7 @@ export type {
 };
 
 export type CommandResult =
+  | DaemonStatus
   | CommandCreateWorkspaceResult
   | CommandCreateRepoResult
   | CommandListReposResult

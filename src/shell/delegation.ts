@@ -1,3 +1,4 @@
+import { requireAvailableRuntimeCapabilities } from "./runtime/discovery.js";
 import { CraigError } from "../domain/error/index.js";
 import {
   cancelTaskTree,
@@ -20,7 +21,9 @@ export async function createChildTaskAndSession(
   paths: CraigPaths,
   input: CreateChildInput,
 ): Promise<CommandCreateChildResult> {
-  return createChildTask(paths, input, { createTask: createDaemonOwnedTask });
+  const notice = await requireAvailableRuntimeCapabilities(paths, ["delegatedLaunch", "orchestration"]);
+  const result = await createChildTask(paths, input, { createTask: createDaemonOwnedTask });
+  return notice ? { ...result, warnings: [`${notice} Creating this session delays legacy migration.`] } : result;
 }
 
 export async function createRootTaskAndSession(
@@ -29,10 +32,12 @@ export async function createRootTaskAndSession(
   prompt: string,
   options: TaskCreationOptions = {},
 ): Promise<CommandCreateTaskResult> {
-  return createRootTask(paths, repoIdOrWorkspaceId, prompt, {
+  const notice = await requireAvailableRuntimeCapabilities(paths, ["delegatedLaunch"]);
+  const result = await createRootTask(paths, repoIdOrWorkspaceId, prompt, {
     ...options,
     launchProvisioned: (task, environment) => launchDaemonTask(paths, task, environment, false),
   });
+  return notice ? { ...result, warnings: [`${notice} Creating this session delays legacy migration.`] } : result;
 }
 
 async function createDaemonOwnedTask(

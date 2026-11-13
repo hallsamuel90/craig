@@ -1,11 +1,13 @@
+import { requireRuntimeCapabilities } from "./runtime/compatibility.js";
+import type { RuntimeHello } from "../domain/runtime/types.js";
 import { createConnection, type Socket } from "node:net";
 
 import type { CraigPaths } from "../state/craig-paths.js";
-import { getPtyDaemonEndpoint, PTY_DAEMON_PROTOCOL_VERSION } from "./pty-daemon-protocol.js";
+import { getPtyDaemonEndpoint } from "./pty-daemon-protocol.js";
 
 interface NavigationResponse {
   ok: boolean;
-  protocolVersion?: number;
+  protocolVersion?: number; capabilities?: RuntimeHello["capabilities"];
   deliveredCount?: number;
   error?: string;
 }
@@ -15,7 +17,7 @@ export async function requestOpenFile(paths: CraigPaths, filePath: string): Prom
   if (!socket) return false;
   try {
     const ping = await request(socket, { type: "ping" });
-    if (ping.protocolVersion !== PTY_DAEMON_PROTOCOL_VERSION) return false;
+    requireRuntimeCapabilities(ping, ["navigation"]);
     const response = await request(socket, { type: "openFile", path: filePath });
     return (response.deliveredCount ?? 0) > 0;
   } catch {

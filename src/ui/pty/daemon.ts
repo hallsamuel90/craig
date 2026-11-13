@@ -1,6 +1,5 @@
 import { createServer, createConnection, type Socket, type Server } from "node:net";
-import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
-import path from "node:path";
+import { lstat, mkdir, readFile, rm, writeFile } from "node:fs/promises";
 
 import type { CraigPaths } from "../../state/craig-paths.js";
 import type { TerminalViewState } from "../state.js";
@@ -13,10 +12,13 @@ import { errorService } from "../../domain/error/index.js";
 import { listFuryRuns, listPromptCommands, refreshAgentCapability } from "../../domain/orchestration/index.js";
 import {
   getPtyDaemonEndpoint,
-  isCompatiblePtyDaemonProtocol,
   PTY_DAEMON_PROTOCOL_VERSION,
 } from "../../shell/pty-daemon-protocol.js";
-import { spawnPtyDaemonProcess } from "../../shell/pty-daemon-process.js";
+import { ensureRuntimeRunning } from "../../shell/runtime/start.js";
+import { acquireRuntimeLock, cleanupDeadEndpoint } from "../../shell/runtime/ownership.js";
+import { requireRuntimeCapabilities, resolveRuntimeCompatibility } from "../../shell/runtime/compatibility.js";
+import { runtimeIdentity } from "../../shell/runtime/identity.js";
+import type { RuntimeHello } from "../../domain/runtime/types.js";
 import { OrchestrationSupervisor } from "../../shell/orchestration-supervisor.js";
 import { reconcileEvents } from "../../shell/event-reconciliation.js";
 import {
@@ -55,10 +57,11 @@ type DaemonRequest =
   | { id: number; type: "subscribeNavigation" }
   | { id: number; type: "openFile"; path: string }
   | { id: number; type: "wakeOrchestration" }
+  | { id: number; type: "drainIfEmpty" }
   | { id: number; type: "shutdown" };
 
 type DaemonResponse =
-  | { id: number; ok: true; protocolVersion?: number; sessionCount?: number; ghosttyTerminal?: boolean; view?: TerminalViewState; activities?: PtyActivitySnapshot[]; deliveredCount?: number }
+  | { id: number; ok: true; protocolVersion?: number; sessionCount?: number; ghosttyTerminal?: boolean; capabilities?: RuntimeHello["capabilities"]; buildId?: string; craigVersion?: string; lifecycle?: "ready" | "draining"; view?: TerminalViewState; activities?: PtyActivitySnapshot[]; deliveredCount?: number }
   | { id: number; ok: false; error: string };
 type DaemonOkResponse = Extract<DaemonResponse, { ok: true }>;
 
@@ -109,23 +112,28 @@ export interface PtyDaemonServerOptions extends Partial<PtyRuntimeOptions> {
 
 export async function createDaemonPtyRuntime(options: DaemonPtyRuntimeOptions): Promise<DaemonPtyRuntimeClient> {
   const endpoint = getPtyDaemonEndpoint(options.paths);
-  await ensureDaemonRunning(endpoint, options.paths, options.spawnDaemon);
+  await ensureRuntimeRunning(options.paths, options.spawnDaemon);
   const socket = await connectToDaemon(endpoint.socketPath);
   const client = new DaemonPtyRuntimeClient(socket, options);
-  await client.ready();
-  return client;
+  try { await client.ready(); return client; }
+  catch (error) { client.disposeAll(); throw error; }
 }
 
 export async function servePtyDaemon(paths: CraigPaths, options: PtyDaemonServerOptions = {}): Promise<void> {
   const endpoint = getPtyDaemonEndpoint(paths);
   await mkdir(paths.runtimeDir, { recursive: true });
-  await rm(endpoint.socketPath, { force: true });
+  const releaseOwner = await acquireRuntimeLock(paths, "daemon-owner");
+  try { await cleanupDeadEndpoint(paths); } catch (error) { await releaseOwner(); throw error; }
   const daemon = new PtyDaemonServer(paths, options);
   const server = createServer((socket) => daemon.handleConnection(socket));
+  let ownedSocket: Awaited<ReturnType<typeof lstat>> | null = null;
+  let ownedPid: Awaited<ReturnType<typeof lstat>> | null = null;
   try {
     await listen(server, endpoint.socketPath);
+    ownedSocket = await lstat(endpoint.socketPath);
     await daemon.start();
-    await writeFile(endpoint.pidPath, String(process.pid), "utf8");
+    await writeFile(endpoint.pidPath, String(process.pid), { encoding: "utf8", mode: 0o600 });
+    ownedPid = await lstat(endpoint.pidPath);
     await errorService.appendLogBestEffort(paths, {
       level: "info",
       component: "daemon",
@@ -171,10 +179,14 @@ export async function servePtyDaemon(paths: CraigPaths, options: PtyDaemonServer
       details: { pid: process.pid, remainingSessionCount: daemon.sessionCount() },
     });
     daemon.onShutdown = null;
-    await rm(endpoint.socketPath, { force: true });
-    await rm(endpoint.pidPath, { force: true });
-    await daemon.stop();
-    daemon.disposeAll();
+    const currentSocket = await lstat(endpoint.socketPath).catch(() => null);
+    const currentPid = await lstat(endpoint.pidPath).catch(() => null);
+    if (ownedPid && currentPid?.ino === ownedPid.ino && currentPid.dev === ownedPid.dev && await readFile(endpoint.pidPath, "utf8").catch(() => null) === String(process.pid)) {
+      if (ownedSocket && currentSocket?.ino === ownedSocket.ino && currentSocket.dev === ownedSocket.dev) await rm(endpoint.socketPath);
+      await rm(endpoint.pidPath, { force: true });
+    }
+    try { await daemon.stop(); daemon.disposeAll(); }
+    finally { await releaseOwner(); }
   }
 }
 
@@ -189,7 +201,8 @@ export async function requestDaemonShutdown(paths: CraigPaths): Promise<boolean>
 }
 
 export class DaemonPtyRuntimeClient {
-  readonly managesPullRequestSync = true;
+  managesPullRequestSync = true;
+  upgradePendingMessage: string | null = null;
   private nextRequestId = 1;
   private readonly pending = new Map<number, PendingRequest>();
   private readonly viewCache = new Map<string, TerminalViewState>();
@@ -232,16 +245,16 @@ export class DaemonPtyRuntimeClient {
 
   async ready(): Promise<void> {
     const response = await this.send({ type: "ping" });
-    if (!isCompatibleDaemonProtocol(response.protocolVersion)) {
-      throw new Error("Craig PTY daemon protocol mismatch.");
-    }
+    requireRuntimeCapabilities(response, ["terminal", "activity"]);
+    this.upgradePendingMessage = resolveRuntimeCompatibility(response, [], runtimeIdentity()).reason;
+    this.managesPullRequestSync = resolveRuntimeCompatibility(response, ["pullRequestPolling"]).compatible;
     this.protocolVersion = response.protocolVersion!;
     this.supportsGhostty = response.ghosttyTerminal === true;
     if (this.protocolVersion <= 8) {
       await this.send({ type: "setViewUpdateMode", mode: "incremental" });
     }
     await this.send({ type: "setActivityEnabled", enabled: this.activityEnabled });
-    if (this.protocolVersion >= 10) await this.send({ type: "subscribeNavigation" });
+    if (resolveRuntimeCompatibility(response, ["navigation"]).compatible) await this.send({ type: "subscribeNavigation" });
     if (this.activityEnabled) {
       await this.refreshActivitySnapshots();
     }
@@ -295,8 +308,9 @@ export class DaemonPtyRuntimeClient {
     }
   }
 
-  async pruneStale(keepTabIds: string[]): Promise<void> {
-    await this.send({ type: "pruneStale", keepTabIds });
+  async pruneStale(_keepTabIds: string[]): Promise<void> {
+    void _keepTabIds;
+    // Never send destructive inventory reconciliation to legacy runtimes.
   }
 
   write(input: string): void {
@@ -359,6 +373,7 @@ export class DaemonPtyRuntimeClient {
   }
 
   setPullRequestPollView(view: GitHubPollView): void {
+    if (!this.managesPullRequestSync) return;
     if (
       this.closed ||
       (this.pullRequestPollView.selectedTaskId === view.selectedTaskId &&
@@ -609,6 +624,7 @@ export class DaemonPtyRuntimeClient {
 
 class PtyDaemonServer {
   private readonly emulatorFactoryOverride: PtyRuntimeOptions["createEmulator"];
+  private readonly identity = runtimeIdentity();
   onShutdown: (() => void) | null = null;
   private readonly clients = new Set<Socket>();
   private readonly subscriptions = new Map<Socket, ClientViewSubscription>();
@@ -754,6 +770,9 @@ class PtyDaemonServer {
     this.updateRuntimeActivityEnabled();
   }
 
+  private draining = false;
+  private admittedRequests = 0;
+
   private async handleLine(socket: Socket, line: string): Promise<void> {
     if (line.trim().length === 0) {
       return;
@@ -767,13 +786,19 @@ class PtyDaemonServer {
       return;
     }
 
+    const readOnly = ["ping", "getActivitySnapshots", "getViewState", "hydrateSession"].includes(request.type);
+    if (this.draining && !readOnly) {
+      writeMessage(socket, { id: request.id, ok: false, error: "Runtime draining; retry after lifecycle reconciliation." });
+      return;
+    }
+    this.admittedRequests += 1;
     try {
       const result = await this.handleRequest(socket, request);
       writeMessage(socket, {
         id: request.id,
         ok: true,
         ...(request.type === "ping"
-          ? { protocolVersion: DAEMON_PROTOCOL_VERSION, sessionCount: this.runtime.sessionTabIds().length, ghosttyTerminal: true }
+          ? { ...this.identity, ghosttyTerminal: true, lifecycle: this.draining ? "draining" as const : "ready" as const, sessionCount: this.runtime.sessionTabIds().length }
           : {}),
         ...(request.type === "getActivitySnapshots" ? { activities: this.runtime.getActivitySnapshots() } : {}),
         ...(typeof result === "number" ? { deliveredCount: result } : result ? { view: result } : {}),
@@ -781,7 +806,7 @@ class PtyDaemonServer {
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       writeMessage(socket, { id: request.id, ok: false, error: message });
-    }
+    } finally { this.admittedRequests -= 1; }
   }
 
   private async handleRequest(socket: Socket, request: DaemonRequest): Promise<TerminalViewState | number | null> {
@@ -871,30 +896,10 @@ class PtyDaemonServer {
         return null;
       case "subscribeView":
         return this.subscribe(socket, request.tabId, this.runtime.getViewState(request.tabId));
-      case "pruneStale": {
-        const keep = new Set(request.keepTabIds);
-        const knownTabIds = new Set([
-          ...this.runtime.sessionTabIds(),
-          ...this.runtime.getActivitySnapshots().map((snapshot) => snapshot.tabId),
-        ]);
-        for (const tabId of knownTabIds) {
-          if (!keep.has(tabId)) {
-            this.log({
-              level: "info",
-              component: "pty",
-              event: "disposed",
-              message: "PTY session disposed because its tab is no longer active.",
-              tabId,
-              details: { reason: "stale_tab" },
-            });
-            this.runtime.disposeSession(tabId);
-            if (this.attachedTabId === tabId) {
-              this.attachedTabId = null;
-            }
-          }
-        }
+      case "pruneStale":
+        // Foreground inventory can be incomplete. Only explicit tab/task closure
+        // may dispose a session; a stale list cannot authorize termination.
         return null;
-      }
       case "getViewState":
         return this.runtime.getViewState(request.tabId);
       case "getActivitySnapshots":
@@ -920,6 +925,30 @@ class PtyDaemonServer {
             message: error instanceof Error ? error.message : String(error),
           }));
         return null;
+      case "drainIfEmpty": {
+        if (!this.onShutdown) throw new Error("Runtime startup is incomplete; retry drain after readiness.");
+        // Admission closes synchronously, before the first inventory read.
+        this.draining = true;
+        try {
+          if (this.sessionCount() !== 0 || this.admittedRequests !== 1 || this.orchestrationSupervisorStartup) {
+            throw new Error("Sessions or admitted service work remain.");
+          }
+          const unfinished = async () => (await listPromptCommands(this.paths)).some((command) => command.state === "queued" || command.state === "delivering") ||
+            (await listFuryRuns(this.paths)).some((run) => run.cleanupPending || !["succeeded", "failed", "cancelled", "timed_out"].includes(run.state));
+          if (await unfinished()) throw new Error("Pending orchestration remains.");
+          // Stop waits for admitted polling/reconciliation, without disposing PTYs.
+          await this.stop();
+          if (this.sessionCount() !== 0 || await unfinished()) {
+            await this.start();
+            throw new Error("Inventory changed while draining.");
+          }
+          setImmediate(() => this.onShutdown?.());
+          return null;
+        } catch (error) {
+          this.draining = false;
+          throw new Error(`Upgrade pending: ${error instanceof Error ? error.message : String(error)} Runtime preserved.`);
+        }
+      }
       case "shutdown":
         this.log({
           level: "warn",
@@ -1197,94 +1226,6 @@ function rowKey(row: TerminalScreenRow): string {
   return JSON.stringify(row);
 }
 
-/* eslint-disable no-unused-vars */
-async function ensureDaemonRunning(
-  endpoint: { socketPath: string; pidPath: string },
-  paths: CraigPaths,
-  spawnDaemon?: (workspaceRoot: string) => void,
-): Promise<void> {
-  /* eslint-enable no-unused-vars */
-  if (await waitForCompatibleDaemon(endpoint.socketPath, 1000)) {
-    return;
-  }
-
-  if (await canConnect(endpoint.socketPath)) {
-    const status = await requestDaemonPing(endpoint.socketPath).catch(() => null);
-    const protocol = status?.ok ? status.protocolVersion ?? "unknown" : "unknown";
-    const sessionCount = status?.ok ? status.sessionCount ?? "unknown" : "unknown";
-    await errorService.appendLogBestEffort(paths, {
-      level: "warn",
-      component: "daemon",
-      event: "upgrade.blocked",
-      message: `Left incompatible protocol ${protocol} daemon running to preserve possible live PTYs.`,
-      details: { protocolVersion: protocol, sessionCount },
-    });
-    throw new Error(
-      "A live Craig PTY daemon is using an incompatible protocol. Exit the other Craig instance and restart explicitly; this client will not replace a live workspace daemon.",
-    );
-  }
-
-  await cleanupStaleEndpoint(endpoint, paths);
-  spawnPtyDaemonProcess(paths, spawnDaemon);
-
-  const started = Date.now();
-  while (Date.now() - started < 5000) {
-    if (await canConnectCompatible(endpoint.socketPath)) {
-      return;
-    }
-
-    await delay(50);
-  }
-
-  const log = await readFile(path.join(paths.runtimeDir, "pty-daemon.log"), "utf8").catch(() => "");
-  throw new Error(`Craig PTY daemon did not start.${log ? `\n${log.slice(-2000)}` : ""}`);
-}
-
-async function canConnectCompatible(socketPath: string): Promise<boolean> {
-  const response = await requestDaemonPing(socketPath).catch(() => null);
-  return response?.ok === true && isCompatibleDaemonProtocol(response.protocolVersion);
-}
-
-function isCompatibleDaemonProtocol(version: number | undefined): boolean {
-  return isCompatiblePtyDaemonProtocol(version);
-}
-
-async function waitForCompatibleDaemon(socketPath: string, timeoutMs: number): Promise<boolean> {
-  const started = Date.now();
-  while (Date.now() - started < timeoutMs) {
-    if (await canConnectCompatible(socketPath)) {
-      return true;
-    }
-
-    await delay(50);
-  }
-
-  return false;
-}
-
-async function cleanupStaleEndpoint(
-  endpoint: { socketPath: string; pidPath: string },
-  paths: CraigPaths,
-): Promise<void> {
-  const pidText = await readFile(endpoint.pidPath, "utf8").catch(() => null);
-  if (pidText) {
-    const pid = Number(pidText.trim());
-    if (Number.isInteger(pid) && pid > 0 && isProcessAlive(pid)) {
-      return;
-    }
-    await errorService.appendLogBestEffort(paths, {
-      level: "warn",
-      component: "daemon",
-      event: "previous_exit.unclean",
-      message: "Found stale daemon state from a process that is no longer running.",
-      details: { previousPid: Number.isInteger(pid) ? pid : null },
-    });
-  }
-
-  await rm(endpoint.socketPath, { force: true });
-  await rm(endpoint.pidPath, { force: true });
-}
-
 async function canConnect(socketPath: string): Promise<boolean> {
   const socket = await connectToDaemon(socketPath).catch(() => null);
   if (!socket) {
@@ -1297,10 +1238,6 @@ async function canConnect(socketPath: string): Promise<boolean> {
 
 async function shutdownDaemonSocket(socketPath: string): Promise<void> {
   await sendDaemonRequest(socketPath, { id: 1, type: "shutdown" }).catch(() => null);
-}
-
-async function requestDaemonPing(socketPath: string): Promise<DaemonResponse> {
-  return sendDaemonRequest(socketPath, { id: 1, type: "ping" });
 }
 
 function sendDaemonRequest(socketPath: string, request: DaemonRequest): Promise<DaemonResponse> {
@@ -1364,19 +1301,6 @@ function writeMessage(socket: Socket, message: DaemonMessage): void {
   } catch {
     // Clients can detach while the daemon is broadcasting terminal output.
   }
-}
-
-function isProcessAlive(pid: number): boolean {
-  try {
-    process.kill(pid, 0);
-    return true;
-  } catch {
-    return false;
-  }
-}
-
-function delay(ms: number): Promise<void> {
-  return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
 function assertNever(value: never): never {

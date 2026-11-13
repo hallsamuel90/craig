@@ -45,7 +45,7 @@ _It's like a game, except the PRs are real._
 - **Stay in flow.** Launch agents, move between tasks, inspect changes, and watch PR checks without leaving the keyboard.
 - **Work across repositories.** Treat one repo or a directory of repos as a workspace while preserving real repository boundaries.
 - **Let agents operate the workspace.** The same task model backs the TUI and CLI, so agents and scripts can inspect context and perform Craig actions directly.
-- **Leave and come back.** A local daemon keeps agent sessions and PR synchronization alive when the foreground TUI closes.
+- **Leave and come back.** A local daemon keeps agent sessions and PR synchronization alive when the foreground TUI closes. Use `craig daemon status --json` to inspect runtime compatibility without starting or replacing it. Updates retain existing legacy sessions; some newer features remain pending until those sessions finish.
 
 ## Install
 

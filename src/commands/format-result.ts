@@ -52,6 +52,7 @@ export function formatCommandResult(result: CommandResult): string {
         `Branch: ${result.branch}`,
         `Worktree: ${result.worktreePath}`,
         `Runner: ${result.runner}`,
+        ...(result.warnings ?? []).map((warning) => `Warning: ${warning}`),
       ].join("\n");
     case "createChildTask":
       return [
@@ -62,6 +63,7 @@ export function formatCommandResult(result: CommandResult): string {
         `Target: ${result.targetType} ${result.targetId}`,
         `Status: ${result.status}`,
         `Worktree: ${result.worktreePath}`,
+        ...(result.warnings ?? []).map((warning) => `Warning: ${warning}`),
       ].join("\n");
     case "listTaskChildren":
       return result.children.length === 0
@@ -127,6 +129,8 @@ export function formatCommandResult(result: CommandResult): string {
       return ["ID\tNAME\tBRANCH\tPATH", ...result.repos.map((repo) => `${repo.id}\t${repo.name}\t${repo.defaultBranch}\t${repo.rootPath}`)].join(
         "\n",
       );
+    case "daemonStatus":
+      return `Daemon: ${result.state}${result.reason ? `\n${result.reason}` : ""}`;
     case "help":
       return result.text;
     case "exit":

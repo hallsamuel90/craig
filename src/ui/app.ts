@@ -178,7 +178,7 @@ export async function startTerminalApp(options: TerminalAppOptions = {}): Promis
         variant: "boot",
         menuIndex: 0,
         optionsMessage: null,
-        shell: restoreShellState(initialShell, model),
+        shell: { ...restoreShellState(initialShell, model), ...("upgradePendingMessage" in initialPtyRuntime && initialPtyRuntime.upgradePendingMessage ? { actionMessage: String(initialPtyRuntime.upgradePendingMessage) } : {}) },
       },
       get model() {
         return modelRef.current;

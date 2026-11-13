@@ -33,6 +33,10 @@ export function parseArgv(argv: string[]): ParsedArgvCommand {
   let command: AppCommand;
 
   switch (`${group ?? ""}:${action ?? ""}`) {
+    case "daemon:status":
+      requireNoArgs(args, "daemon status");
+      command = { kind: "daemonStatus" };
+      break;
     case "context:show":
       requireNoArgs(args, "context show");
       command = { kind: "showContext" };
@@ -290,6 +294,7 @@ export function getCommandName(command: AppCommand): string {
     commitTask: "task.commit",
     commitSelectedTask: "task.commit",
     showContext: "context.show",
+    daemonStatus: "daemon.status",
     help: "help",
     exit: "exit",
   };
@@ -336,6 +341,7 @@ export function getHelpText(): string {
     "  craig task wait [<id>] --state <states> [--tab <tab-id>] [--timeout <duration>]",
     "  craig events list [--task <task-id>] [--type <glob>] [--after <cursor>] --json",
     "  craig events watch [--task <task-id>] [--type <glob>] [--after <cursor>] [--format jsonl]",
+    "  craig daemon status      Inspect runtime without starting it",
     "  craig fury validate <file>  Validate a versioned fury YAML definition",
     "  craig fury plan <file> [--root-task <id>] [--input key=value]  Create an immutable approval plan",
     "  craig fury approve <plan-id>  Approve an exact validated plan (human only)",
