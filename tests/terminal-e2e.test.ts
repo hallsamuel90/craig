@@ -69,10 +69,10 @@ steps:
     });
     child.onData((chunk) => output.append(chunk));
     try {
-      await output.waitFor("> Start"); child.write("\r");
+      await output.waitFor("> Resume workspace"); child.write("\r");
       await output.waitFor("Fury plan to approve"); child.write("f");
       await output.waitFor("FURY PLANS"); child.write("\r");
-      await output.waitFor(plan.planHash); child.write("a");
+      await output.waitFor("Review each worker"); child.write("a");
       await output.waitFor("Approve terminal-approval?");
       await expect(readFuryApproval(paths, plan.id)).rejects.toMatchObject({ code: "FURY_APPROVAL_REQUIRED" });
       child.write("\r");
@@ -136,21 +136,21 @@ steps:
     child.onData((chunk) => output.append(chunk));
 
     try {
-      await output.waitFor("> Start");
+      await output.waitFor("> Resume workspace");
       child.write("\r");
-      await output.waitFor("+ new tab");
+      await output.waitFor("╭─ ");
       child.write("\r");
       await output.waitFor("TERMINAL   ↑↓/PgUp/PgDn scroll");
 
       child.write(`printf '\\033[3;12H${cursorMarker}'\r`);
       await output.waitForLatestFrame(cursorMarker);
       child.write("\u001D");
-      await output.waitForLatestFrame("+ new tab");
+      await output.waitForLatestFrame("╭─ ");
       child.write("\r");
       await output.waitForLatestFrame("TERMINAL   ↑↓/PgUp/PgDn scroll");
       await output.waitForLatestFrame(cursorMarker);
 
-      expect(output.value).toContain("TERMINAL   ↑↓/PgUp/PgDn scroll");
+      expect(stripVTControlCharacters(output.value)).toContain("TERMINAL   ↑↓/PgUp/PgDn scroll");
       expect(output.latestFrame()).toContain(cursorMarker);
     } finally {
       child.kill();
@@ -233,9 +233,9 @@ steps:
     child.onData((chunk) => output.append(chunk));
 
     try {
-      await output.waitFor(panelPolish ? "> Resume workspace" : "> Start");
+      await output.waitFor("> Resume workspace");
       child.write("\r");
-      await output.waitFor(panelPolish ? "╭─ " : "+ new tab");
+      await output.waitFor("╭─ ");
       child.write("\r");
       await output.waitFor("codex_stub_started");
       await output.waitForLatestFrame("codex_stub_bottom_bar");
@@ -323,7 +323,7 @@ steps:
     child.onData((chunk) => output.append(chunk));
 
     try {
-      await output.waitFor(panelPolish ? "> Resume workspace" : "> Start");
+      await output.waitFor("> Resume workspace");
       child.write("\r");
       await output.waitFor("+ New Task");
       child.write("n");
@@ -414,9 +414,9 @@ steps:
     child.onData((chunk) => output.append(chunk));
 
     try {
-      await output.waitFor("> Start");
+      await output.waitFor("> Resume workspace");
       child.write("\r");
-      await output.waitFor("+ new tab");
+      await output.waitFor("╭─ ");
       child.write("\r");
       await output.waitFor(`${runner}_stub_started`);
       const frame = output.latestFrame();
@@ -488,14 +488,14 @@ steps:
     child.onData((chunk) => output.append(chunk));
 
     try {
-      await output.waitFor("> Start");
+      await output.waitFor("> Resume workspace");
       child.write("\r");
       await output.waitFor("test task");
       child.write("\r");
       await output.waitFor("codex_stub_started");
       await output.waitForLatestFrame("codex_stub_bottom_bar");
       const frame = output.latestFrame();
-      expect(frame).toContain("TERMINAL   ↑↓/PgUp/PgDn scroll");
+      expect(stripVTControlCharacters(frame)).toContain("TERMINAL   ↑↓/PgUp/PgDn scroll");
       expect(frame).toContain("codex_stub_prompt:");
       expect(frame).not.toContain("[process exited");
     } finally {
@@ -702,9 +702,9 @@ setInterval(() => {}, 1000);
         },
       });
       first.onData((chunk) => firstOutput.append(chunk));
-      await firstOutput.waitFor("> Start");
+      await firstOutput.waitFor("> Resume workspace");
       first.write("\r");
-      await firstOutput.waitFor("+ new tab");
+      await firstOutput.waitFor("╭─ ");
       first.write("\r");
       await firstOutput.waitForLatestFrame("codex_stub_started");
       first.kill();
@@ -725,7 +725,7 @@ setInterval(() => {}, 1000);
         },
       });
       second.onData((chunk) => secondOutput.append(chunk));
-      await secondOutput.waitFor("> Start");
+      await secondOutput.waitFor("> Resume workspace");
       second.write("\r");
       await secondOutput.waitForLatestFrame("codex_stub_started");
       second.write("\u001D");
@@ -973,7 +973,7 @@ class PtyOutputBuffer {
     const start = Date.now();
 
     while (Date.now() - start < timeoutMs) {
-      if (this.value.includes(needle)) {
+      if (stripVTControlCharacters(this.value).includes(needle)) {
         return;
       }
 
@@ -993,7 +993,7 @@ class PtyOutputBuffer {
     const start = Date.now();
 
     while (Date.now() - start < timeoutMs) {
-      if (this.latestFrame().includes(needle)) {
+      if (stripVTControlCharacters(this.latestFrame()).includes(needle)) {
         return;
       }
 

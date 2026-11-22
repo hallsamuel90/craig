@@ -18,6 +18,18 @@ function contentCenter(line: string): number {
 }
 
 describe("terminal shell renderer", () => {
+  test("uses the framed layout and shared workspace menus by default", () => {
+    const data = getMockShellData();
+    expect(renderMainShellPresentation(MIN_VIEWPORT, data)).toEqual(renderMainShellPresentation(MIN_VIEWPORT, data, { panelPolish: true }));
+    const splashSummary = { workspaceCount: 1, taskCount: 2, workingAgents: 1, readyAgents: 0, attentionAgents: 0, activityKnown: true };
+    const options = { color: false, splashSummary };
+    const boot = renderBootOverlayFrame(MIN_VIEWPORT, options);
+    expect(boot).toContain("1 workspace · 2 open tasks · 1 agent working");
+    expect(boot).toContain("> Resume workspace");
+    expect(renderPauseOverlayFrame(MIN_VIEWPORT, options)).toBe(boot);
+    expect(renderOptionsOverlayFrame(MIN_VIEWPORT)).toContain("╭");
+  });
+
   test.each([false, true])("uses title weight for unread responses without moving rows with panel polish %s", (panelPolish) => {
     for (const selected of [false, true]) {
       const data = getMockShellData({ focusedRegion: "tasks" });
@@ -61,7 +73,7 @@ describe("terminal shell renderer", () => {
       status: "running", rows: [{ segments: [{ text: "agent output" }] }], error: null,
     } });
     data.leftTree[0]!.panelHeader = true;
-    const stable = renderMainShellPresentation(MIN_VIEWPORT, data, { color: false });
+    const stable = renderMainShellPresentation(MIN_VIEWPORT, data, { panelPolish: false, color: false });
     const polished = renderMainShellPresentation(MIN_VIEWPORT, data, { color: false, panelPolish: true });
     expect(renderMainShellPresentation(MIN_VIEWPORT, data, { color: false, panelPolish: false })).toEqual(stable);
     expect(polished.center.width).toBeGreaterThan(stable.center.width);
@@ -107,7 +119,7 @@ describe("terminal shell renderer", () => {
         workspaceRoot: "/tmp/craig", tasks: [task], inspection: null,
         repos: [{ id: "repo_a", name: "craig", rootPath: "/tmp/craig", defaultBranch: "main", createdAt: "", updatedAt: "" }],
       });
-      const normal = renderMainShellPresentation(MIN_VIEWPORT, data);
+      const normal = renderMainShellPresentation(MIN_VIEWPORT, data, { panelPolish: false });
       const preview = renderMainShellPresentation(MIN_VIEWPORT, data, { panelPolish: true });
       const blue = "\u001B[38;2;122;162;247;48;2;10;10;10m";
       const green = "\u001B[38;2;158;206;106;48;2;10;10;10m";
@@ -152,7 +164,7 @@ describe("terminal shell renderer", () => {
   });
 
   test("renders the boot overlay with the CRAIG logo and menu", () => {
-    const frame = renderBootOverlayFrame(MIN_VIEWPORT, { color: false, menuIndex: 0 });
+    const frame = renderBootOverlayFrame(MIN_VIEWPORT, { panelPolish: false, color: false, menuIndex: 0 });
 
     expect(frame).toContain("▄████▄");
     expect(frame).toContain("crAIg is that you?");
@@ -162,7 +174,7 @@ describe("terminal shell renderer", () => {
   });
 
   test.each([renderBootOverlayFrame, renderPauseOverlayFrame, renderOptionsOverlayFrame])("frames preview splash menus with one blue outline and preserves their content", (renderOverlay) => {
-    const options = { color: false, menuIndex: 0, versionText: "v0.17.3", updateText: "→ v0.18.0 available" };
+    const options = { panelPolish: false, color: false, menuIndex: 0, versionText: "v0.17.3", updateText: "→ v0.18.0 available" };
     const stable = renderOverlay(MIN_VIEWPORT, options);
     expect(renderOverlay(MIN_VIEWPORT, { ...options, panelPolish: false })).toBe(stable);
     const preview = renderOverlay(MIN_VIEWPORT, { ...options, panelPolish: true });
@@ -202,7 +214,7 @@ describe("terminal shell renderer", () => {
     expect(checking).toContain("Checking agent activity…");
     expect(checking).toContain("3 workspaces · 8 open tasks · Checking agent activity…");
     expect(checking).not.toContain("2 agents working");
-    const stable = renderBootOverlayFrame(MIN_VIEWPORT, { color: false, splashSummary });
+    const stable = renderBootOverlayFrame(MIN_VIEWPORT, { panelPolish: false, color: false, splashSummary });
     expect(stable).toContain("crAIg is that you?");
     expect(stable).toContain("> Start");
     expect(stable).not.toContain("open tasks");
@@ -236,7 +248,7 @@ describe("terminal shell renderer", () => {
   });
 
   test("renders the pause overlay with resume and exit actions", () => {
-    const frame = renderPauseOverlayFrame(MIN_VIEWPORT, { color: false, menuIndex: 0 });
+    const frame = renderPauseOverlayFrame(MIN_VIEWPORT, { panelPolish: false, color: false, menuIndex: 0 });
 
     expect(frame).toContain("Control mode is paused.");
     expect(frame).toContain("> Resume");
@@ -298,7 +310,7 @@ describe("terminal shell renderer", () => {
   });
 
   test("renders options overlay with logs entry", () => {
-    const frame = renderOptionsOverlayFrame(MIN_VIEWPORT, {
+    const frame = renderOptionsOverlayFrame(MIN_VIEWPORT, { panelPolish: false,
       color: false,
       optionsMenuItems: OPTIONS_MENU_ITEMS,
       menuIndex: 2,
@@ -311,16 +323,16 @@ describe("terminal shell renderer", () => {
   });
 
   test("keeps overlays vertically anchored from boot through feature previews", () => {
-    const bootFrame = renderBootOverlayFrame(MIN_VIEWPORT, {
+    const bootFrame = renderBootOverlayFrame(MIN_VIEWPORT, { panelPolish: false,
       color: false,
       menuIndex: 0,
     });
-    const optionsFrame = renderOptionsOverlayFrame(MIN_VIEWPORT, {
+    const optionsFrame = renderOptionsOverlayFrame(MIN_VIEWPORT, { panelPolish: false,
       color: false,
       optionsMenuItems: OPTIONS_MENU_ITEMS,
       menuIndex: 0,
     });
-    const previewsFrame = renderOptionsOverlayFrame(MIN_VIEWPORT, {
+    const previewsFrame = renderOptionsOverlayFrame(MIN_VIEWPORT, { panelPolish: false,
       color: false,
       optionsMenuItems: ["[ ] Agent orchestration"],
       optionsMessage: "Experimental features may change or be removed. Enter toggles.",
@@ -354,7 +366,7 @@ describe("terminal shell renderer", () => {
   });
 
   test("renders the three-column mock workspace shell", () => {
-    const frame = renderMainShellFrame(MIN_VIEWPORT, getMockShellData(), { color: false });
+    const frame = renderMainShellFrame(MIN_VIEWPORT, getMockShellData(), { panelPolish: false, color: false });
 
     expect(frame).toContain("CRAIG");
     expect(frame).toContain("~/workspaces/craig/colombo");
@@ -380,7 +392,7 @@ describe("terminal shell renderer", () => {
 
   test("renders the center pane as the same independently positioned region used by the full frame", () => {
     const data = getMockShellData();
-    const presentation = renderMainShellPresentation(MIN_VIEWPORT, data, { color: false });
+    const presentation = renderMainShellPresentation(MIN_VIEWPORT, data, { panelPolish: false, color: false });
     const frameRows = presentation.frame.split("\n");
     const region = presentation.center;
 
@@ -401,7 +413,7 @@ describe("terminal shell renderer", () => {
 
   test("expands the independent center region to the full viewport when zoomed", () => {
     const data = getMockShellData();
-    const presentation = renderMainShellPresentation(MIN_VIEWPORT, data, { color: false, centerOnly: true });
+    const presentation = renderMainShellPresentation(MIN_VIEWPORT, data, { panelPolish: false, color: false, centerOnly: true });
     const frameRows = presentation.frame.split("\n");
     const region = presentation.center;
 
@@ -412,7 +424,7 @@ describe("terminal shell renderer", () => {
   });
 
   test("keeps the center tab rule scoped to the active tab in control mode", () => {
-    const frame = renderMainShellFrame(MIN_VIEWPORT, getMockShellData(), { color: false, centerOnly: true });
+    const frame = renderMainShellFrame(MIN_VIEWPORT, getMockShellData(), { panelPolish: false, color: false, centerOnly: true });
     const underline = frame.split("\n")[2] ?? "";
 
     expect(underline).toBe("  ──────".padEnd(MIN_VIEWPORT.width));
@@ -422,7 +434,7 @@ describe("terminal shell renderer", () => {
     const frame = renderMainShellFrame(
       MIN_VIEWPORT,
       getMockShellData({ inputMode: "terminal" }),
-      { color: false, centerOnly: true },
+      { panelPolish: false, color: false, centerOnly: true },
     );
     const underline = frame.split("\n")[2] ?? "";
 
@@ -433,7 +445,7 @@ describe("terminal shell renderer", () => {
     const frame = renderMainShellFrame(
       MIN_VIEWPORT,
       getMockShellData({ inputMode: "terminal" }),
-      { color: true, centerOnly: true },
+      { panelPolish: false, color: true, centerOnly: true },
     );
     const successOnPanel = "\u001B[38;2;158;206;106;48;2;10;10;10m";
     const mutedOnPanel = "\u001B[38;2;86;95;137;48;2;10;10;10m";
@@ -446,7 +458,7 @@ describe("terminal shell renderer", () => {
     const frame = renderMainShellFrame(
       MIN_VIEWPORT,
       getMockShellData({ footerToast: { tone: "success", message: "Refreshed checks: 2 reported" } }),
-      { color: false },
+      { panelPolish: false, color: false },
     );
     const footer = frame.split("\n").at(-1) ?? "";
 
@@ -459,7 +471,7 @@ describe("terminal shell renderer", () => {
     const frame = renderMainShellFrame(
       MIN_VIEWPORT,
       getMockShellData({ footerToast: { tone: "error", message: "gh auth failed" } }),
-      { color: false },
+      { panelPolish: false, color: false },
     );
     const footer = frame.split("\n").at(-1) ?? "";
 
@@ -478,7 +490,7 @@ describe("terminal shell renderer", () => {
         selectedActionId: "push",
         actionMessage: "Mock action: push (phase 1.2).",
       }),
-      { color: false },
+      { panelPolish: false, color: false },
     );
 
     expect(frame).toContain("▸ task_20260430_04");
@@ -518,7 +530,7 @@ describe("terminal shell renderer", () => {
       },
     );
 
-    const frame = renderMainShellFrame(MIN_VIEWPORT, data, { color: false });
+    const frame = renderMainShellFrame(MIN_VIEWPORT, data, { panelPolish: false, color: false });
 
     expect(frame).toContain("rewrite auth module");
     expect(frame).toContain("update dashboard layout");
@@ -584,20 +596,20 @@ describe("terminal shell renderer", () => {
     expect(first.leftTree.find((row) => row.taskId === task.id)?.activity).toBe("working");
     expect(first.tabs.find((tab) => tab.id === task.ptyTabs[0]!.id)?.activity).toBe("working");
     expect(first.tabs.find((tab) => tab.id === task.ptyTabs[1]!.id)?.activity).toBe("ready");
-    expect(renderMainShellFrame(MIN_VIEWPORT, first, { color: false })).toContain("▸ ● observe agents");
-    expect(renderMainShellFrame(MIN_VIEWPORT, first, { color: false })).toContain("CODEX ●");
-    expect(renderMainShellFrame(MIN_VIEWPORT, first, { color: true })).toContain("38;2;61;89;161");
-    expect(renderMainShellFrame(MIN_VIEWPORT, bright, { color: true })).toContain("38;2;122;162;247");
+    expect(renderMainShellFrame(MIN_VIEWPORT, first, { panelPolish: false, color: false })).toContain("▸ ● observe agents");
+    expect(renderMainShellFrame(MIN_VIEWPORT, first, { panelPolish: false, color: false })).toContain("CODEX ●");
+    expect(renderMainShellFrame(MIN_VIEWPORT, first, { panelPolish: false, color: true })).toContain("38;2;61;89;161");
+    expect(renderMainShellFrame(MIN_VIEWPORT, bright, { panelPolish: false, color: true })).toContain("38;2;122;162;247");
 
     const ready = { snapshots, now: 20_000, animationFrame: 0 };
     const unread = buildShellData(state, model, ready);
-    expect(renderMainShellFrame(MIN_VIEWPORT, unread, { color: false })).toContain("▸ ● observe agents");
+    expect(renderMainShellFrame(MIN_VIEWPORT, unread, { panelPolish: false, color: false })).toContain("▸ ● observe agents");
     const partlyRead = { ...state, readAgentActivityAt: { [snapshots[0]!.tabId]: snapshots[0]!.lastActivityAt } };
     const partial = buildShellData(partlyRead, model, ready);
     expect(partial.leftTree.find((row) => row.taskId === task.id)?.unread).toBe(true);
     expect(partial.tabs.filter((tab) => tab.activity).map((tab) => tab.unread)).toEqual([false, true]);
     const allRead = buildShellData({ ...state, readAgentActivityAt: Object.fromEntries(snapshots.map((entry) => [entry.tabId, entry.lastActivityAt])) }, model, ready);
-    const readFrame = renderMainShellFrame(MIN_VIEWPORT, allRead, { color: false });
+    const readFrame = renderMainShellFrame(MIN_VIEWPORT, allRead, { panelPolish: false, color: false });
     expect(readFrame).toContain("▸ ● observe agents");
     expect(readFrame).toContain("CODEX ●");
     expect(allRead.leftTree.find((row) => row.taskId === task.id)?.unread).toBe(false);
@@ -750,7 +762,7 @@ describe("terminal shell renderer", () => {
       },
     );
 
-    const frame = renderMainShellFrame(MIN_VIEWPORT, data, { color: false });
+    const frame = renderMainShellFrame(MIN_VIEWPORT, data, { panelPolish: false, color: false });
 
     expect(data.footerText).toBe("n new task   Tab tasks   Esc pause   ? help");
     expect(data.tabs).toEqual([{ id: "empty", label: "EMPTY", active: true, focused: true }]);
@@ -788,7 +800,7 @@ describe("terminal shell renderer", () => {
       },
     );
 
-    const frame = renderMainShellFrame(MIN_VIEWPORT, data, { color: false });
+    const frame = renderMainShellFrame(MIN_VIEWPORT, data, { panelPolish: false, color: false });
 
     expect(frame).toContain("FILES");
     expect(frame).toContain("src/app.ts");
@@ -824,7 +836,7 @@ describe("terminal shell renderer", () => {
       },
     );
 
-    const frame = renderMainShellFrame(MIN_VIEWPORT, data, { color: false });
+    const frame = renderMainShellFrame(MIN_VIEWPORT, data, { panelPolish: false, color: false });
 
     expect(frame).not.toContain("  1 │ export const app = true;");
     expect(frame).toContain("  3 │ export function run()");
@@ -855,7 +867,7 @@ describe("terminal shell renderer", () => {
       },
     );
 
-    const frame = renderMainShellFrame(MIN_VIEWPORT, data, { color: true });
+    const frame = renderMainShellFrame(MIN_VIEWPORT, data, { panelPolish: false, color: true });
 
     expect(frame).toContain("\u001B[38;2;157;124;216;48;2;10;10;10mexport");
     expect(frame).toContain("\u001B[38;2;59;66;97;48;2;10;10;10m  1");
@@ -887,7 +899,7 @@ describe("terminal shell renderer", () => {
       },
     );
 
-    const frame = renderMainShellFrame(MIN_VIEWPORT, data, { color: false });
+    const frame = renderMainShellFrame(MIN_VIEWPORT, data, { panelPolish: false, color: false });
     expect(frame).toContain("FILES  REVIEW");
     expect(frame).toContain("STAGED");
     expect(frame).toContain("UNSTAGED");
@@ -924,7 +936,7 @@ describe("terminal shell renderer", () => {
       },
     );
 
-    const frame = renderMainShellFrame(MIN_VIEWPORT, data, { color: true });
+    const frame = renderMainShellFrame(MIN_VIEWPORT, data, { panelPolish: false, color: true });
 
     expect(frame).toContain("\u001B[38;2;157;124;216;48;2;42;17;17mexport");
     expect(frame).toContain("\u001B[38;2;157;124;216;48;2;16;33;15mexport");
@@ -986,7 +998,7 @@ describe("terminal shell renderer", () => {
       },
     );
 
-    const frame = renderMainShellFrame(MIN_VIEWPORT, data, { color: false });
+    const frame = renderMainShellFrame(MIN_VIEWPORT, data, { panelPolish: false, color: false });
     const reviewRows = data.rightInspection?.rows ?? [];
 
     expect(frame).toContain("FILES  REVIEW");
@@ -1012,7 +1024,7 @@ describe("terminal shell renderer", () => {
       reviewRows.findIndex((row) => row.id === "review-changes-header"),
     );
 
-    const colorFrame = renderMainShellFrame(MIN_VIEWPORT, data, { color: true });
+    const colorFrame = renderMainShellFrame(MIN_VIEWPORT, data, { panelPolish: false, color: true });
     expect(colorFrame).toContain("\u001B[38;2;224;175;104;48;2;10;10;10m●");
   });
 
@@ -1085,7 +1097,7 @@ describe("terminal shell renderer", () => {
       },
     );
 
-    const frame = renderMainShellFrame(MIN_VIEWPORT, data, { color: false });
+    const frame = renderMainShellFrame(MIN_VIEWPORT, data, { panelPolish: false, color: false });
 
     expect(frame).toContain("#42");
     expect(frame).toContain("main → agent/follow-up");
@@ -1133,7 +1145,7 @@ describe("terminal shell renderer", () => {
       inspectionMode: "review" as const,
     };
 
-    const failed = renderMainShellFrame(MIN_VIEWPORT, buildShellData(state, model), { color: false });
+    const failed = renderMainShellFrame(MIN_VIEWPORT, buildShellData(state, model), { panelPolish: false, color: false });
     const unknownTask = {
       ...baseTask,
       prs: [{
@@ -1144,7 +1156,7 @@ describe("terminal shell renderer", () => {
     const unknown = renderMainShellFrame(
       MIN_VIEWPORT,
       buildShellData(state, { ...model, tasks: [unknownTask] }),
-      { color: false },
+      { panelPolish: false, color: false },
     );
 
     expect(failed).toContain("✕ ci");
@@ -1176,12 +1188,12 @@ describe("terminal shell renderer", () => {
     const renderTask = (task: typeof baseTask) => renderMainShellFrame(
       MIN_VIEWPORT,
       buildShellData(state, { ...model, tasks: [task] }),
-      { color: false },
+      { panelPolish: false, color: false },
     );
     const renderTaskWithColor = (task: typeof baseTask) => renderMainShellFrame(
       MIN_VIEWPORT,
       buildShellData(state, { ...model, tasks: [task] }),
-      { color: true },
+      { panelPolish: false, color: true },
     );
 
     const draftTask = {
@@ -1275,7 +1287,7 @@ describe("terminal shell renderer", () => {
       },
     );
 
-    const frame = renderMainShellFrame(MIN_VIEWPORT, data, { color: true });
+    const frame = renderMainShellFrame(MIN_VIEWPORT, data, { panelPolish: false, color: true });
 
     expect(frame).toContain("merge ready · ");
     expect(frame).toContain("\u001B[38;2;158;206;106;48;2;10;10;10mreview approved");
@@ -1325,7 +1337,7 @@ describe("terminal shell renderer", () => {
     const renderTask = (task: typeof baseTask) => renderMainShellFrame(
       MIN_VIEWPORT,
       buildShellData(state, { ...model, tasks: [task] }),
-      { color: false },
+      { panelPolish: false, color: false },
     );
 
     const checksRunning = renderTask(baseTask);
@@ -1373,7 +1385,7 @@ describe("terminal shell renderer", () => {
       inspectionMode: "review" as const,
     };
 
-    const frame = renderMainShellFrame(MIN_VIEWPORT, buildShellData(state, model), { color: false });
+    const frame = renderMainShellFrame(MIN_VIEWPORT, buildShellData(state, model), { panelPolish: false, color: false });
 
     expect(frame).toContain("CRAIG  |");
     expect(frame).toContain("WORKSPACES");
@@ -1397,7 +1409,7 @@ describe("terminal shell renderer", () => {
           error: null,
         },
       }),
-      { color: false },
+      { panelPolish: false, color: false },
     );
 
     expect(frame).toContain("TERMINAL  task_20260430_02 · bug-fixes");
@@ -1422,6 +1434,7 @@ describe("terminal shell renderer", () => {
           error: null,
         },
       }),
+      { panelPolish: false },
     );
 
     expect(frame).toContain("\u001B]8;;https://x.io/17\u001B\\https://x.io/17\u001B]8;;\u001B\\.");
@@ -1451,7 +1464,7 @@ describe("terminal shell renderer", () => {
       },
     );
 
-    const frame = renderMainShellFrame(MIN_VIEWPORT, data, { color: false });
+    const frame = renderMainShellFrame(MIN_VIEWPORT, data, { panelPolish: false, color: false });
 
     expect(frame).toContain("Press Enter on the AGENT tab");
     expect(frame).not.toContain("Press Enter on the TERMINAL tab");
@@ -1497,7 +1510,7 @@ describe("terminal shell renderer", () => {
       },
     );
 
-    const frame = renderMainShellFrame(MIN_VIEWPORT, data, { color: false });
+    const frame = renderMainShellFrame(MIN_VIEWPORT, data, { panelPolish: false, color: false });
 
     expect(frame).toContain("cursor session attached");
     expect(frame).not.toContain("Press Enter to attach this PTY-backed agent session.");
@@ -1514,7 +1527,7 @@ describe("terminal shell renderer", () => {
           error: "node-pty native module did not load",
         },
       }),
-      { color: false },
+      { panelPolish: false, color: false },
     );
 
     expect(frame).toContain("terminal ▸ PTY unavailable");
@@ -1535,7 +1548,7 @@ describe("terminal shell renderer", () => {
           error: null,
         },
       }),
-      { color: true },
+      { panelPolish: false, color: true },
     );
 
     expect(frame).toContain("green");
@@ -1557,7 +1570,7 @@ describe("terminal shell renderer", () => {
           error: null,
         },
       }),
-      { color: true },
+      { panelPolish: false, color: true },
     );
 
     const promptLine = frame.split("\n").find((line) => line.includes("> prompt"));
@@ -1579,7 +1592,7 @@ describe("terminal shell renderer", () => {
           error: null,
         },
       }),
-      { color: false },
+      { panelPolish: false, color: false },
     );
 
     expect(frame).toContain("  gutter check");
@@ -1599,7 +1612,7 @@ describe("terminal shell renderer", () => {
           error: null,
         },
       }),
-      { color: false },
+      { panelPolish: false, color: false },
     );
 
     expect(frame.split("\n").every((line) => line.length <= MIN_VIEWPORT.width)).toBe(true);
@@ -1618,7 +1631,7 @@ describe("terminal shell renderer", () => {
           error: null,
         },
       }),
-      { color: false },
+      { panelPolish: false, color: false },
     );
 
     expect(frame.split("\n").every((line) => displayWidth(line) <= MIN_VIEWPORT.width)).toBe(true);
@@ -1668,7 +1681,7 @@ describe("terminal shell renderer", () => {
       },
     );
 
-    const frame = renderMainShellFrame(MIN_VIEWPORT, data, { color: false });
+    const frame = renderMainShellFrame(MIN_VIEWPORT, data, { panelPolish: false, color: false });
 
     expect(frame).toContain("WORKSPACES");
     expect(frame).toContain("≡ projects");
@@ -1753,7 +1766,7 @@ describe("terminal shell renderer", () => {
       },
     );
 
-    const frame = renderMainShellFrame(MIN_VIEWPORT, data, { color: false });
+    const frame = renderMainShellFrame(MIN_VIEWPORT, data, { panelPolish: false, color: false });
     const taskRow = data.leftTree.find((row) => row.taskId === "task_proj_01");
     const modeRow = data.rightInspection?.rows.find((row) => row.id === "inspection-mode");
     const reviewRows = data.rightInspection?.rows ?? [];
@@ -1822,7 +1835,7 @@ describe("terminal shell renderer", () => {
       },
     );
 
-    const frame = renderMainShellFrame(MIN_VIEWPORT, data, { color: false });
+    const frame = renderMainShellFrame(MIN_VIEWPORT, data, { panelPolish: false, color: false });
     const reviewRows = data.rightInspection?.rows ?? [];
 
     expect(reviewRows.some((row) => row.id === "project-review:repo_alpha")).toBe(true);
@@ -1900,7 +1913,7 @@ describe("terminal shell renderer", () => {
       },
     );
 
-    const frame = renderMainShellFrame(MIN_VIEWPORT, data, { color: false });
+    const frame = renderMainShellFrame(MIN_VIEWPORT, data, { panelPolish: false, color: false });
     const taskRow = data.leftTree.find((row) => row.taskId === "task_proj_01");
     const modeRow = data.rightInspection?.rows.find((row) => row.id === "inspection-mode");
 
@@ -1924,7 +1937,7 @@ describe("terminal shell renderer", () => {
           error: null,
         },
       }),
-      { color: true },
+      { panelPolish: false, color: true },
     );
 
     const promptLine = frame

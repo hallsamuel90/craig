@@ -19,7 +19,7 @@ export function buildCenterPaneUpdate(
   previous: RenderedRegion,
   centerOnly: boolean,
   terminalRowIndices: readonly number[] | null = null,
-  panelPolish = false,
+  panelPolish = true,
 ): CenterPaneUpdate | null {
   if (terminalRowIndices) {
     return buildTerminalRowUpdate(viewport, data, previous, centerOnly, terminalRowIndices, panelPolish);

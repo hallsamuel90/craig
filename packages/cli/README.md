@@ -32,6 +32,8 @@ Craig gives every task its own Git branch, isolated worktree, and live PTY, then
 
 Bring the agent CLIs you already use—Claude Code, Codex, or Cursor. Craig is not another coding agent; it is the heads-up display and controls around them.
 
+The paneled terminal UI is enabled by default, including framed panes, integrated tabs, a compact workspace sidebar, and live summaries on the start and pause menus. No Panel polish preview toggle is required.
+
 _It's like a game, except the PRs are real._
 
 ## Why Craig?
