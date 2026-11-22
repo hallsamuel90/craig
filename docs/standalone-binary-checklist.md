@@ -33,6 +33,9 @@ The final PR and merged-main binary workflows subsequently passed, including 845
 source tests and the stronger smoke. Downloaded CI resources matched local payload
 identity. A read-only actual Codex probe passed cwd, follow-up input and resize on
 this Mac; clean-machine and full real-account workflow qualification remain open.
+The exact 0.22.0 main development artifact subsequently passed hosted binary CI,
+downloaded-artifact audit and the same actual Codex probe. Its npm publish remains
+failed; signing/notarization and clean-machine gates remain unverified.
 
 ## Next resume point
 

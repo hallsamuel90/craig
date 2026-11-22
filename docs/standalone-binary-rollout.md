@@ -118,5 +118,10 @@ was visibly wrapped across rows; it was not evidence of missing agent input.
   credential in GitHub; no token was read, replaced or printed, and no publish retry
   was requested.
 - [0.22.0 binary qualification](https://github.com/hallsamuel90/craig/actions/runs/45082950134)
-  was started from main. No binary upload to GitHub Releases or tap publication is
+  **passed** from main at a436ff8, including all gates, standalone smoke and
+  development artifact upload. The downloaded 0.22.0 archive passed a separate
+  local audit. Repeating the actual authenticated Codex probe against this exact
+  candidate also passed worktree cwd, follow-up input and resize with external
+  runtimes blocked. It remains ad-hoc signed and not notarized; npm publication is
+  still blocked as above. No binary upload to GitHub Releases or tap publication is
   enabled. Signing identity/account and a clean Mac test host are still required.

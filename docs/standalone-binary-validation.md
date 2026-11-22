@@ -17,6 +17,9 @@ authenticated Codex probe passed cwd, follow-up input and resize. The normal
 Changesets release of 0.22.0 subsequently failed npm publication with E404; it is
 not a released binary. Exact evidence and remaining qualification are in the
 rollout record. The earlier local baseline failures remain recorded.
+The exact 0.22.0 development artifact then passed hosted binary CI, a separate
+downloaded-artifact audit and the same real Codex probe. This does not resolve the
+npm publishing failure or signing/notarization and clean-machine qualification.
 
 ## Delivered
 
