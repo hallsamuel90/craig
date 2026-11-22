@@ -2,8 +2,9 @@
 
 Started 2026-11-22. [Draft PR #316](https://github.com/hallsamuel90/craig/pull/316)
 contains the preserved spike and implementation, merged with current `main`.
-No binary publisher or tap writer is enabled. Merging to `main` still invokes the
-existing npm release workflow; assess that separately before merging.
+PR #316 is now merged as f5dbba2. No binary publisher or tap writer is enabled.
+Merging to `main` invokes the existing npm release workflow; see the post-merge
+results below.
 
 ## Qualification in progress
 
@@ -11,7 +12,8 @@ existing npm release workflow; assess that separately before merging.
   It runs all release gates and uploads development Actions artifacts only.
 - The November 13 Fury review expired without approval. Its verify evidence remains
   in [the validation report](standalone-binary-validation.md); PR human review is
-  still required. No checkpoint has been approved by an agent.
+  was supplied through the user's instruction to merge PR #316. The expired Fury
+  checkpoint itself has not been approved by an agent.
 - This Mac has no valid code-signing identities. Actual Developer ID credentials,
   notarization and downloaded/quarantined execution remain outstanding.
 - Local and hosted test results from this rollout must supplement, rather than
@@ -78,3 +80,43 @@ The strengthened local smoke passed after waiting for terminal mode, stripping A
 styling before matching text, and keeping the task-specific input acknowledgement
 short enough to fit the actual 44-column agent pane. The longer acknowledgement
 was visibly wrapped across rows; it was not evidence of missing agent input.
+
+## Post-merge qualification
+
+- [Final PR binary CI](https://github.com/hallsamuel90/craig/actions/runs/45055212148)
+  and [standard CI](https://github.com/hallsamuel90/craig/actions/runs/45055212153)
+  passed at 36189e9: 845 source tests, all seven release gates, 16 focused binary
+  tests, standalone build/audit/smoke and offline distribution preparation.
+- The downloaded CI archive passed a separate local audit. Its canonical payload
+  identity matched the local build across hosts and checkout locations:
+  `98a3fc24af5e0cbc1266286f98c5e14c7068824a9730c38ea8b948bd753d701f`.
+- [Merged-main binary CI](https://github.com/hallsamuel90/craig/actions/runs/45082467410)
+  passed at f5dbba2. These development artifacts remain ad-hoc signed and not notarized.
+- A local read-only probe of the downloaded 0.21.0 development executable used
+  **actual authenticated Codex 0.165.0**, a temporary repository, fresh HOME and
+  blocked external Node/npm/Bun. The native Codex runner used a temporary copy of
+  existing login credentials, removed during cleanup. It executed the initial
+  prompt, and its own session metadata confirmed the exact task worktree cwd.
+  After resizing the TUI, a follow-up prompt received the expected model response.
+  This is real-runner evidence on a development Mac, not a clean-machine test or
+  qualification of every daemon/upgrade workflow with real accounts.
+- The first probe could not compare a full cwd rendered across pane rows; the
+  corrected probe checked actual Codex session metadata. Sending pasted text and
+  Enter together also left a visible, unsubmitted Codex prompt; waiting for the
+  rendered text before sending Enter passed. Cleanup now waits for daemon exit.
+  These diagnostic corrections did not change Craig production code.
+- The existing release workflow automatically created and merged version PR #317,
+  producing 0.22.0 at a436ff8. No package version was edited manually.
+  [Its release run](https://github.com/hallsamuel90/craig/actions/runs/45082755162)
+  passed all build/test gates but **npm publication failed with E404**. The registry
+  still reports 0.21.0 as latest; GitHub release creation was skipped.
+- `NPM_TOKEN` secret metadata reports last update on August 21, more than 90 days
+  before this attempt. npm limits write tokens to
+  [90 days](https://api-docs.npmjs.com/). Expiry is the leading explanation, not a
+  verified inspection of the secret's expiry. The package name/public access and
+  publisher configuration remain unchanged. A maintainer must verify or renew the
+  credential in GitHub; no token was read, replaced or printed, and no publish retry
+  was requested.
+- [0.22.0 binary qualification](https://github.com/hallsamuel90/craig/actions/runs/45082950134)
+  was started from main. No binary upload to GitHub Releases or tap publication is
+  enabled. Signing identity/account and a clean Mac test host are still required.

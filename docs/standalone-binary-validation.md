@@ -11,6 +11,13 @@ The green results below are dated November 13 evidence, not the current release
 gate status. See the [rollout record](standalone-binary-rollout.md) for current
 failures and hosted qualification.
 
+Post-merge update: the final PR and merged-main hosted binary workflows passed.
+A downloaded-artifact audit matched local payload identity, and an actual local
+authenticated Codex probe passed cwd, follow-up input and resize. The normal
+Changesets release of 0.22.0 subsequently failed npm publication with E404; it is
+not a released binary. Exact evidence and remaining qualification are in the
+rollout record. The earlier local baseline failures remain recorded.
+
 ## Delivered
 
 - Pinned, checksummed official Node distribution and isolated native rebuild;

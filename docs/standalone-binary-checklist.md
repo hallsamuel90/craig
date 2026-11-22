@@ -12,8 +12,9 @@ audit corrections and the observed earlier test retry
 are recorded in [standalone-binary-validation.md](standalone-binary-validation.md);
 commands and operational policy are in [standalone-binary-build.md](standalone-binary-build.md).
 The spike files remain intact, and publishing remains disabled.
-November 22: draft PR #316 is open with current `main` merged; hosted qualification
-is in progress. The expired Fury review has not been approved.
+November 22: PR #316 was merged on the user's instruction after hosted qualification.
+The expired Fury review itself has not been approved by an agent. Changesets then
+produced 0.22.0 through PR #317; npm publication failed and needs credential review.
 
 ## Verification summary
 
@@ -28,20 +29,25 @@ These counts describe the November 13 audit. The November 22 local rerun passed
 842/845 source tests with three daemon failures and an unhandled rejection; current
 release gates are not all green. Other local gates and updated binary smoke passed.
 See the rollout record for investigation and hosted results.
+The final PR and merged-main binary workflows subsequently passed, including 845
+source tests and the stronger smoke. Downloaded CI resources matched local payload
+identity. A read-only actual Codex probe passed cwd, follow-up input and resize on
+this Mac; clean-machine and full real-account workflow qualification remain open.
 
 ## Next resume point
 
-The November 13 Fury human-review checkpoint timed out without approval. Review
-[draft PR #316](https://github.com/hallsamuel90/craig/pull/316) and the validation
-report; current qualification is tracked in the
-[rollout plan](standalone-binary-rollout.md).
+The November 13 Fury human-review checkpoint timed out without approval; the user
+later authorized merging [PR #316](https://github.com/hallsamuel90/craig/pull/316).
+Next: verify/renew npm publishing credentials, obtain Developer ID/notarization
+inputs and a clean Mac test host, and qualify the exact 0.22.0 candidate. Current
+evidence and failed release details are in the [rollout plan](standalone-binary-rollout.md).
 Do not interpret checked implementation items below as completed external tests:
 
-- [ ] Run the new workflow on hosted macOS ARM64 CI with its pinned Apple tools.
+- [x] Run the new workflow on hosted macOS ARM64 CI with its pinned Apple tools.
 - [ ] Qualify real Codex/gh, clean-machine use and actual executable upgrades.
 - [ ] Qualify Developer ID, notarization, quarantine and offline ticket delivery.
 - [ ] Validate a real Homebrew install/upgrade after a separately authorized release.
-- [ ] Obtain the human Fury review decision before any publication follow-up.
+- [x] Obtain human implementation review before publication follow-up (user authorized PR #316 merge; expired Fury checkpoint unchanged).
 
 Target **macOS ARM64, Node 26 direct SEA builder, extracted resources**. Keep
 `node-pty` 0.10.1 and the current terminal stack; rebuild the addon for the embedded
