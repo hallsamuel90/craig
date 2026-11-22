@@ -1,5 +1,12 @@
 # craig-cli
 
+## 0.22.1
+
+### Patch Changes
+
+- 7a77854: Add the opt-in Ghostty terminal preview for newly created sessions. Bundle the verified terminal library for offline use while preserving existing running sessions when the preview is toggled. Stop queued replies when a terminal is disposed from its reply callback.
+- 7a77854: Clean up terminal resources when a task's PTY fails to start or its backend fails while processing output.
+
 ## 0.22.0
 
 ### Minor Changes
