@@ -1,0 +1,55 @@
+name: Standalone binary (development artifacts only)
+
+on:
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - "src/**"
+      - "scripts/binary/**"
+      - "tests/**"
+      - "packaging/**"
+      - "package.json"
+      - "packages/cli/package.json"
+      - "pnpm-lock.yaml"
+      - ".github/workflows/binary-build.yml"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: standalone-binary-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  macos-arm64:
+    runs-on: macos-26
+    timeout-minutes: 30
+    env:
+      DEVELOPER_DIR: /Applications/Xcode_26.2.app/Contents/Developer
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24.12.0
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm test
+      - run: pnpm typecheck
+      - run: pnpm lint
+      - run: pnpm build
+      - run: pnpm build:npm
+      - run: pnpm package:audit
+      - run: pnpm package:smoke
+      - run: pnpm binary:test
+      - run: pnpm build:binary
+      - run: pnpm binary:audit
+      - run: pnpm binary:smoke
+      - run: pnpm binary:release:prepare
+      - uses: actions/upload-artifact@v4
+        with:
+          name: craig-darwin-arm64-development
+          path: dist/binary/
+          if-no-files-found: error
+          retention-days: 14
+# No release uploads, tap writes, signing credentials or publication triggers.

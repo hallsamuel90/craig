@@ -1,0 +1,26 @@
+# Draft for a future user-maintained tap. Generated locally; not published.
+class Craig < Formula
+  desc "Local control plane for coding agents"
+  homepage "https://craig-cli.com"
+  version "@VERSION@"
+  url "@URL@"
+  sha256 "@SHA256@"
+  license "MIT"
+
+  depends_on :macos
+  # Embedded Node has a 13.5 deployment minimum; avoid unsupported earlier Macs.
+  # Use a conservative major-version bound until older hosts are qualified.
+  on_macos do
+    depends_on macos: :sonoma
+  end
+  depends_on arch: :arm64
+
+  def install
+    bin.install "craig"
+    prefix.install "LICENSE", "THIRD_PARTY_NOTICES"
+  end
+
+  test do
+    assert_match "Craig commands", shell_output("#{bin}/craig --help")
+  end
+end

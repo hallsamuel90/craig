@@ -1,0 +1,582 @@
+[
+  {
+    "name": "@xterm/headless",
+    "version": "6.0.0",
+    "parent": ".",
+    "path": "node_modules/@xterm/headless",
+    "files": [
+      "lib-headless/xterm-headless.js",
+      "lib-headless/xterm-headless.mjs",
+      "package.json"
+    ]
+  },
+  {
+    "name": "node-pty",
+    "version": "0.10.1",
+    "parent": ".",
+    "path": "node_modules/node-pty",
+    "files": [
+      "LICENSE",
+      "lib/eventEmitter2.js",
+      "lib/index.js",
+      "lib/interfaces.js",
+      "lib/terminal.js",
+      "lib/types.js",
+      "lib/unixTerminal.js",
+      "lib/utils.js",
+      "package.json"
+    ]
+  },
+  {
+    "name": "picocolors",
+    "version": "1.1.1",
+    "parent": ".",
+    "path": "node_modules/picocolors",
+    "files": [
+      "LICENSE",
+      "package.json",
+      "picocolors.browser.js",
+      "picocolors.js"
+    ]
+  },
+  {
+    "name": "terminal-kit",
+    "version": "3.1.4",
+    "parent": ".",
+    "path": "node_modules/terminal-kit",
+    "files": [
+      "LICENSE",
+      "lib/Palette.js",
+      "lib/Rect.js",
+      "lib/ScreenBuffer.js",
+      "lib/ScreenBufferHD.js",
+      "lib/Terminal.js",
+      "lib/TextBuffer.js",
+      "lib/autoComplete.js",
+      "lib/bar.js",
+      "lib/browser.js",
+      "lib/colorScheme/atomic-terminal.json",
+      "lib/colorScheme/default.json",
+      "lib/colorScheme/gnome.json",
+      "lib/colorScheme/konsole.json",
+      "lib/colorScheme/linux.json",
+      "lib/colorScheme/solarized.json",
+      "lib/colorScheme/vga.json",
+      "lib/colorScheme/xfce.json",
+      "lib/colorScheme/xterm.json",
+      "lib/detectTerminal.js",
+      "lib/document/AnimatedText.js",
+      "lib/document/Bar.js",
+      "lib/document/BaseMenu.js",
+      "lib/document/Border.js",
+      "lib/document/Button.js",
+      "lib/document/ColumnMenu.js",
+      "lib/document/ColumnMenuMixed.js",
+      "lib/document/ColumnMenuMulti.js",
+      "lib/document/Container.js",
+      "lib/document/Document.js",
+      "lib/document/DropDownMenu.js",
+      "lib/document/EditableTextBox.js",
+      "lib/document/Element.js",
+      "lib/document/Form.js",
+      "lib/document/InlineFileInput.js",
+      "lib/document/InlineInput.js",
+      "lib/document/InlineMenu.js",
+      "lib/document/Inspector.js",
+      "lib/document/LabeledInput.js",
+      "lib/document/Layout.js",
+      "lib/document/RowMenu.js",
+      "lib/document/SelectList.js",
+      "lib/document/SelectListMulti.js",
+      "lib/document/Slider.js",
+      "lib/document/Text.js",
+      "lib/document/TextBox.js",
+      "lib/document/TextTable.js",
+      "lib/document/ToggleButton.js",
+      "lib/document/Window.js",
+      "lib/extClipboard.js",
+      "lib/fileHelpers.js",
+      "lib/fileInput.js",
+      "lib/gpm.js",
+      "lib/gridMenu.js",
+      "lib/image.js",
+      "lib/inputField.js",
+      "lib/misc.js",
+      "lib/patches.js",
+      "lib/progressBar.js",
+      "lib/singleColumnMenu.js",
+      "lib/singleLineMenu.js",
+      "lib/slowTyping.js",
+      "lib/spChars.js",
+      "lib/termconfig/atomic-terminal.js",
+      "lib/termconfig/eterm-256color.js",
+      "lib/termconfig/eterm.js",
+      "lib/termconfig/gnome-256color.js",
+      "lib/termconfig/gnome.js",
+      "lib/termconfig/kitty.js",
+      "lib/termconfig/konsole-256color.js",
+      "lib/termconfig/konsole.js",
+      "lib/termconfig/linux.js",
+      "lib/termconfig/none.js",
+      "lib/termconfig/osx-256color.js",
+      "lib/termconfig/rxvt-256color.js",
+      "lib/termconfig/rxvt.js",
+      "lib/termconfig/termux.js",
+      "lib/termconfig/xfce.js",
+      "lib/termconfig/xterm-256color.generic.js",
+      "lib/termconfig/xterm-256color.js",
+      "lib/termconfig/xterm-truecolor.generic.js",
+      "lib/termconfig/xterm-truecolor.js",
+      "lib/termconfig/xterm.generic.js",
+      "lib/termconfig/xterm.js",
+      "lib/terminfo/boolean-opts.json",
+      "lib/terminfo/number-opts.json",
+      "lib/terminfo/string-opts.json",
+      "lib/terminfo/terminfo.js",
+      "lib/terminfo/windows-profile.json",
+      "lib/termkit-no-lazy-require.js",
+      "lib/termkit.js",
+      "lib/tty.js",
+      "lib/vte/SequencesReader.js",
+      "lib/vte/Vte.js",
+      "lib/vte/fromOutputSequence.js",
+      "lib/vte/toInputSequence.js",
+      "lib/windows.js",
+      "lib/yesOrNo.js",
+      "package.json"
+    ]
+  },
+  {
+    "name": "@cronvel/get-pixels",
+    "version": "3.4.1",
+    "parent": "node_modules/terminal-kit",
+    "path": "node_modules/terminal-kit/node_modules/@cronvel/get-pixels",
+    "files": [
+      "LICENSE",
+      "node-pixels.js",
+      "package.json"
+    ]
+  },
+  {
+    "name": "jpeg-js",
+    "version": "0.4.4",
+    "parent": "node_modules/terminal-kit/node_modules/@cronvel/get-pixels",
+    "path": "node_modules/terminal-kit/node_modules/@cronvel/get-pixels/node_modules/jpeg-js",
+    "files": [
+      "LICENSE",
+      "index.js",
+      "lib/decoder.js",
+      "lib/encoder.js",
+      "package.json"
+    ]
+  },
+  {
+    "name": "ndarray",
+    "version": "1.0.19",
+    "parent": "node_modules/terminal-kit/node_modules/@cronvel/get-pixels",
+    "path": "node_modules/terminal-kit/node_modules/@cronvel/get-pixels/node_modules/ndarray",
+    "files": [
+      "LICENSE",
+      "ndarray.js",
+      "package.json"
+    ]
+  },
+  {
+    "name": "iota-array",
+    "version": "1.0.0",
+    "parent": "node_modules/terminal-kit/node_modules/@cronvel/get-pixels/node_modules/ndarray",
+    "path": "node_modules/terminal-kit/node_modules/@cronvel/get-pixels/node_modules/ndarray/node_modules/iota-array",
+    "files": [
+      "LICENSE",
+      "iota.js",
+      "package.json"
+    ]
+  },
+  {
+    "name": "is-buffer",
+    "version": "1.1.6",
+    "parent": "node_modules/terminal-kit/node_modules/@cronvel/get-pixels/node_modules/ndarray",
+    "path": "node_modules/terminal-kit/node_modules/@cronvel/get-pixels/node_modules/ndarray/node_modules/is-buffer",
+    "files": [
+      "LICENSE",
+      "index.js",
+      "package.json"
+    ]
+  },
+  {
+    "name": "ndarray-pack",
+    "version": "1.2.1",
+    "parent": "node_modules/terminal-kit/node_modules/@cronvel/get-pixels",
+    "path": "node_modules/terminal-kit/node_modules/@cronvel/get-pixels/node_modules/ndarray-pack",
+    "files": [
+      "LICENSE",
+      "build.js",
+      "convert.js",
+      "doConvert.js",
+      "package.json"
+    ]
+  },
+  {
+    "name": "cwise-compiler",
+    "version": "1.1.3",
+    "parent": "node_modules/terminal-kit/node_modules/@cronvel/get-pixels/node_modules/ndarray-pack",
+    "path": "node_modules/terminal-kit/node_modules/@cronvel/get-pixels/node_modules/ndarray-pack/node_modules/cwise-compiler",
+    "files": [
+      "LICENSE",
+      "compiler.js",
+      "lib/compile.js",
+      "lib/thunk.js",
+      "package.json"
+    ]
+  },
+  {
+    "name": "uniq",
+    "version": "1.0.1",
+    "parent": "node_modules/terminal-kit/node_modules/@cronvel/get-pixels/node_modules/ndarray-pack/node_modules/cwise-compiler",
+    "path": "node_modules/terminal-kit/node_modules/@cronvel/get-pixels/node_modules/ndarray-pack/node_modules/cwise-compiler/node_modules/uniq",
+    "files": [
+      "LICENSE",
+      "package.json",
+      "uniq.js"
+    ]
+  },
+  {
+    "name": "ndarray",
+    "version": "1.0.19",
+    "parent": "node_modules/terminal-kit/node_modules/@cronvel/get-pixels/node_modules/ndarray-pack",
+    "path": "node_modules/terminal-kit/node_modules/@cronvel/get-pixels/node_modules/ndarray-pack/node_modules/ndarray",
+    "files": [
+      "LICENSE",
+      "ndarray.js",
+      "package.json"
+    ]
+  },
+  {
+    "name": "iota-array",
+    "version": "1.0.0",
+    "parent": "node_modules/terminal-kit/node_modules/@cronvel/get-pixels/node_modules/ndarray-pack/node_modules/ndarray",
+    "path": "node_modules/terminal-kit/node_modules/@cronvel/get-pixels/node_modules/ndarray-pack/node_modules/ndarray/node_modules/iota-array",
+    "files": [
+      "LICENSE",
+      "iota.js",
+      "package.json"
+    ]
+  },
+  {
+    "name": "is-buffer",
+    "version": "1.1.6",
+    "parent": "node_modules/terminal-kit/node_modules/@cronvel/get-pixels/node_modules/ndarray-pack/node_modules/ndarray",
+    "path": "node_modules/terminal-kit/node_modules/@cronvel/get-pixels/node_modules/ndarray-pack/node_modules/ndarray/node_modules/is-buffer",
+    "files": [
+      "LICENSE",
+      "index.js",
+      "package.json"
+    ]
+  },
+  {
+    "name": "node-bitmap",
+    "version": "0.0.1",
+    "parent": "node_modules/terminal-kit/node_modules/@cronvel/get-pixels",
+    "path": "node_modules/terminal-kit/node_modules/@cronvel/get-pixels/node_modules/node-bitmap",
+    "files": [
+      "index.js",
+      "lib/bitmap.js",
+      "package.json"
+    ]
+  },
+  {
+    "name": "omggif",
+    "version": "1.0.10",
+    "parent": "node_modules/terminal-kit/node_modules/@cronvel/get-pixels",
+    "path": "node_modules/terminal-kit/node_modules/@cronvel/get-pixels/node_modules/omggif",
+    "files": [
+      "omggif.js",
+      "package.json"
+    ]
+  },
+  {
+    "name": "pngjs",
+    "version": "6.0.0",
+    "parent": "node_modules/terminal-kit/node_modules/@cronvel/get-pixels",
+    "path": "node_modules/terminal-kit/node_modules/@cronvel/get-pixels/node_modules/pngjs",
+    "files": [
+      "LICENSE",
+      "browser.js",
+      "lib/bitmapper.js",
+      "lib/bitpacker.js",
+      "lib/chunkstream.js",
+      "lib/constants.js",
+      "lib/crc.js",
+      "lib/filter-pack.js",
+      "lib/filter-parse-async.js",
+      "lib/filter-parse-sync.js",
+      "lib/filter-parse.js",
+      "lib/format-normaliser.js",
+      "lib/interlace.js",
+      "lib/packer-async.js",
+      "lib/packer-sync.js",
+      "lib/packer.js",
+      "lib/paeth-predictor.js",
+      "lib/parser-async.js",
+      "lib/parser-sync.js",
+      "lib/parser.js",
+      "lib/png-sync.js",
+      "lib/png.js",
+      "lib/sync-inflate.js",
+      "lib/sync-reader.js",
+      "package.json"
+    ]
+  },
+  {
+    "name": "chroma-js",
+    "version": "2.6.0",
+    "parent": "node_modules/terminal-kit",
+    "path": "node_modules/terminal-kit/node_modules/chroma-js",
+    "files": [
+      "LICENSE",
+      "dist/chroma-light.cjs",
+      "dist/chroma-light.min.cjs",
+      "dist/chroma.cjs",
+      "dist/chroma.min.cjs",
+      "index-light.js",
+      "index.js",
+      "package.json",
+      "src/Color.js",
+      "src/chroma.js",
+      "src/colors/colorbrewer.js",
+      "src/colors/w3cx11.js",
+      "src/generator/average.js",
+      "src/generator/bezier.js",
+      "src/generator/blend.js",
+      "src/generator/cubehelix.js",
+      "src/generator/mix.js",
+      "src/generator/random.js",
+      "src/generator/scale.js",
+      "src/interpolator/_hsx.js",
+      "src/interpolator/hcg.js",
+      "src/interpolator/hsi.js",
+      "src/interpolator/hsl.js",
+      "src/interpolator/hsv.js",
+      "src/interpolator/index.js",
+      "src/interpolator/lab.js",
+      "src/interpolator/lch.js",
+      "src/interpolator/lrgb.js",
+      "src/interpolator/num.js",
+      "src/interpolator/oklab.js",
+      "src/interpolator/oklch.js",
+      "src/interpolator/rgb.js",
+      "src/io/cmyk/cmyk2rgb.js",
+      "src/io/cmyk/index.js",
+      "src/io/cmyk/rgb2cmyk.js",
+      "src/io/css/css2rgb.js",
+      "src/io/css/hsl2css.js",
+      "src/io/css/index.js",
+      "src/io/css/rgb2css.js",
+      "src/io/gl/index.js",
+      "src/io/hcg/hcg2rgb.js",
+      "src/io/hcg/index.js",
+      "src/io/hcg/rgb2hcg.js",
+      "src/io/hex/hex2rgb.js",
+      "src/io/hex/index.js",
+      "src/io/hex/rgb2hex.js",
+      "src/io/hsi/hsi2rgb.js",
+      "src/io/hsi/index.js",
+      "src/io/hsi/rgb2hsi.js",
+      "src/io/hsl/hsl2rgb.js",
+      "src/io/hsl/index.js",
+      "src/io/hsl/rgb2hsl.js",
+      "src/io/hsv/hsv2rgb.js",
+      "src/io/hsv/index.js",
+      "src/io/hsv/rgb2hsv.js",
+      "src/io/input.js",
+      "src/io/lab/index.js",
+      "src/io/lab/lab-constants.js",
+      "src/io/lab/lab2rgb.js",
+      "src/io/lab/rgb2lab.js",
+      "src/io/lch/hcl2rgb.js",
+      "src/io/lch/index.js",
+      "src/io/lch/lab2lch.js",
+      "src/io/lch/lch2lab.js",
+      "src/io/lch/lch2rgb.js",
+      "src/io/lch/rgb2lch.js",
+      "src/io/named/index.js",
+      "src/io/num/index.js",
+      "src/io/num/num2rgb.js",
+      "src/io/num/rgb2num.js",
+      "src/io/oklab/index.js",
+      "src/io/oklab/oklab2rgb.js",
+      "src/io/oklab/rgb2oklab.js",
+      "src/io/oklch/index.js",
+      "src/io/oklch/oklch2rgb.js",
+      "src/io/oklch/rgb2oklch.js",
+      "src/io/rgb/index.js",
+      "src/io/temp/index.js",
+      "src/io/temp/rgb2temperature.js",
+      "src/io/temp/temperature2rgb.js",
+      "src/ops/alpha.js",
+      "src/ops/clipped.js",
+      "src/ops/darken.js",
+      "src/ops/get.js",
+      "src/ops/luminance.js",
+      "src/ops/mix.js",
+      "src/ops/premultiply.js",
+      "src/ops/saturate.js",
+      "src/ops/set.js",
+      "src/ops/shade.js",
+      "src/utils/analyze.js",
+      "src/utils/clip_rgb.js",
+      "src/utils/contrast.js",
+      "src/utils/delta-e.js",
+      "src/utils/distance.js",
+      "src/utils/index.js",
+      "src/utils/last.js",
+      "src/utils/limit.js",
+      "src/utils/scales.js",
+      "src/utils/type.js",
+      "src/utils/unpack.js",
+      "src/utils/valid.js",
+      "src/version.js"
+    ]
+  },
+  {
+    "name": "lazyness",
+    "version": "1.2.0",
+    "parent": "node_modules/terminal-kit",
+    "path": "node_modules/terminal-kit/node_modules/lazyness",
+    "files": [
+      "LICENSE",
+      "lib/Lazyness.js",
+      "package.json"
+    ]
+  },
+  {
+    "name": "ndarray",
+    "version": "1.0.19",
+    "parent": "node_modules/terminal-kit",
+    "path": "node_modules/terminal-kit/node_modules/ndarray",
+    "files": [
+      "LICENSE",
+      "ndarray.js",
+      "package.json"
+    ]
+  },
+  {
+    "name": "iota-array",
+    "version": "1.0.0",
+    "parent": "node_modules/terminal-kit/node_modules/ndarray",
+    "path": "node_modules/terminal-kit/node_modules/ndarray/node_modules/iota-array",
+    "files": [
+      "LICENSE",
+      "iota.js",
+      "package.json"
+    ]
+  },
+  {
+    "name": "is-buffer",
+    "version": "1.1.6",
+    "parent": "node_modules/terminal-kit/node_modules/ndarray",
+    "path": "node_modules/terminal-kit/node_modules/ndarray/node_modules/is-buffer",
+    "files": [
+      "LICENSE",
+      "index.js",
+      "package.json"
+    ]
+  },
+  {
+    "name": "nextgen-events",
+    "version": "1.5.3",
+    "parent": "node_modules/terminal-kit",
+    "path": "node_modules/terminal-kit/node_modules/nextgen-events",
+    "files": [
+      "LICENSE",
+      "lib/LeanEvents.js",
+      "lib/NextGenEvents.js",
+      "lib/Proxy.js",
+      "lib/browser.js",
+      "package.json"
+    ]
+  },
+  {
+    "name": "seventh",
+    "version": "0.9.4",
+    "parent": "node_modules/terminal-kit",
+    "path": "node_modules/terminal-kit/node_modules/seventh",
+    "files": [
+      "LICENSE",
+      "lib/Queue.js",
+      "lib/api.js",
+      "lib/batch.js",
+      "lib/core.js",
+      "lib/decorators.js",
+      "lib/misc.js",
+      "lib/parasite.js",
+      "lib/seventh.js",
+      "lib/wrapper.js",
+      "package.json"
+    ]
+  },
+  {
+    "name": "setimmediate",
+    "version": "1.0.5",
+    "parent": "node_modules/terminal-kit/node_modules/seventh",
+    "path": "node_modules/terminal-kit/node_modules/seventh/node_modules/setimmediate",
+    "files": [
+      "LICENSE.txt",
+      "package.json",
+      "setImmediate.js"
+    ]
+  },
+  {
+    "name": "string-kit",
+    "version": "0.19.5",
+    "parent": "node_modules/terminal-kit",
+    "path": "node_modules/terminal-kit/node_modules/string-kit",
+    "files": [
+      "LICENSE",
+      "lib/StringNumber.js",
+      "lib/ansi.js",
+      "lib/camel.js",
+      "lib/emoji.js",
+      "lib/english.js",
+      "lib/escape.js",
+      "lib/format.js",
+      "lib/fuzzy.js",
+      "lib/inspect.js",
+      "lib/json-data/emoji-canonical-name-to-char.json",
+      "lib/json-data/emoji-char-to-canonical-name.json",
+      "lib/json-data/emoji-keyword-to-charlist.json",
+      "lib/json-data/latinize-map.json",
+      "lib/json-data/unicode-emoji-width-ranges.json",
+      "lib/latinize.js",
+      "lib/misc.js",
+      "lib/naturalSort.js",
+      "lib/regexp.js",
+      "lib/string.js",
+      "lib/toTitleCase.js",
+      "lib/unicode.js",
+      "lib/wordwrap.js",
+      "package.json"
+    ]
+  },
+  {
+    "name": "tree-kit",
+    "version": "0.8.10",
+    "parent": "node_modules/terminal-kit",
+    "path": "node_modules/terminal-kit/node_modules/tree-kit",
+    "files": [
+      "LICENSE",
+      "lib/arrayLike.js",
+      "lib/browser.js",
+      "lib/clone.js",
+      "lib/diff.js",
+      "lib/dotPath.js",
+      "lib/extend.js",
+      "lib/lazy.js",
+      "lib/mask.js",
+      "lib/path.js",
+      "lib/tree.js",
+      "lib/wildDotPath.js",
+      "package.json"
+    ]
+  }
+]
