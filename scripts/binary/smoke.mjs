@@ -121,7 +121,7 @@ try {
   const state = { selectedRepoId: repoId, selectedTaskId: taskId, selectedPtyTabId: `${taskId}:agent` };
   await mkdir(path.join(project, ".craig/runtime"), { recursive: true });
   await openShell(state);
-  await waitFor("+ new tab");
+  await waitFor("╭─ ");
   child.write("\r");
   await waitFor("binary_agent_ready");
   assert.equal((await readFile(path.join(home, `agent-${taskId}.cwd`), "utf8")).trim(), tasks.tasks[0].worktreePath);
@@ -143,7 +143,7 @@ try {
   console.log("PASS relocated TUI, daemon self-spawn, agent cwd, input and resize");
   await closeShell();
   await openShell(state);
-  await waitFor("+ new tab");
+  await waitFor("╭─ ");
   child.write("\r");
   output = "";
   child.write("probe-reattach\r");
@@ -160,7 +160,7 @@ try {
   assert.equal(nextInfo.fixture, "upgrade-test-only");
   assert.notEqual(nextInfo.payloadIdentity, info.payloadIdentity);
   await openShell(state);
-  await waitFor("+ new tab");
+  await waitFor("╭─ ");
   child.write("\r");
   output = "";
   child.write("probe-upgrade\r");
@@ -185,7 +185,7 @@ try {
   console.log("PASS atomic executable replacement, old-daemon reattach, live cache retention and cleanup after old daemon exit (two fixture builds)");
   // With the daemon gone, opening the same task must bootstrap a new daemon.
   await openShell(state);
-  await waitFor("+ new tab");
+  await waitFor("╭─ ");
   child.write("\r");
   await waitFor("binary_agent_ready");
   console.log("PASS daemon recovery after shutdown");
