@@ -1,0 +1,64 @@
+{
+  "artifact": "craig",
+  "profile": "soak",
+  "platform": "darwin-arm64",
+  "driverNode": "v24.12.0",
+  "relocated": true,
+  "cliSelfBootstrap": true,
+  "cases": [
+    {
+      "backend": "xterm",
+      "burstCycles": 40,
+      "outputLines": 1310720,
+      "pingP95Ms": 0.07766600000013568,
+      "burstToStyledSnapshotP95Ms": 1357.7684160000063,
+      "checks": [
+        "query owner",
+        "UTF-8 fragments",
+        "paste",
+        "application cursor",
+        "output flood",
+        "resize",
+        "styled/link rows",
+        "toggle and reconnect preserve PID",
+        "disposal kills child"
+      ]
+    },
+    {
+      "backend": "ghostty",
+      "burstCycles": 40,
+      "outputLines": 1310720,
+      "pingP95Ms": 0.05325000000448199,
+      "burstToStyledSnapshotP95Ms": 22.776167000003625,
+      "checks": [
+        "query owner",
+        "UTF-8 fragments",
+        "paste",
+        "application cursor",
+        "output flood",
+        "resize",
+        "styled/link rows",
+        "toggle and reconnect preserve PID",
+        "disposal kills child"
+      ]
+    }
+  ],
+  "daemonPingMs": {
+    "p95": 0.07120800000120653,
+    "max": 0.15266599999995378
+  },
+  "isolation": "fresh unrelated workspace; fetch preload for Node-compatible targets; use an external network sandbox for native binary offline proof",
+  "recordedAt": "2026-11-22",
+  "targetRuntime": {
+    "node": "26.13.0",
+    "abi": "147",
+    "platform": "darwin",
+    "arch": "arm64",
+    "standalone": true
+  },
+  "limits": [
+    "Synthetic real-PTY peer uses host Node; separate binary smoke covers no-Node-on-PATH operation.",
+    "Concurrent terminal/app verification ran during this soak; timing values are diagnostic, not controlled comparative UI benchmarks.",
+    "Native offline execution and Linux remain unverified locally."
+  ]
+}

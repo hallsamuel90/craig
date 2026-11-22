@@ -24,7 +24,8 @@ export async function verifyTerminalArtifact({ executable, profile = "quick" }) 
   check(["quick", "soak"].includes(profile), "Profile must be quick or soak");
   const temporary = await mkdtemp(join(tmpdir(), "craig-artifact-check-"));
   const root = await realpath(temporary);
-  const env = { ...process.env, CI: "1", TERM: "xterm-256color", SHELL: "/bin/sh" };
+  await mkdir(join(root, "home"));
+  const env = { ...process.env, HOME: join(root, "home"), CI: "1", TERM: "xterm-256color", SHELL: "/bin/sh" };
   for (const name of Object.keys(env)) if (name.startsWith("CRAIG_")) delete env[name];
   const guard = join(root, "offline.mjs");
   await writeFile(guard, "globalThis.fetch = async () => { throw new Error('Artifact-check fetch is disabled'); };\n");

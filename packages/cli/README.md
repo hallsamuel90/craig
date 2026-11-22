@@ -111,7 +111,7 @@ The npm package is published as [`craig-cli`](https://www.npmjs.com/package/crai
 
 `pnpm verify:terminal` runs seeded replay/differential checks, allocation churn, disposal races and real launcher E2E coverage. `pnpm package:smoke` also exercises the installed artifact through real PTYs with both backends.
 
-The binary pipeline can reuse the artifact gate directly, after integrating the Ghostty preview:
+The standalone build prepares and embeds the same verified Wasm and license notices. Its CI runs the artifact soak; the gate can also be run directly:
 
 ```bash
 pnpm verify:artifact --executable /absolute/path/to/craig --profile quick --report /tmp/terminal-report.json
