@@ -108,20 +108,32 @@ was visibly wrapped across rows; it was not evidence of missing agent input.
 - The existing release workflow automatically created and merged version PR #317,
   producing 0.22.0 at a436ff8. No package version was edited manually.
   [Its release run](https://github.com/hallsamuel90/craig/actions/runs/45082755162)
-  passed all build/test gates but **npm publication failed with E404**. The registry
-  still reports 0.21.0 as latest; GitHub release creation was skipped.
+  initially passed all build/test gates but **npm publication failed with E404**.
+  After the user rotated the token, the same CI run succeeded: npm reports 0.22.0
+  as latest and the `craig-cli@0.22.0` GitHub Release exists with no binary assets.
 - `NPM_TOKEN` secret metadata reports last update on August 21, more than 90 days
   before this attempt. npm limits write tokens to
   [90 days](https://api-docs.npmjs.com/). Expiry is the leading explanation, not a
   verified inspection of the secret's expiry. The package name/public access and
-  publisher configuration remain unchanged. A maintainer must verify or renew the
-  credential in GitHub; no token was read, replaced or printed, and no publish retry
-  was requested.
+  publisher configuration remain unchanged. The user subsequently rotated the
+  credential and CI recovered. No token value was read, replaced or printed by
+  the agent; no local publish was performed.
 - [0.22.0 binary qualification](https://github.com/hallsamuel90/craig/actions/runs/45082950134)
   **passed** from main at a436ff8, including all gates, standalone smoke and
   development artifact upload. The downloaded 0.22.0 archive passed a separate
   local audit. Repeating the actual authenticated Codex probe against this exact
   candidate also passed worktree cwd, follow-up input and resize with external
-  runtimes blocked. It remains ad-hoc signed and not notarized; npm publication is
-  still blocked as above. No binary upload to GitHub Releases or tap publication is
-  enabled. Signing identity/account and a clean Mac test host are still required.
+  runtimes blocked. It remains ad-hoc signed and not notarized. npm publication has
+  recovered as above. No binary upload to GitHub Releases or tap publication is
+  enabled. A clean Mac test host is still required.
+
+## Current next steps
+
+PR #319 records qualification evidence only; it introduces no additional runtime
+feature. npm 0.22.0 is published, while the standalone archive is still a development
+Actions artifact. Paid Apple Developer enrollment is deferred pending the user's
+budget decision. It is not necessary simply to distribute a CLI, but the current
+release preflight deliberately requires Developer ID and notarization. Choosing an
+unnotarized preview would require an explicit policy/preflight change, clear
+installation expectations and clean-Mac download/Homebrew testing before publishing.
+No such policy change or publication is performed by this documentation update.

@@ -14,7 +14,8 @@ commands and operational policy are in [standalone-binary-build.md](standalone-b
 The spike files remain intact, and publishing remains disabled.
 November 22: PR #316 was merged on the user's instruction after hosted qualification.
 The expired Fury review itself has not been approved by an agent. Changesets then
-produced 0.22.0 through PR #317; npm publication failed and needs credential review.
+produced 0.22.0 through PR #317. After the user rotated the npm token, CI
+successfully published 0.22.0; standalone release assets remain unpublished.
 
 ## Verification summary
 
@@ -34,15 +35,18 @@ source tests and the stronger smoke. Downloaded CI resources matched local paylo
 identity. A read-only actual Codex probe passed cwd, follow-up input and resize on
 this Mac; clean-machine and full real-account workflow qualification remain open.
 The exact 0.22.0 main development artifact subsequently passed hosted binary CI,
-downloaded-artifact audit and the same actual Codex probe. Its npm publish remains
-failed; signing/notarization and clean-machine gates remain unverified.
+downloaded-artifact audit and the same actual Codex probe. Its npm publish initially
+failed, then succeeded after token rotation. Signing/notarization and clean-machine
+checks remain unverified.
 
 ## Next resume point
 
 The November 13 Fury human-review checkpoint timed out without approval; the user
 later authorized merging [PR #316](https://github.com/hallsamuel90/craig/pull/316).
-Next: verify/renew npm publishing credentials, obtain Developer ID/notarization
-inputs and a clean Mac test host, and qualify the exact 0.22.0 candidate. Current
+Next: test downloaded installation on a clean Mac. Paid Apple enrollment is deferred
+pending the user's budget decision. An unnotarized preview is possible, but requires
+explicitly revising release policy/preflight and verifying the actual installation
+experience before publication; current signing requirements are unchanged. Current
 evidence and failed release details are in the [rollout plan](standalone-binary-rollout.md).
 Do not interpret checked implementation items below as completed external tests:
 

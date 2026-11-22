@@ -20,6 +20,10 @@ rollout record. The earlier local baseline failures remain recorded.
 The exact 0.22.0 development artifact then passed hosted binary CI, a separate
 downloaded-artifact audit and the same real Codex probe. This does not resolve the
 npm publishing failure or signing/notarization and clean-machine qualification.
+Recovery update: the user rotated the npm token, the CI release run succeeded, and
+npm now serves 0.22.0. Its GitHub Release exists without standalone binary assets.
+Signing enrollment is deferred pending budget; clean-Mac installation is the next
+qualification step. The initial E404 remains recorded in the rollout history.
 
 ## Delivered
 
