@@ -36,7 +36,7 @@ echo "binary_agent_cwd:$PWD"
 echo "binary_agent_ready"
 while IFS= read -r line; do
   case "$line" in
-    probe*) echo "binary_input_ok:$line"; echo "binary_input_task:$task_dir:$line"; echo "binary_size:$(stty size)" ;;
+    probe*) echo "binary_input_ok:$line"; echo "ack:$task_dir:$line"; echo "binary_size:$(stty size)" ;;
   esac
 done
 `);
@@ -53,7 +53,7 @@ let child;
 let output = "";
 async function waitFor(marker) {
   const deadline = Date.now() + 15000;
-  while (!output.includes(marker)) {
+  while (!stripVTControlCharacters(output).includes(marker)) {
     if (Date.now() > deadline) throw new Error(`Missing ${marker}:\n${stripVTControlCharacters(output).slice(-12000)}`);
     await delay(25);
   }
@@ -206,8 +206,9 @@ try {
   // An existing agent's replayed ready marker must not satisfy the new-agent
   // assertion. The stub writes its cwd before emitting this task-specific marker.
   await waitFor(`binary_agent_task:${newTask.id}`);
+  await waitFor("TERMINAL   ↑↓/PgUp/PgDn scroll");
   child.write("probe-create\r");
-  await waitFor(`binary_input_task:${newTask.id}:probe-create`);
+  await waitFor(`ack:${newTask.id}:probe-create`);
   assert.equal((await readFile(path.join(home, `agent-${newTask.id}.cwd`), "utf8")).trim(), newTask.worktreePath);
   console.log("PASS TUI create goes directly into new agent worktree");
   await closeShell();

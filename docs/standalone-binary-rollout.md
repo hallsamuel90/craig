@@ -74,3 +74,7 @@ the new agent's cwd record existed. The corrected harness requires a marker nami
 the new task and input echoed by that task before reading its cwd. It retains the
 direct create-to-agent requirement; no attach step or timing allowance was added.
 The binary workflow now cancels superseded PR runs and limits jobs to 30 minutes.
+The strengthened local smoke passed after waiting for terminal mode, stripping ANSI
+styling before matching text, and keeping the task-specific input acknowledgement
+short enough to fit the actual 44-column agent pane. The longer acknowledgement
+was visibly wrapped across rows; it was not evidence of missing agent input.
