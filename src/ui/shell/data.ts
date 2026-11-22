@@ -265,7 +265,7 @@ function buildLeftTree(
 ): ShellTreeRow[] {
   const rows: ShellTreeRow[] = [{ text: "WORKSPACES", muted: true, panelHeader: true, focused: state.focusedRegion === "tasks" }];
   if (model.furyPendingPlans?.length) {
-    rows.push({ text: `● ${model.furyPendingPlans.length} Fury plan${model.furyPendingPlans.length === 1 ? "" : "s"} to approve`, indent: 1, status: "pending",
+    rows.push({ text: `● ${model.furyPendingPlans.length} Fury plan${model.furyPendingPlans.length === 1 ? "" : "s"} to approve`, indent: 1,
       selected: state.selectedLeftItemId === "fury-plans", focused: state.focusedRegion === "tasks" && state.selectedLeftItemId === "fury-plans" });
   }
   const reviewCount = (model.furyApprovalCount ?? 0) - (model.furyPendingPlans?.length ?? 0);

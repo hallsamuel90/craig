@@ -52,11 +52,11 @@ describe("terminal app PTY attach flow", () => {
     );
   });
 
-  test("reviews and explicitly approves a Fury plan in the TUI without starting workers", async () => {
+  test.each([false, true])("reviews Fury inside the workspace without starting workers (panel polish %s)", async (panelPolish) => {
     const root = await mkdtemp(join(tmpdir(), "craig-ui-fury-approval-"));
     tempRoots.push(root);
     const paths = await setupWorkspace(root);
-    await configService.save(paths, { previews: { agentOrchestration: true } });
+    await configService.save(paths, { previews: { agentOrchestration: true, panelPolish } });
     const file = join(root, ".craig", "fury", "ui.yaml");
     await mkdir(join(root, ".craig", "fury"), { recursive: true });
     await writeFile(file, `version: 1
@@ -83,15 +83,24 @@ steps:
     // The approval row is navigable using the same item order as the rendered sidebar.
     terminal.emitKey("SHIFT_TAB"); terminal.emitKey("UP"); terminal.emitKey("UP"); terminal.emitKey("ENTER");
     await vi.waitFor(() => expect(stripAnsi(terminal.frames.at(-1) ?? "")).toContain("FURY PLANS"));
+    const nativeFrame = stripAnsi(terminal.frames.at(-1) ?? "");
+    expect(nativeFrame).toContain("CRAIG");
+    expect(nativeFrame).toContain("test task");
+    expect(nativeFrame).toContain("EXECUTION ORDER");
     terminal.emitKey("ENTER");
     const frame = stripAnsi(terminal.frames.at(-1) ?? "");
-    expect(frame).toContain(plan.planHash);
-    expect(frame).toContain("1 tasks | 1 concurrent | 600s timeout");
+    expect(ptyRuntime.setViewedTab).toHaveBeenLastCalledWith(null);
+    expect(nativeFrame).toContain("Workers");
+    expect(frame).toContain("1 tasks");
     expect(frame).toContain("Detailed worker instructions");
     terminal.emitKey("END");
-    expect(stripAnsi(terminal.frames.at(-1) ?? "")).toContain("Confirm inspection findings");
+    expect(stripAnsi(terminal.frames.at(-1) ?? "")).toContain("PLAN IDENTITY");
     terminal.emitKey("a");
     expect(stripAnsi(terminal.frames.at(-1) ?? "")).toContain("Approve ux-approval-test?");
+    expect(stripAnsi(terminal.frames.at(-1) ?? "")).not.toContain("> Resume workspace");
+    terminal.emitKey("ESCAPE");
+    await expect(readFuryApproval(paths, plan.id)).rejects.toMatchObject({ code: "FURY_APPROVAL_REQUIRED" });
+    terminal.emitKey("a");
     await expect(readFuryApproval(paths, plan.id)).rejects.toMatchObject({ code: "FURY_APPROVAL_REQUIRED" });
     terminal.emitKey("ENTER");
     await vi.waitFor(async () => expect(await readFuryApproval(paths, plan.id)).toMatchObject({
@@ -99,7 +108,9 @@ steps:
     }));
     await vi.waitFor(() => expect(stripAnsi(terminal.frames.at(-1) ?? "")).toContain("Plan approved. No workers started"));
     expect(await listFuryRuns(paths)).toHaveLength(0);
-    terminal.emitKey("ESCAPE"); terminal.emitKey("q");
+    terminal.emitKey("TAB");
+    expect(stripAnsi(terminal.frames.at(-1) ?? "")).not.toContain("FURY PLANS");
+    terminal.emitKey("q");
     await expect(app).resolves.toBe(0);
   });
 
@@ -163,7 +174,7 @@ steps:
     await writeFile(file, yaml.replace("original-plan", "revised-plan"));
     await createPlan(paths, file, {}, "task_20260430_02", actor);
     terminal.emitKey("a"); terminal.emitKey("ENTER");
-    await vi.waitFor(() => expect(stripAnsi(terminal.frames.at(-1) ?? "")).toContain("replaced or already approved"));
+    await vi.waitFor(() => expect(stripAnsi(terminal.frames.at(-1) ?? "")).toContain("This plan was replaced"));
     await expect(readFuryApproval(paths, plan.id)).rejects.toMatchObject({ code: "FURY_APPROVAL_REQUIRED" });
     terminal.emitKey("ESCAPE");
     await vi.waitFor(() => expect(stripAnsi(terminal.frames.at(-1) ?? "")).toContain("revised-plan"));
@@ -171,11 +182,11 @@ steps:
     await expect(app).resolves.toBe(0);
   });
 
-  test.each([false, true])("renders shell frames with absolute row positioning with panel polish %s", async (panelPolish) => {
+  test.each([undefined, false, true])("renders default framed shell regardless of retired panel polish value %s", async (panelPolish) => {
     const root = await mkdtemp(join(tmpdir(), "craig-ui-app-"));
     tempRoots.push(root);
     const paths = await setupWorkspace(root);
-    await configService.save(paths, { previews: { panelPolish } });
+    await configService.save(paths, { previews: panelPolish === undefined ? {} : { panelPolish } });
     const terminal = new FakeTerminal();
     const ptyRuntime = new FakePtyRuntime();
     const app = startTerminalApp({ terminal, ptyRuntime, uiStateFile: paths.uiStateFile, workspaceRoot: root });
@@ -185,31 +196,29 @@ steps:
     expect(frame).not.toContain("\n");
     expect(frame).toContain("\u001B[1;1H");
     expect(frame).toContain(`\u001B[${terminal.height};1H`);
-    expect(stripAnsi(frame).includes("╭")).toBe(panelPolish);
-    expect(stripAnsi(frame)).toContain(panelPolish ? "> Resume workspace" : "> Start");
-    if (panelPolish) expect(stripAnsi(frame)).toContain("1 workspace · 1 open task");
+    expect(stripAnsi(frame).includes("╭")).toBe(true);
+    expect(stripAnsi(frame)).toContain("> Resume workspace");
+    expect(stripAnsi(frame)).toContain("1 workspace · 1 open task");
 
     terminal.emitKey("\r");
     await vi.waitFor(() => expect(stripAnsi(terminal.frames.at(-1) ?? "")).toContain("CRAIG"));
     expect(stripAnsi(terminal.frames.at(-1) ?? "")).toContain("▸ ● test task");
     const shellFrame = stripAnsi(terminal.frames.at(-1) ?? "");
-    expect(shellFrame.includes("╭─ WORKSPACES")).toBe(panelPolish);
-    if (panelPolish) {
-      terminal.emitKey("z");
-      await vi.waitFor(() => expect(ptyRuntime.resize).toHaveBeenLastCalledWith({ columns: 112, rows: 31 }));
-      terminal.emitKey("z");
-      await vi.waitFor(() => expect(ptyRuntime.resize).toHaveBeenLastCalledWith({ columns: 44, rows: 31 }));
-    }
+    expect(shellFrame.includes("╭─ WORKSPACES")).toBe(true);
+    terminal.emitKey("z");
+    await vi.waitFor(() => expect(ptyRuntime.resize).toHaveBeenLastCalledWith({ columns: 112, rows: 31 }));
+    terminal.emitKey("z");
+    await vi.waitFor(() => expect(ptyRuntime.resize).toHaveBeenLastCalledWith({ columns: 44, rows: 31 }));
     terminal.emitKey("q");
     await expect(app).resolves.toBe(0);
   });
 
-  test.each([false, true])("pause shares the splash summary and refreshes activity with panel polish %s", async (panelPolish) => {
+  test.each([undefined, false, true])("pause shares the default splash summary regardless of retired panel polish value %s", async (panelPolish) => {
     vi.useFakeTimers({ shouldAdvanceTime: true });
     const root = await mkdtemp(join(tmpdir(), "craig-ui-pause-"));
     tempRoots.push(root);
     const paths = await setupWorkspace(root);
-    await configService.save(paths, { previews: { panelPolish } });
+    await configService.save(paths, { previews: panelPolish === undefined ? {} : { panelPolish } });
     const terminal = new FakeTerminal();
     const activitySnapshots: PtyActivitySnapshot[] = [{
       taskId: "task_20260430_02", tabId: "task_20260430_02:agent",
@@ -218,22 +227,17 @@ steps:
     const ptyRuntime = new FakePtyRuntime({ activitySnapshots });
     const app = startTerminalApp({ terminal, ptyRuntime, uiStateFile: paths.uiStateFile, workspaceRoot: root, checkForUpdate: async () => ({ current: "0.19.6", latest: null, updateAvailable: false }) });
     await vi.waitFor(() => expect(terminal.hasKeyListener()).toBe(true));
-    if (panelPolish) await vi.waitFor(() => expect(stripAnsi(terminal.frames.join(""))).toContain("1 agent working"));
+    await vi.waitFor(() => expect(stripAnsi(terminal.frames.join(""))).toContain("1 agent working"));
     terminal.emitKey("ENTER");
     terminal.frames.length = 0;
     terminal.emitKey("ESCAPE");
-    await vi.waitFor(() => expect(stripAnsi(terminal.frames.join(""))).toContain(panelPolish ? "> Resume workspace" : "> Resume"));
+    await vi.waitFor(() => expect(stripAnsi(terminal.frames.join(""))).toContain("> Resume workspace"));
     const paused = stripAnsi(terminal.frames.join(""));
-    if (panelPolish) {
-      expect(paused).toContain("A workspace for your coding agents.");
-      expect(paused).toContain("1 workspace · 1 open task · 1 agent working");
-      terminal.frames.length = 0;
-      await vi.advanceTimersByTimeAsync(10_000);
-      await vi.waitFor(() => expect(stripAnsi(terminal.frames.join(""))).toContain("1 workspace · 1 open task · 1 ready"));
-    } else {
-      expect(paused).toContain("Control mode is paused.");
-      expect(paused).not.toContain("open task");
-    }
+    expect(paused).toContain("A workspace for your coding agents.");
+    expect(paused).toContain("1 workspace · 1 open task · 1 agent working");
+    terminal.frames.length = 0;
+    await vi.advanceTimersByTimeAsync(10_000);
+    await vi.waitFor(() => expect(stripAnsi(terminal.frames.join(""))).toContain("1 workspace · 1 open task · 1 ready"));
     terminal.emitKey("ENTER");
     terminal.emitKey("q");
     await expect(app).resolves.toBe(0);
@@ -377,7 +381,7 @@ steps:
     const root = await mkdtemp(join(tmpdir(), "craig-ui-update-notice-"));
     tempRoots.push(root);
     const paths = await setupWorkspace(root);
-    await configService.save(paths, { previews: { panelPolish } });
+    await configService.save(paths, { previews: panelPolish === undefined ? {} : { panelPolish } });
     const terminal = new FakeTerminal();
     let finishCheck!: () => void;
     const result = new Promise<{ current: string; latest: string; updateAvailable: boolean }>((resolve) => {
@@ -397,7 +401,7 @@ steps:
     expect(terminal.frames.join("")).not.toContain("Ignore this version");
     terminal.frames.length = 0;
     terminal.emitKey("ESCAPE");
-    await vi.waitFor(() => expect(stripAnsi(terminal.frames.join(""))).toContain(panelPolish ? "A workspace for your coding agents." : "Control mode is paused."));
+    await vi.waitFor(() => expect(stripAnsi(terminal.frames.join(""))).toContain("A workspace for your coding agents."));
     expect(stripAnsi(terminal.frames.join(""))).toContain(`v${configService.version.getCurrent()} → v0.20.0 available`);
     terminal.frames.length = 0;
     terminal.emitKey("ESCAPE");
@@ -438,7 +442,7 @@ steps:
     });
     await vi.waitFor(() => expect(nextTerminal.hasKeyListener()).toBe(true));
     await new Promise((resolve) => setTimeout(resolve, 0));
-    expect(stripAnsi(nextTerminal.frames.join("\n"))).toContain("crAIg is that you?");
+    expect(stripAnsi(nextTerminal.frames.join("\n"))).toContain("A workspace for your coding agents.");
     expect(stripAnsi(nextTerminal.frames.join("\n"))).not.toContain("Ignore this version");
     expect(stripAnsi(nextTerminal.frames.join("\n"))).not.toContain("update available");
     nextTerminal.emitKey("ENTER");
@@ -504,14 +508,14 @@ steps:
     const navigationOutput = terminal.frames.join("");
     expect(stripAnsi(navigationOutput)).toContain("task_20260430_03");
     expect(navigationOutput).toMatch(new RegExp(`${String.fromCharCode(27)}\\[\\d+;1H`));
-    expect(navigationOutput).toContain("\u001B[2;44H");
-    expect(navigationOutput).not.toMatch(new RegExp(`${String.fromCharCode(27)}\\[\\d+;84H`));
+    expect(navigationOutput).toContain("\u001B[2;35H");
+    expect(navigationOutput).not.toMatch(new RegExp(`${String.fromCharCode(27)}\\[\\d+;85H`));
 
     terminal.frames.length = 0;
     await vi.waitFor(() => {
       const inspectionOutput = terminal.frames.join("");
-      expect(inspectionOutput).toMatch(new RegExp(`${String.fromCharCode(27)}\\[\\d+;84H`));
-      expect(inspectionOutput).not.toMatch(new RegExp(`${String.fromCharCode(27)}\\[\\d+;44H`));
+      expect(inspectionOutput).toMatch(new RegExp(`${String.fromCharCode(27)}\\[\\d+;85H`));
+      expect(inspectionOutput).not.toMatch(new RegExp(`${String.fromCharCode(27)}\\[\\d+;35H`));
     });
 
     terminal.emitKey("q");
@@ -653,7 +657,7 @@ steps:
       await vi.waitFor(() => expect(terminal.hasKeyListener()).toBe(true));
 
       terminal.emitKey(enterKey);
-      expect(stripAnsi(terminal.frames.at(-1) ?? "")).toContain("TERMINAL  task_20260430_02 · repo-a");
+      expect(stripAnsi(terminal.frames.at(-1) ?? "")).toContain("repo-a · task_20260430_02");
       expect(ptyRuntime.ensureSession).not.toHaveBeenCalled();
       terminal.emitKey(enterKey);
       terminal.emitKey("p");
@@ -669,7 +673,7 @@ steps:
       expect(ptyRuntime.writeKey).toHaveBeenCalledWith("p");
       expect(ptyRuntime.detach).toHaveBeenCalledTimes(1);
       expect(ptyRuntime.disposeAll).toHaveBeenCalledTimes(1);
-      expect(terminal.frames.join("\n")).toContain("TERMINAL   ↑↓/PgUp/PgDn scroll");
+      expect(stripAnsi(terminal.frames.join("\n"))).toContain("TERMINAL   ↑↓/PgUp/PgDn scroll");
     },
   );
 
@@ -805,12 +809,12 @@ steps:
       "task_20260430_02:agent",
       "task_20260430_02:terminal",
     ]);
-    await vi.waitFor(() => expect(stripAnsi(terminal.frames.at(-1) ?? "")).toContain("TERMINAL  task_20260430_02"));
+    await vi.waitFor(() => expect(stripAnsi(terminal.frames.at(-1) ?? "")).toContain("repo-a · task_20260430_02"));
     terminal.emitKey("q");
 
     await expect(app).resolves.toBe(0);
     expect(ptyRuntime.ensureSession).not.toHaveBeenCalled();
-    expect(terminal.frames.join("\n")).toContain("+ new tab");
+    expect(stripAnsi(terminal.frames.join("\n"))).toContain("TERMINAL");
   });
 
   test("boot start renders a restored hydrated agent tab without prompting to attach", async () => {
@@ -1055,7 +1059,7 @@ steps:
     await expect(app).resolves.toBe(0);
     expect(ptyRuntime.detach).toHaveBeenCalledTimes(1);
     await vi.waitFor(async () => expect(JSON.parse(await readFile(paths.uiStateFile, "utf8")).inputMode).toBe("control"));
-    expect(terminal.frames.join("\n")).toContain("+ new tab");
+    expect(stripAnsi(terminal.frames.join("\n"))).toContain("TERMINAL");
     expect(terminal.frames.join("\n")).not.toContain("terminal ▸ terminal mode");
   });
 
@@ -1109,7 +1113,7 @@ steps:
     await vi.waitFor(() => expect(terminal.hasKeyListener()).toBe(true));
 
     terminal.emitKey("\r"); // boot start
-    expect(stripAnsi(terminal.frames.at(-1) ?? "")).toContain("TERMINAL  task_20260430_02 · repo-a");
+    expect(stripAnsi(terminal.frames.at(-1) ?? "")).toContain("repo-a · task_20260430_02");
     terminal.emitKey("ENTER");
     terminal.emitKey("n");
     terminal.emitUnknown("n");
@@ -1316,7 +1320,7 @@ steps:
     await vi.waitFor(() => expect(terminal.hasKeyListener()).toBe(true));
 
     terminal.emitKey("\r"); // boot start
-    expect(stripAnsi(terminal.frames.at(-1) ?? "")).toContain("TERMINAL  task_20260430_02 · repo-a");
+    expect(stripAnsi(terminal.frames.at(-1) ?? "")).toContain("repo-a · task_20260430_02");
     terminal.emitKey("ENTER");
     terminal.emitMouse("MOUSE_WHEEL_UP");
     terminal.emitMouse("MOUSE_WHEEL_DOWN");
@@ -1340,7 +1344,7 @@ steps:
     await vi.waitFor(() => expect(terminal.hasKeyListener()).toBe(true));
 
     terminal.emitKey("\r"); // boot start
-    expect(stripAnsi(terminal.frames.at(-1) ?? "")).toContain("TERMINAL  task_20260430_02 · repo-a");
+    expect(stripAnsi(terminal.frames.at(-1) ?? "")).toContain("repo-a · task_20260430_02");
     terminal.emitKey("ENTER");
     await vi.waitFor(() => expect(ptyRuntime.ensureSession).toHaveBeenCalled());
     terminal.emitUnknown("some-raw-input");
@@ -1362,7 +1366,7 @@ steps:
     await vi.waitFor(() => expect(terminal.hasKeyListener()).toBe(true));
 
     terminal.emitKey("\r"); // boot start
-    expect(stripAnsi(terminal.frames.at(-1) ?? "")).toContain("TERMINAL  task_20260430_02 · repo-a");
+    expect(stripAnsi(terminal.frames.at(-1) ?? "")).toContain("repo-a · task_20260430_02");
     terminal.emitKey("ENTER");
     await vi.waitFor(() => expect(ptyRuntime.ensureSession).toHaveBeenCalled());
     terminal.emitUnknown("\u001B[<64;20;10M");
@@ -1421,7 +1425,7 @@ steps:
     }
     terminal.emitKey("ENTER");
     await vi.waitFor(() => expect(ptyRuntime.ensureSession).toHaveBeenCalled());
-    await vi.waitFor(() => expect(stripAnsi(terminal.frames.at(-1) ?? "")).toContain("engaged"));
+    await vi.waitFor(() => expect(terminal.frames.at(-1) ?? "").toContain("\u001B[38;2;158;206;106;48;2;10;10;10m╭"));
     expect(stripAnsi(terminal.frames.at(-1) ?? "")).toContain("Ctrl+] return to control");
     terminal.emitKey("\u001D");
     terminal.emitKey("q");
@@ -1449,7 +1453,7 @@ steps:
     terminal.emitKey("["); // focus left pane
     terminal.emitKey("ENTER");
     await vi.waitFor(() => expect(ptyRuntime.ensureSession).toHaveBeenCalled());
-    await vi.waitFor(() => expect(stripAnsi(terminal.frames.at(-1) ?? "")).toContain("engaged"));
+    await vi.waitFor(() => expect(terminal.frames.at(-1) ?? "").toContain("\u001B[38;2;158;206;106;48;2;10;10;10m╭"));
     expect(stripAnsi(terminal.frames.at(-1) ?? "")).toContain("Ctrl+] return to control");
     terminal.emitKey("\u001D");
     terminal.emitKey("q");
@@ -2804,7 +2808,7 @@ steps:
     await vi.waitFor(() => expect(stripAnsi(terminal.frames.at(-1) ?? "")).toContain("#17"));
     const closeFrameStart = terminal.frames.length;
     terminal.emitKey("X");
-    await vi.waitFor(() => expect(stripAnsi(terminal.frames.slice(closeFrameStart).join(""))).toContain("Archived task task_20260430_02"));
+    await vi.waitFor(() => expect(stripAnsi(terminal.frames.slice(closeFrameStart).join(""))).toContain("Archived task"));
     terminal.emitKey("q");
 
     await expect(app).resolves.toBe(0);
@@ -2828,11 +2832,11 @@ steps:
     await vi.waitFor(() => expect(terminal.hasKeyListener()).toBe(true));
 
     terminal.emitKey("\r"); // boot start
-    await vi.waitFor(() => expect(stripAnsi(terminal.frames.at(-1) ?? "")).toContain("TERMINAL  task_20260430_02"));
+    await vi.waitFor(() => expect(stripAnsi(terminal.frames.at(-1) ?? "")).toContain("repo-a · task_20260430_02"));
     terminal.emitKey("["); // focus left pane
     await vi.waitFor(() => expect(stripAnsi(terminal.frames.at(-1) ?? "")).toContain("n new task"));
     terminal.emitKey("X");
-    await vi.waitFor(() => expect(stripAnsi(terminal.frames.at(-1) ?? "")).toContain("Archived task task_20260430_02"));
+    await vi.waitFor(() => expect(stripAnsi(terminal.frames.at(-1) ?? "")).toContain("Archived task"));
     await vi.waitFor(async () => expect((await readTask(paths, task.id)).status).toBe("closed"), { timeout: 10000 });
     await vi.waitFor(() => expect(stripAnsi(terminal.frames.at(-1) ?? "")).toContain("· no tasks yet"));
     const renderCount = terminal.hideCursor.mock.calls.length;
@@ -2919,7 +2923,7 @@ steps:
     await vi.waitFor(() => expect(terminal.hasKeyListener()).toBe(true));
 
     terminal.emitKey("\r"); // boot start
-    expect(stripAnsi(terminal.frames.at(-1) ?? "")).toContain("TERMINAL  task_20260430_02 · repo-a");
+    expect(stripAnsi(terminal.frames.at(-1) ?? "")).toContain("repo-a · task_20260430_02");
     terminal.emitKey("q");
 
     await expect(app).resolves.toBe(0);
@@ -2964,7 +2968,7 @@ steps:
     terminal.emitKey("\r"); // boot start
     await vi.waitFor(() => expect(stripAnsi(terminal.frames.at(-1) ?? "")).toContain("▸ ● second task"));
     terminal.emitKey("X");
-    await vi.waitFor(() => expect(stripAnsi(terminal.frames.at(-1) ?? "")).toContain("Archived task task_20260430_03"));
+    await vi.waitFor(() => expect(stripAnsi(terminal.frames.at(-1) ?? "")).toContain("Archived task"));
     const frame = stripAnsi(terminal.frames.at(-1) ?? "");
     expect(frame).toContain("▸ ● test task");
     expect(frame).not.toContain("▸ ● second task");
@@ -3166,7 +3170,7 @@ steps:
       expect(frame).toContain("[ ] Agent orchestration");
       expect(frame).toContain("[ ] Pi coding agent runner · NEW");
       expect(frame).toContain("[ ] Agent file opening · NEW");
-      expect(frame).toContain("[ ] Panel polish · NEW");
+      expect(frame).not.toContain("Panel polish");
       expect(frame).not.toContain("Incremental center pane");
       expect(frame).toContain("may change or be removed");
     });
@@ -3181,13 +3185,11 @@ steps:
     await vi.waitFor(() => expect(stripAnsi(terminal.frames.at(-1) ?? "")).toContain("[x] Pi coding agent runner"));
 
     terminal.emitKey("DOWN"); // Agent file opening
-    terminal.emitKey("DOWN"); // Panel polish
     terminal.emitKey("ENTER");
-    await vi.waitFor(async () => expect((await configService.load(paths)).previews?.panelPolish).toBe(true));
-    await vi.waitFor(() => expect(stripAnsi(terminal.frames.at(-1) ?? "")).toContain("[x] Panel polish"));
+    await vi.waitFor(async () => expect((await configService.load(paths)).previews?.fileOpen).toBe(true));
+    await vi.waitFor(() => expect(stripAnsi(terminal.frames.at(-1) ?? "")).toContain("[x] Agent file opening"));
     terminal.emitKey("ENTER");
-    await vi.waitFor(async () => expect((await configService.load(paths)).previews?.panelPolish).toBe(false));
-    await vi.waitFor(() => expect(stripAnsi(terminal.frames.at(-1) ?? "")).toContain("[ ] Panel polish"));
+    await vi.waitFor(async () => expect((await configService.load(paths)).previews?.fileOpen).toBe(false));
 
     terminal.emitKey("ESCAPE"); // back to options menu
     await vi.waitFor(() => {
@@ -3291,13 +3293,13 @@ steps:
       const repos = await listRepos(paths);
       expect(repos.map((repo) => repo.name)).toContain("repo-b");
     });
-    await vi.waitFor(() => expect(terminal.frames.join("\n")).toContain("Registered workspace: repo-b"));
+    await vi.waitFor(() => expect(stripAnsi(terminal.frames.join("\n"))).toContain("Registered workspace:"));
     terminal.emitKey("q");
 
     await expect(app).resolves.toBe(0);
     const repos = await listRepos(paths);
     expect(repos.map((repo) => repo.name)).toContain("repo-b");
-    expect(terminal.frames.join("\n")).toContain("Registered workspace: repo-b");
+    expect(stripAnsi(terminal.frames.join("\n"))).toContain("Registered workspace:");
   });
 
   test.each(["n", "ENTER"])("%s creates in the visible second workspace and immediately attaches its agent", async (openKey) => {

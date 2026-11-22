@@ -7,6 +7,15 @@ import { getPtySize } from "../src/ui/pty/session.js";
 import { renderCenterPaneRegion } from "../src/ui/render.js";
 
 describe("incremental center pane rendering", () => {
+  test("default PTY geometry and incremental rendering use the framed panel", () => {
+    const data = getMockShellData();
+    expect(getPtySize(MIN_VIEWPORT)).toEqual(getPtySize(MIN_VIEWPORT, true));
+    const previous = renderCenterPaneRegion(MIN_VIEWPORT, data);
+    expect(previous.rows[0]).toContain("╭");
+    const next = { ...data, terminal: { ...data.terminal, rows: [{ segments: [{ text: "default output" }] }] } };
+    expect(buildCenterPaneUpdate(MIN_VIEWPORT, next, previous, false)?.region).toEqual(renderCenterPaneRegion(MIN_VIEWPORT, next));
+  });
+
   test.each([
     { inputMode: "control", activeTab: "agent" },
     { inputMode: "terminal", activeTab: "agent" },
@@ -51,7 +60,7 @@ describe("incremental center pane rendering", () => {
 
   test("writes terminal changes only at the center region column", () => {
     const initial = getMockShellData();
-    const previous = renderCenterPaneRegion(MIN_VIEWPORT, initial);
+    const previous = renderCenterPaneRegion(MIN_VIEWPORT, initial, { panelPolish: false });
     const next = {
       ...initial,
       terminal: {
@@ -60,7 +69,7 @@ describe("incremental center pane rendering", () => {
       },
     };
 
-    const update = buildCenterPaneUpdate(MIN_VIEWPORT, next, previous, false);
+    const update = buildCenterPaneUpdate(MIN_VIEWPORT, next, previous, false, null, false);
 
     expect(update).not.toBeNull();
     expect(update?.output).toContain("incremental output");
@@ -71,10 +80,10 @@ describe("incremental center pane rendering", () => {
 
   test("requires a full repaint when center geometry changes", () => {
     const data = getMockShellData();
-    const previous = renderCenterPaneRegion(MIN_VIEWPORT, data);
+    const previous = renderCenterPaneRegion(MIN_VIEWPORT, data, { panelPolish: false });
 
-    expect(buildCenterPaneUpdate({ ...MIN_VIEWPORT, width: 140 }, data, previous, false)).toBeNull();
-    expect(buildCenterPaneUpdate(MIN_VIEWPORT, data, previous, true)).toBeNull();
+    expect(buildCenterPaneUpdate({ ...MIN_VIEWPORT, width: 140 }, data, previous, false, null, false)).toBeNull();
+    expect(buildCenterPaneUpdate(MIN_VIEWPORT, data, previous, true, null, false)).toBeNull();
   });
 
   test("renders only the dirty terminal rows when geometry is stable", () => {
@@ -85,7 +94,7 @@ describe("incremental center pane rendering", () => {
         error: null,
       },
     });
-    const previous = renderCenterPaneRegion(MIN_VIEWPORT, initial);
+    const previous = renderCenterPaneRegion(MIN_VIEWPORT, initial, { panelPolish: false });
     const next = {
       ...initial,
       terminal: {
@@ -96,7 +105,7 @@ describe("incremental center pane rendering", () => {
       },
     };
 
-    const update = buildCenterPaneUpdate(MIN_VIEWPORT, next, previous, false, [1]);
+    const update = buildCenterPaneUpdate(MIN_VIEWPORT, next, previous, false, [1], false);
 
     expect(update).not.toBeNull();
     expect(update?.output).toContain("second changed");
@@ -106,16 +115,16 @@ describe("incremental center pane rendering", () => {
     expect([...update!.output.matchAll(cursorPattern)].map((match) => match[1])).toEqual(["44"]);
     expect(update?.region.rows[4]).toBe(previous.rows[4]);
     expect(update?.region.rows[6]).toBe(previous.rows[6]);
-    expect(update?.region).toEqual(renderCenterPaneRegion(MIN_VIEWPORT, next));
+    expect(update?.region).toEqual(renderCenterPaneRegion(MIN_VIEWPORT, next, { panelPolish: false }));
   });
 
   test("falls back when a dirty row update cannot preserve center geometry", () => {
     const data = getMockShellData({
       terminal: { status: "running", rows: [{ segments: [{ text: "output" }] }], error: null },
     });
-    const previous = renderCenterPaneRegion(MIN_VIEWPORT, data);
+    const previous = renderCenterPaneRegion(MIN_VIEWPORT, data, { panelPolish: false });
 
-    expect(buildCenterPaneUpdate({ ...MIN_VIEWPORT, width: 140 }, data, previous, false, [0])).toBeNull();
-    expect(buildCenterPaneUpdate(MIN_VIEWPORT, data, previous, false, [1])).toBeNull();
+    expect(buildCenterPaneUpdate({ ...MIN_VIEWPORT, width: 140 }, data, previous, false, [0], false)).toBeNull();
+    expect(buildCenterPaneUpdate(MIN_VIEWPORT, data, previous, false, [1], false)).toBeNull();
   });
 });

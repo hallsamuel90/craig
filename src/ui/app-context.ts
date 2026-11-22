@@ -17,7 +17,7 @@ export interface CraigUpdateOverlayState {
   error?: string;
 }
 
-type OverlayVariant = "boot" | "pause" | "help" | "options" | "runners" | "previews" | "logs" | "update" | "fury-plans";
+type OverlayVariant = "boot" | "pause" | "help" | "options" | "runners" | "previews" | "logs" | "update";
 
 export type AppState =
   | {
@@ -32,7 +32,6 @@ export type AppState =
       previewOptions?: PreviewOptionsState;
       log?: CraigLogSnapshot;
       update?: CraigUpdateOverlayState;
-      furyPlans?: FuryPlansView;
     }
   | { mode: "main"; shell: ControlShellState };
 
@@ -77,6 +76,7 @@ export interface PtyRuntimePort {
 export type AppContext = {
   // Mutable state — mutated in place: ctx.state = ..., ctx.model = ..., etc.
   state: AppState;
+  furyPlans?: FuryPlansView | null;
   model: WorkspaceShellModel;
   config: CraigConfig;
   enabledRunnerIds: RunnerType[];

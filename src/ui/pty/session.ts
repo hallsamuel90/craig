@@ -58,7 +58,7 @@ export function getRequiredPtyTabId(task: { id: string; ptyTabs: TaskPtyTabRecor
   return tab.id;
 }
 
-export function getPtySize(viewport: Viewport, panelPolish = false, centerOnly = false): PtySize {
+export function getPtySize(viewport: Viewport, panelPolish = true, centerOnly = false): PtySize {
   if (panelPolish) {
     const bounds = getFramedTerminalBounds(viewport, centerOnly);
     return { columns: bounds.width, rows: bounds.height };
