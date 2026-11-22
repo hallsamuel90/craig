@@ -3,6 +3,7 @@ import { access } from "node:fs/promises";
 import path from "node:path";
 
 import { runCommand } from "../shared/exec.js";
+import { assertAutomaticUpdatesSupported, getInstallationChannel } from "./installation-channel.js";
 
 const STABLE_VERSION_PATTERN = /^\d+\.\d+\.\d+$/;
 
@@ -10,8 +11,9 @@ export const CRAIG_RESTART_EXIT_CODE = 75;
 
 export async function installCraigUpdate(
   version: string,
-  deps: { runCommand: typeof runCommand } = { runCommand },
+  deps: { runCommand: typeof runCommand; getInstallationChannel?: typeof getInstallationChannel } = { runCommand },
 ): Promise<void> {
+  assertAutomaticUpdatesSupported((deps.getInstallationChannel ?? getInstallationChannel)());
   if (!STABLE_VERSION_PATTERN.test(version)) {
     throw new Error(`Cannot install invalid Craig version: ${version}`);
   }
@@ -31,12 +33,13 @@ type SpawnCraigProcess = (command: string, args: string[], options: SpawnOptions
 
 export async function restartCraig(
   options: RestartCraigOptions,
-  deps: { runCommand: typeof runCommand; access: typeof access; spawn: SpawnCraigProcess } = {
+  deps: { runCommand: typeof runCommand; access: typeof access; spawn: SpawnCraigProcess; getInstallationChannel?: typeof getInstallationChannel } = {
     runCommand,
     access,
     spawn: spawnChildProcess,
   },
 ): Promise<number> {
+  assertAutomaticUpdatesSupported((deps.getInstallationChannel ?? getInstallationChannel)());
   const { stdout } = await deps.runCommand("npm", ["root", "--global"], {
     cwd: options.cwd,
     env: options.env,

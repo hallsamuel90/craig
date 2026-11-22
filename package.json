@@ -32,6 +32,11 @@
   "scripts": {
     "build": "tsc -p tsconfig.build.json",
     "build:npm": "node scripts/build-npm.mjs",
+    "build:binary": "node scripts/binary/build.mjs",
+    "binary:test": "node --test scripts/binary/*.test.mjs",
+    "binary:audit": "node scripts/binary/audit.mjs",
+    "binary:smoke": "node scripts/binary/smoke.mjs",
+    "binary:release:prepare": "node scripts/binary/release-plan.mjs",
     "dev": "tsx src/cli.ts",
     "package:audit": "node scripts/package-audit.mjs",
     "package:smoke": "node scripts/package-smoke.mjs",

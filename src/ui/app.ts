@@ -30,6 +30,7 @@ import {
   type RunnerOptionsState,
 } from "./options.js";
 import { installCraigUpdate } from "../shell/craig-update.js";
+import { getCraigUpdateNotice, getInstallationChannel } from "../shell/installation-channel.js";
 import { createInitialShellState, restoreShellState, INSPECTION_TAB_ID } from "./state.js";
 import { buildSplashSummary } from "./splash.js";
 import { getViewport } from "./layout.js";
@@ -636,9 +637,9 @@ export async function startTerminalApp(options: TerminalAppOptions = {}): Promis
         if (ctx.runtimeState?.ignoredUpdateVersion === result.latest) {
           return;
         }
-        ctx.updateText = `→ v${result.latest} available`;
+        ctx.updateText = getCraigUpdateNotice(result.latest, getInstallationChannel());
         if (
-          ctx.state.mode === "overlay" &&
+          getInstallationChannel() === "npm" && ctx.state.mode === "overlay" &&
           ctx.state.variant === "boot"
         ) {
           ctx.state = {

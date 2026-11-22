@@ -16,6 +16,7 @@ import { readTask, taskService, writeTask } from "../src/domain/task/index.js";
 import { appendTaskId } from "../src/domain/task/adapters/task-store.js";
 import { configService } from "../src/domain/config/index.js";
 import { CRAIG_RESTART_EXIT_CODE } from "../src/shell/craig-update.js";
+import * as installationChannel from "../src/shell/installation-channel.js";
 import { createCraigState, createGitRepo, createStubCommands, writeRepoRecord, writeTaskRecord } from "./test-helpers.js";
 
 /* eslint-disable no-unused-vars */
@@ -236,6 +237,29 @@ steps:
     terminal.emitKey("ENTER");
     terminal.emitKey("q");
     await expect(app).resolves.toBe(0);
+  });
+
+  test("standalone startup keeps the launcher and never offers an npm update action", async () => {
+    const channel = vi.spyOn(installationChannel, "getInstallationChannel").mockReturnValue("standalone");
+    const root = await mkdtemp(join(tmpdir(), "craig-ui-binary-update-"));
+    tempRoots.push(root);
+    const paths = await setupWorkspace(root);
+    const terminal = new FakeTerminal();
+    const installUpdate = vi.fn(async () => undefined);
+    const app = startTerminalApp({ terminal, ptyRuntime: new FakePtyRuntime(),
+      uiStateFile: paths.uiStateFile, workspaceRoot: root, installUpdate,
+      checkForUpdate: async () => ({ current: "0.20.1", latest: "0.21.0", updateAvailable: true }),
+    });
+    try {
+      await vi.waitFor(() => expect(stripAnsi(terminal.frames.join(""))).toContain("> Start"));
+      expect(stripAnsi(terminal.frames.join(""))).not.toContain("Update now");
+      expect(stripAnsi(terminal.frames.join(""))).not.toContain("npm install");
+      terminal.emitKey("ENTER");
+      await vi.waitFor(() => expect(stripAnsi(terminal.frames.join(""))).toContain("replace the binary"));
+      expect(installUpdate).not.toHaveBeenCalled();
+      terminal.emitKey("q");
+      await expect(app).resolves.toBe(0);
+    } finally { channel.mockRestore(); }
   });
 
   test("offers and installs an available Craig update before entering the shell", async () => {
