@@ -25,7 +25,10 @@ replacement with a live old daemon passed using two fixture builds.
 
 ## Next resume point
 
-Fury's human-review checkpoint is next; inspect the diff and validation report.
+The November 13 Fury human-review checkpoint timed out without approval. Review
+[draft PR #316](https://github.com/hallsamuel90/craig/pull/316) and the validation
+report; current qualification is tracked in the
+[rollout plan](standalone-binary-rollout.md).
 Do not interpret checked implementation items below as completed external tests:
 
 - [ ] Run the new workflow on hosted macOS ARM64 CI with its pinned Apple tools.

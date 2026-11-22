@@ -255,7 +255,7 @@ steps:
       checkForUpdate: async () => ({ current: "0.20.1", latest: "0.21.0", updateAvailable: true }),
     });
     try {
-      await vi.waitFor(() => expect(stripAnsi(terminal.frames.join(""))).toContain("> Start"));
+      await vi.waitFor(() => expect(stripAnsi(terminal.frames.join(""))).toContain("> Resume workspace"));
       expect(stripAnsi(terminal.frames.join(""))).not.toContain("Update now");
       expect(stripAnsi(terminal.frames.join(""))).not.toContain("npm install");
       terminal.emitKey("ENTER");
