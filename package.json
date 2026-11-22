@@ -30,18 +30,21 @@
     "node": ">=22.0.0"
   },
   "scripts": {
-    "build": "tsc -p tsconfig.build.json",
+    "build": "node scripts/prepare-ghostty.mjs && tsc -p tsconfig.build.json",
     "build:npm": "node scripts/build-npm.mjs",
-    "dev": "tsx src/cli.ts",
+    "dev": "node scripts/prepare-ghostty.mjs && tsx src/cli.ts",
     "package:audit": "node scripts/package-audit.mjs",
     "package:smoke": "node scripts/package-smoke.mjs",
     "prestart": "pnpm build",
     "security:socket": "socket ci",
     "test": "vitest run",
-    "typecheck": "tsc --noEmit",
+    "typecheck": "node scripts/prepare-ghostty.mjs && tsc --noEmit",
     "lint": "eslint .",
     "start": "node dist/cli.js",
-    "version-packages": "changeset version"
+    "version-packages": "changeset version",
+    "ghostty:prepare": "node scripts/prepare-ghostty.mjs",
+    "verify:terminal": "vitest run tests/ghostty-terminal.test.ts tests/ghostty-build.test.ts tests/ghostty-regression.test.ts tests/pty-runtime.test.ts tests/terminal-e2e.test.ts",
+    "verify:artifact": "node scripts/terminal-artifact-check.mjs"
   },
   "dependencies": {
     "@xterm/headless": "^6.0.0",

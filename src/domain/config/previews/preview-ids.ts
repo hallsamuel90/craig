@@ -5,4 +5,5 @@ export const PREVIEW_FEATURE_IDS = [
   "piRunner",
   "fileOpen",
   "panelPolish",
+  "ghosttyTerminal",
 ] as const satisfies readonly PreviewFeatureId[];

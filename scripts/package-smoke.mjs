@@ -2,11 +2,13 @@
 
 import { execFile } from "node:child_process";
 import { access, chmod, mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
+import { createRequire } from "node:module";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { promisify } from "node:util";
+import { pathToFileURL } from "node:url";
 
-import { spawn } from "node-pty";
+import { verifyTerminalArtifact } from "./terminal-artifact-check.mjs";
 
 const execFileAsync = promisify(execFile);
 const repoRoot = resolve(import.meta.dirname, "..");
@@ -59,6 +61,7 @@ const packDir = join(tempRoot, "pack");
 const projectDir = join(tempRoot, "project");
 const npmCacheDir = join(tempRoot, "npm-cache");
 let craigBin = null;
+let spawn;
 
 try {
   await mkdir(packDir, { recursive: true });
@@ -79,6 +82,10 @@ try {
   await execFileAsync("git", ["commit", "-m", "init"], { cwd: projectDir });
   await execFileAsync("npm", ["init", "-y"], { cwd: projectDir, env: { ...process.env, npm_config_cache: npmCacheDir }, maxBuffer: 1024 * 1024 * 10 });
   await execFileAsync("npm", ["install", tarball], { cwd: projectDir, env: { ...process.env, npm_config_cache: npmCacheDir }, maxBuffer: 1024 * 1024 * 20 });
+  spawn = createRequire(join(projectDir, "package.json"))("node-pty").spawn;
+  const offlineGuard = join(tempRoot, "offline.mjs");
+  await writeFile(offlineGuard, "globalThis.fetch = async () => { throw new Error('Network disabled for packed CLI smoke'); };\n");
+  process.env.NODE_OPTIONS = `${process.env.NODE_OPTIONS ?? ""} --import=${pathToFileURL(offlineGuard).href}`.trim();
 
   craigBin = join(projectDir, "node_modules", ".bin", "craig");
   await execFileAsync(craigBin, ["repo", "list"], { cwd: projectDir, maxBuffer: 1024 * 1024 * 10 });
@@ -108,7 +115,7 @@ try {
   await execFileAsync(craigBin, ["repo", "add", "."], { cwd: projectDir, maxBuffer: 1024 * 1024 * 10 });
   await writeFile(
     join(projectDir, ".craig", "config.json"),
-    `${JSON.stringify({ previews: { agentOrchestration: true } }, null, 2)}\n`,
+    `${JSON.stringify({ previews: { agentOrchestration: true, ghosttyTerminal: true } }, null, 2)}\n`,
     "utf8",
   );
   const codexStubDir = join(tempRoot, "bin");
@@ -127,6 +134,8 @@ try {
   );
   const taskId = expectJsonSuccess(taskResult.stdout, "task.new", "createTask").data?.taskId;
   if (typeof taskId !== "string") throw new Error(`Packed CLI did not create a task: ${taskResult.stdout}`);
+  const terminalReport = await verifyTerminalArtifact({ executable: craigBin, profile: process.env.CRAIG_TERMINAL_PROFILE ?? "quick" });
+  if (process.env.CRAIG_TERMINAL_REPORT) await writeFile(process.env.CRAIG_TERMINAL_REPORT, JSON.stringify(terminalReport, null, 2) + "\n");
 
   const furyFile = join(projectDir, ".craig", "fury", "package-smoke.yaml");
   await mkdir(join(projectDir, ".craig", "fury"), { recursive: true });

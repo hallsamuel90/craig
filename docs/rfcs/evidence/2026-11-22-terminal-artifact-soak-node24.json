@@ -1,0 +1,58 @@
+{
+  "artifact": "cli.js",
+  "profile": "soak",
+  "platform": "darwin-arm64",
+  "driverNode": "v24.12.0",
+  "relocated": false,
+  "cliSelfBootstrap": true,
+  "cases": [
+    {
+      "backend": "xterm",
+      "burstCycles": 40,
+      "outputLines": 1310720,
+      "pingP95Ms": 0.08237499999813735,
+      "burstToStyledSnapshotP95Ms": 1373.9671670000007,
+      "checks": [
+        "query owner",
+        "UTF-8 fragments",
+        "paste",
+        "application cursor",
+        "output flood",
+        "resize",
+        "styled/link rows",
+        "toggle and reconnect preserve PID",
+        "disposal kills child"
+      ]
+    },
+    {
+      "backend": "ghostty",
+      "burstCycles": 40,
+      "outputLines": 1310720,
+      "pingP95Ms": 0.05362500000046566,
+      "burstToStyledSnapshotP95Ms": 22.271625000001222,
+      "checks": [
+        "query owner",
+        "UTF-8 fragments",
+        "paste",
+        "application cursor",
+        "output flood",
+        "resize",
+        "styled/link rows",
+        "toggle and reconnect preserve PID",
+        "disposal kills child"
+      ]
+    }
+  ],
+  "daemonPingMs": {
+    "p95": 0.0796249999984866,
+    "max": 0.2640420000006998
+  },
+  "isolation": "fresh unrelated workspace; fetch preload for Node-compatible targets; use an external network sandbox for native binary offline proof",
+  "recordedAt": "2026-11-22",
+  "limits": [
+    "Synthetic real-PTY peer, not a live agent/model session.",
+    "Timings include polling and scheduling; not physical UI rendering latency or a universal performance comparison.",
+    "Wasm allocation reuse tests do not establish process RSS stability.",
+    "No native binary, Linux, or network-isolated execution was performed locally."
+  ]
+}

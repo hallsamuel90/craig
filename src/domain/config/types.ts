@@ -1,5 +1,5 @@
 export type RunnerType = "codex" | "cursor" | "claude" | "pi";
-export type PreviewFeatureId = "agentOrchestration" | "fileOpen" | "piRunner" | "panelPolish";
+export type PreviewFeatureId = "agentOrchestration" | "fileOpen" | "piRunner" | "panelPolish" | "ghosttyTerminal";
 
 export interface RunnerConfig {
   enabled?: boolean;
@@ -30,6 +30,7 @@ export interface CraigConfig {
     fileOpen?: boolean;
     piRunner?: boolean;
     panelPolish?: boolean;
+    ghosttyTerminal?: boolean;
   };
 }
 
