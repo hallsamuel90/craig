@@ -65,7 +65,7 @@ async function openShell(state) {
   output = "";
   child = spawn(binary, [], { cwd: project, env, cols: 120, rows: 36 });
   child.onData((data) => { output = (output + data).slice(-250000); });
-  await waitFor("> Start");
+  await waitFor("> Resume workspace");
   assert.ok(output.includes(`v${version}`));
   child.write("\r");
 }
