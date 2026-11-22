@@ -12,6 +12,8 @@ audit corrections and the observed earlier test retry
 are recorded in [standalone-binary-validation.md](standalone-binary-validation.md);
 commands and operational policy are in [standalone-binary-build.md](standalone-binary-build.md).
 The spike files remain intact, and publishing remains disabled.
+November 22: draft PR #316 is open with current `main` merged; hosted qualification
+is in progress. The expired Fury review has not been approved.
 
 ## Verification summary
 
@@ -22,6 +24,10 @@ Ruby syntax and Homebrew's formula parser passed; no live tap install occurred.
 The audit fixed formula URL interpolation, incomplete release-preflight validation,
 decoded-resource audit coverage and the Homebrew OS floor. Atomic executable
 replacement with a live old daemon passed using two fixture builds.
+These counts describe the November 13 audit. The November 22 local rerun passed
+842/845 source tests with three daemon failures and an unhandled rejection; current
+release gates are not all green. Other local gates and updated binary smoke passed.
+See the rollout record for investigation and hosted results.
 
 ## Next resume point
 

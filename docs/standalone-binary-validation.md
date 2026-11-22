@@ -4,6 +4,13 @@
 authorization. See the [build guide](standalone-binary-build.md) and
 [acceptance checklist](standalone-binary-checklist.md).
 
+November 22 follow-up: the branch has been merged with current `main` and pushed
+as draft PR #316. The new local full-suite rerun has three failing daemon tests
+and an unhandled rejection, despite passing binary smoke and other release gates.
+The green results below are dated November 13 evidence, not the current release
+gate status. See the [rollout record](standalone-binary-rollout.md) for current
+failures and hosted qualification.
+
 ## Delivered
 
 - Pinned, checksummed official Node distribution and isolated native rebuild;

@@ -31,11 +31,12 @@ const stub = path.join(bin, "codex");
 await writeFile(stub, `#!/bin/sh
 task_dir=$(basename "$PWD")
 echo "$PWD" > "$HOME/agent-$task_dir.cwd"
+echo "binary_agent_task:$task_dir"
 echo "binary_agent_cwd:$PWD"
 echo "binary_agent_ready"
 while IFS= read -r line; do
   case "$line" in
-    probe*) echo "binary_input_ok:$line"; echo "binary_size:$(stty size)" ;;
+    probe*) echo "binary_input_ok:$line"; echo "binary_input_task:$task_dir:$line"; echo "binary_size:$(stty size)" ;;
   esac
 done
 `);
@@ -202,6 +203,11 @@ try {
   assert.equal(after.tasks.length, 2);
   const newTask = after.tasks.find((task) => task.id !== taskId);
   assert.ok(newTask);
+  // An existing agent's replayed ready marker must not satisfy the new-agent
+  // assertion. The stub writes its cwd before emitting this task-specific marker.
+  await waitFor(`binary_agent_task:${newTask.id}`);
+  child.write("probe-create\r");
+  await waitFor(`binary_input_task:${newTask.id}:probe-create`);
   assert.equal((await readFile(path.join(home, `agent-${newTask.id}.cwd`), "utf8")).trim(), newTask.worktreePath);
   console.log("PASS TUI create goes directly into new agent worktree");
   await closeShell();
