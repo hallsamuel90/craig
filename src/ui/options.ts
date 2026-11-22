@@ -41,12 +41,13 @@ export type PreviewOptionsKeyResult =
 
 export const OPTIONS_MENU_ITEMS = ["Runners", "Feature Previews", "Logs", "Help"];
 
-export const NEW_PREVIEW_FEATURE_IDS = ["piRunner", "fileOpen"] as const satisfies readonly PreviewFeatureId[];
+export const NEW_PREVIEW_FEATURE_IDS = ["piRunner", "fileOpen", "ghosttyTerminal"] as const satisfies readonly PreviewFeatureId[];
 
 const PREVIEW_LABELS: Record<PreviewFeatureId, string> = {
   agentOrchestration: "Agent orchestration",
   fileOpen: "Agent file opening",
   piRunner: "Pi coding agent runner",
+  ghosttyTerminal: "Ghostty terminal (new sessions)",
 };
 
 export function buildRunnersSubmenuItems(config: CraigConfig, state: RunnerOptionsState): string[] {

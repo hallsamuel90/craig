@@ -2,3 +2,5 @@ node_modules/
 dist/
 .craig/
 coverage/
+.cache/
+src/ui/ghostty/wasm.generated.ts

@@ -4,6 +4,7 @@ import { createRequire } from "node:module";
 import path from "node:path";
 import { gzipSync } from "node:zlib";
 import { build, version as esbuildVersion } from "esbuild";
+import { prepareGhostty } from "../prepare-ghostty.mjs";
 import { archiveFiles, auditDistribution, auditResource, digest, makePayload, manifestOf } from "./artifact.mjs";
 
 const root = path.resolve(import.meta.dirname, "../..");
@@ -86,6 +87,7 @@ if (!/^\d+\.\d+\.\d+$/.test(pkg.version)) throw new Error("Standalone artifacts 
 const staging = path.join(output, "staging");
 rmSync(staging, { recursive: true, force: true });
 mkdirSync(staging, { recursive: true });
+await prepareGhostty();
 await build({ entryPoints: [path.join(root, "src/cli.ts")], outfile: path.join(staging, "cli.js"),
   platform: "node", format: "esm", target: "node26", bundle: true, minify: true, sourcemap: false,
   external: Object.keys(pkg.dependencies), define: { __CRAIG_VERSION__: JSON.stringify(pkg.version) },
@@ -96,7 +98,10 @@ const add = (name, bytes, mode = 0o600) => files.push({ path: name, bytes: Buffe
 add("cli.js", readFileSync(path.join(staging, "cli.js")));
 add("package.json", '{"type":"module"}\n');
 add("launch.cjs", 'import("./cli.js").catch(error => { console.error(error); process.exitCode = 1; });\n');
-const notices = [`Craig\n${readFileSync(path.join(root, "LICENSE"), "utf8")}`, `Node ${config.node}\n${readFileSync(path.join(toolchain, "LICENSE"), "utf8")}`];
+const readme = readFileSync(path.join(root, "packages/cli/README.md"), "utf8");
+const ghosttyNotices = readme.split("<!-- libghostty notices -->")[1];
+if (!ghosttyNotices?.includes("libghostty-vt 1.0.0")) throw new Error("Missing bundled Ghostty license notices");
+const notices = [ghosttyNotices.trim(), `Craig\n${readFileSync(path.join(root, "LICENSE"), "utf8")}`, `Node ${config.node}\n${readFileSync(path.join(toolchain, "LICENSE"), "utf8")}`];
 for (const item of allowlist) {
   const source = packageSources.get(item.path);
   if (!item.files.some((file) => /^(?:LICENSE|LICENCE|COPYING|NOTICE)(\..*)?$/i.test(file))

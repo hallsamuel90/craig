@@ -5,6 +5,7 @@ import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { promisify } from "node:util";
+import { verifyGhostty } from "./prepare-ghostty.mjs";
 
 const execFileAsync = promisify(execFile);
 const repoRoot = resolve(import.meta.dirname, "..");
@@ -95,6 +96,17 @@ try {
     if (rule.pattern.test(cliContent)) {
       failures.push(`denied content in dist/cli.js: ${rule.name}`);
     }
+  }
+
+  const embedded = cliContent.match(/["'](AGFzbQ[A-Za-z0-9+/]{100000,}={0,2})["']/);
+  if (!embedded) failures.push("dist/cli.js does not embed the Ghostty Wasm module");
+  else {
+    const bytes = verifyGhostty(Buffer.from(embedded[1], "base64"));
+    if (!WebAssembly.validate(bytes)) failures.push("embedded Ghostty module is invalid");
+  }
+  const { stdout: readme } = await execFileAsync("tar", ["-xOf", join(tempDir, packResult.filename), "package/README.md"], { maxBuffer: 1024 * 1024 });
+  for (const notice of ["libghostty-vt 1.0.0", "Highway", "simdutf", "translate_c", "uucode", "Wuffs", "UNICODE LICENSE V3", "Bjoern Hoehrmann", "Zig contributors"]) {
+    if (!readme.includes(notice)) failures.push(`missing bundled license notice: ${notice}`);
   }
 
   if (failures.length > 0) {

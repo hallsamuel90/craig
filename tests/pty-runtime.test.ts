@@ -2,9 +2,89 @@ import { describe, expect, test, vi } from "vitest";
 
 import { isTerminalDetachKey } from "../src/ui/state.js";
 import { mapKeyToPtyInput, PtyRuntime } from "../src/ui/pty/runtime.js";
-import { createTerminalEmulator, renderTerminalScreenRows, writeTerminalEmulator } from "../src/ui/terminal-emulator.js";
+import { createTerminalEmulator, renderTerminalScreenRows, writeTerminalEmulator } from "../src/ui/terminal-xterm.js";
+import { createTerminalEmulator as createBackend } from "../src/ui/terminal-emulator.js";
+import type { TerminalEmulator, TerminalEmulatorFactory } from "../src/ui/terminal-emulator.js";
 
 describe("PTY runtime", () => {
+  test("reports backend write failures and disposes the session only once", async () => {
+    const pty = createFakePty();
+    const backend = createBackend({ columns: 80, rows: 24 }, { onReply: () => {} });
+    const dispose = vi.spyOn(backend, "dispose");
+    vi.spyOn(backend, "write").mockRejectedValue(new Error("backend failed"));
+    const runtime = new PtyRuntime({ workspaceRoot: "/tmp/craig", spawn: () => pty, createEmulator: () => backend });
+    try {
+      runtime.ensureSession("task_1", "task_1:agent", { columns: 80, rows: 24 });
+      pty.emitData("output");
+      await vi.waitFor(() => expect(runtime.getViewState("task_1:agent")).toMatchObject({ status: "failed", error: "backend failed", rows: [] }));
+      expect(runtime.getStartupBlocker("task_1:agent", "codex")).toBeNull();
+      runtime.resize({ columns: 100, rows: 30 });
+      runtime.scrollViewport(-1);
+    } finally { runtime.disposeAll(); }
+    expect(dispose).toHaveBeenCalledOnce();
+    expect(pty.kill).toHaveBeenCalledOnce();
+  });
+
+  test("supports a backend with no xterm buffers and lets it own terminal replies", async () => {
+    const pty = createFakePty();
+    const rows = [{ segments: [{ text: "backend output", href: "https://example.com" }] }];
+    const terminal: TerminalEmulator = {
+      write: vi.fn(async () => {}),
+      resize: vi.fn(),
+      renderRows: vi.fn(() => rows),
+      getActiveScreenText: () => "Trust this folder?\n1. Trust and continue\n2. Quit",
+      getScrollbackLength: () => 2,
+      dispose: vi.fn(),
+    };
+    const createEmulator: TerminalEmulatorFactory = vi.fn((_size, options) => {
+      terminal.write = vi.fn(async () => { options.onReply("backend reply"); });
+      return terminal;
+    });
+    const runtime = new PtyRuntime({ workspaceRoot: "/tmp/craig", spawn: () => pty, createEmulator });
+    try {
+      const size = { columns: 80, rows: 24 };
+      expect(runtime.ensureSession("task_1", "task_1:agent", size).rows).toBe(rows);
+      expect(createEmulator).toHaveBeenCalledWith(size, expect.objectContaining({ onReply: expect.any(Function) }));
+      expect(runtime.getStartupBlocker("task_1:agent", "codex")).toContain("folder trust");
+      runtime.scrollViewport(-100);
+      expect(runtime.getViewState("task_1:agent").scrolledBack).toBe(true);
+      expect(terminal.renderRows).toHaveBeenLastCalledWith(2);
+      runtime.scrollViewport(100);
+      expect(runtime.getViewState("task_1:agent").scrolledBack).toBe(false);
+      pty.emitData("\x1b[6n");
+      await vi.waitFor(() => expect(terminal.write).toHaveBeenCalledWith("\x1b[6n"));
+      expect(pty.writes).toEqual(["backend reply"]);
+      runtime.resize({ columns: 90, rows: 30 });
+      expect(terminal.resize).toHaveBeenLastCalledWith({ columns: 90, rows: 30 });
+    } finally { runtime.disposeAll(); }
+    expect(terminal.dispose).toHaveBeenCalledOnce();
+    expect(pty.kill).toHaveBeenCalledOnce();
+  });
+
+  test("releases the backend when PTY startup fails", () => {
+    const terminal = createBackend({ columns: 80, rows: 24 }, { onReply: () => {} });
+    const dispose = vi.spyOn(terminal, "dispose");
+    const runtime = new PtyRuntime({
+      workspaceRoot: "/tmp/craig", createEmulator: () => terminal,
+      spawn: () => { throw new Error("PTY spawn failed"); },
+    });
+    expect(() => runtime.ensureSession("task_1", "task_1:agent", { columns: 80, rows: 24 })).toThrow("PTY spawn failed");
+    expect(dispose).toHaveBeenCalledOnce();
+    expect(runtime.sessionTabIds()).toEqual([]);
+  });
+
+  test("xterm adapter preserves query replies, history bounds and live screen text", async () => {
+    const onReply = vi.fn();
+    const terminal = createBackend({ columns: 20, rows: 3 }, { onReply });
+    try {
+      await terminal.write("one\r\ntwo\r\nthree\r\nfour\x1b[6n\x1b[c\x1b[?u");
+      expect(onReply.mock.calls.map(([data]) => data)).toEqual(["\x1b[1;1R", "\x1b[?1;2c", "\x1b[?0u"]);
+      expect(terminal.getScrollbackLength()).toBe(1);
+      expect(terminal.getActiveScreenText()).toBe("two\nthree\nfour");
+      expect(terminal.renderRows(1)[0]?.segments[0]?.text.trimEnd()).toBe("one");
+    } finally { terminal.dispose(); }
+  });
+
   test("reads startup blockers from the live screen and clears them after the dialog closes", async () => {
     const pty = createFakePty();
     const runtime = new PtyRuntime({

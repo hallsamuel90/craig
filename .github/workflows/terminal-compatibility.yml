@@ -1,0 +1,87 @@
+name: Terminal compatibility
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      profile:
+        description: Artifact stress profile
+        type: choice
+        options: [quick, soak]
+        default: quick
+
+permissions:
+  contents: read
+
+jobs:
+  terminal:
+    name: terminal (${{ matrix.os }}, Node ${{ matrix.node }})
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+        node: [22, 24]
+    env:
+      CRAIG_TERMINAL_PROFILE: ${{ inputs.profile || 'quick' }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node }}
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - name: Seeded replay, allocation churn, disposal races, and real launchers
+        run: pnpm verify:terminal
+      - run: pnpm typecheck
+      - run: pnpm build:npm
+      - run: pnpm package:audit
+      - name: Installed artifact, both backends, real PTYs and output load
+        run: pnpm package:smoke
+        env:
+          CRAIG_TERMINAL_REPORT: ${{ runner.temp }}/terminal-report.json
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: terminal-${{ matrix.os }}-node${{ matrix.node }}
+          path: ${{ runner.temp }}/terminal-report.json
+          if-no-files-found: warn
+
+  offline-linux:
+    name: terminal artifact (Linux, network disabled)
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build in the same image used for offline execution
+        run: |
+          docker volume create craig-terminal-build
+          docker run --rm -v "$PWD:/source:ro" -v craig-terminal-build:/work node:22-bookworm bash -lc '
+            set -euo pipefail
+            tar -C /source --exclude=./.git --exclude=./node_modules --exclude=./.cache --exclude=./dist --exclude=./.craig --exclude=./packages/cli/dist --exclude=./packages/site/dist -cf - . | tar -C /work -xf -
+            cd /work
+            npm install --global --force pnpm@10.7.1
+            pnpm install --frozen-lockfile
+            pnpm build:npm
+            pnpm package:audit
+          '
+      - name: Verify self-contained runtime without any network interface
+        env:
+          PROFILE: ${{ inputs.profile || 'quick' }}
+        run: |
+          mkdir -p "$RUNNER_TEMP/terminal-offline"
+          docker run --rm --init --network=none -v craig-terminal-build:/work -v "$RUNNER_TEMP/terminal-offline:/reports" -w /work node:22-bookworm \
+            node scripts/terminal-artifact-check.mjs --executable packages/cli/dist/cli.js --profile "$PROFILE" --report /reports/offline.json
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: terminal-offline-linux
+          path: ${{ runner.temp }}/terminal-offline/offline.json
+          if-no-files-found: warn
+      - name: Remove isolated build volume
+        if: always()
+        run: docker volume rm -f craig-terminal-build

@@ -1,0 +1,331 @@
+{
+  "version": "1.0.0",
+  "sha256": "7b428fee6d0677bc81279458f8f9a3335454834123a9ff47efb3fd177f6da5a8",
+  "wasmBytes": 1240850,
+  "startupMs": 1.0780419999999964,
+  "runtime": "v24.12.0",
+  "platform": "darwin-arm64",
+  "passed": [
+    "screen parity: cursor, erase, SGR, wrap, alternate screen, Unicode, resize",
+    "fragmented UTF-8 and control sequences match whole writes",
+    "public style and OSC 8 APIs, link overwrite and history",
+    "terminal query replies use actual cursor and survive chunk boundaries",
+    "real node-pty child: cwd, resize, query reply and clean exit",
+    "optimized styled rows match independent C getters and Craig's renderer",
+    "styled history, cursor movement/visibility and palette invalidation",
+    "emoji graphemes match C getters; record native width and URL policy differences",
+    "real Codex startup replay: styled content parity, ignoring trailing default padding",
+    "benchmark workload snapshots agree with C getters and Craig at every frame",
+    "cached rows survive memory growth and repeated session disposal"
+  ],
+  "skipped": [],
+  "differences": [
+    {
+      "name": "shrink wrapped text from 20 to 12 columns at cursor row",
+      "ghostty": [
+        "abcdefghijkl",
+        "mnopqrstuvwx",
+        "yz",
+        "",
+        "",
+        ""
+      ],
+      "craig": [
+        "abcdefghijkl",
+        "uvwxyz",
+        "",
+        "",
+        "",
+        ""
+      ]
+    },
+    {
+      "name": "emoji ZWJ width",
+      "ghosttyCursorX": 9,
+      "craigCursorX": 7
+    },
+    {
+      "name": "2068-byte OSC 8 URL acceptance",
+      "ghosttyHasLink": false,
+      "craigHasLink": true
+    }
+  ],
+  "scrolling": [
+    {
+      "name": "full screen",
+      "ghosttyHistory": 2,
+      "craigHistory": 2
+    },
+    {
+      "name": "Codex protected composer",
+      "ghosttyHistory": 2,
+      "craigHistory": 2
+    },
+    {
+      "name": "interior region",
+      "ghosttyHistory": 0,
+      "craigHistory": 0
+    },
+    {
+      "name": "alternate screen",
+      "ghosttyHistory": 0,
+      "craigHistory": 0
+    }
+  ],
+  "benchmark": {
+    "bytes": 1160000,
+    "chunkBytes": 4096,
+    "warmupRounds": 1,
+    "measuredRounds": 5,
+    "serialCallbackMedianMs": {
+      "ghostty": 2.6089579999998023,
+      "xterm": 335.7081250000001,
+      "craig": 354.36083299999996
+    },
+    "queuedChunksMedianMs": {
+      "ghostty": 2.5805829999999332,
+      "xterm": 11.67608300000029
+    },
+    "plainViewportMedianMs": {
+      "ghostty": 1.3172187500000019,
+      "xterm": 0.019674999999997455
+    }
+  },
+  "styledBenchmark": {
+    "codexStartup": {
+      "framesPerRound": 46,
+      "measuredRounds": 3,
+      "ghostty": {
+        "parse": {
+          "medianMs": 0.0008330000000569271,
+          "p95Ms": 0.017166999999972177,
+          "maxMs": 0.027042000000619737
+        },
+        "styledFrame": {
+          "medianMs": 0.00633300000026793,
+          "p95Ms": 0.7881659999993644,
+          "maxMs": 0.9018329999998969
+        },
+        "serialize": {
+          "medianMs": 0.006790999999793712,
+          "p95Ms": 0.016458000000056927,
+          "maxMs": 0.03862500000013824
+        },
+        "combined": {
+          "medianMs": 0.014375000000654836,
+          "p95Ms": 0.8033749999995052,
+          "maxMs": 0.9555000000000291
+        }
+      },
+      "craig": {
+        "parse": {
+          "medianMs": 1.183999999999287,
+          "p95Ms": 1.41412500000024,
+          "maxMs": 1.7038339999999152
+        },
+        "styledFrame": {
+          "medianMs": 0.8509589999994205,
+          "p95Ms": 0.921582999999373,
+          "maxMs": 0.9756250000000364
+        },
+        "serialize": {
+          "medianMs": 0.07216700000026322,
+          "p95Ms": 0.1294580000003407,
+          "maxMs": 0.17537499999980355
+        },
+        "combined": {
+          "medianMs": 2.1118750000005093,
+          "p95Ms": 2.3446670000002996,
+          "maxMs": 2.6240420000003724
+        }
+      }
+    },
+    "protectedComposer": {
+      "framesPerRound": 65,
+      "measuredRounds": 3,
+      "ghostty": {
+        "parse": {
+          "medianMs": 0.0015000000003055902,
+          "p95Ms": 0.00908299999900919,
+          "maxMs": 0.02562500000021828
+        },
+        "styledFrame": {
+          "medianMs": 0.835624999999709,
+          "p95Ms": 1.1689170000008744,
+          "maxMs": 2.2770000000000437
+        },
+        "serialize": {
+          "medianMs": 0.016792000000350527,
+          "p95Ms": 0.02433299999938754,
+          "maxMs": 0.0373329999993075
+        },
+        "combined": {
+          "medianMs": 0.8553340000007665,
+          "p95Ms": 1.188333000000057,
+          "maxMs": 2.336708999999246
+        }
+      },
+      "craig": {
+        "parse": {
+          "medianMs": 3.403041999999914,
+          "p95Ms": 3.548208000000159,
+          "maxMs": 3.7201249999998254
+        },
+        "styledFrame": {
+          "medianMs": 0.8943749999998545,
+          "p95Ms": 1.1334999999999127,
+          "maxMs": 2.5231250000006185
+        },
+        "serialize": {
+          "medianMs": 0.07012500000018917,
+          "p95Ms": 0.1404999999995198,
+          "maxMs": 0.2639999999992142
+        },
+        "combined": {
+          "medianMs": 4.366957999999613,
+          "p95Ms": 4.6805420000000595,
+          "maxMs": 5.10491600000023
+        }
+      }
+    },
+    "fullRepaint": {
+      "framesPerRound": 24,
+      "measuredRounds": 3,
+      "ghostty": {
+        "parse": {
+          "medianMs": 0.012040999999953783,
+          "p95Ms": 0.021125000001120497,
+          "maxMs": 0.028292000000874395
+        },
+        "styledFrame": {
+          "medianMs": 0.9228330000005371,
+          "p95Ms": 1.0436250000002474,
+          "maxMs": 1.363208000000668
+        },
+        "serialize": {
+          "medianMs": 0.019333000000187894,
+          "p95Ms": 0.027541999999812106,
+          "maxMs": 0.03258300000015879
+        },
+        "combined": {
+          "medianMs": 0.9564589999990858,
+          "p95Ms": 1.0941249999996217,
+          "maxMs": 1.3982080000005226
+        }
+      },
+      "craig": {
+        "parse": {
+          "medianMs": 1.2886249999992287,
+          "p95Ms": 1.3588330000002316,
+          "maxMs": 1.521999999999025
+        },
+        "styledFrame": {
+          "medianMs": 1.139791999999943,
+          "p95Ms": 1.1982499999994616,
+          "maxMs": 1.2359169999999722
+        },
+        "serialize": {
+          "medianMs": 0.0879159999985859,
+          "p95Ms": 0.19712499999877764,
+          "maxMs": 0.2492080000010901
+        },
+        "combined": {
+          "medianMs": 2.5202919999992446,
+          "p95Ms": 2.7162919999991573,
+          "maxMs": 2.753333999999086
+        }
+      }
+    },
+    "linkDense": {
+      "framesPerRound": 12,
+      "measuredRounds": 3,
+      "ghostty": {
+        "parse": {
+          "medianMs": 0.15308299999924202,
+          "p95Ms": 0.3703330000007554,
+          "maxMs": 0.37062499999956344
+        },
+        "styledFrame": {
+          "medianMs": 2.6310410000005504,
+          "p95Ms": 4.484833000000435,
+          "maxMs": 5.085124999999607
+        },
+        "serialize": {
+          "medianMs": 0.03262499999982538,
+          "p95Ms": 0.0467079999998532,
+          "maxMs": 0.04954100000031758
+        },
+        "combined": {
+          "medianMs": 2.8254589999996824,
+          "p95Ms": 4.6944169999987935,
+          "maxMs": 5.502166000000216
+        }
+      },
+      "craig": {
+        "parse": {
+          "medianMs": 1.4095410000008997,
+          "p95Ms": 1.4974160000001575,
+          "maxMs": 1.5139170000002196
+        },
+        "styledFrame": {
+          "medianMs": 2.272333000000799,
+          "p95Ms": 2.6370829999996204,
+          "maxMs": 3.218790999999328
+        },
+        "serialize": {
+          "medianMs": 0.16441699999995762,
+          "p95Ms": 0.28145799999947485,
+          "maxMs": 0.29275000000052387
+        },
+        "combined": {
+          "medianMs": 3.817957999999635,
+          "p95Ms": 4.108250000001135,
+          "maxMs": 4.2465420000007725
+        }
+      }
+    }
+  },
+  "memorySoak": {
+    "note": "Shared Wasm high-water marks, not process RSS or a leak proof",
+    "cycles": [
+      {
+        "beforeBytes": 7274496,
+        "with20SessionsBytes": 22151168,
+        "oneTerminalCore": {
+          "primary_resident_bytes": 393216,
+          "alternate_resident_bytes": 0
+        },
+        "afterDisposeBytes": 22151168
+      },
+      {
+        "beforeBytes": 22151168,
+        "with20SessionsBytes": 22151168,
+        "oneTerminalCore": {
+          "primary_resident_bytes": 393216,
+          "alternate_resident_bytes": 0
+        },
+        "afterDisposeBytes": 22151168
+      },
+      {
+        "beforeBytes": 22151168,
+        "with20SessionsBytes": 22151168,
+        "oneTerminalCore": {
+          "primary_resident_bytes": 393216,
+          "alternate_resident_bytes": 0
+        },
+        "afterDisposeBytes": 22151168
+      }
+    ]
+  },
+  "responsiveness": {
+    "ghostty": {
+      "p95QueuedTurnMs": 1.2671250000003056,
+      "maxQueuedTurnMs": 3.15258299999914
+    },
+    "craig": {
+      "p95QueuedTurnMs": 0.15941600000041944,
+      "maxQueuedTurnMs": 0.6415840000008757
+    }
+  },
+  "wasmMemoryBytesAfterRun": 22216704
+}

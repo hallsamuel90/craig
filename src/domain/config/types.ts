@@ -1,5 +1,5 @@
 export type RunnerType = "codex" | "cursor" | "claude" | "pi";
-export type PreviewFeatureId = "agentOrchestration" | "fileOpen" | "piRunner";
+export type PreviewFeatureId = "agentOrchestration" | "fileOpen" | "piRunner" | "ghosttyTerminal";
 
 export interface RunnerConfig {
   enabled?: boolean;
@@ -31,6 +31,7 @@ export interface CraigConfig {
     piRunner?: boolean;
     /** Retired preview flag; preserved for config compatibility and ignored. */
     panelPolish?: boolean;
+    ghosttyTerminal?: boolean;
   };
 }
 

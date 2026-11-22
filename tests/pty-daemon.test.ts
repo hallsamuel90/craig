@@ -1,6 +1,7 @@
 import { createRequire } from "node:module";
 import { createHash } from "node:crypto";
 import { createServer } from "node:net";
+import type { Socket } from "node:net";
 import { chmod, mkdir, mkdtemp, readFile, rm, symlink, writeFile } from "node:fs/promises";
 import { join, resolve } from "node:path";
 import { tmpdir } from "node:os";
@@ -27,6 +28,97 @@ import { createCraigState, createGitRepo, createStubCommands, writeRepoRecord, w
 const DAEMON_TEST_TIMEOUT_MS = 15000;
 
 describe("PTY daemon", () => {
+  test.each([false, true])("Ghostty preview preserves an older daemon and handles an existing session: %s", async (existing) => {
+    const root = await createWorkspace();
+    const paths = getCraigPaths(root);
+    await configService.save(paths, { previews: { ghosttyTerminal: true } });
+    const endpoint = getDaemonEndpointForTest(root);
+    const sockets = new Set<Socket>();
+    const requests: string[] = [];
+    const legacy = createServer((socket) => {
+      sockets.add(socket);
+      socket.on("close", () => sockets.delete(socket));
+      let buffer = "";
+      socket.setEncoding("utf8");
+      socket.on("data", (chunk) => {
+        buffer += String(chunk);
+        let end;
+        while ((end = buffer.indexOf("\n")) >= 0) {
+          const request = JSON.parse(buffer.slice(0, end)) as { id: number; type: string };
+          buffer = buffer.slice(end + 1);
+          requests.push(request.type);
+          socket.write(`${JSON.stringify({ id: request.id, ok: true,
+            ...(request.type === "ping" ? { protocolVersion: 10, sessionCount: existing ? 1 : 0 } : {}),
+            ...(["getViewState", "ensureSession"].includes(request.type) ? { view: { status: existing ? "running" : "idle", rows: [], error: null, scrolledBack: false } } : {}),
+          })}\n`);
+        }
+      });
+    });
+    await new Promise<void>((resolveListen, reject) => { legacy.once("error", reject); legacy.listen(endpoint.socketPath, resolveListen); });
+    const spawnDaemon = vi.fn();
+    let client: Awaited<ReturnType<typeof createDaemonPtyRuntime>> | undefined;
+    try {
+      client = await createDaemonPtyRuntime({ paths, workspaceRoot: root, spawnDaemon });
+      const result = client.ensureSession("task_1", "task_1:agent", { columns: 80, rows: 24 });
+      if (existing) await expect(result).resolves.toMatchObject({ status: "running" });
+      else await expect(result).rejects.toThrow("Ghostty needs a newer PTY daemon");
+      expect(requests).not.toContain("shutdown");
+      expect(requests.filter((type) => type === "ensureSession")).toHaveLength(existing ? 1 : 0);
+      expect(spawnDaemon).not.toHaveBeenCalled();
+    } finally {
+      client?.disposeAll();
+      for (const socket of sockets) socket.destroy();
+      await new Promise<void>((resolveClose) => legacy.close(() => resolveClose()));
+      await rm(endpoint.socketPath, { force: true });
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  test("Ghostty toggle affects new sessions while existing sessions retain their backend", async () => {
+    const root = await mkdtemp(join(tmpdir(), "craig-ghostty-toggle-"));
+    const paths = await createCraigState(root, ["task_1"]);
+    const processes: ReturnType<typeof createFakePty>[] = [];
+    const daemon = servePtyDaemon(paths, {
+      pullRequestSync: false,
+      spawn: () => { const pty = createFakePty(); processes.push(pty); return pty; },
+    });
+    try {
+      const client = await createDaemonPtyRuntime({ paths, workspaceRoot: root });
+      try {
+        await client.ensureSession("task_1", "task_1:agent", { columns: 80, rows: 24 });
+        processes[0]!.emitData("\x1b[3;7H\x1b[6n");
+        await vi.waitFor(() => expect(processes[0]!.writes).toEqual(["\x1b[1;1R"]));
+        await configService.save(paths, { previews: { ghosttyTerminal: true } });
+        await client.ensureSession("task_1", "task_1:terminal", { columns: 80, rows: 24 });
+        processes[1]!.emitData("\x1b[3;7H\x1b[");
+        processes[1]!.emitData("6n");
+        await vi.waitFor(() => expect(processes[1]!.writes).toEqual(["\x1b[3;7R"]));
+        client.writeKey("UP");
+        await vi.waitFor(() => expect(processes[1]!.writes).toContain("\x1b[A"));
+        processes[1]!.emitData("\x1b[?1h");
+        await client.ensureSession("task_1", "task_1:terminal", { columns: 80, rows: 24 });
+        client.writeKey("UP");
+        await vi.waitFor(() => expect(processes[1]!.writes).toContain("\x1bOA"));
+        client.write("\x1b[200~pasted line 1\npasted line 2\x1b[201~");
+        await vi.waitFor(() => expect(processes[1]!.writes).toContain("\x1b[200~pasted line 1\npasted line 2\x1b[201~"));
+        // The daemon still publishes the existing row wire format.
+        processes[1]!.emitData("\r\n\x1b[32mghostty-ready\x1b[0m");
+        await vi.waitFor(() => expect(client.getViewState("task_1:terminal").rows.flatMap((row) => row.segments).some((segment) => segment.text.includes("ghostty-ready") && segment.style?.fg === "0dbc79")).toBe(true));
+        await configService.save(paths, { previews: { ghosttyTerminal: false } });
+        await client.ensureSession("task_1", "task_1:terminal", { columns: 80, rows: 24 });
+        processes[1]!.emitData("\x1b[3;7H\x1b[6n");
+        await vi.waitFor(() => expect(processes[1]!.writes.filter((data) => data === "\x1b[3;7R")).toHaveLength(2));
+        await client.ensureSession("task_1", "task_1:terminal-2", { columns: 80, rows: 24 });
+        processes[2]!.emitData("\x1b[3;7H\x1b[6n");
+        await vi.waitFor(() => expect(processes[2]!.writes).toEqual(["\x1b[1;1R"]));
+        expect(processes).toHaveLength(3);
+      } finally { client.disposeAll(); }
+    } finally {
+      await requestDaemonShutdown(paths); await daemon;
+      await rm(root, { recursive: true, force: true });
+    }
+  }, DAEMON_TEST_TIMEOUT_MS);
+
   test("an optional startup refresh failure does not prevent spawning an agent", async () => {
     const root = await mkdtemp(join(tmpdir(), "craig-refresh-startup-failure-"));
     const paths = await createCraigState(root, ["task_1"]);

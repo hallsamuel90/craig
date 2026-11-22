@@ -1,25 +1,16 @@
 import { createRequire } from "node:module";
 import type * as NodePty from "node-pty";
-import type { Terminal } from "@xterm/headless";
 
 import type { TerminalStatus, TerminalViewState } from "../state.js";
-import type { TerminalScreenRow } from "../terminal-emulator.js";
-import {
-  createTerminalEmulator,
-  renderTerminalScreenRows,
-  resizeTerminalEmulator,
-  writeTerminalEmulator,
-} from "../terminal-emulator.js";
+import type { TerminalEmulator, TerminalEmulatorFactory, TerminalScreenRow, TerminalSize } from "../terminal-emulator.js";
+import { createTerminalEmulator } from "../terminal-emulator.js";
 import { requireExecutablePath, withDefaultCommandPath } from "../../shared/command-path.js";
 import type { PtyActivitySnapshot } from "../../domain/agent/index.js";
 import type { RunnerType } from "../../domain/config/index.js";
 import type { AgentCapabilitySession } from "../../domain/orchestration/index.js";
 import { findRunnerStartupBlocker } from "../../shell/prompt-delivery.js";
 
-export interface PtySize {
-  columns: number;
-  rows: number;
-}
+export type PtySize = TerminalSize;
 
 export interface PtySessionSpec {
   cwd: string;
@@ -37,6 +28,7 @@ export interface PtyRuntimeOptions {
   shell?: string;
   env?: Record<string, string | undefined>;
   spawn?: typeof NodePty.spawn;
+  createEmulator?: TerminalEmulatorFactory;
   onUpdate?: (invalidation: PtyViewInvalidation) => void;
   onActivity?: (snapshot: PtyActivitySnapshot) => void;
   onActivityRemoved?: (tabId: string) => void;
@@ -50,7 +42,7 @@ interface PtySession {
   taskId: string;
   tabId: string;
   pty: NodePty.IPty;
-  terminal: Terminal;
+  terminal: TerminalEmulator;
   status: TerminalStatus;
   error: string | null;
   disposables: NodePty.IDisposable[];
@@ -60,13 +52,11 @@ interface PtySession {
   screenDirty: boolean;
   lastActivityAt: number;
   exitCode: number | null;
+  disposed: boolean;
 }
 
 const require = createRequire(import.meta.url);
 const CONTROL_KEY_PATTERN = /^CTRL_([A-Z])$/;
-const DEVICE_STATUS_REPORT_QUERY = "\u001B[6n";
-const PRIMARY_DEVICE_ATTRIBUTES_QUERY = "\u001B[c";
-const KITTY_KEYBOARD_QUERY = "\u001B[?u";
 const SPECIAL_KEY_INPUT: Record<string, string> = {
   ENTER: "\r",
   KP_ENTER: "\r",
@@ -95,6 +85,7 @@ export class PtyRuntime {
   private readonly shell: string;
   private readonly env: Record<string, string | undefined>;
   private readonly spawn: typeof NodePty.spawn | undefined;
+  private readonly createEmulator: TerminalEmulatorFactory;
   private readonly onUpdate: PtyRuntimeOptions["onUpdate"];
   private readonly onActivity: PtyRuntimeOptions["onActivity"];
   private readonly onActivityRemoved: PtyRuntimeOptions["onActivityRemoved"];
@@ -106,6 +97,7 @@ export class PtyRuntime {
     this.shell = options.shell ?? process.env.SHELL ?? "/bin/zsh";
     this.env = options.env ?? process.env;
     this.spawn = options.spawn;
+    this.createEmulator = options.createEmulator ?? createTerminalEmulator;
     this.onUpdate = options.onUpdate;
     this.onActivity = options.onActivity;
     this.onActivityRemoved = options.onActivityRemoved;
@@ -113,7 +105,7 @@ export class PtyRuntime {
     this.resolveSessionSpec = options.resolveSessionSpec ?? (() => ({ cwd: options.workspaceRoot, command: [] }));
   }
 
-  ensureSession(taskId: string, tabId: string, size: PtySize, specOverride?: PtySessionSpec): TerminalViewState {
+  ensureSession(taskId: string, tabId: string, size: PtySize, specOverride?: PtySessionSpec, emulatorFactory?: TerminalEmulatorFactory): TerminalViewState {
     const existing = this.sessions.get(tabId);
 
     if (existing) {
@@ -130,7 +122,7 @@ export class PtyRuntime {
 
     let session: PtySession;
     try {
-      session = this.createSession(taskId, tabId, size, specOverride);
+      session = this.createSession(taskId, tabId, size, specOverride, emulatorFactory);
     } catch (error) {
       this.recordActivity({
         taskId,
@@ -168,7 +160,8 @@ export class PtyRuntime {
   }
 
   writeKey(key: string): void {
-    const input = mapKeyToPtyInput(key);
+    const terminal = this.getAttachedSession()?.terminal;
+    const input = terminal?.encodeKey ? terminal.encodeKey(key) : mapKeyToPtyInput(key);
     if (input !== null) {
       this.write(input);
     }
@@ -189,11 +182,11 @@ export class PtyRuntime {
 
   scrollViewport(lines: number): void {
     const session = this.getAttachedSession();
-    if (!session || lines === 0) {
+    if (!session || session.disposed || lines === 0) {
       return;
     }
 
-    const maxScrollback = session.terminal.buffer.active.baseY;
+    const maxScrollback = session.terminal.getScrollbackLength();
     session.scrollbackLines = Math.max(0, Math.min(maxScrollback, session.scrollbackLines - lines));
   }
 
@@ -275,26 +268,29 @@ export class PtyRuntime {
 
   getStartupBlocker(tabId: string, runner: RunnerType): string | null {
     const session = this.sessions.get(tabId);
-    if (!session) return null;
-    const buffer = session.terminal.buffer.active;
-    const screen = Array.from({ length: session.terminal.rows }, (_, row) =>
-      buffer.getLine(buffer.baseY + row)?.translateToString(true) ?? "").join("\n");
-    return findRunnerStartupBlocker(runner, screen);
+    if (!session || session.disposed) return null;
+    return findRunnerStartupBlocker(runner, session.terminal.getActiveScreenText());
   }
 
-  private createSession(taskId: string, tabId: string, size: PtySize, specOverride?: PtySessionSpec): PtySession {
+  private createSession(taskId: string, tabId: string, size: PtySize, specOverride?: PtySessionSpec, emulatorFactory = this.createEmulator): PtySession {
     const spawn = this.spawn ?? loadNodePty().spawn;
-    const terminal = createTerminalEmulator(size);
     const spec = specOverride ?? this.resolveSessionSpec(taskId, tabId);
     const env = withDefaultCommandPath({ ...this.env, ...(spec.env ?? {}) });
     const { executable, args } = resolveSpawnCommand(this.shell, spec.command, { cwd: spec.cwd, env });
-    const pty = spawn(executable, args, {
-      name: "xterm-256color",
-      cols: size.columns,
-      rows: size.rows,
-      cwd: spec.cwd,
-      env: toPtyEnv(env),
-    });
+    let pty: NodePty.IPty | undefined;
+    const terminal = emulatorFactory(size, { onReply: (data) => pty?.write(data) });
+    try {
+      pty = spawn(executable, args, {
+        name: "xterm-256color",
+        cols: size.columns,
+        rows: size.rows,
+        cwd: spec.cwd,
+        env: toPtyEnv(env),
+      });
+    } catch (error) {
+      terminal.dispose();
+      throw error;
+    }
     const session: PtySession = {
       capabilityToken: spec.env?.CRAIG_AGENT_CAPABILITY,
       taskId,
@@ -310,32 +306,51 @@ export class PtyRuntime {
       screenDirty: true,
       lastActivityAt: Date.now(),
       exitCode: null,
+      disposed: false,
     };
 
     session.disposables.push(
       pty.onData((chunk) => {
+        if (session.disposed) return;
         this.touchActivity(session);
-        respondToTerminalQueries(pty, chunk);
-        void writeTerminalEmulator(session.terminal, chunk).then(() => {
-          session.screenDirty = true;
-          this.onUpdate?.({ tabId: session.tabId, kind: "full" });
-        });
+        this.writeOutput(session, chunk);
       }),
     );
     session.disposables.push(
       pty.onExit((event) => {
+        if (session.disposed) return;
         session.status = "exited";
         session.exitCode = event.exitCode;
         session.lastActivityAt = Date.now();
         this.notifyActivity(session);
-        void writeTerminalEmulator(session.terminal, `\r\n[process exited ${event.exitCode}]`).then(() => {
-          session.screenDirty = true;
-          this.onUpdate?.({ tabId: session.tabId, kind: "full" });
-        });
+        this.writeOutput(session, `\r\n[process exited ${event.exitCode}]`);
       }),
     );
 
     return session;
+  }
+
+  private writeOutput(session: PtySession, chunk: string): void {
+    let writing: Promise<void>;
+    try { writing = session.terminal.write(chunk); }
+    catch (error) { writing = Promise.reject(error); }
+    void writing.then(() => {
+      if (session.disposed || this.sessions.get(session.tabId) !== session) return;
+      session.screenDirty = true;
+      this.onUpdate?.({ tabId: session.tabId, kind: "full" });
+    }, (error: unknown) => {
+      if (session.disposed || this.sessions.get(session.tabId) !== session) return;
+      session.status = "failed";
+      session.error = error instanceof Error ? error.message : String(error);
+      session.rows = [];
+      session.scrollbackLines = 0;
+      session.renderedScrollbackLines = 0;
+      session.screenDirty = false;
+      session.lastActivityAt = Date.now();
+      disposeSession(session);
+      this.notifyActivity(session);
+      this.onUpdate?.({ tabId: session.tabId, kind: "full" });
+    });
   }
 
   private getAttachedSession(): PtySession | null {
@@ -402,14 +417,15 @@ export function mapKeyToPtyInput(key: string): string | null {
 }
 
 function resizeSession(session: PtySession, size: PtySize): void {
+  if (session.disposed) return;
   resizePtySafely(session.pty, size);
-  resizeTerminalEmulator(session.terminal, size);
+  session.terminal.resize(size);
   session.screenDirty = true;
 }
 
 function getRenderedRows(session: PtySession): TerminalScreenRow[] {
   if (session.screenDirty || session.renderedScrollbackLines !== session.scrollbackLines) {
-    session.rows = renderTerminalScreenRows(session.terminal, session.scrollbackLines);
+    session.rows = session.terminal.renderRows(session.scrollbackLines);
     session.renderedScrollbackLines = session.scrollbackLines;
     session.screenDirty = false;
   }
@@ -418,6 +434,8 @@ function getRenderedRows(session: PtySession): TerminalScreenRow[] {
 }
 
 function disposeSession(session: PtySession): void {
+  if (session.disposed) return;
+  session.disposed = true;
   for (const disposable of session.disposables) {
     disposable.dispose();
   }
@@ -465,34 +483,4 @@ function toPtyEnv(env: Record<string, string | undefined>): Record<string, strin
 
   next.TERM = next.TERM ?? "xterm-256color";
   return next;
-}
-
-function respondToTerminalQueries(pty: NodePty.IPty, chunk: string): void {
-  for (let index = 0; index < countSubstring(chunk, DEVICE_STATUS_REPORT_QUERY); index += 1) {
-    pty.write("\u001B[1;1R");
-  }
-
-  for (let index = 0; index < countSubstring(chunk, PRIMARY_DEVICE_ATTRIBUTES_QUERY); index += 1) {
-    pty.write("\u001B[?1;2c");
-  }
-
-  for (let index = 0; index < countSubstring(chunk, KITTY_KEYBOARD_QUERY); index += 1) {
-    pty.write("\u001B[?0u");
-  }
-}
-
-function countSubstring(value: string, needle: string): number {
-  if (needle.length === 0) {
-    return 0;
-  }
-
-  let count = 0;
-  let index = value.indexOf(needle);
-
-  while (index !== -1) {
-    count += 1;
-    index = value.indexOf(needle, index + needle.length);
-  }
-
-  return count;
 }

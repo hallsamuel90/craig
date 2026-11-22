@@ -6,6 +6,10 @@ on:
     paths:
       - "src/**"
       - "scripts/binary/**"
+      - "scripts/prepare-ghostty.mjs"
+      - "scripts/terminal-artifact-check.mjs"
+      - "scripts/fixtures/**"
+      - "packages/cli/README.md"
       - "tests/**"
       - "packaging/**"
       - "package.json"
@@ -45,6 +49,8 @@ jobs:
       - run: pnpm build:binary
       - run: pnpm binary:audit
       - run: pnpm binary:smoke
+      - name: Ghostty preview against the relocated native executable
+        run: pnpm verify:artifact --executable .craig/binary-build/craig --profile soak --report dist/binary/terminal-soak.json
       - run: pnpm binary:release:prepare
       - uses: actions/upload-artifact@v4
         with:

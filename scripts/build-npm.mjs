@@ -4,10 +4,13 @@ import { chmod, mkdir, readFile, rm } from "node:fs/promises";
 import { dirname, resolve } from "node:path";
 
 import { build } from "esbuild";
+import { prepareGhostty } from "./prepare-ghostty.mjs";
 
 const repoRoot = resolve(import.meta.dirname, "..");
 const outfile = resolve(repoRoot, "packages/cli/dist/cli.js");
 const pkgJson = JSON.parse(await readFile(resolve(repoRoot, "packages/cli/package.json"), "utf8"));
+
+await prepareGhostty();
 
 await rm(dirname(outfile), { recursive: true, force: true });
 await mkdir(dirname(outfile), { recursive: true });

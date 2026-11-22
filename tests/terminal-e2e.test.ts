@@ -159,14 +159,15 @@ steps:
   }, 15000);
 
   test.each([
-    { panelPolish: false, expiredCapability: false },
-    { panelPolish: true, expiredCapability: false },
-    { panelPolish: false, expiredCapability: true },
-  ])("incremental center rendering starts Codex in the selected task worktree (panel polish: $panelPolish, expired capability: $expiredCapability)", async ({ panelPolish, expiredCapability }) => {
+    { panelPolish: false, expiredCapability: false, ghosttyTerminal: false },
+    { panelPolish: false, expiredCapability: false, ghosttyTerminal: true },
+    { panelPolish: true, expiredCapability: false, ghosttyTerminal: false },
+    { panelPolish: false, expiredCapability: true, ghosttyTerminal: false },
+  ])("incremental center rendering starts Codex in the selected task worktree (panel polish: $panelPolish, expired capability: $expiredCapability, Ghostty: $ghosttyTerminal)", async ({ panelPolish, expiredCapability, ghosttyTerminal }) => {
     const repoRoot = process.cwd();
     const workspaceRoot = await mkdtemp(join(tmpdir(), "craig-terminal-e2e-")).then((value) => realpath(value));
     await createCraigState(workspaceRoot, ["task_20260430_02"]);
-    await configService.save(getCraigPaths(workspaceRoot), { previews: { panelPolish, agentOrchestration: expiredCapability } });
+    await configService.save(getCraigPaths(workspaceRoot), { previews: { panelPolish, agentOrchestration: expiredCapability, ghosttyTerminal } });
     const sourceRepo = join(workspaceRoot, "repo-a");
     await mkdir(sourceRepo, { recursive: true });
     await createGitRepo(sourceRepo);
@@ -268,7 +269,7 @@ steps:
     }
   }, 15000);
 
-  test.each([false, true])("creating a new task starts Codex in the new task worktree with panel polish %s", async (panelPolish) => {
+  test.each([{ panelPolish: false, ghosttyTerminal: false }, { panelPolish: true, ghosttyTerminal: false }, { panelPolish: false, ghosttyTerminal: true }])("creating a new task starts Codex in the new task worktree (panel polish: $panelPolish, Ghostty: $ghosttyTerminal)", async ({ panelPolish, ghosttyTerminal }) => {
     const repoRoot = process.cwd();
     const workspaceRoot = await mkdtemp(join(tmpdir(), "craig-terminal-e2e-create-")).then((value) => realpath(value));
     await createCraigState(workspaceRoot, []);
@@ -299,7 +300,7 @@ steps:
         updatedAt: "2026-05-04T00:00:00.000Z",
       },
     );
-    await configService.save(getCraigPaths(workspaceRoot), { previews: { agentOrchestration: true, panelPolish } });
+    await configService.save(getCraigPaths(workspaceRoot), { previews: { agentOrchestration: true, panelPolish, ghosttyTerminal } });
     const codexStubDir = await createCodexHarnessStub(workspaceRoot);
     await writeRepoUiState(workspaceRoot);
     const output = new PtyOutputBuffer();

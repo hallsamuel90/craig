@@ -160,3 +160,9 @@ Before publication: pass all required gates, validate hosted CI and real Codex/g
 flows on a clean Mac without Node, qualify Developer ID/notarization/quarantine
 behavior, confirm the tap name, and obtain publication authorization. Ruby syntax
 and fixture tests are not a live Homebrew install from a published URL.
+
+## Experimental terminal backend
+
+`build:binary` prepares the pinned Ghostty Wasm before bundling and includes its license notices. The binary audit verifies the embedded checksum and module validity. No Ghostty Wasm sidecar or runtime download is required.
+
+Run `pnpm verify:artifact --executable .craig/binary-build/craig --profile soak --report /tmp/terminal-soak.json` for both terminal backends, output load, resizing, input, reconnect, child cleanup and normal daemon self-bootstrap. The driver relocates the native executable and uses a temporary home/cache. Its deterministic PTY peer intentionally uses host Node; keep `binary:smoke` for the separate no-Node-on-PATH checks. Native offline proof still needs an external network sandbox.

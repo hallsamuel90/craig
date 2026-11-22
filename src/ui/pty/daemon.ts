@@ -5,6 +5,8 @@ import path from "node:path";
 import type { CraigPaths } from "../../state/craig-paths.js";
 import type { TerminalViewState } from "../state.js";
 import type { TerminalScreenRow } from "../terminal-emulator.js";
+import { createTerminalEmulator } from "../terminal-emulator.js";
+import { createGhosttyEmulator } from "../ghostty/emulator.js";
 import type { PtyActivitySnapshot } from "../../domain/agent/index.js";
 import { configService } from "../../domain/config/index.js";
 import { errorService } from "../../domain/error/index.js";
@@ -56,7 +58,7 @@ type DaemonRequest =
   | { id: number; type: "shutdown" };
 
 type DaemonResponse =
-  | { id: number; ok: true; protocolVersion?: number; sessionCount?: number; view?: TerminalViewState; activities?: PtyActivitySnapshot[]; deliveredCount?: number }
+  | { id: number; ok: true; protocolVersion?: number; sessionCount?: number; ghosttyTerminal?: boolean; view?: TerminalViewState; activities?: PtyActivitySnapshot[]; deliveredCount?: number }
   | { id: number; ok: false; error: string };
 type DaemonOkResponse = Extract<DaemonResponse, { ok: true }>;
 
@@ -195,6 +197,7 @@ export class DaemonPtyRuntimeClient {
   private readonly activityRevisionByTabId = new Map<string, number>();
   private activityRevision = 0;
   private attachedTabId: string | null = null;
+
   private viewedTabId: string | null = null;
   private subscribedTabId: string | null = null;
   private activityEnabled: boolean;
@@ -206,6 +209,7 @@ export class DaemonPtyRuntimeClient {
   private buffer = "";
   private closed = false;
   private protocolVersion = DAEMON_PROTOCOL_VERSION;
+  private supportsGhostty = false;
   private readonly options: DaemonPtyRuntimeOptions;
 
   constructor(private readonly socket: Socket, options: DaemonPtyRuntimeOptions) {
@@ -232,6 +236,7 @@ export class DaemonPtyRuntimeClient {
       throw new Error("Craig PTY daemon protocol mismatch.");
     }
     this.protocolVersion = response.protocolVersion!;
+    this.supportsGhostty = response.ghosttyTerminal === true;
     if (this.protocolVersion <= 8) {
       await this.send({ type: "setViewUpdateMode", mode: "incremental" });
     }
@@ -243,6 +248,12 @@ export class DaemonPtyRuntimeClient {
   }
 
   async ensureSession(taskId: string, tabId: string, size: PtySize): Promise<TerminalViewState> {
+    if (!this.supportsGhostty && (await configService.load(this.options.paths)).previews?.ghosttyTerminal === true) {
+      const existing = await this.send({ type: "getViewState", tabId });
+      if (existing.view?.status !== "running") {
+        throw new Error("Ghostty needs a newer PTY daemon. Disable the preview to keep using this daemon, or restart it after closing existing sessions.");
+      }
+    }
     const response = await this.send({
       type: "ensureSession",
       taskId,
@@ -597,6 +608,7 @@ export class DaemonPtyRuntimeClient {
 }
 
 class PtyDaemonServer {
+  private readonly emulatorFactoryOverride: PtyRuntimeOptions["createEmulator"];
   onShutdown: (() => void) | null = null;
   private readonly clients = new Set<Socket>();
   private readonly subscriptions = new Map<Socket, ClientViewSubscription>();
@@ -614,6 +626,7 @@ class PtyDaemonServer {
 
   constructor(paths: CraigPaths, options: PtyDaemonServerOptions) {
     this.paths = paths;
+    this.emulatorFactoryOverride = options.createEmulator;
     this.pullRequestSyncOptions = options.pullRequestSync;
     const runtimeOptions = { ...options };
     delete runtimeOptions.pullRequestSync;
@@ -760,7 +773,7 @@ class PtyDaemonServer {
         id: request.id,
         ok: true,
         ...(request.type === "ping"
-          ? { protocolVersion: DAEMON_PROTOCOL_VERSION, sessionCount: this.runtime.sessionTabIds().length }
+          ? { protocolVersion: DAEMON_PROTOCOL_VERSION, sessionCount: this.runtime.sessionTabIds().length, ghosttyTerminal: true }
           : {}),
         ...(request.type === "getActivitySnapshots" ? { activities: this.runtime.getActivitySnapshots() } : {}),
         ...(typeof result === "number" ? { deliveredCount: result } : result ? { view: result } : {}),
@@ -792,7 +805,11 @@ class PtyDaemonServer {
               });
             }
           }
-          const view = this.runtime.ensureSession(request.taskId, request.tabId, request.size, request.spec);
+          // Reload only when creating a session. Toggling never swaps the
+          // backend or kills a PTY that is already running.
+          const config = !existed ? await configService.load(this.paths) : null;
+          const factory = this.emulatorFactoryOverride ?? (config?.previews?.ghosttyTerminal === true ? createGhosttyEmulator : createTerminalEmulator);
+          const view = this.runtime.ensureSession(request.taskId, request.tabId, request.size, request.spec, factory);
           if (!existed) {
             this.log({
               level: "info",

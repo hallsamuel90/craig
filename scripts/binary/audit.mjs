@@ -4,6 +4,7 @@ import { chmodSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "nod
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { gunzipSync } from "node:zlib";
+import { verifyGhostty } from "../prepare-ghostty.mjs";
 import { auditDistribution, auditPayload, digest, payloadIdentity, manifestOf } from "./artifact.mjs";
 
 const root = path.resolve(import.meta.dirname, "../..");
@@ -45,9 +46,15 @@ try {
   const payload = auditPayload(JSON.parse(gunzipSync(compressed, { maxOutputLength: 96 * 1024 * 1024 })));
   assert.deepEqual(manifestOf(payload.files), manifest.files);
   const resources = new Map(payload.files.map((file) => [file.path, Buffer.from(file.data, "base64")]));
+  const wasm = resources.get("cli.js").toString("utf8").match(/["'](AGFzbQ[A-Za-z0-9+/]{100000,}={0,2})["']/);
+  assert.ok(wasm, "Standalone payload does not embed Ghostty Wasm");
+  assert.ok(WebAssembly.validate(verifyGhostty(Buffer.from(wasm[1], "base64"))), "Invalid embedded Ghostty module");
   assert.deepEqual(resources.get("THIRD_PARTY_NOTICES"), files.get("THIRD_PARTY_NOTICES"));
   assert.deepEqual(files.get("LICENSE"), readFileSync(path.join(root, "LICENSE")));
   const notices = files.get("THIRD_PARTY_NOTICES").toString("utf8");
+  for (const notice of ["libghostty-vt 1.0.0", "Highway", "simdutf", "translate_c", "uucode", "Wuffs", "UNICODE LICENSE V3", "Bjoern Hoehrmann", "Zig contributors"]) {
+    assert.ok(notices.includes(notice), `Missing bundled terminal notice: ${notice}`);
+  }
   for (const pkg of [...allowlist, { name: "Node", version: config.node }, { name: "NAN", version: config.nan }, { name: "yaml", version: config.yaml }]) {
     assert.ok(notices.includes(`${pkg.name} ${pkg.version}\n`), `Missing licence attribution for ${pkg.name}`);
   }

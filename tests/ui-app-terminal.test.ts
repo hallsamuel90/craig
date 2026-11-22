@@ -3171,6 +3171,7 @@ steps:
       expect(frame).toContain("[ ] Pi coding agent runner · NEW");
       expect(frame).toContain("[ ] Agent file opening · NEW");
       expect(frame).not.toContain("Panel polish");
+      expect(frame).toContain("[ ] Ghostty terminal (new sessions) · NEW");
       expect(frame).not.toContain("Incremental center pane");
       expect(frame).toContain("may change or be removed");
     });
@@ -3190,6 +3191,11 @@ steps:
     await vi.waitFor(() => expect(stripAnsi(terminal.frames.at(-1) ?? "")).toContain("[x] Agent file opening"));
     terminal.emitKey("ENTER");
     await vi.waitFor(async () => expect((await configService.load(paths)).previews?.fileOpen).toBe(false));
+
+    terminal.emitKey("DOWN"); // Ghostty terminal
+    terminal.emitKey("ENTER");
+    await vi.waitFor(async () => expect((await configService.load(paths)).previews?.ghosttyTerminal).toBe(true));
+    await vi.waitFor(() => expect(stripAnsi(terminal.frames.at(-1) ?? "")).toContain("[x] Ghostty terminal (new sessions)"));
 
     terminal.emitKey("ESCAPE"); // back to options menu
     await vi.waitFor(() => {
