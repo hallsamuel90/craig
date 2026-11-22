@@ -1,5 +1,11 @@
 # craig-cli
 
+## 0.22.0
+
+### Minor Changes
+
+- f5dbba2: Add macOS ARM64 standalone binary build support with verified runtime resources and manual update guidance. Standalone daemon sessions relaunch the Craig executable directly, while npm installations retain their existing update and restart behavior.
+
 ## 0.21.0
 
 ### Minor Changes
