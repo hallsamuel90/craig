@@ -1,3 +1,5 @@
+import { createGhosttyEmulator } from "./terminal/ghostty/emulator.js";
+import { createTerminalEmulator } from "./terminal/terminal-emulator.js";
 import { logRuntimeEvent } from "./logging.js";
 import { RuntimeTransport } from "./wire.js";
 import { runtimeMutationContext } from "./mutation-context.js";
@@ -72,7 +74,7 @@ type DaemonRequest =
   | { id: number; type: "shutdown" };
 
 type DaemonResponse =
-  | { id: number; ok: true; protocolVersion?: number; sessionCount?: number; viewId?: string; viewToken?: string; sessionId?: string; capabilities?: RuntimeHello["capabilities"]; buildId?: string; craigVersion?: string; lifecycle?: "ready" | "draining"; view?: TerminalViewState; activities?: PtyActivitySnapshot[]; deliveredCount?: number }
+  | { id: number; ok: true; protocolVersion?: number; sessionCount?: number; ghosttyTerminal?: boolean; viewId?: string; viewToken?: string; sessionId?: string; capabilities?: RuntimeHello["capabilities"]; buildId?: string; craigVersion?: string; lifecycle?: "ready" | "draining"; view?: TerminalViewState; activities?: PtyActivitySnapshot[]; deliveredCount?: number }
   | { id: number; ok: false; error: string; uncertain?: boolean; retryable?: boolean };
 type DaemonOkResponse = Extract<DaemonResponse, { ok: true }>;
 
@@ -302,6 +304,8 @@ export class DaemonPtyRuntimeClient {
     this.reconnecting = false;
   }
 
+  private supportsGhostty = false;
+
   async ready(): Promise<void> {
     const response = await this.send({ type: "ping" });
     await requireWorkspaceRuntimeCapabilities(this.options.paths, response, ["terminal", "activity"]);
@@ -320,6 +324,7 @@ export class DaemonPtyRuntimeClient {
     }
     if (response.lifecycle === "draining") throw new Error("Control is updating; reconnect after readiness.");
     this.controlDraining = false;
+    this.supportsGhostty = response.capabilities?.includes("ghosttyTerminal") === true || response.ghosttyTerminal === true;
     this.protocolVersion = response.protocolVersion!;
     await logRuntimeEvent(this.options.paths, "runtime.discovered", { protocolVersion: this.protocolVersion, buildId: response.buildId });
     if (this.protocolVersion <= 8) {
@@ -333,6 +338,10 @@ export class DaemonPtyRuntimeClient {
   }
 
   async ensureSession(taskId: string, tabId: string, size: PtySize): Promise<TerminalViewState> {
+    if (!this.supportsGhostty && (await configService.load(this.options.paths)).previews?.ghosttyTerminal) {
+      const existing = await this.send({ type: "getViewState", tabId });
+      if (existing.view?.status !== "running") throw new Error("Ghostty needs a newer PTY daemon. Disable the preview to keep using this daemon, or restart it after closing existing sessions.");
+    }
     const response = await this.send({
       type: "ensureSession",
       taskId,
@@ -741,6 +750,7 @@ export class DaemonPtyRuntimeClient {
 }
 
 class PtyDaemonServer {
+  private readonly emulatorFactoryOverride: PtyRuntimeOptions["createEmulator"];
   private readonly identity = runtimeIdentity();
   onShutdown: (() => void) | null = null;
   private readonly clients = new Set<Socket>();
@@ -758,6 +768,7 @@ class PtyDaemonServer {
   private attachedTabId: string | null = null;
 
   constructor(paths: CraigPaths, options: PtyDaemonServerOptions) {
+    this.emulatorFactoryOverride = options.createEmulator;
     this.paths = paths;
     this.pullRequestSyncOptions = options.pullRequestSync;
     const runtimeOptions = { ...options };
@@ -914,7 +925,7 @@ class PtyDaemonServer {
         id: request.id,
         ok: true,
         ...(request.type === "ping"
-          ? { ...this.identity, lifecycle: this.draining ? "draining" as const : "ready" as const, sessionCount: this.runtime.sessionTabIds().length }
+          ? { ...this.identity, ghosttyTerminal: true, lifecycle: this.draining ? "draining" as const : "ready" as const, sessionCount: this.runtime.sessionTabIds().length }
           : {}),
         ...(request.type === "getActivitySnapshots" ? { activities: this.runtime.getActivitySnapshots() } : {}),
         ...(typeof result === "number" ? { deliveredCount: result } : result ? { view: result } : {}),
@@ -950,7 +961,9 @@ class PtyDaemonServer {
               });
             }
           }
-          const view = this.runtime.ensureSession(request.taskId, request.tabId, request.size, request.spec);
+          const config = !existed ? await configService.load(this.paths) : null;
+          const factory = this.emulatorFactoryOverride ?? (config?.previews?.ghosttyTerminal ? createGhosttyEmulator : createTerminalEmulator);
+          const view = this.runtime.ensureSession(request.taskId, request.tabId, request.size, request.spec, factory);
           if (!existed) {
             this.log({
               level: "info",

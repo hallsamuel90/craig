@@ -1,3 +1,4 @@
+import { extractRuntimeSnapshot } from "./runtime-snapshots.js";
 import { createPlan, approvePlan, runFury } from "../src/shell/fury-runtime.js";
 import { listFuryRuns } from "../src/domain/orchestration/index.js";
 import { writeTaskRecord } from "./test-helpers.js";
@@ -26,9 +27,7 @@ let packageRoot: string; let oldBinary: string;
 beforeAll(async () => {
   packageRoot = await mkdtemp(path.join(tmpdir(), "craig-pre-rfc-package-")).then((value) => realpath(value));
   const source = path.join(packageRoot, "source"); await mkdir(source);
-  const archive = path.join(packageRoot, "source.tar");
-  await execute("git", ["archive", "--format=tar", "--output", archive, "a2a1fbcd146898bc46c396ae957942d6c3041b9a"], { cwd: sourceRoot });
-  await execute("tar", ["-xf", archive, "-C", source]);
+  await extractRuntimeSnapshot("pre-rfc-package", source);
   await symlink(path.join(sourceRoot, "node_modules"), path.join(source, "node_modules"));
   await execute(process.execPath, [path.join(source, "scripts/build-npm.mjs")], { cwd: source });
   await execute("npm", ["pack", "--ignore-scripts", "--pack-destination", packageRoot], { cwd: path.join(source, "packages/cli") });

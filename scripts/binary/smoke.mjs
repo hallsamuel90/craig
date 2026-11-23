@@ -30,6 +30,7 @@ for (const name of ["node", "npm", "bun"]) {
 const stub = path.join(bin, "codex");
 await writeFile(stub, `#!/bin/sh
 task_dir=$(basename "$PWD")
+echo "$$" > "$HOME/agent-$task_dir.pid"
 echo "$PWD" > "$HOME/agent-$task_dir.cwd"
 echo "binary_agent_task:$task_dir"
 echo "binary_agent_cwd:$PWD"
@@ -151,8 +152,14 @@ try {
   await waitFor("binary_input_ok:probe-reattach");
   console.log("PASS daemon survives detach and reattach");
   await closeShell();
-  const oldPid = Number((await readFile(path.join(project, ".craig/runtime/pty-daemon.pid"), "utf8")).trim());
-  assert.ok(Number.isSafeInteger(oldPid) && oldPid > 0);
+  const nativeAgentPid = Number(await readFile(path.join(home, `agent-${taskId}.pid`), "utf8"));
+  assert.ok(Number.isSafeInteger(nativeAgentPid) && nativeAgentPid > 0);
+  const beforeControl = JSON.parse(await readFile(path.join(project, ".craig/runtime/control.json"), "utf8"));
+  const pinnedManifest = JSON.parse(await readFile(path.join(beforeControl.artifact, "manifest.json"), "utf8"));
+  assert.equal(pinnedManifest.executableKind, "standalone");
+  const beforeHosts = await Promise.all((await readdir(path.join(project, ".craig/runtime/hosts"))).filter(name => name.endsWith(".json")).map(async name => JSON.parse(await readFile(path.join(project, ".craig/runtime/hosts", name), "utf8"))));
+  const guardPid = Number((await readFile(path.join(project, ".craig/runtime/pty-daemon.pid"), "utf8")).trim());
+  assert.ok(Number.isSafeInteger(guardPid) && guardPid > 0);
   const oldGenerations = (await readdir(cacheRoot)).filter((name) => name.startsWith(`${info.payloadIdentity}-`));
   await copyFile(upgradePath.trim(), `${binary}.next`);
   await chmod(`${binary}.next`, 0o755);
@@ -166,7 +173,24 @@ try {
   output = "";
   child.write("probe-upgrade\r");
   await waitFor("binary_input_ok:probe-upgrade");
-  assert.equal(Number((await readFile(path.join(project, ".craig/runtime/pty-daemon.pid"), "utf8")).trim()), oldPid);
+  assert.equal(Number((await readFile(path.join(project, ".craig/runtime/pty-daemon.pid"), "utf8")).trim()), guardPid);
+  await json(["daemon", "restart"]);
+  const afterControl = JSON.parse(await readFile(path.join(project, ".craig/runtime/control.json"), "utf8"));
+  assert.notEqual(afterControl.instanceId, beforeControl.instanceId);
+  for (const host of beforeHosts) {
+    const retained = JSON.parse(await readFile(path.join(project, ".craig/runtime/hosts", `${host.instanceId}.json`), "utf8"));
+    assert.equal(retained.pid, host.pid);
+  }
+  await closeShell();
+  await openShell(state);
+  await waitFor("╭─ ");
+  child.write("\r");
+  output = "";
+  child.write("probe-control-restart\r");
+  await waitFor("binary_input_ok:probe-control-restart");
+  assert.equal(Number(await readFile(path.join(home, `agent-${taskId}.pid`), "utf8")), nativeAgentPid);
+  process.kill(nativeAgentPid, 0);
+  console.log("PASS pinned standalone roles and control restart preserve live host/agent without Node on PATH");
   const duringUpgrade = JSON.parse((await cli(["--binary-cache-prune"])).stdout);
   for (const name of oldGenerations) {
     assert.ok(duringUpgrade.retained.includes(name));
@@ -176,16 +200,18 @@ try {
   await shutdown();
   const exitDeadline = Date.now() + 5000;
   while (true) {
-    try { process.kill(oldPid, 0); }
+    try { process.kill(guardPid, 0); }
     catch (error) { if (error.code === "ESRCH") break; throw error; }
-    if (Date.now() > exitDeadline) throw new Error("Old daemon did not exit after upgrade test");
+    if (Date.now() > exitDeadline) throw new Error("Compatibility guard did not exit after upgrade test");
     await delay(25);
   }
   const afterUpgrade = JSON.parse((await cli(["--binary-cache-prune"])).stdout);
   for (const name of oldGenerations) assert.ok(afterUpgrade.removed.includes(name));
-  console.log("PASS atomic executable replacement, old-daemon reattach, live cache retention and cleanup after old daemon exit (two fixture builds)");
-  // With the daemon gone, opening the same task must bootstrap a new daemon.
-  await openShell(state);
+  console.log("PASS atomic executable replacement, retained-session reattach, live cache retention and cleanup after runtime roles exit (two fixture builds)");
+  // Intentional workspace shutdown ended the original incarnation. A fresh
+  // task explicitly creates a new agent; attaching the old tab must not relaunch it.
+  const recovered = await json(["task", "new", "--repo", repoId, "Binary recovery"]);
+  await openShell({ ...state, selectedTaskId: recovered.taskId, selectedPtyTabId: recovered.agentTabId });
   await waitFor("╭─ ");
   child.write("\r");
   await waitFor("binary_agent_ready");
@@ -200,8 +226,8 @@ try {
   child.write("Binary TUI create\r");
   await waitFor("binary_agent_ready");
   const after = await json(["task", "list"]);
-  assert.equal(after.tasks.length, 2);
-  const newTask = after.tasks.find((task) => task.id !== taskId);
+  assert.equal(after.tasks.length, 3);
+  const newTask = after.tasks.find((task) => task.id !== taskId && task.id !== recovered.taskId);
   assert.ok(newTask);
   // An existing agent's replayed ready marker must not satisfy the new-agent
   // assertion. The stub writes its cwd before emitting this task-specific marker.
@@ -230,6 +256,7 @@ try {
   const gh = path.join(bin, "gh");
   await writeFile(gh, '#!/bin/sh\ncase "$1 $2" in\n  "auth status") exit 0 ;;\n  "pr view") cat "$HOME/pr.json" ;;\n  *) echo "Unexpected gh call: $*" >&2; exit 98 ;;\nesac\n');
   await chmod(gh, 0o755);
+  await cli(["__craig-runtime-bootstrap", project]);
   const discovered = await json(["task", "pr", "discover", taskId]);
   assert.match(JSON.stringify(discovered), /fixture\/pull\/42/);
   await json(["task", "pr", "refresh", taskId]);

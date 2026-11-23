@@ -23,7 +23,7 @@ async function fixture(options: SessionHostOptions = {}, command?: string[]) {
   await request({ type: "registerController", controllerPid: process.pid });
   await request({ type: "releaseHold", holdId: "recovery:fixture-controller" });
   const session = { taskId: "fixture", tabId: "fixture:agent", sessionId: "incarnation-1", creationId: "creation-1" };
-  const ensure = () => request({ type: "ensure", session, size: { columns: 160, rows: 25 }, spec: { cwd: root, command: command ?? [process.execPath, "-e", "console.log('HOST_BUFFER_BEFORE_EXIT'); setTimeout(()=>process.exit(0),200)"] } });
+  const ensure = (terminalBackend?: "xterm" | "ghostty") => request({ type: "ensure", session, size: { columns: 160, rows: 25 }, spec: { cwd: root, terminalBackend, command: command ?? [process.execPath, "-e", "console.log('HOST_BUFFER_BEFORE_EXIT'); setTimeout(()=>process.exit(0),200)"] } });
   return { root, record, auth, client, request, connect, session, ensure, connectionCount: () => sockets.size, disconnect() { client.close(); }, async reconnect() { client = await connect(); await request({ type: "registerController", controllerPid: process.pid }); await request({ type: "releaseHold", holdId: "recovery:fixture-controller" }); }, async close() {
     await request({ type: "dispose", ...session }).catch(() => undefined); client.close();
     for (const socket of sockets) socket.destroy();
@@ -172,4 +172,20 @@ describe("session-host contract", () => {
       expect(MAX_RUNTIME_FRAME_BYTES).toBeLessThanOrEqual(2 * 1024 * 1024);
     } finally { await f.close(); }
   });
+});
+
+
+test("Ghostty hosts keep their backend and application-key encoding after reattach", async () => {
+  const f = await fixture({}, [process.execPath, "-e", "process.stdin.setRawMode(true);process.stdin.on('data',d=>console.log('INPUT:'+d.toString('hex')));process.stdout.write('\\x1b[?1h\\x1b[3;7H\\x1b[6n');"]);
+  try {
+    const first = await f.ensure("ghostty");
+    const snapshot = async () => text((await f.request({ type: "snapshot", ...f.session })).view);
+    await vi.waitFor(async () => expect(await snapshot()).toContain("INPUT:1b5b333b3752"));
+    await f.request({ type: "writeKey", ...f.session, key: "UP" });
+    await vi.waitFor(async () => expect(await snapshot()).toContain("INPUT:1b4f41"));
+    const reattached = await f.ensure("xterm");
+    expect((reattached.sessions as Array<{pid: number}>)[0]!.pid).toBe((first.sessions as Array<{pid: number}>)[0]!.pid);
+    await f.request({ type: "writeKey", ...f.session, key: "DOWN" });
+    await vi.waitFor(async () => expect(await snapshot()).toContain("INPUT:1b4f42"));
+  } finally { await f.close(); }
 });

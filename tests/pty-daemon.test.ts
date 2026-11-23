@@ -1045,6 +1045,7 @@ steps:
     });
     const controller = new AbortController();
     const states: string[] = [];
+    let watching: ReturnType<typeof watchWorkspaceEvents> | undefined;
     let restartedDaemon: Promise<void> | null = null;
 
     try {
@@ -1054,7 +1055,7 @@ steps:
         resolveSessionSpec: () => ({ cwd: root, command: [] }),
       });
       await runtime.ensureSession("task_1", "task_1:agent", { columns: 80, rows: 24 });
-      const watching = watchWorkspaceEvents(
+      watching = watchWorkspaceEvents(
         paths,
         { taskId: "task_1", typeGlob: "agent.state.changed" },
         {
@@ -1088,6 +1089,7 @@ steps:
       runtime.disposeAll();
     } finally {
       controller.abort();
+      await watching;
       await requestDaemonShutdown(paths);
       await daemon;
       if (restartedDaemon) await restartedDaemon;

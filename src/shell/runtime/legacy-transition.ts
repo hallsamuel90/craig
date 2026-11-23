@@ -20,7 +20,7 @@ export async function migrateEmptyLegacy(paths: CraigPaths, acknowledgeClosedCli
     if (!bridge && !acknowledgeClosedClients) throw new Error("Close all old Craig clients and explicitly acknowledge that they will remain closed during this one-time legacy migration.");
     const pid = Number((await readFile(endpoint.pidPath, "utf8")).trim());
     if (!Number.isInteger(pid) || pid <= 0) throw new Error("Legacy process identity is unverifiable; migration blocked.");
-    const result = await runtimeRequest(endpoint.socketPath, { type: bridge ? "drainIfEmpty" : "shutdown" });
+    const result = await runtimeRequest(endpoint.socketPath, { type: bridge ? "drainIfEmpty" : "shutdown" }, bridge ? 10000 : 1000);
     if (!result.ok) throw new Error(result.error ?? "Legacy runtime refused empty drain.");
     // No forced termination or timeout cleanup. Guard startup itself verifies
     // dead ownership and aborts if a competing pre-RFC launcher won the bind.

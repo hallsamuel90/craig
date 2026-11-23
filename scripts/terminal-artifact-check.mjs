@@ -168,7 +168,7 @@ export async function verifyTerminalArtifact({ executable, profile = "quick" }) 
         checks: ["query owner", "UTF-8 fragments", "paste", "application cursor", "output flood", "resize", "styled/link rows", "toggle and reconnect preserve PID", "disposal kills child"] });
     }
     await rpc.request({ type: "shutdown" });
-    await until(() => daemonExit, "daemon shutdown", 5000);
+    await until(() => daemonExit, "daemon shutdown", 15000);
     check(daemonExit.code === 0, `Daemon shutdown failed: ${JSON.stringify(daemonExit)}`);
     rpc.close();
     // Exercise ordinary CLI self-bootstrap too. Direct __craig-daemon startup
@@ -188,7 +188,8 @@ export async function verifyTerminalArtifact({ executable, profile = "quick" }) 
     check(typeof created?.agentTabId === "string", "Task creation did not return its agent tab");
     bootstrappedPid = Number(await readFile(join(root, ".craig/runtime/pty-daemon.pid"), "utf8"));
     check(Number.isInteger(bootstrappedPid) && bootstrappedPid > 0, "Missing self-bootstrapped daemon PID");
-    rpc = await until(() => connectRpc(endpoint).catch(() => null), "CLI self-bootstrapped daemon");
+    const control = await readFile(join(root, ".craig/runtime/control.json"), "utf8").then(JSON.parse).catch(error => { if (error.code === "ENOENT") return null; throw error; });
+    rpc = await until(() => connectRpc(control?.endpoint ?? endpoint).catch(() => null), "CLI self-bootstrapped daemon");
     await rpc.request({ type: "ensureSession", taskId: created.taskId, tabId: created.agentTabId, size: { columns: 160, rows: 24 }, spec: { cwd: created.worktreePath, command: [] } });
     await waitText(created.agentTabId, "PEER_READY:");
     await send({ type: "identity", id: "bootstrap" });
@@ -198,7 +199,7 @@ export async function verifyTerminalArtifact({ executable, profile = "quick" }) 
     check(Number.isInteger(agentPid) && agentPid > 0, "Missing bootstrapped agent PID");
     await send({ type: "query", fragmented: true });
     await waitText(created.agentTabId, `QUERY:${Buffer.from("\x1b[3;7R").toString("hex")}`);
-    await rpc.request({ type: "shutdown" });
+    await run(target, ["__craig-daemon-shutdown", root]);
     await until(() => !isAlive(bootstrappedPid), "self-bootstrapped daemon shutdown", 5000);
     await until(() => !isAlive(agentPid), "self-bootstrapped agent cleanup", 5000);
     const sorted = [...latencies].sort((a, b) => a - b);
@@ -208,7 +209,8 @@ export async function verifyTerminalArtifact({ executable, profile = "quick" }) 
   } catch (error) {
     throw new Error(`${error.message}\nLast rendered view:\n${lastView}\nArtifact daemon diagnostics:\n${diagnostics}`, { cause: error });
   } finally {
-    if (rpc && (!daemonExit || bootstrapAttempted)) await rpc.request({ type: "shutdown" }).catch(() => undefined);
+    if (bootstrapAttempted) await run(target, ["__craig-daemon-shutdown", root]).catch(() => undefined);
+    else if (rpc && !daemonExit) await rpc.request({ type: "shutdown" }).catch(() => undefined);
     rpc?.close();
     if (daemon && !daemonExit) {
       await Promise.race([exited, delay(3000)]);

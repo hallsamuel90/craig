@@ -7,6 +7,9 @@ import path from "node:path";
 import { processAlive } from "./discovery.js";
 import { readRuntimeFrames, writeRuntimeFrame, type RuntimeFrame } from "./wire.js";
 
+import { createGhosttyEmulator } from "./terminal/ghostty/emulator.js";
+import { createTerminalEmulator } from "./terminal/terminal-emulator.js";
+
 export const SESSION_HOST_PROTOCOL = 1;
 interface SessionIdentity { taskId: string; tabId: string; sessionId: string; creationId: string }
 interface ViewLease { sessionId: string; viewId: string; proof: string; token: string; scrollback: number }
@@ -75,7 +78,7 @@ export class SessionHost {
   }
   private inventory(): RuntimeFrame {
     const facts = new Map(this.runtime.getProcessFacts().map((fact) => [fact.sessionId, fact]));
-    return { retirementProtocol: 1, retiring: this.retiring, hostProtocol: SESSION_HOST_PROTOCOL, hostRevision: this.record.hostRevision ?? "fixture", instanceId: this.record.instanceId, revision: this.revision, pid: process.pid,
+    return { keyEncodingProtocol: 1, retirementProtocol: 1, retiring: this.retiring, hostProtocol: SESSION_HOST_PROTOCOL, hostRevision: this.record.hostRevision ?? "fixture", instanceId: this.record.instanceId, revision: this.revision, pid: process.pid,
       sessions: [...this.sessions.values()].map((session) => ({ ...session, ...facts.get(session.sessionId) })),
       activities: this.runtime.getActivitySnapshots().map((snapshot) => ({ ...snapshot, tabId: this.sessions.get(snapshot.tabId)?.tabId ?? snapshot.tabId })),
       leases: [...this.leases.values()].map(({ sessionId, viewId }) => ({ sessionId, viewId })), holds: [...this.holds], leaseCount: this.leases.size, handoffHoldCount: this.holds.size, pendingCreates: this.pendingCreates + this.reservedCreations.size };
@@ -136,7 +139,8 @@ export class SessionHost {
           if (!size || !Number.isInteger(size.columns) || !Number.isInteger(size.rows) || size.columns < 1 || size.rows < 1 || size.columns > 1000 || size.rows > 1000 || !spec || typeof spec.cwd !== "string" || !Array.isArray(spec.command) || !spec.command.every((part) => typeof part === "string")) throw new Error("Invalid session creation request.");
           this.pendingCreates++;
           try {
-            this.runtime.ensureSession(identity.taskId, identity.sessionId, size, spec);
+            if (spec.terminalBackend !== undefined && spec.terminalBackend !== "xterm" && spec.terminalBackend !== "ghostty") throw new Error("Unsupported terminal backend.");
+            this.runtime.ensureSession(identity.taskId, identity.sessionId, size, spec, spec.terminalBackend === "ghostty" ? createGhosttyEmulator : this.options.createEmulator ?? createTerminalEmulator);
             this.sessions.set(identity.sessionId, identity); this.creations.set(identity.creationId, identity); this.changed(identity.sessionId);
           } finally { this.pendingCreates--; }
         }
@@ -164,6 +168,7 @@ export class SessionHost {
       case "snapshot": { this.identity(frame); return { revision: this.revision, view: this.runtime.getViewAt(String(frame.sessionId), typeof frame.scrollback === "number" ? frame.scrollback : 0), screen: this.runtime.getScreenText(String(frame.sessionId)) }; }
       case "view": { const lease = this.lease(frame); return { revision: this.revision, view: this.runtime.getViewAt(lease.sessionId, lease.scrollback) }; }
       case "scroll": { const lease = this.lease(frame); if (typeof frame.lines !== "number" || !Number.isFinite(frame.lines)) throw new Error("Invalid scroll request."); lease.scrollback = Math.max(0, Math.min(1000, lease.scrollback - frame.lines)); return { view: this.runtime.getViewAt(lease.sessionId, lease.scrollback), revision: this.revision }; }
+      case "writeKey": { this.identity(frame); if (typeof frame.key !== "string") throw new Error("Invalid key."); this.runtime.writeKeyToSession(String(frame.sessionId), frame.key); return {}; }
       case "write": { this.identity(frame); if (typeof frame.input !== "string") throw new Error("Invalid input."); this.runtime.writeToSession(String(frame.sessionId), frame.input); return {}; }
       case "resize": { this.identity(frame); const size = frame.size as PtySize; if (!size || !Number.isInteger(size.columns) || !Number.isInteger(size.rows) || size.columns < 1 || size.rows < 1 || size.columns > 1000 || size.rows > 1000) throw new Error("Invalid terminal dimensions."); this.runtime.resizeSession(String(frame.sessionId), size); this.changed(String(frame.sessionId)); return {}; }
       case "dispose": { const session = this.identity(frame); this.runtime.disposeSession(session.sessionId); this.sessions.delete(session.sessionId); for (const [key, lease] of this.leases) if (lease.sessionId === session.sessionId) { this.leases.delete(key); this.released.set(key, lease.token); } this.changed(session.sessionId); return {}; }

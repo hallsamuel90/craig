@@ -14,7 +14,7 @@ import { type SessionRoute, type LogicalView } from "./host-client.js";
 import { readRuntimeFrames, writeRuntimeFrame, type RuntimeFrame } from "./wire.js";
 import { writePrivateRecord, type RuntimeRecord } from "./records.js";
 import { runtimeIdentity } from "./identity.js";
-import { mapKeyToPtyInput, type PtySessionSpec, type PtySize } from "./session-core.js";
+import { type PtySessionSpec, type PtySize } from "./session-core.js";
 import { OrchestrationSupervisor } from "../orchestration-supervisor.js";
 import { PullRequestSyncSupervisor } from "../pull-request-sync-supervisor.js";
 import { configService } from "../../domain/config/index.js";
@@ -200,8 +200,8 @@ export async function serveSplitControl(paths: CraigPaths, record: RuntimeRecord
       case "getViewState": { const route = frame.tabId === null ? null : await routeFor(String(frame.tabId)); return { view: route ? await host.snapshot(route, state.views.get(route.tabId)) : idle() }; }
       case "write": case "writeKey": {
         if (!state.attached) throw new Error("No attached session; input was not accepted.");
-        const input = frame.type === "writeKey" ? mapKeyToPtyInput(String(frame.key)) : frame.input;
-        if (typeof input === "string") await host.writeToSession(state.attached.tabId, input); return {};
+        if (frame.type === "writeKey") await host.request({ type: "writeKey", ...state.attached, key: frame.key });
+        else if (typeof frame.input === "string") await host.writeToSession(state.attached.tabId, frame.input); return {};
       }
       case "resize": { if (!state.attached) return { view: idle() }; await host.request({ type: "resize", ...state.attached, size: frame.size }); return { view: await host.snapshot(state.attached, state.views.get(state.attached.tabId)) }; }
       case "scrollViewport": {

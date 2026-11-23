@@ -1,3 +1,4 @@
+import { extractRuntimeSnapshot } from "./runtime-snapshots.js";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import { mkdir, mkdtemp, realpath, rm, symlink } from "node:fs/promises";
@@ -22,9 +23,8 @@ test("the frozen phase-2 protocol-1 host is adapted across replacement and retai
   let client: Awaited<ReturnType<typeof createDaemonPtyRuntime>> | undefined;
   try {
     await ensureRuntimeRunning(paths);
-    const source = path.join(root, "frozen-phase2"); await mkdir(source); const archive = path.join(root, "source.tar");
-    await execute("git", ["archive", "--format=tar", "--output", archive, "12d147eb76dede9e91012fdde2c2b0a083d530ee"]);
-    await execute("tar", ["-xf", archive, "-C", source]); await symlink(path.resolve("node_modules"), path.join(source, "node_modules"));
+    const source = path.join(root, "frozen-phase2"); await mkdir(source);
+    await extractRuntimeSnapshot("phase2-runtime", source); await symlink(path.resolve("node_modules"), path.join(source, "node_modules"));
     await execute("pnpm", ["build:npm"], { cwd: source });
     const artifact = await pinRuntimeArtifact(paths, path.join(source, "packages/cli/dist/cli.js"));
     const old = await newRuntimeRecord(paths, "host", artifact); const file = path.join(paths.runtimeDir, "hosts", `${old.instanceId}.json`);

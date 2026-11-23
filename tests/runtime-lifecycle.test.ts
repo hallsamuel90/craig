@@ -19,7 +19,7 @@ import { tryConnectPtyDaemonActivity } from "../src/shell/pty-daemon-activity.js
 import { createDaemonPtyRuntime, requestDaemonShutdown, servePtyDaemon } from "../src/ui/pty/daemon.js";
 import { runCli } from "../src/commands/run.js";
 import { createPlan } from "../src/shell/fury-runtime.js";
-import { createChildTaskAndSession } from "../src/shell/delegation.js";
+import { createRootTaskAndSession, createChildTaskAndSession } from "../src/shell/delegation.js";
 import { configService } from "../src/domain/config/index.js";
 import { promptCommandService, listEvents } from "../src/domain/orchestration/index.js";
 import { taskService } from "../src/domain/task/index.js";
@@ -58,6 +58,25 @@ async function fixture(hello: RuntimeHello, respond = true) {
 }
 
 describe("runtime lifecycle", () => {
+  test("Ghostty task creation rejects an old owner before provisioning and honors the legacy capability hint", async () => {
+    const f = await fixture({ protocolVersion: 10, sessionCount: 7 });
+    try {
+      await createCraigState(f.root, []);
+      await configService.save(f.paths, { previews: { ghosttyTerminal: true } });
+      const before = await readFile(f.paths.indexFile, "utf8");
+      const provisioning = vi.spyOn(taskService, "createTask").mockRejectedValue(new Error("Unexpected provisioning"));
+      try {
+        await expect(createRootTaskAndSession(f.paths, "repo_unused", "new Ghostty task")).rejects.toThrow("Missing capabilities: ghosttyTerminal");
+        await expect(createChildTaskAndSession(f.paths, { parentTaskId: "parent", prompt: "new Ghostty child" })).rejects.toThrow("Missing capabilities: ghosttyTerminal");
+        expect(provisioning).not.toHaveBeenCalled();
+        expect(await readFile(f.paths.indexFile, "utf8")).toBe(before);
+        expect(f.requests.every((request) => request === "ping")).toBe(true);
+      } finally { provisioning.mockRestore(); }
+      expect(resolveRuntimeCompatibility({ protocolVersion: 10, ghosttyTerminal: true }, ["ghosttyTerminal"]).compatible).toBe(true);
+      expect(resolveRuntimeCompatibility({ protocolVersion: 10 }, ["ghosttyTerminal"]).compatible).toBe(false);
+    } finally { await f.close(); }
+  });
+
   test.each<RuntimeHello>([{ protocolVersion: 6 }, { protocolVersion: 10, capabilities: ["terminal"] }, { protocolVersion: 0 }])("CLI rejects prompt submission before durable writes for %j", async (hello) => {
     const f = await fixture(hello);
     try {
@@ -224,11 +243,11 @@ describe("runtime lifecycle", () => {
       client.disposeSession("fixture:agent");
       await vi.waitFor(async () => expect((await daemonStatus(paths)).runtime?.sessionCount).toBe(0));
       client.disposeAll();
-      expect(await runtimeRequest(endpoint.socketPath, { type: "drainIfEmpty" })).toMatchObject({ ok: true });
+      expect(await runtimeRequest(endpoint.socketPath, { type: "drainIfEmpty" }, 10000)).toMatchObject({ ok: true });
       await daemon;
       expect((await daemonStatus(paths)).state).toBe("absent");
     } finally { await requestDaemonShutdown(paths); await daemon; await rm(root, { recursive: true, force: true }); }
-  });
+  }, 20000);
 
   test("drain closes admission before inventory awaits, excluding a racing zero-inventory launch", async () => {
     const root = await mkdtemp(path.join(tmpdir(), "craig-drain-race-"));

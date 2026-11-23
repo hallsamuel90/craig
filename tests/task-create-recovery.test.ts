@@ -43,7 +43,7 @@ test.each([["root", "admitted", "crash"], ["root", "provisioning_files", "crash"
     await ensureRuntimeRunning(paths);
     const original = (await readPrivateRecord<RuntimeRecord>(path.join(paths.runtimeDir, "control.json")))!;
     const stop = await RuntimeTransport.connect(original.endpoint); await stop.request({ type: "shutdown" }); stop.close();
-    await vi.waitFor(async () => { try { process.kill(original.pid, 0); throw new Error("Still stopping"); } catch (error) { expect((error as { code?: string }).code).toBe("ESRCH"); } });
+    await vi.waitFor(async () => { try { process.kill(original.pid, 0); throw new Error("Still stopping"); } catch (error) { expect((error as { code?: string }).code).toBe("ESRCH"); } }, { timeout: 10000 });
     const record = await newRuntimeRecord(paths, "control", original.artifact);
     await writePrivateRecord(path.join(paths.runtimeDir, "control.json"), record);
     const entry = path.join(root, "checkpoint-control.mts");

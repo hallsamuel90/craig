@@ -6,10 +6,10 @@ import type { CraigPaths } from "../../state/craig-paths.js";
 import type { PtyActivitySnapshot } from "../../domain/agent/index.js";
 import { refreshAgentCapability, getExistingTaskAgentCapability, type AgentCapabilitySession } from "../../domain/orchestration/index.js";
 import { taskService } from "../../domain/task/index.js";
-import type { RunnerType } from "../../domain/config/index.js";
+import { configService, type RunnerType } from "../../domain/config/index.js";
 import { findRunnerStartupBlocker } from "../prompt-delivery.js";
 import type { TerminalViewState } from "./terminal/types.js";
-import type { PtySessionSpec, PtySize } from "./session-core.js";
+import { mapKeyToPtyInput, type PtySessionSpec, type PtySize } from "./session-core.js";
 import { readPrivateRecord, writePrivateRecord, workspaceRuntimeId, type RuntimeRecord } from "./records.js";
 import { RuntimeTransport, type RuntimeFrame } from "./wire.js";
 
@@ -22,6 +22,7 @@ export class HostClient {
   private facts: HostFact[] = [];
   private activities: PtyActivitySnapshot[] = [];
   private refresh: Promise<void> | undefined;
+  private keyEncoding = false;
   // eslint-disable-next-line no-unused-vars
   constructor(readonly paths: CraigPaths, readonly host: RuntimeRecord, readonly controller: RuntimeRecord, private readonly changed?: (tabIds: string[]) => void) {}
   async connect(): Promise<void> {
@@ -38,6 +39,11 @@ export class HostClient {
   }
   async request(frame: RuntimeFrame, timeoutMs?: number): Promise<RuntimeFrame> {
     if (!this.transport) throw new Error("Host transport unavailable; sessions are preserved.");
+    if (frame.type === "writeKey" && !this.keyEncoding) {
+      const input = mapKeyToPtyInput(String(frame.key));
+      if (input === null) return {};
+      frame = { ...frame, type: "write", input };
+    }
     return this.transport.request({ ...frame, credential: this.host.credential, workspaceId: this.host.workspaceId, instanceId: this.host.instanceId, controllerId: this.controller.instanceId }, timeoutMs);
   }
   async refreshInventory(): Promise<void> {
@@ -45,6 +51,7 @@ export class HostClient {
     this.refresh = (async () => {
       const response = await this.request({ type: "enumerate" });
       if (response.hostProtocol !== 1 || response.instanceId !== this.host.instanceId || !Array.isArray(response.sessions) || !Array.isArray(response.activities)) throw new Error("Unverifiable host inventory.");
+      this.keyEncoding = response.keyEncodingProtocol === 1;
       this.facts = (response.sessions as HostFact[]).map((fact) => ({ ...fact, hostId: this.host.instanceId })); this.activities = response.activities as PtyActivitySnapshot[];
     })().finally(() => { this.refresh = undefined; });
     return this.refresh;
@@ -81,7 +88,7 @@ export class HostClient {
       CRAIG_FURY_RUN_ID: task.furyRunId ?? "", CRAIG_FURY_STEP_ID: task.furyStepId ?? "" } } : spec;
     const capabilityToken = launchSpec.env?.CRAIG_AGENT_CAPABILITY;
     if (capabilityToken) await refreshAgentCapability(this.paths, { taskId, agentTabId: tabId, capabilityToken }).catch(() => undefined);
-    await this.request({ type: "ensure", session: { taskId, tabId, sessionId: route.sessionId, creationId: route.creationId }, size, spec: launchSpec });
+    await this.request({ type: "ensure", session: { taskId, tabId, sessionId: route.sessionId, creationId: route.creationId }, size, spec: { ...launchSpec, terminalBackend: (await configService.load(this.paths)).previews?.ghosttyTerminal ? "ghostty" : "xterm" } });
     await this.refreshInventory(); return route;
   }
   async snapshot(route: SessionRoute, view?: LogicalView): Promise<TerminalViewState> {

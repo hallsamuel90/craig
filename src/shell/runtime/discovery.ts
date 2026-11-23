@@ -9,11 +9,11 @@ import type { DaemonStatus, RuntimeHello, RuntimeCapability } from "../../domain
 import { requireRuntimeCapabilities, resolveRuntimeCompatibility } from "./compatibility.js";
 import { runtimeIdentity } from "./identity.js";
 
-export function runtimeRequest(socketPath: string, input: Record<string, unknown>): Promise<RuntimeHello & { ok: boolean; error?: string }> {
+export function runtimeRequest(socketPath: string, input: Record<string, unknown>, timeoutMs = 750): Promise<RuntimeHello & { ok: boolean; error?: string }> {
   return new Promise((resolve, reject) => {
     const socket = createConnection(socketPath);
     let buffer = "";
-    const timeout = setTimeout(() => finish(new Error("Workspace runtime is unresponsive; its owner is preserved.")), 750);
+    const timeout = setTimeout(() => finish(new Error("Workspace runtime is unresponsive; its owner is preserved.")), timeoutMs);
     const finish = (error?: Error, value?: RuntimeHello & { ok: boolean }) => {
       clearTimeout(timeout);
       socket.destroy();

@@ -7,7 +7,7 @@ import path from "node:path";
 import type { CraigPaths } from "../../state/craig-paths.js";
 import type { DaemonRestartResult, RuntimeHello } from "../../domain/runtime/types.js";
 import { RuntimeTransport } from "./wire.js";
-import { pinRuntimeArtifact, verifyRuntimeArtifact } from "./artifacts.js";
+import { pinRuntimeArtifact, verifyRuntimeArtifact, runtimeArtifactCommand } from "./artifacts.js";
 import { newRuntimeRecord, readPrivateRecord, writePrivateRecord, workspaceRuntimeId, type RuntimeRecord } from "./records.js";
 import { daemonStatus, processAlive } from "./discovery.js";
 import { launchRuntimeRole, awaitRuntimeRole, bootstrapSplitRuntime } from "./bootstrap.js";
@@ -58,7 +58,8 @@ export function compareRuntimeReleases(target: string | undefined, current: stri
 }
 async function inspectArtifact(paths: CraigPaths, artifact: string): Promise<RuntimeHello> {
   const manifest = await verifyRuntimeArtifact(artifact);
-  const result = await execute(manifest.nodeExecutable, [path.join(artifact, "cli.js"), "__craig-runtime-preflight", paths.workspaceRoot], { cwd: paths.workspaceRoot, env: process.env, timeout: 10000, maxBuffer: 1024 * 1024 });
+  const launch = runtimeArtifactCommand(artifact, manifest, ["__craig-runtime-preflight", paths.workspaceRoot]);
+  const result = await execute(launch.command, launch.args, { cwd: paths.workspaceRoot, env: process.env, timeout: 10000, maxBuffer: 1024 * 1024 });
   const hello = JSON.parse(result.stdout) as RuntimeHello;
   if (hello.workspaceId !== await workspaceRuntimeId(paths) || !resolveRuntimeCompatibility(hello).compatible || hello.replacementProtocol !== 1 || !hello.durableStateVersions?.includes(1) || !hello.buildId || !parseRelease(hello.craigVersion)) throw new Error("Candidate does not support this replacement/durable-state contract.");
   return hello;

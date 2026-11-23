@@ -3,12 +3,14 @@ import { createHash, randomUUID } from "node:crypto";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import { createRequire } from "node:module";
-import { cp, lstat, mkdir, readFile, readdir, realpath, rename, rm, symlink, writeFile } from "node:fs/promises";
+import { chmod, cp, lstat, mkdir, readFile, readdir, realpath, rename, rm, symlink, writeFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import type { CraigPaths } from "../../state/craig-paths.js";
 import { acquireRuntimeLock } from "./ownership.js";
+
+import { getInstallationChannel } from "../installation-channel.js";
 
 declare const __CRAIG_BUILD_ID__: string | undefined;
 const execute = promisify(execFile);
@@ -17,6 +19,7 @@ export interface ArtifactManifest {
   schemaVersion: 1;
   artifactId: string;
   nodeExecutable: string;
+  executableKind?: "node" | "standalone";
   nodeAbi: string;
   platform: string;
   architecture: string;
@@ -83,7 +86,7 @@ export async function verifyRuntimeArtifact(directory: string): Promise<Artifact
   const metadata = await lstat(directory);
   if (!metadata.isDirectory() || metadata.isSymbolicLink() || metadata.uid !== process.getuid?.() || (metadata.mode & 0o077) !== 0) throw new Error("Unsafe runtime artifact ownership.");
   const manifest = JSON.parse(await readFile(path.join(directory, "manifest.json"), "utf8")) as ArtifactManifest;
-  if (manifest.schemaVersion !== 1 || manifest.nodeAbi !== process.versions.modules || manifest.nodeExecutable !== await realpath(process.execPath) || manifest.platform !== process.platform || manifest.architecture !== process.arch) throw new Error("Pinned runtime Node/ABI/platform mismatch.");
+  if (manifest.schemaVersion !== 1 || ![undefined, "node", "standalone"].includes(manifest.executableKind) || (manifest.executableKind === "standalone" ? manifest.nodeExecutable !== "craig" : manifest.nodeAbi !== process.versions.modules || manifest.nodeExecutable !== await realpath(process.execPath)) || manifest.platform !== process.platform || manifest.architecture !== process.arch) throw new Error("Pinned runtime Node/ABI/platform mismatch.");
   const files = await contentManifest(directory);
   if (JSON.stringify(files) !== JSON.stringify(manifest.files)) throw new Error("Pinned runtime content verification failed.");
   const expected = createHash("sha256").update(JSON.stringify(files)).update(manifest.nodeAbi).update(manifest.platform).update(manifest.architecture).digest("hex");
@@ -101,10 +104,11 @@ export async function pinRuntimeArtifact(paths: CraigPaths, bundleOverride?: str
   const temporary = path.join(cacheRoot, `.creating-${randomUUID()}`);
   const buildDirectory = path.join(cacheRoot, `.bundling-${randomUUID()}`);
   try {
-    let bundle = bundleOverride ?? process.argv[1];
+    const standalone = !bundleOverride && getInstallationChannel() === "standalone";
+    let bundle = standalone ? process.execPath : bundleOverride ?? process.argv[1];
     if (!bundle) throw new Error("Cannot resolve the runtime executable.");
     let dependencyBase = bundle;
-    if (!bundleOverride && typeof __CRAIG_BUILD_ID__ === "undefined") {
+    if (!standalone && !bundleOverride && typeof __CRAIG_BUILD_ID__ === "undefined") {
       const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../../..");
       bundle = path.join(buildDirectory, "cli.js");
       await execute(process.execPath, [path.join(root, "scripts", "build-npm.mjs")], { cwd: root, env: { ...process.env, CRAIG_BUILD_OUTFILE: bundle } });
@@ -112,13 +116,18 @@ export async function pinRuntimeArtifact(paths: CraigPaths, bundleOverride?: str
     }
     bundle = await realpath(bundle);
     await mkdir(temporary, { mode: 0o700 });
-    await cp(bundle, path.join(temporary, "cli.js"));
-    await writeFile(path.join(temporary, "package.json"), JSON.stringify({ type: "module" }), { mode: 0o600 });
-    await materializeRuntimeDependencies(dependencyBase, temporary);
+    if (standalone) {
+      await cp(bundle, path.join(temporary, "craig"));
+      await chmod(path.join(temporary, "craig"), 0o700);
+    } else {
+      await cp(bundle, path.join(temporary, "cli.js"));
+      await writeFile(path.join(temporary, "package.json"), JSON.stringify({ type: "module" }), { mode: 0o600 });
+      await materializeRuntimeDependencies(dependencyBase, temporary);
+    }
     const files = await contentManifest(temporary);
     const nodeAbi = process.versions.modules!;
     const artifactId = createHash("sha256").update(JSON.stringify(files)).update(nodeAbi).update(process.platform).update(process.arch).digest("hex");
-    const manifest: ArtifactManifest = { schemaVersion: 1, artifactId, nodeExecutable: await realpath(process.execPath), nodeAbi, platform: process.platform, architecture: process.arch, files };
+    const manifest: ArtifactManifest = { schemaVersion: 1, artifactId, nodeExecutable: standalone ? "craig" : await realpath(process.execPath), ...(standalone ? { executableKind: "standalone" as const } : {}), nodeAbi, platform: process.platform, architecture: process.arch, files };
     await writeFile(path.join(temporary, "manifest.json"), JSON.stringify(manifest), { mode: 0o600 });
     const destination = path.join(cacheRoot, artifactId);
     if (await lstat(destination).catch(() => null)) { await verifyRuntimeArtifact(destination); await reserveArtifactUnderLock(paths, cacheRoot, artifactId, false); return destination; }
@@ -127,4 +136,11 @@ export async function pinRuntimeArtifact(paths: CraigPaths, bundleOverride?: str
     await reserveArtifactUnderLock(paths, cacheRoot, artifactId, true);
     return destination;
   } finally { await rm(buildDirectory, { recursive: true, force: true }); await rm(temporary, { recursive: true, force: true }); await release(); }
+}
+
+/** SEA executables re-enter their embedded bootstrap, never the Node script argv shape. */
+export function runtimeArtifactCommand(directory: string, manifest: ArtifactManifest, args: string[]): { command: string; args: string[] } {
+  return manifest.executableKind === "standalone"
+    ? { command: path.join(directory, "craig"), args }
+    : { command: manifest.nodeExecutable, args: [path.join(directory, "cli.js"), ...args] };
 }

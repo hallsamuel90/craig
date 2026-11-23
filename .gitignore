@@ -4,3 +4,5 @@ dist/
 coverage/
 .cache/
 src/ui/ghostty/wasm.generated.ts
+
+src/shell/runtime/terminal/ghostty/wasm.generated.ts

@@ -3099,9 +3099,11 @@ exec '${process.execPath}' -e 'setInterval(() => {}, 1000)'
       app = startTerminalApp({ terminal, ptyRuntime: client, uiStateFile: paths.uiStateFile, workspaceRoot: root });
       await vi.waitFor(() => expect(terminal.hasKeyListener()).toBe(true));
       terminal.emitKey("ENTER"); terminal.emitKey("["); terminal.emitKey("DOWN"); terminal.emitKey("ENTER");
+      // Later incremental header writes need not contain the earlier retry toast.
+      const beforeCreateFrames = terminal.frames.length;
       for (const char of "drain attachment race") terminal.emitKey(char);
       terminal.emitKey("ENTER");
-      await vi.waitFor(() => expect(stripAnsi(terminal.frames.at(-1) ?? "")).toContain("not admitted"), { timeout: 15000 });
+      await vi.waitFor(() => expect(terminal.frames.slice(beforeCreateFrames).some((frame) => stripAnsi(frame).includes("not admitted"))).toBe(true), { timeout: 15000 });
       expect(interrupted).toBe(true);
       expect(await readTask(paths, createdId)).toEqual(beforeTask);
       expect((await inventory()).find((session) => session.taskId === createdId)).toEqual(beforeSession);

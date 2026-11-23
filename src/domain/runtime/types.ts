@@ -1,6 +1,7 @@
-export type RuntimeCapability = "terminal" | "activity" | "navigation" | "delegatedLaunch" | "orchestration" | "drainEmpty" | "pullRequestPolling" | "fury" | "splitRuntime" | "controlReplacement";
+export type RuntimeCapability = "terminal" | "activity" | "navigation" | "delegatedLaunch" | "orchestration" | "drainEmpty" | "pullRequestPolling" | "fury" | "splitRuntime" | "controlReplacement" | "ghosttyTerminal";
 export interface RuntimeHello {
   protocolVersion?: number;
+  ghosttyTerminal?: boolean;
   replacementProtocol?: number;
   durableStateVersions?: number[];
   pendingMutations?: number;

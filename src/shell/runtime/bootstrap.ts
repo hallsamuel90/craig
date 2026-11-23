@@ -8,7 +8,7 @@ import { getCraigPaths, type CraigPaths } from "../../state/craig-paths.js";
 import { getPtyDaemonEndpoint } from "../pty-daemon-protocol.js";
 import { RuntimeTransport } from "./wire.js";
 import { runtimeRequest, processAlive } from "./discovery.js";
-import { pinRuntimeArtifact, verifyRuntimeArtifact } from "./artifacts.js";
+import { pinRuntimeArtifact, verifyRuntimeArtifact, runtimeArtifactCommand } from "./artifacts.js";
 import { newRuntimeRecord, readPrivateRecord, writePrivateRecord, privateRuntimeDirectory, workspaceRuntimeId, type RuntimeRecord } from "./records.js";
 
 export async function launchRuntimeRole(paths: CraigPaths, record: RuntimeRecord, file: string) {
@@ -18,7 +18,8 @@ export async function launchRuntimeRole(paths: CraigPaths, record: RuntimeRecord
   await writePrivateRecord(file, record);
   const log = await open(path.join(paths.runtimeDir, `${record.role}.log`), "a", 0o600);
   try {
-    const child = spawn(manifest.nodeExecutable, [path.join(record.artifact, "cli.js"), "__craig-runtime-role", record.role, paths.workspaceRoot, file], { cwd: paths.workspaceRoot, detached: true, stdio: ["ignore", log.fd, log.fd], env: process.env });
+    const launch = runtimeArtifactCommand(record.artifact, manifest, ["__craig-runtime-role", record.role, paths.workspaceRoot, file]);
+    const child = spawn(launch.command, launch.args, { cwd: paths.workspaceRoot, detached: true, stdio: ["ignore", log.fd, log.fd], env: process.env });
     child.unref();
     if (child.pid) await recordArtifactOwnerUnderLock(paths, root, record, file, child.pid);
     await releaseArtifactReservationUnderLock(paths, root, record.artifact);

@@ -1,3 +1,4 @@
+import { configService } from "../domain/config/index.js";
 import { randomUUID, createHash } from "node:crypto";
 import path from "node:path";
 import { readPrivateRecord } from "./runtime/records.js";
@@ -27,6 +28,7 @@ export async function createChildTaskAndSession(
   input: CreateChildInput,
 ): Promise<CommandCreateChildResult> {
   await ensureRuntimeRunning(paths);
+  if ((await configService.load(paths)).previews?.ghosttyTerminal) await requireAvailableRuntimeCapabilities(paths, ["ghosttyTerminal"]);
   if (await readPrivateRecord(path.join(paths.runtimeDir, "control.json"))) {
     const { operationId = input.idempotencyKey ? `child_${createHash("sha256").update(input.parentTaskId).update("\0").update(input.idempotencyKey).digest("hex")}` : randomUUID(), ...request } = input;
     return await submitRuntimeTaskCreate(paths, operationId, { kind: "child", input: request }) as CommandCreateChildResult;
@@ -43,6 +45,7 @@ export async function createRootTaskAndSession(
   options: TaskCreationOptions = {},
 ): Promise<CommandCreateTaskResult> {
   await ensureRuntimeRunning(paths);
+  if ((await configService.load(paths)).previews?.ghosttyTerminal) await requireAvailableRuntimeCapabilities(paths, ["ghosttyTerminal"]);
   if (await readPrivateRecord(path.join(paths.runtimeDir, "control.json"))) {
     const { operationId = randomUUID(), runner, workspaceId, owningWorkspaceId, allowLinkedProjectRepo } = options;
     return await submitRuntimeTaskCreate(paths, operationId, { kind: "root", targetId: repoIdOrWorkspaceId, prompt,

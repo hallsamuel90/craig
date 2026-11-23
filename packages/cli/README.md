@@ -57,7 +57,7 @@ The Pi coding agent is available as an opt-in feature preview under Options &gt;
 
 The Agent file opening preview lets an attached agent run `craig file open <path>` to display any readable text file directly in the active Craig TUI.
 
-The **Ghostty terminal (new sessions)** preview is available under **Options > Feature Previews**. It is off by default. Enabling it uses Ghostty for newly created terminal sessions; existing sessions keep their backend. Disabling it returns new sessions to xterm. If an older workspace daemon is still running, existing sessions remain attachable; creating Ghostty sessions requires restarting that daemon after closing its sessions.
+The **Ghostty terminal (new sessions)** preview is available under **Options > Feature Previews**. It is off by default. Enabling it uses Ghostty for newly created terminal sessions; existing sessions keep their backend. Disabling it returns new sessions to xterm. The split runtime selects Ghostty for new sessions on a compatible current host while preserving older sessions and their original backend. If a pre-split daemon lacks Ghostty support, existing sessions remain attachable, but new Ghostty tasks are rejected before provisioning. Disable the preview while those sessions remain active, or complete the explicit empty legacy migration after finishing them.
 
 The preview runs offline with an embedded terminal library. Emoji widths and very long hyperlinks can differ from xterm; this preview has not graduated to the default backend.
 

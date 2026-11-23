@@ -27,6 +27,18 @@ node-gyp 12.4.0 to rebuild node-pty 0.10.1 with locked NAN 2.28.0 in an isolated
 directory. The checkout's installed addon stays usable by the build-driver Node.
 The target runtime must load the rebuilt addon, and its native linkage is audited.
 
+Session hosts, the compatibility guard, and the control service launch from pinned
+copies of the complete executable in Craig's private runtime-artifact cache. A
+standalone role re-enters that executable directly with its hidden role arguments;
+it does not pass a JavaScript entrypoint to the SEA binary or require Node on PATH.
+Each copy uses the existing verified payload extraction and PID leases, so the
+runtime-artifact cache and extracted-resource cache both retain live owners.
+Build and host identities are embedded in both npm and standalone bundles. The
+standalone host identity includes the target Node ABI and rebuilt native addon,
+independently of the build driver's Node ABI. Replacement checks rollback
+compatibility before draining; an incompatible npm/Node artifact blocks the
+transition while preserving its current service and sessions.
+
 The builder reads an explicit versioned runtime file allowlist, includes licenses
 (including bundled YAML, NAN and Node's notices), strips map comments from runtime
 JS, bundles Craig without maps, and calls `node --build-sea` with a relative main
