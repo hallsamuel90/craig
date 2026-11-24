@@ -346,6 +346,7 @@ steps:
       expect(operations).toHaveLength(1);
       expect(operations[0]).toMatchObject({ state: "completed", agentTabId: `${operations[0]!.taskId}:agent` });
       expect(operations[0]!.creationViewToken).toBeTruthy();
+      expect(frame).toContain(`codex_stub_task_dir:${operations[0]!.taskId}`);
     } finally {
       child.kill();
       await cleanupTerminalWorkspace(workspaceRoot);
@@ -424,10 +425,10 @@ steps:
       child.write("\r");
       await output.waitFor("╭─ ");
       child.write("\r");
-      await output.waitFor(`${runner}_stub_started`);
+      await output.waitForLatestFrame(`${runner}_stub_task_dir_ok`);
       const frame = output.latestFrame();
       expect(frame).toContain(`${runner}_stub_started`);
-      expect(output.value).toContain(`${runner}_stub_task_dir_ok`);
+      expect(frame).toContain(`${runner}_stub_task_dir_ok`);
     } finally {
       child.kill();
       await cleanupTerminalWorkspace(workspaceRoot);
@@ -891,10 +892,12 @@ const maybeAdvance = () => {
       const valid = record.token === token && !record.revokedAt && Date.parse(record.expiresAt) > Date.now();
       process.stdout.write("codex_stub_capability_valid:" + (valid ? "yes" : "no") + "\\n");
     }
+    // Keep fixture diagnostics short enough to survive the initial 80-column
+    // creation size being resized to the narrower shell panel.
     process.stdout.write("codex_stub_started\\n");
-    process.stdout.write(\`codex_stub_cwd:\${process.cwd()}\\n\`);
+    process.stdout.write(\`codex_stub_cwd:\${process.cwd().slice(-24)}\\n\`);
     process.stdout.write(\`codex_stub_task_dir:\${process.cwd().split("/").pop()}\\n\`);
-    process.stdout.write(\`codex_stub_prompt:\${process.argv.slice(2).join(" ")}\\n\`);
+    process.stdout.write(\`codex_stub_prompt:\${process.argv.slice(2).join(" ").slice(0, 20)}\\n\`);
     process.stdout.write(\`codex_stub_capability:\${process.env.CRAIG_AGENT_CAPABILITY ? "present" : "missing"}\\n\`);
     process.stdout.write(\`codex_embedded_flags:\${["--no-alt-screen", "--no-daemon"].every((flag) => process.argv.includes(flag)) ? "yes" : "no"}\\n\`);
     process.stdout.write("\\x1b]8;;http://127.0.0.1:4325/\\x1b\\\\Open preview\\x1b]8;;\\x1b\\\\\\n");
@@ -954,7 +957,7 @@ if [ "$(basename "$PWD")" = "task_20260430_02" ]; then
 else
   echo "${marker}_stub_task_dir_bad:$(basename "$PWD")"
 fi
-echo "${marker}_stub_prompt:$*"
+printf "${marker}_stub_prompt:%.20s\\n" "$*"
 sleep 5
 `,
     "utf8",
