@@ -47,6 +47,9 @@ jobs:
       - name: Run tests
         run: pnpm test
 
+      - name: Test offline binary delivery policy and uploader
+        run: pnpm binary:test
+
       - name: Run typecheck
         run: pnpm typecheck
 

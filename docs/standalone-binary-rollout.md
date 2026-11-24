@@ -1,5 +1,11 @@
 # Standalone binary preview rollout
 
+> Current delivery policy and manual attachment procedure: see
+> [macOS preview delivery](delivery/macos-preview-install.md). The dated
+> notarization/clean-Mac prerequisites below describe the earlier notarized
+> promotion path; the explicit unnotarized preview accepts those documented
+> limitations without claiming they passed. No publication was performed.
+
 Started 2026-11-22. [Draft PR #316](https://github.com/hallsamuel90/craig/pull/316)
 contains the preserved spike and implementation, merged with current `main`.
 No binary publisher or tap writer is enabled. Merging to `main` still invokes the

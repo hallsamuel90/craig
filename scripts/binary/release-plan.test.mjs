@@ -23,3 +23,24 @@ test("Homebrew recipe inputs are versioned and cannot inject Ruby", () => {
   assert.throws(() => renderFormula('@URL@', "1.2.3", `${url}#{system('false')}`, "a".repeat(64)), /Unsafe/);
   assert.throws(() => renderFormula('@URL@', "1.2.4", url, "a".repeat(64)), /Unsafe/);
 });
+
+test("unnotarized preview is explicit and preserves truthful signing state", () => {
+  const plan = { tag: "craig-cli@1.2.3", commit: "a".repeat(40), assets: [{ name: "craig-1.2.3-darwin-arm64.tar.gz", sha256: "b".repeat(64) }, { name: "SHA256SUMS", sha256: "c".repeat(64) }], policy: "unnotarized-preview", signing: "ad-hoc-development-only", notarized: false, dirty: false };
+  const target = { tag: plan.tag, tagCommit: plan.commit, assets: [] };
+  assert.doesNotThrow(() => validateReleaseTarget(plan, target));
+  for (const change of [{ policy: undefined }, { policy: "preview" }, { signing: "unsigned" }, { signing: "developer-id" }, { notarized: true }, { dirty: true }, { dirty: undefined }]) assert.throws(() => validateReleaseTarget({ ...plan, ...change }, target));
+  assert.throws(() => validateReleaseTarget(plan, { ...target, tagCommit: "b".repeat(40) }));
+  assert.throws(() => validateReleaseTarget(plan, { ...target, assets: [{name:"SHA256SUMS"}] }));
+});
+
+test("proposed tap formula pins the reviewed version/hash and preserves notices", async () => {
+  const { readFileSync } = await import("node:fs");
+  const template = readFileSync(new URL("../../packaging/homebrew/craig.rb.in", import.meta.url), "utf8");
+  const formula = renderFormula(template, "1.2.3", "https://github.com/hallsamuel90/craig/releases/download/craig-cli%401.2.3/craig-1.2.3-darwin-arm64.tar.gz", "a".repeat(64));
+  assert.ok(!/@(?:VERSION|URL|SHA256)@/.test(formula));
+  assert.match(formula, /hallsamuel90\/homebrew-tap\/Formula\/craig.rb/);
+  assert.match(formula, /depends_on arch: :arm64/);
+  assert.match(formula, /macos: :sonoma/);
+  assert.match(formula, /prefix.install "LICENSE", "THIRD_PARTY_NOTICES"/);
+  assert.match(formula, /shell_output\("#\{bin\}\/craig --help"\)/);
+});
