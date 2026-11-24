@@ -37,6 +37,7 @@ test("attachment stages audited bytes, binds authorization and never clobbers", 
     let prerelease = false;
     let corruptDownload = false;
     let uploadFails = false;
+    let moveAfterUpload = false;
     const uploads = [];
     const gh = (args) => {
       if (args[0] === "api") {
@@ -50,6 +51,7 @@ test("attachment stages audited bytes, binds authorization and never clobbers", 
         assert.ok(audited);
         assert.ok(!args.includes("--clobber"));
         uploads.push(args);
+        if (moveAfterUpload) wrongCommit = true;
         if (uploadFails) throw new Error("partial upload; inspect manually");
         for (const file of args.slice(3,5)) assert.deepEqual(readFileSync(file), readFileSync(path.join(directory,path.basename(file))));
       } else {
@@ -76,11 +78,13 @@ test("attachment stages audited bytes, binds authorization and never clobbers", 
     assert.equal(uploads.length,1);
     corruptDownload=true;
     assert.throws(() => attachRelease(options), /Remote checksum mismatch/);
-    corruptDownload=false; uploadFails=true;
+    corruptDownload=false; moveAfterUpload=true;
+    assert.throws(() => attachRelease(options), /tag moved after upload/);
+    moveAfterUpload=false; wrongCommit=false; uploadFails=true;
     assert.throws(() => attachRelease(options), /partial upload/);
-    assert.equal(uploads.length,3); // One attempt per invocation, no retry or delete.
+    assert.equal(uploads.length,4); // One attempt per invocation, no retry or delete.
     writeFileSync(path.join(directory,archiveName), "corrupt");
     assert.throws(() => attachRelease(options), /checksum/);
-    assert.equal(uploads.length,3);
+    assert.equal(uploads.length,4);
   } finally { rmSync(directory,{recursive:true,force:true}); }
 });

@@ -61,7 +61,8 @@ configured. It reruns the full audit on staged copies, resolves remote lightweig
 or annotated tags to commits, checks the existing published stable release and
 paginates all assets. It rejects either immutable asset-name conflict, even if the
 existing bytes match. It never creates a release, deletes/clobbers assets or
-writes a tap. It downloads both uploaded assets and verifies their hashes.
+writes a tap. It rechecks the tag after upload, then downloads both uploaded assets and verifies
+their hashes. GitHub operations are pinned to github.com.
 Concurrent publication is still possible between preflight and upload; GitHub's
 no-clobber upload is the final conflict guard. A failed or interrupted multi-asset
 upload can leave a partial release: stop for human investigation, record exact

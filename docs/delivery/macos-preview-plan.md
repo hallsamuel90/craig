@@ -13,7 +13,9 @@ automatic downloader or terminal replacement is authorized in this step.
    remote tag dereferencing, released/stable target validation and immutable-name
    rejection. Never create a release, replace assets or write the tap.
 3. Test policy and uploader using fixtures, with no network writes. Run binary,
-   channel/update, npm packaging and source gates. Record failures without waiver.
+   channel/update, npm packaging and source gates. Bound local source validation
+   to one full run (completed in 293 seconds); do not tune deadlines or repeatedly
+   rerun until green. Record failures without waiver.
 4. Document publication review, install/upgrade/rollback and evidence limits.
    Commit/push a stacked implementation PR; list all three review PRs.
 

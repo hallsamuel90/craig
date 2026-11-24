@@ -10,13 +10,13 @@ import { validateReleaseTarget } from "./release-plan.mjs";
 const repository = "hallsamuel90/craig";
 export const approvalFor = (plan) => `${plan.tag}@${plan.commit}:${plan.assets.find((asset) => asset.name.endsWith(".tar.gz")).sha256}`;
 export function releaseTarget(gh, tag) {
-  const api = (route) => JSON.parse(gh(["api", `repos/${repository}/${route}`]));
+  const api = (route) => JSON.parse(gh(["api", "--hostname", "github.com", `repos/${repository}/${route}`]));
   let object = api(`git/ref/tags/${encodeURIComponent(tag)}`).object;
   for (let depth = 0; object.type === "tag" && depth < 8; depth++) object = api(`git/tags/${object.sha}`).object;
   if (object.type !== "commit") throw new Error("Tag does not resolve to a commit");
   const release = api(`releases/tags/${encodeURIComponent(tag)}`);
   if (release.draft !== false || release.prerelease !== false || release.tag_name !== tag) throw new Error("Expected existing published stable release");
-  const pages = JSON.parse(gh(["api", "--paginate", "--slurp", `repos/${repository}/releases/${release.id}/assets?per_page=100`]));
+  const pages = JSON.parse(gh(["api", "--hostname", "github.com", "--paginate", "--slurp", `repos/${repository}/releases/${release.id}/assets?per_page=100`]));
   return { tag: release.tag_name, tagCommit: object.sha, assets: pages.flat() };
 }
 export function attachRelease({ plan, directory, approval, gh, audit, sourceCommit, sourceDirty }) {
@@ -39,10 +39,11 @@ export function attachRelease({ plan, directory, approval, gh, audit, sourceComm
     if (readFileSync(path.join(stage, "SHA256SUMS"), "utf8") !== `${archive.sha256}  ${archive.name}\n`) throw new Error("Checksum inventory mismatch");
     audit(path.join(stage, archive.name)); // Full embedded payload, licenses, ABI, signature/linkage audit.
     validateReleaseTarget(plan, releaseTarget(gh, plan.tag)); // Fresh inventory immediately before write.
-    gh(["release", "upload", plan.tag, ...plan.assets.map((asset) => path.join(stage, asset.name)), "--repo", repository]);
+    gh(["release", "upload", plan.tag, ...plan.assets.map((asset) => path.join(stage, asset.name)), "--repo", `github.com/${repository}`]);
+    if (releaseTarget(gh, plan.tag).tagCommit !== plan.commit) throw new Error("Remote tag moved after upload; stop publication");
     // No --clobber, deletion or retry. A partial upload requires human investigation.
     const remote = path.join(stage, "download");
-    gh(["release", "download", plan.tag, "--repo", repository, "--dir", remote, ...plan.assets.flatMap((asset) => ["--pattern", asset.name])]);
+    gh(["release", "download", plan.tag, "--repo", `github.com/${repository}`, "--dir", remote, ...plan.assets.flatMap((asset) => ["--pattern", asset.name])]);
     for (const asset of plan.assets) if (digest(readFileSync(path.join(remote, asset.name))) !== asset.sha256) throw new Error("Remote checksum mismatch; stop publication");
   } finally { rmSync(stage, { recursive: true, force: true }); }
 }

@@ -10,7 +10,8 @@
   open, reused unchanged at `03729a3e7024b363b1b770f9c4f8c9db05b73d9b`.
   All listed hosted checks passed, including the binary rerun and five terminal
   jobs. Original failed runs remain historical evidence, not erased passes.
-- Delivery implementation PR: stacked on #321; see final PR link below.
+- [#323 delivery implementation](https://github.com/hallsamuel90/craig/pull/323):
+  stacked on #321; both implementation branches are pushed for review.
 
 The [bounded plan](macos-preview-plan.md) and [operator guide](macos-preview-install.md)
 define the review/publication boundary. No release uploads, tap writes, merges,
@@ -41,7 +42,7 @@ Changeset covers this preview behavior. The generated formula targets the propos
   resource identity/cache/lease tests. Uploader tests cover authorization, dirty/
   wrong source, audit failure, annotated tags, pagination, existing checksum asset,
   wrong remote commit, prerelease, checksum tampering, post-upload remote mismatch
-  and partial upload without retries. They make no network writes.
+  partial upload without retries, and a tag moved after upload. They make no network writes.
 - 35 focused version/channel/update tests passed on the reused #321 code.
 - Typecheck, lint, source build, npm minified build and package audit passed.
   Initial npm build failed because this new worktree lacked local dependencies;
@@ -54,7 +55,21 @@ Changeset covers this preview behavior. The generated formula targets the propos
 - Standalone fixture smoke failed at `Old daemon did not exit after upgrade test`.
   Neither smoke failure is waived; no production lifecycle logic or deadline was
   modified. Historical #321 smoke success does not establish a pass for this build.
-- Full local source suite: result recorded below when the bounded run completes.
+- Full local source suite completed in 293 seconds: **879 passed, 12 failed**,
+  across 74 files (71 passed, three failed), plus one unhandled event-watch cleanup
+  ENOENT rejection. Ten failures were in `tests/pty-daemon.test.ts`: PR sync,
+  event-accelerated sync, cross-process notification, four durable prompts,
+  restart sync, reconnect, tab disposal, background activity, event watching and
+  stale endpoints. The other failures were the delegated Cursor terminal E2E and
+  PR event-monitor readiness deadline. No new baseline comparison was performed
+  in this session; historical reproduction on main cannot explain every current
+  failure. This source gate is failed, not waived.
+- Both changed workflow YAML files parsed successfully. New PR hosted checks were
+  pending at report finalization; some terminal jobs already passed on the initial
+  push, but those are not a final all-gates result for the final pushed commit.
+  [Standard CI](https://github.com/hallsamuel90/craig/actions/runs/45320231510)
+  and [binary CI](https://github.com/hallsamuel90/craig/actions/runs/45320231512)
+  refer to the initial implementation push; follow #323 for the latest runs.
 
 The local development archive was built with `dirty: true` on #321's commit and
 package version 0.22.1. It is **ineligible for attachment**: that version's remote
