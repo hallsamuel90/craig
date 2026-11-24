@@ -85,7 +85,11 @@ await writeFile(path.join(root,'checkpoint.json'),JSON.stringify(operation));if(
       const replacement = replaceControlUnderLock(paths, true, { artifact }).finally(release);
       // Attach a rejection handler immediately while intentionally holding create.
       const observed = replacement.then((result) => ({ result }), (error: unknown) => ({ error }));
-      await vi.waitFor(async () => expect((await daemonStatus(paths)).state).toBe("draining"));
+      // Candidate and rollback preflights run before admission closes. Wait for
+      // their durable transaction boundary rather than spending the drain
+      // assertion's budget on starting those separate Node processes.
+      await vi.waitFor(async () => expect((await readPrivateRecord<{ state: string }>(path.join(paths.runtimeDir, "upgrade.json")))?.state).toBe("prepared"), { timeout: 20_000 });
+      await vi.waitFor(async () => expect((await daemonStatus(paths)).state).toBe("draining"), { timeout: 2_500 });
       await expect(submitRuntimeTaskCreate(paths, "unadmitted-operation", request)).rejects.toThrow("not admitted");
       expect(await readTaskCreateOperation(paths, "unadmitted-operation")).toBeNull();
       if (behavior === "drain_timeout") {

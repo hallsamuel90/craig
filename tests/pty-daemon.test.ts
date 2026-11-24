@@ -1120,7 +1120,7 @@ steps:
     const spawn = vi.fn(() => {
       throw new Error("agent executable missing");
     });
-    const daemon = servePtyDaemon(paths, { shell: "/bin/zsh", env: { TERM: "xterm-256color" }, spawn });
+    const daemon = servePtyDaemon(paths, { pullRequestSync: false, shell: "/bin/zsh", env: { TERM: "xterm-256color" }, spawn });
 
     try {
       const first = await createDaemonPtyRuntime({
@@ -1162,7 +1162,7 @@ steps:
     const paths = getCraigPaths(root);
     const agentPty = createFakePty();
     const onActivity = vi.fn();
-    const daemon = servePtyDaemon(paths, {
+    const daemon = servePtyDaemon(paths, { pullRequestSync: false,
       shell: "/bin/zsh",
       env: { TERM: "xterm-256color" },
       spawn: vi.fn(() => agentPty),
@@ -1301,7 +1301,7 @@ steps:
       .mockReturnValueOnce(activePty);
     let daemon: Promise<void> | null = null;
     const spawnDaemon = () => {
-      daemon = servePtyDaemon(paths, { shell: "/bin/zsh", env: { TERM: "xterm-256color" }, spawn });
+      daemon = servePtyDaemon(paths, { pullRequestSync: false, shell: "/bin/zsh", env: { TERM: "xterm-256color" }, spawn });
     };
 
     try {

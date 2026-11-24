@@ -5,7 +5,8 @@ import { join, resolve } from "node:path";
 import { tmpdir } from "node:os";
 
 import { describe, expect, test, vi } from "vitest";
-import { spawn } from "node-pty";
+import { spawn, type IPty } from "node-pty";
+import XtermHeadless from "@xterm/headless";
 
 import { createCraigState, createGitRepo, writeRepoRecord, writeTaskRecord } from "./test-helpers.js";
 import { runCommand } from "../src/shared/exec.js";
@@ -68,9 +69,9 @@ steps:
       cwd: workspaceRoot, cols: 120, rows: 36,
       env: { ...withoutAgentContext(workspaceRoot), CI: "", PATH: `${stubDir}:${process.env.PATH ?? ""}`, TERM: "xterm-256color" },
     });
-    child.onData((chunk) => output.append(chunk));
+    output.connect(child);
     try {
-      await output.waitFor("> Resume workspace"); child.write("\r");
+      await output.waitFor("> Resume workspace", 15_000); child.write("\r");
       await output.waitFor("Fury plan to approve"); child.write("f");
       await output.waitFor("FURY PLANS"); child.write("\r");
       await output.waitFor("Review each worker"); child.write("a");
@@ -81,7 +82,7 @@ steps:
       expect(await readFuryApproval(paths, plan.id)).toMatchObject({ planHash: plan.planHash, approvedBy: { source: "tui" } });
       expect(await listFuryRuns(paths)).toHaveLength(0);
     } finally { child.kill(); await cleanupTerminalWorkspace(workspaceRoot); }
-  }, 15000);
+  }, 45000);
 
   test("enters terminal mode and supports detach and reattach", async () => {
     const repoRoot = process.cwd();
@@ -134,10 +135,10 @@ steps:
       },
     });
 
-    child.onData((chunk) => output.append(chunk));
+    output.connect(child);
 
     try {
-      await output.waitFor("> Resume workspace");
+      await output.waitFor("> Resume workspace", 15_000);
       child.write("\r");
       await output.waitFor("╭─ ");
       child.write("\r");
@@ -157,7 +158,7 @@ steps:
       child.kill();
       await cleanupTerminalWorkspace(workspaceRoot);
     }
-  }, 15000);
+  }, 45000);
 
   test.each([
     { panelPolish: false, expiredCapability: false, ghosttyTerminal: false },
@@ -231,10 +232,10 @@ steps:
       },
     });
 
-    child.onData((chunk) => output.append(chunk));
+    output.connect(child);
 
     try {
-      await output.waitFor("> Resume workspace");
+      await output.waitFor("> Resume workspace", 15_000);
       child.write("\r");
       await output.waitFor("╭─ ");
       child.write("\r");
@@ -245,11 +246,11 @@ steps:
       expect(frame).toContain("codex_stub_started");
       expect(frame).toContain("codex_stub_prompt:");
       expect(frame).toContain("codex_stub_bottom_bar");
-      expect(frame).toContain("48;2;42;42;42");
+      expect(output.value).toContain("48;2;42;42;42");
       expect(frame).toContain("codex_stub_task_dir:task_20260430_02");
       expect(frame).toContain("codex_embedded_flags:yes");
       if (expiredCapability) expect(frame).toContain("codex_stub_capability_valid:yes");
-      expect(frame).toContain("\x1b]8;;http://127.0.0.1:4325/\x1b\\Open preview");
+      expect(output.value).toContain("\x1b]8;;http://127.0.0.1:4325/\x1b\\Open preview");
 
       child.write("craig_scroll_probe\r");
       await output.waitFor("scroll_probe_live");
@@ -268,7 +269,7 @@ steps:
       child.kill();
       await cleanupTerminalWorkspace(workspaceRoot);
     }
-  }, 15000);
+  }, 45000);
 
   test.each([{ panelPolish: false, ghosttyTerminal: false }, { panelPolish: true, ghosttyTerminal: false }, { panelPolish: false, ghosttyTerminal: true }])("creating a new task starts Codex in the new task worktree (panel polish: $panelPolish, Ghostty: $ghosttyTerminal)", async ({ panelPolish, ghosttyTerminal }) => {
     const repoRoot = process.cwd();
@@ -321,10 +322,10 @@ steps:
       },
     });
 
-    child.onData((chunk) => output.append(chunk));
+    output.connect(child);
 
     try {
-      await output.waitFor("> Resume workspace");
+      await output.waitFor("> Resume workspace", 15_000);
       child.write("\r");
       await output.waitFor("+ New Task");
       child.write("n");
@@ -349,7 +350,7 @@ steps:
       child.kill();
       await cleanupTerminalWorkspace(workspaceRoot);
     }
-  }, 20000);
+  }, 45000);
 
   test.each([
     ["cursor", "cursor-agent"],
@@ -416,10 +417,10 @@ steps:
       },
     });
 
-    child.onData((chunk) => output.append(chunk));
+    output.connect(child);
 
     try {
-      await output.waitFor("> Resume workspace");
+      await output.waitFor("> Resume workspace", 15_000);
       child.write("\r");
       await output.waitFor("╭─ ");
       child.write("\r");
@@ -431,7 +432,7 @@ steps:
       child.kill();
       await cleanupTerminalWorkspace(workspaceRoot);
     }
-  }, 15000);
+  }, 45000);
 
   test("enter on the selected left-pane task row opens the agent PTY without crashing", async () => {
     const repoRoot = process.cwd();
@@ -490,10 +491,10 @@ steps:
       },
     });
 
-    child.onData((chunk) => output.append(chunk));
+    output.connect(child);
 
     try {
-      await output.waitFor("> Resume workspace");
+      await output.waitFor("> Resume workspace", 15_000);
       child.write("\r");
       await output.waitFor("test task");
       child.write("\r");
@@ -507,7 +508,7 @@ steps:
       child.kill();
       await cleanupTerminalWorkspace(workspaceRoot);
     }
-  }, 15000);
+  }, 45000);
 
   test("a delegated Cursor child starts once, accepts work while unselected, and remains navigable", async () => {
     const repoRoot = process.cwd();
@@ -645,7 +646,7 @@ setInterval(() => {}, 1000);
       await daemon;
       await rm(workspaceRoot, { recursive: true, force: true });
     }
-  }, 20000);
+  }, 45000);
 
   test("restarting Craig reattaches to a live daemon-owned agent tab without relaunching Codex", async () => {
     const repoRoot = process.cwd();
@@ -706,8 +707,8 @@ setInterval(() => {}, 1000);
           TERM: "xterm-256color",
         },
       });
-      first.onData((chunk) => firstOutput.append(chunk));
-      await firstOutput.waitFor("> Resume workspace");
+      firstOutput.connect(first);
+      await firstOutput.waitFor("> Resume workspace", 15_000);
       first.write("\r");
       await firstOutput.waitFor("╭─ ");
       first.write("\r");
@@ -729,8 +730,8 @@ setInterval(() => {}, 1000);
           TERM: "xterm-256color",
         },
       });
-      second.onData((chunk) => secondOutput.append(chunk));
-      await secondOutput.waitFor("> Resume workspace");
+      secondOutput.connect(second);
+      await secondOutput.waitFor("> Resume workspace", 15_000);
       second.write("\r");
       await secondOutput.waitForLatestFrame("codex_stub_started");
       second.write("\u001D");
@@ -743,13 +744,13 @@ setInterval(() => {}, 1000);
     } finally {
       await cleanupTerminalWorkspace(workspaceRoot);
     }
-  }, 20000);
+  }, 45000);
 });
 
 async function cleanupTerminalWorkspace(workspaceRoot: string): Promise<void> {
   // Foreground teardown can still be releasing its last attach hold. Wait for
   // verified shutdown rather than treating that short retention as test failure.
-  await vi.waitFor(() => requestDaemonShutdown(getCraigPaths(workspaceRoot)), { timeout: 10000, interval: 50 });
+  await vi.waitFor(() => requestDaemonShutdown(getCraigPaths(workspaceRoot)), { timeout: 35000, interval: 50 });
   await rm(workspaceRoot, {
     recursive: true,
     force: true,
@@ -968,11 +969,19 @@ function resolveTestTsxBin(repoRoot: string): string {
 
 class PtyOutputBuffer {
   value = "";
+  private readonly screen = new XtermHeadless.Terminal({ cols: 120, rows: 36, scrollback: 0, allowProposedApi: true });
+
+  connect(child: IPty): void {
+    this.screen.onData((reply) => child.write(reply));
+    child.onData((chunk) => this.append(chunk));
+    child.onExit(() => this.screen.dispose());
+  }
 
   append(chunk: string): void {
+    this.screen.write(chunk);
     this.value += chunk;
-    if (this.value.length > 80_000) {
-      this.value = this.value.slice(-80_000);
+    if (this.value.length > 2_000_000) {
+      this.value = this.value.slice(-2_000_000);
     }
   }
 
@@ -980,7 +989,7 @@ class PtyOutputBuffer {
     const start = Date.now();
 
     while (Date.now() - start < timeoutMs) {
-      if (stripVTControlCharacters(this.value).includes(needle)) {
+      if (this.latestFrame().includes(needle) || stripVTControlCharacters(this.value).includes(needle)) {
         return;
       }
 
@@ -991,9 +1000,13 @@ class PtyOutputBuffer {
   }
 
   latestFrame(): string {
-    const marker = "CRAIG  ";
-    const index = this.value.lastIndexOf(marker);
-    return index === -1 ? this.value : this.value.slice(index);
+    // Craig renders incremental cursor-addressed patches. A raw suffix after
+    // the last header is not a frame: unchanged rows may have been emitted much
+    // earlier. Replay the stream as a terminal to inspect the actual screen.
+    const buffer = this.screen.buffer.active;
+    return Array.from({ length: this.screen.rows }, (_, row) =>
+      buffer.getLine(buffer.viewportY + row)?.translateToString(true) ?? "",
+    ).join("\n");
   }
 
   async waitForLatestFrame(needle: string, timeoutMs = 7000): Promise<void> {

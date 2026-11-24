@@ -111,7 +111,9 @@ export async function shutdownSplitRuntime(paths: CraigPaths): Promise<boolean> 
   }
   const guard = await readPrivateRecord<RuntimeRecord>(path.join(paths.runtimeDir, "guard.json"));
   if (!guard) throw new Error("Guard discovery is missing; cannot verify shutdown.");
-  const deadline = Date.now() + 10000;
+  // Native watcher teardown may outlast a health-probe budget. Keep waiting
+  // for verified release; never force a live owner out to remove its guard.
+  const deadline = Date.now() + 30000;
   while (Date.now() < deadline) {
     const transport = await RuntimeTransport.connect(guard.endpoint);
     try { await transport.request({ type: "shutdownGuard", credential: guard.credential, instanceId: guard.instanceId, workspaceId: guard.workspaceId }); return true; }

@@ -65,7 +65,9 @@ async function inspectArtifact(paths: CraigPaths, artifact: string): Promise<Run
   return hello;
 }
 async function waitForExit(pid: number): Promise<void> {
-  const deadline = Date.now() + 10000;
+  // Draining work is bounded separately. Native watcher/process teardown can
+  // take longer; ownership must actually be released before launching a peer.
+  const deadline = Date.now() + 30000;
   while (processAlive(pid)) {
     if (Date.now() >= deadline) throw new Error("Control did not release ownership; no process was signalled and no replacement was started.");
     await new Promise((resolve) => setTimeout(resolve, 25));
