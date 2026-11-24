@@ -1,4 +1,4 @@
-import { watch, type FSWatcher, type WatchListener } from "node:fs";
+import { watch, type WatchListener } from "node:fs";
 
 import {
   AGENT_READY_AFTER_MS,
@@ -10,7 +10,13 @@ import type { CraigEvent } from "../domain/orchestration/index.js";
 import type { CraigPaths } from "../state/craig-paths.js";
 
 /* eslint-disable no-unused-vars */
-interface PullRequestEventMonitorOptions {
+export interface PullRequestFileWatcher {
+  on(event: "error", listener: (error: unknown) => void): unknown;
+  close(): void;
+}
+
+export interface PullRequestEventMonitorOptions {
+  watchPath?: (target: string, listener: WatchListener<string>) => PullRequestFileWatcher;
   reconcileEvents: () => Promise<CraigEvent[]>;
   onEvents: (events: CraigEvent[]) => void | Promise<void>;
   onError: (error: unknown) => void | Promise<void>;
@@ -26,7 +32,7 @@ export class PullRequestEventMonitor {
   private readonly readyAfterMs: number;
   private readonly agentStates = new Map<string, AgentRuntimeState>();
   private readonly readinessTimers = new Map<string, ReturnType<typeof setTimeout>>();
-  private readonly watchers: FSWatcher[] = [];
+  private readonly watchers: PullRequestFileWatcher[] = [];
   private debounceTimer: ReturnType<typeof setTimeout> | null = null;
   private reconciliation: Promise<void> | null = null;
   private dirty = false;
@@ -97,7 +103,9 @@ export class PullRequestEventMonitor {
 
   private watchPath(target: string, listener: WatchListener<string>): void {
     try {
-      const watcher = watch(target, { persistent: false }, listener);
+      const watcher = this.options.watchPath
+        ? this.options.watchPath(target, listener)
+        : watch(target, { persistent: false }, listener);
       watcher.on("error", (error) => void this.reportError(error));
       this.watchers.push(watcher);
     } catch (error) {

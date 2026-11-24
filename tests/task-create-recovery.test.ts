@@ -1,3 +1,6 @@
+import { pinRuntimeArtifact } from "../src/shell/runtime/artifacts.js";
+import { launchRuntimeRole, awaitRuntimeRole } from "../src/shell/runtime/bootstrap.js";
+import { getPtyDaemonEndpoint } from "../src/shell/pty-daemon-protocol.js";
 import { replaceControlUnderLock } from "../src/shell/runtime/replacement.js";
 import { acquireRuntimeLock } from "../src/shell/runtime/ownership.js";
 import { daemonStatus } from "../src/shell/runtime/discovery.js";
@@ -40,11 +43,20 @@ test.each([["root", "admitted", "crash"], ["root", "provisioning_files", "crash"
   let fixtureController: ChildProcess | undefined;
   let pending: Promise<unknown> | undefined;
   try {
-    await ensureRuntimeRunning(paths);
-    const original = (await readPrivateRecord<RuntimeRecord>(path.join(paths.runtimeDir, "control.json")))!;
-    const stop = await RuntimeTransport.connect(original.endpoint); await stop.request({ type: "shutdown" }); stop.close();
-    await vi.waitFor(async () => { try { process.kill(original.pid, 0); throw new Error("Still stopping"); } catch (error) { expect((error as { code?: string }).code).toBe("ESRCH"); } }, { timeout: 10000 });
-    const record = await newRuntimeRecord(paths, "control", original.artifact);
+    // Start only the guard and host needed by the checkpoint controller.
+    // A disposable default control adds unrelated native-watcher shutdown and
+    // is not part of the crash/recovery boundary this fixture exercises.
+    const artifact = await pinRuntimeArtifact(paths);
+    const guard = await newRuntimeRecord(paths, "guard", artifact);
+    guard.endpoint = getPtyDaemonEndpoint(paths).socketPath;
+    const guardFile = path.join(paths.runtimeDir, "guard.json");
+    await awaitRuntimeRole(guardFile, await launchRuntimeRole(paths, guard, guardFile));
+    const host = await newRuntimeRecord(paths, "host", artifact);
+    const hostDirectory = path.join(paths.runtimeDir, "hosts");
+    await mkdir(hostDirectory, { recursive: true });
+    const hostFile = path.join(hostDirectory, `${host.instanceId}.json`);
+    await awaitRuntimeRole(hostFile, await launchRuntimeRole(paths, host, hostFile));
+    const record = await newRuntimeRecord(paths, "control", artifact);
     await writePrivateRecord(path.join(paths.runtimeDir, "control.json"), record);
     const entry = path.join(root, "checkpoint-control.mts");
     await writeFile(entry, `import {readFile,writeFile,mkdir,readdir} from 'node:fs/promises';import path from 'node:path';
@@ -70,7 +82,7 @@ await writeFile(path.join(root,'checkpoint.json'),JSON.stringify(operation));if(
     expect((await readPrivateRecord<RuntimeRecord>(path.join(paths.runtimeDir, "control.json")))?.pid).toBe(fixtureController.pid);
     if (behavior !== "crash") {
       const release = await acquireRuntimeLock(paths, "lifecycle");
-      const replacement = replaceControlUnderLock(paths, true, { artifact: original.artifact }).finally(release);
+      const replacement = replaceControlUnderLock(paths, true, { artifact }).finally(release);
       // Attach a rejection handler immediately while intentionally holding create.
       const observed = replacement.then((result) => ({ result }), (error: unknown) => ({ error }));
       await vi.waitFor(async () => expect((await daemonStatus(paths)).state).toBe("draining"));

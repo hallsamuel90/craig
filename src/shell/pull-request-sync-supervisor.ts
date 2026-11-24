@@ -9,7 +9,7 @@ import {
   type GitHubPollView,
 } from "./github-poll-coordinator.js";
 import { Heartbeat } from "./heartbeat.js";
-import { PullRequestEventMonitor } from "./pull-request-event-monitor.js";
+import { PullRequestEventMonitor, type PullRequestEventMonitorOptions } from "./pull-request-event-monitor.js";
 
 const BACKGROUND_POLL_VIEW: GitHubPollView = {
   selectedTaskId: null,
@@ -23,6 +23,7 @@ export interface PullRequestSyncDependencies {
 }
 
 export interface PullRequestSyncSupervisorOptions {
+  watchPath?: PullRequestEventMonitorOptions["watchPath"];
   admit?: (work: () => Promise<void>) => Promise<void>;
   minimumIntervalMs?: number;
   intervals?: Partial<GitHubPollIntervals>;
@@ -73,6 +74,7 @@ export class PullRequestSyncSupervisor {
     this.eventMonitor = options.reconcileEvents
       ? new PullRequestEventMonitor(paths, {
           reconcileEvents: options.reconcileEvents,
+          ...(options.watchPath ? { watchPath: options.watchPath } : {}),
           onEvents: async (events) => {
             const changedTaskIds = getTaskLifecycleEventTaskIds(events);
             if (changedTaskIds.length > 0) await this.onTasksChanged(changedTaskIds);

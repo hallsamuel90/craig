@@ -1,3 +1,5 @@
+import { EventEmitter } from "node:events";
+import type { WatchListener } from "node:fs";
 import { createRequire } from "node:module";
 import { getPtyDaemonEndpoint } from "../src/shell/pty-daemon-protocol.js";
 import { createServer, createConnection, type Socket } from "node:net";
@@ -16,6 +18,7 @@ import { taskService } from "../src/domain/task/index.js";
 import { appendTaskId } from "../src/domain/task/adapters/task-store.js";
 import { authorizeCapability, ensureTaskCapabilities, mutateFuryRun, readFuryRun, promptCommandService, readAllEvents } from "../src/domain/orchestration/index.js";
 import { approvePlan, createPlan, runFury } from "../src/shell/fury-runtime.js";
+import { reconcileEvents } from "../src/shell/event-reconciliation.js";
 import { watchWorkspaceEvents } from "../src/shell/events.js";
 import { disposeDaemonSessions, wakeOrchestrationSupervisor } from "../src/shell/pty-daemon-orchestration.js";
 import { requestOpenFile } from "../src/shell/ui-navigation.js";
@@ -519,8 +522,10 @@ steps:
     const paths = await createCraigState(root, ["task_1"]);
     await writeTaskRecord(root, { id: "task_1", status: "checked" });
     const syncTasks = vi.fn(async (_paths, tasks) => tasks);
+    const notifications = createFileNotifications();
     const daemon = servePtyDaemon(paths, {
       pullRequestSync: {
+        watchPath: notifications.watchPath,
         heartbeatIntervalMs: 10,
         minimumIntervalMs: 1_000,
         dependencies: {
@@ -544,6 +549,7 @@ steps:
           committedAt: "2026-08-06T12:00:00.000Z",
         },
       });
+      notifications.emit(paths.tasksDir, "task_1.json");
       await vi.waitFor(() => expect(syncTasks).toHaveBeenCalledTimes(2), { timeout: 2_500 });
       const events = await readAllEvents(paths);
       expect(events).toContainEqual(expect.objectContaining({
@@ -598,8 +604,12 @@ steps:
     const paths = await createCraigState(root, ["task_parent"]);
     await writeTaskRecord(root, { id: "task_parent", title: "planning parent" });
     const onTasksChanged = vi.fn();
+    const reconcile = vi.fn(() => reconcileEvents(paths));
+    const notifications = createFileNotifications();
     const daemon = servePtyDaemon(paths, {
       pullRequestSync: {
+        watchPath: notifications.watchPath,
+        reconcileEvents: reconcile,
         heartbeatIntervalMs: 100,
         dependencies: {
           listTasks: async () => (await taskService.listTasks(paths)).tasks,
@@ -630,11 +640,14 @@ steps:
         rootTaskId: "task_parent",
         delegationDepth: 1,
       });
-      // Let the task-directory notification reconcile before the authoritative
-      // workspace index changes. The index notification must trigger a second
-      // reconciliation so this write ordering cannot strand the new task.
-      await new Promise((resolveWait) => setTimeout(resolveWait, 100));
+      // Complete the task-directory reconciliation before changing the index.
+      // This ordering must not strand a task that is not indexed yet.
+      const before = reconcile.mock.calls.length;
+      notifications.emit(paths.tasksDir, "task_child.json");
+      await vi.waitFor(() => expect(reconcile.mock.calls.length).toBeGreaterThan(before));
+      await reconcile.mock.results.at(-1)!.value;
       await appendTaskId(paths, "task_child");
+      notifications.emit(paths.craigDir, ".index.json.atomic-write");
 
       await vi.waitFor(() => expect(onTasksChanged).toHaveBeenCalledWith(["task_child"]), { timeout: 2_500 });
       client.disposeAll();
@@ -1039,6 +1052,7 @@ steps:
     await configService.save(paths, { previews: { agentOrchestration: true } });
     const agentPty = createFakePty();
     const daemon = servePtyDaemon(paths, {
+      pullRequestSync: false,
       shell: "/bin/zsh",
       env: { TERM: "xterm-256color" },
       spawn: vi.fn(() => agentPty),
@@ -1067,11 +1081,14 @@ steps:
 
       await vi.waitFor(() => expect(states).toContain("working"));
       await requestDaemonShutdown(paths);
-      await vi.waitFor(() => expect(states).toContain("error"));
+      // Finish shutting down the old owner before observing the disconnected
+      // state and starting its replacement.
       await daemon;
+      await vi.waitFor(() => expect(states).toContain("error"));
 
       const restartedPty = createFakePty();
       restartedDaemon = servePtyDaemon(paths, {
+        pullRequestSync: false,
         shell: "/bin/zsh",
         env: { TERM: "xterm-256color" },
         spawn: vi.fn(() => restartedPty),
@@ -1629,3 +1646,18 @@ test("a missing input acknowledgement becomes visible uncertainty and reconnect 
     expect(client.getViewState("fixture:agent").status).toBe("running");
   } finally { client.disposeAll(); await new Promise<void>((resolve) => server.close(() => resolve())); await rm(root, { recursive: true, force: true }); }
 }, 10000);
+
+function createFileNotifications() {
+  const listeners = new Map<string, WatchListener<string>>();
+  return {
+    watchPath(target: string, listener: WatchListener<string>) {
+      listeners.set(target, listener);
+      return Object.assign(new EventEmitter(), { close: () => { listeners.delete(target); } });
+    },
+    emit(target: string, filename: string) {
+      const listener = listeners.get(target);
+      expect(listener).toBeDefined();
+      listener!("rename", filename);
+    },
+  };
+}
