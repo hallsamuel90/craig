@@ -240,7 +240,7 @@ steps:
       await output.waitFor("╭─ ");
       child.write("\r");
       await output.waitFor("codex_stub_started");
-      await output.waitForLatestFrame("codex_stub_bottom_bar");
+      await output.waitForLatestFrame(["codex_stub_started", "codex_stub_bottom_bar", "codex_stub_task_dir:", "codex_stub_prompt:"]);
       const frame = output.latestFrame();
       expect(stripVTControlCharacters(frame)).toContain("TERMINAL   ↑↓/PgUp/PgDn scroll");
       expect(frame).toContain("codex_stub_started");
@@ -333,7 +333,7 @@ steps:
       child.write("create e2e task");
       child.write("\r");
       await output.waitFor("codex_stub_started");
-      await output.waitForLatestFrame("codex_stub_bottom_bar");
+      await output.waitForLatestFrame(["codex_stub_started", "codex_stub_bottom_bar", "codex_stub_task_dir:", "codex_stub_prompt:"]);
       const frame = output.latestFrame();
       expect(stripVTControlCharacters(frame)).toContain("TERMINAL   ↑↓/PgUp/PgDn scroll");
       expect(frame).toContain("codex_stub_started");
@@ -500,7 +500,7 @@ steps:
       await output.waitFor("test task");
       child.write("\r");
       await output.waitFor("codex_stub_started");
-      await output.waitForLatestFrame("codex_stub_bottom_bar");
+      await output.waitForLatestFrame(["codex_stub_started", "codex_stub_bottom_bar", "codex_stub_task_dir:", "codex_stub_prompt:"]);
       const frame = output.latestFrame();
       expect(stripVTControlCharacters(frame)).toContain("TERMINAL   ↑↓/PgUp/PgDn scroll");
       expect(frame).toContain("codex_stub_prompt:");
@@ -713,7 +713,7 @@ setInterval(() => {}, 1000);
       first.write("\r");
       await firstOutput.waitFor("╭─ ");
       first.write("\r");
-      await firstOutput.waitForLatestFrame("codex_stub_started");
+      await firstOutput.waitForLatestFrame(["codex_stub_started", "codex_stub_bottom_bar"]);
       first.kill();
       await delay(500);
 
@@ -734,7 +734,7 @@ setInterval(() => {}, 1000);
       secondOutput.connect(second);
       await secondOutput.waitFor("> Resume workspace", 15_000);
       second.write("\r");
-      await secondOutput.waitForLatestFrame("codex_stub_started");
+      await secondOutput.waitForLatestFrame(["codex_stub_started", "codex_stub_bottom_bar"]);
       second.write("\u001D");
       second.write("q");
       await delay(500);
@@ -1018,11 +1018,12 @@ class PtyOutputBuffer {
     ).join("\n");
   }
 
-  async waitForLatestFrame(needle: string, timeoutMs = 7000): Promise<void> {
+  async waitForLatestFrame(needle: string | readonly string[], timeoutMs = 7000): Promise<void> {
     const start = Date.now();
 
     while (Date.now() - start < timeoutMs) {
-      if (stripVTControlCharacters(this.latestFrame()).includes(needle)) {
+      const frame = this.latestFrame();
+      if ((typeof needle === "string" ? [needle] : needle).every((text) => frame.includes(text))) {
         return;
       }
 
