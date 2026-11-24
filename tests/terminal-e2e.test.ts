@@ -240,7 +240,7 @@ steps:
       await output.waitFor("╭─ ");
       child.write("\r");
       await output.waitFor("codex_stub_started");
-      await output.waitForLatestFrame(["codex_stub_started", "codex_stub_bottom_bar", "codex_stub_task_dir:", "codex_stub_prompt:"]);
+      await output.waitForLatestFrame(["codex_stub_started", "codex_stub_bottom_bar", "codex_stub_task_dir:", "codex_stub_prompt:", "TERMINAL   ↑↓/PgUp/PgDn scroll"]);
       const frame = output.latestFrame();
       expect(stripVTControlCharacters(frame)).toContain("TERMINAL   ↑↓/PgUp/PgDn scroll");
       expect(frame).toContain("codex_stub_started");
@@ -332,8 +332,10 @@ steps:
       await output.waitFor("NEW TASK");
       child.write("create e2e task");
       child.write("\r");
+      // Host output can arrive before create finishes switching shell input mode.
+      // Observe the agent and terminal-mode footer in the same completed frame.
       await output.waitFor("codex_stub_started");
-      await output.waitForLatestFrame(["codex_stub_started", "codex_stub_bottom_bar", "codex_stub_task_dir:", "codex_stub_prompt:"]);
+      await output.waitForLatestFrame(["codex_stub_started", "codex_stub_bottom_bar", "codex_stub_task_dir:", "codex_stub_prompt:", "TERMINAL   ↑↓/PgUp/PgDn scroll"]);
       const frame = output.latestFrame();
       expect(stripVTControlCharacters(frame)).toContain("TERMINAL   ↑↓/PgUp/PgDn scroll");
       expect(frame).toContain("codex_stub_started");
@@ -500,7 +502,7 @@ steps:
       await output.waitFor("test task");
       child.write("\r");
       await output.waitFor("codex_stub_started");
-      await output.waitForLatestFrame(["codex_stub_started", "codex_stub_bottom_bar", "codex_stub_task_dir:", "codex_stub_prompt:"]);
+      await output.waitForLatestFrame(["codex_stub_started", "codex_stub_bottom_bar", "codex_stub_task_dir:", "codex_stub_prompt:", "TERMINAL   ↑↓/PgUp/PgDn scroll"]);
       const frame = output.latestFrame();
       expect(stripVTControlCharacters(frame)).toContain("TERMINAL   ↑↓/PgUp/PgDn scroll");
       expect(frame).toContain("codex_stub_prompt:");
