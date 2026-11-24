@@ -744,6 +744,8 @@ steps:
     await writeTaskRecord(root, { id: "task_1", status: "merged" });
     const startSyncDaemon = (nextStatus: "pr_open" | "checked") => servePtyDaemon(paths, {
       pullRequestSync: {
+        // This verifies polling restart, not native filesystem delivery.
+        reconcileEvents: false,
         heartbeatIntervalMs: 10,
         dependencies: {
           listTasks: async () => [(await taskService.getTask(paths, "task_1"))],

@@ -863,6 +863,32 @@ let buffer = "";
 let index = 0;
 let launched = false;
 
+// A service-created PTY starts at 120x36 before the UI attaches its panel.
+// Behave like a terminal app: redraw the screen when that size changes.
+function paintFixture() {
+  process.stdout.write("\\x1b[2J\\x1b[H");
+  if (process.env.CRAIG_AGENT_CAPABILITY) {
+    const fs = require("node:fs");
+    const token = process.env.CRAIG_AGENT_CAPABILITY;
+    const id = token.split(".")[0];
+    const record = JSON.parse(fs.readFileSync(process.env.CRAIG_WORKSPACE_ROOT + "/.craig/orchestration/capabilities/" + id + ".json", "utf8"));
+    const valid = record.token === token && !record.revokedAt && Date.parse(record.expiresAt) > Date.now();
+    process.stdout.write("codex_stub_capability_valid:" + (valid ? "yes" : "no") + "\\n");
+  }
+  process.stdout.write("codex_stub_started\\n");
+  process.stdout.write(\`codex_stub_cwd:\${process.cwd().slice(-24)}\\n\`);
+  process.stdout.write(\`codex_stub_task_dir:\${process.cwd().split("/").pop()}\\n\`);
+  process.stdout.write(\`codex_stub_prompt:\${process.argv.slice(2).join(" ").slice(0, 20)}\\n\`);
+  process.stdout.write(\`codex_stub_capability:\${process.env.CRAIG_AGENT_CAPABILITY ? "present" : "missing"}\\n\`);
+  process.stdout.write(\`codex_embedded_flags:\${["--no-alt-screen", "--no-daemon"].every((flag) => process.argv.includes(flag)) ? "yes" : "no"}\\n\`);
+  process.stdout.write("\\x1b]8;;http://127.0.0.1:4325/\\x1b\\\\Open preview\\x1b]8;;\\x1b\\\\\\n");
+  const rows = Number(process.stdout.rows || 0);
+  if (rows > 0) {
+    process.stdout.write(\`\\u001B[\${rows};1H\\u001B[48;2;42;42;42;38;2;229;229;229mcodex_stub_bottom_bar\\u001B[0m\`);
+  }
+}
+process.stdout.on("resize", () => { if (launched) paintFixture(); });
+
 const maybeAdvance = () => {
   while (index < expected.length) {
     const probe = expected[index];
@@ -884,27 +910,7 @@ const maybeAdvance = () => {
       const current = Number(fs.existsSync(process.env.CODEX_STUB_LAUNCH_FILE) ? fs.readFileSync(process.env.CODEX_STUB_LAUNCH_FILE, "utf8") : "0");
       fs.writeFileSync(process.env.CODEX_STUB_LAUNCH_FILE, String(current + 1));
     }
-    if (process.env.CRAIG_AGENT_CAPABILITY) {
-      const fs = require("node:fs");
-      const token = process.env.CRAIG_AGENT_CAPABILITY;
-      const id = token.split(".")[0];
-      const record = JSON.parse(fs.readFileSync(process.env.CRAIG_WORKSPACE_ROOT + "/.craig/orchestration/capabilities/" + id + ".json", "utf8"));
-      const valid = record.token === token && !record.revokedAt && Date.parse(record.expiresAt) > Date.now();
-      process.stdout.write("codex_stub_capability_valid:" + (valid ? "yes" : "no") + "\\n");
-    }
-    // Keep fixture diagnostics short enough to survive the initial 80-column
-    // creation size being resized to the narrower shell panel.
-    process.stdout.write("codex_stub_started\\n");
-    process.stdout.write(\`codex_stub_cwd:\${process.cwd().slice(-24)}\\n\`);
-    process.stdout.write(\`codex_stub_task_dir:\${process.cwd().split("/").pop()}\\n\`);
-    process.stdout.write(\`codex_stub_prompt:\${process.argv.slice(2).join(" ").slice(0, 20)}\\n\`);
-    process.stdout.write(\`codex_stub_capability:\${process.env.CRAIG_AGENT_CAPABILITY ? "present" : "missing"}\\n\`);
-    process.stdout.write(\`codex_embedded_flags:\${["--no-alt-screen", "--no-daemon"].every((flag) => process.argv.includes(flag)) ? "yes" : "no"}\\n\`);
-    process.stdout.write("\\x1b]8;;http://127.0.0.1:4325/\\x1b\\\\Open preview\\x1b]8;;\\x1b\\\\\\n");
-    const rows = Number(process.stdout.rows || 0);
-    if (rows > 0) {
-      process.stdout.write(\`\\u001B[\${rows};1H\\u001B[48;2;42;42;42;38;2;229;229;229mcodex_stub_bottom_bar\\u001B[0m\`);
-    }
+    paintFixture();
   }
 };
 
