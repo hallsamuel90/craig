@@ -1,4 +1,5 @@
-import { mkdir, readFile, rm, stat, utimes, writeFile } from "node:fs/promises";
+import { acquireRuntimeLock } from "./runtime/ownership.js";
+import { readFile, stat, utimes } from "node:fs/promises";
 import path from "node:path";
 
 import type { CraigPaths } from "../state/craig-paths.js";
@@ -27,35 +28,11 @@ export async function hasLiveOrchestrationSupervisor(paths: CraigPaths): Promise
 
 export async function acquireOrchestrationLeader(paths: CraigPaths): Promise<OrchestrationLeaderLease> {
   const lockPath = path.join(paths.runtimeDir, "orchestration-supervisor.lock");
-  await mkdir(paths.runtimeDir, { recursive: true });
+  let release: () => Promise<void>;
   try {
-    await mkdir(lockPath);
-  } catch (error) {
-    if (!isAlreadyExists(error)) throw error;
-    const owner = await readFile(path.join(lockPath, "owner.json"), "utf8")
-      .then((value) => JSON.parse(value) as { pid?: unknown })
-      .catch(() => null);
-    const metadata = await stat(lockPath).catch(() => null);
-    if (
-      (typeof owner?.pid === "number" && !isProcessAlive(owner.pid)) ||
-      (!owner && metadata && Date.now() - metadata.mtimeMs >= 5_000)
-    ) {
-      await rm(lockPath, { recursive: true, force: true });
-      return acquireOrchestrationLeader(paths);
-    }
-    throw new CraigError("COMMAND_STATE_CONFLICT", "Another orchestration supervisor already leads this workspace.", {
-      details: { ownerPid: owner?.pid ?? null },
-    });
-  }
-  try {
-    await writeFile(path.join(lockPath, "owner.json"), JSON.stringify({
-      pid: process.pid,
-      protocolVersion: PTY_DAEMON_PROTOCOL_VERSION,
-      acquiredAt: new Date().toISOString(),
-    }), "utf8");
-  } catch (error) {
-    await rm(lockPath, { recursive: true, force: true });
-    throw error;
+    release = await acquireRuntimeLock(paths, "orchestration-supervisor", { protocolVersion: PTY_DAEMON_PROTOCOL_VERSION });
+  } catch {
+    throw new CraigError("COMMAND_STATE_CONFLICT", "Another orchestration supervisor owns this workspace or its owner is ambiguous.", {});
   }
   let released = false;
   return {
@@ -67,7 +44,7 @@ export async function acquireOrchestrationLeader(paths: CraigPaths): Promise<Orc
     async release() {
       if (released) return;
       released = true;
-      await rm(lockPath, { recursive: true, force: true });
+      await release();
     },
   };
 }
@@ -81,6 +58,3 @@ function isProcessAlive(pid: number): boolean {
     return typeof error === "object" && error !== null && "code" in error && error.code === "EPERM";
   }
 }
-
-const isAlreadyExists = (error: unknown): error is { code: "EEXIST" } =>
-  typeof error === "object" && error !== null && "code" in error && error.code === "EEXIST";

@@ -45,6 +45,7 @@ export async function createRootTask(
   return taskService.createTask(paths, repoIdOrWorkspaceId, prompt, {
     ...options,
     onProvisioned: async (task) => ({
+      ...await options.onProvisioned?.(task),
       CRAIG_WORKSPACE_ROOT: paths.workspaceRoot,
       CRAIG_TASK_ID: task.id,
       CRAIG_AGENT_TAB_ID: task.ptyTabs.find((tab) => tab.kind === "agent")?.id ?? "",

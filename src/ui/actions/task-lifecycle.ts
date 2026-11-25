@@ -24,8 +24,14 @@ export const createInteractiveTask = async (
   prompt: string,
   runner: RunnerType,
   ctx: ActionContext,
+  operationId?: string,
 ): Promise<{ task: TaskRecord; nextShell: Partial<ControlShellState> }> => {
   configService.runners.assertEnabled(runner, ctx.config);
+  if (ctx.createRuntimeTask) {
+    const result = await ctx.createRuntimeTask(workspaceId ?? repoId ?? "", prompt, { runner, ...(workspaceId ? { workspaceId } : {}), ...(operationId ? { operationId } : {}) });
+    const task = await ctx.taskService.getTask(ctx.paths, result.taskId);
+    return { task, nextShell: { selectedRepoId: task.repoId, selectedWorkspaceId: task.workspaceId, selectedTaskId: task.id, selectedPtyTabId: task.selectedPtyTabId, inputMode: "control", focusedRegion: "center", activeTab: task.selectedPtyTabId ?? "agent", selectedActionId: "commit" } };
+  }
   const provisioned = workspaceId
     ? await ctx.taskService.provisionProjectTask(ctx.paths, workspaceId, prompt, { runner, config: ctx.config })
     : await ctx.taskService.provisionTask(ctx.paths, repoId ?? "", prompt, { runner, config: ctx.config });

@@ -1,3 +1,4 @@
+import type { DaemonStatus, DaemonRestartResult } from "../domain/runtime/types.js";
 import type { RunnerType } from "../domain/task/index.js";
 import type {
   CommandCreateTaskResult,
@@ -62,6 +63,8 @@ import type { PromptInput } from "../shell/prompt-commands.js";
 import type { CommandOpenFileResult } from "../domain/file/index.js";
 
 export type AppCommand =
+  | { kind: "daemonStatus" }
+  | { kind: "daemonRestart"; migrateLegacy: boolean }
   | { kind: "addWorkspace"; path: string }
   | { kind: "addRepo"; path: string }
   | { kind: "listRepos" }
@@ -70,8 +73,8 @@ export type AppCommand =
   | { kind: "archiveWorkspace"; workspaceId: string }
   | { kind: "restoreWorkspace"; workspaceId: string }
   | { kind: "removeWorkspace"; workspaceId: string }
-  | { kind: "createTask"; repoId?: string; workspaceId?: string; prompt: string; runner?: RunnerType }
-  | { kind: "createChildTask"; parentTaskId?: string; repoId?: string; workspaceId?: string; prompt: string; runner?: RunnerType; idempotencyKey?: string }
+  | { kind: "createTask"; repoId?: string; workspaceId?: string; prompt: string; runner?: RunnerType; operationId?: string }
+  | { kind: "createChildTask"; parentTaskId?: string; repoId?: string; workspaceId?: string; prompt: string; runner?: RunnerType; idempotencyKey?: string; operationId?: string }
   | { kind: "listTaskChildren"; taskId?: string }
   | { kind: "cancelTaskTree"; taskId?: string }
   | { kind: "validateFury"; file: string }
@@ -190,6 +193,8 @@ export type {
 };
 
 export type CommandResult =
+  | DaemonStatus
+  | DaemonRestartResult
   | CommandCreateWorkspaceResult
   | CommandCreateRepoResult
   | CommandListReposResult

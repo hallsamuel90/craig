@@ -4,6 +4,7 @@ import { createRequire } from "node:module";
 import path from "node:path";
 import { gzipSync } from "node:zlib";
 import { build, version as esbuildVersion } from "esbuild";
+import { runtimeBuildDefinitions } from "../runtime-identity.mjs";
 import { prepareGhostty } from "../prepare-ghostty.mjs";
 import { archiveFiles, auditDistribution, auditResource, digest, makePayload, manifestOf } from "./artifact.mjs";
 
@@ -88,9 +89,10 @@ const staging = path.join(output, "staging");
 rmSync(staging, { recursive: true, force: true });
 mkdirSync(staging, { recursive: true });
 await prepareGhostty();
+const runtimeDefinitions = await runtimeBuildDefinitions(root, { nodeAbi: config.nodeAbi, channel: "standalone", nativeAddon: addon });
 await build({ entryPoints: [path.join(root, "src/cli.ts")], outfile: path.join(staging, "cli.js"),
   platform: "node", format: "esm", target: "node26", bundle: true, minify: true, sourcemap: false,
-  external: Object.keys(pkg.dependencies), define: { __CRAIG_VERSION__: JSON.stringify(pkg.version) },
+  external: Object.keys(pkg.dependencies), define: { __CRAIG_VERSION__: JSON.stringify(pkg.version), ...runtimeDefinitions },
   alias: { yaml: path.join(root, "node_modules/yaml/browser/index.js") },
 });
 const files = [];

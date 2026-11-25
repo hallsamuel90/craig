@@ -4,6 +4,8 @@ import path from "node:path";
 
 import { afterEach, describe, expect, test, vi } from "vitest";
 
+vi.mock("../src/shell/runtime/start.js", () => ({ ensureRuntimeRunning: vi.fn(async () => undefined) }));
+
 vi.mock("../src/shell/pty-daemon-orchestration.js", () => ({
   disposeDaemonSessions: vi.fn(async () => true),
   ensureDaemonAgentSession: vi.fn(async () => undefined),

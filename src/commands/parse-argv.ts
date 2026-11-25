@@ -33,6 +33,14 @@ export function parseArgv(argv: string[]): ParsedArgvCommand {
   let command: AppCommand;
 
   switch (`${group ?? ""}:${action ?? ""}`) {
+    case "daemon:restart":
+      if (args.some((arg) => arg !== "--migrate-legacy") || args.length > 1) throw usageError("Usage: craig daemon restart [--migrate-legacy]");
+      command = { kind: "daemonRestart", migrateLegacy: args.includes("--migrate-legacy") };
+      break;
+    case "daemon:status":
+      requireNoArgs(args, "daemon status");
+      command = { kind: "daemonStatus" };
+      break;
     case "context:show":
       requireNoArgs(args, "context show");
       command = { kind: "showContext" };
@@ -290,6 +298,8 @@ export function getCommandName(command: AppCommand): string {
     commitTask: "task.commit",
     commitSelectedTask: "task.commit",
     showContext: "context.show",
+    daemonStatus: "daemon.status",
+    daemonRestart: "daemon.restart",
     help: "help",
     exit: "exit",
   };
@@ -336,6 +346,8 @@ export function getHelpText(): string {
     "  craig task wait [<id>] --state <states> [--tab <tab-id>] [--timeout <duration>]",
     "  craig events list [--task <task-id>] [--type <glob>] [--after <cursor>] --json",
     "  craig events watch [--task <task-id>] [--type <glob>] [--after <cursor>] [--format jsonl]",
+    "  craig daemon restart     Replace control while preserving sessions",
+    "  craig daemon status      Inspect runtime without starting it",
     "  craig fury validate <file>  Validate a versioned fury YAML definition",
     "  craig fury plan <file> [--root-task <id>] [--input key=value]  Create an immutable approval plan",
     "  craig fury approve <plan-id>  Approve an exact validated plan (human only)",
@@ -441,6 +453,7 @@ function parseTaskNew(args: string[]): AppCommand {
   let repoId: string | undefined;
   let workspaceId: string | undefined;
   let runner: ReturnType<typeof configService.runners.parse> | undefined;
+  let operationId: string | undefined;
   const promptParts: string[] = [];
   let parseOptions = true;
 
@@ -450,7 +463,7 @@ function parseTaskNew(args: string[]): AppCommand {
       parseOptions = false;
       continue;
     }
-    if (!parseOptions || !["--repo", "--workspace", "--runner"].includes(token)) {
+    if (!parseOptions || !["--repo", "--workspace", "--runner", "--operation-id"].includes(token)) {
       if (parseOptions && token.startsWith("--")) {
         throw usageError(`Unsupported task new option: ${token}`);
       }
@@ -470,6 +483,10 @@ function parseTaskNew(args: string[]): AppCommand {
     } else if (token === "--workspace") {
       if (workspaceId !== undefined) throw usageError("Task option --workspace may only be provided once.");
       workspaceId = requireNonEmpty(value, "Workspace id");
+    } else if (token === "--operation-id") {
+      if (operationId) throw usageError("Task option --operation-id may only be provided once.");
+      if (!/^[a-zA-Z0-9_-]{1,128}$/.test(value)) throw usageError("Invalid operation id.");
+      operationId = value;
     } else {
       if (runner !== undefined) throw usageError("Task option --runner may only be provided once.");
       try {
@@ -490,6 +507,7 @@ function parseTaskNew(args: string[]): AppCommand {
   const prompt = requireNonEmpty(promptParts.join(" "), "Task prompt");
   return {
     kind: "createTask",
+    ...(operationId ? { operationId } : {}),
     ...(repoId ? { repoId } : {}),
     ...(workspaceId ? { workspaceId } : {}),
     ...(runner ? { runner } : {}),
@@ -503,6 +521,7 @@ function parseTaskCreateChild(args: string[]): AppCommand {
   let workspaceId: string | undefined;
   let runner: ReturnType<typeof configService.runners.parse> | undefined;
   let idempotencyKey: string | undefined;
+  let operationId: string | undefined;
   const promptParts: string[] = [];
   let parseOptions = true;
   for (let index = 0; index < args.length; index += 1) {
@@ -511,7 +530,7 @@ function parseTaskCreateChild(args: string[]): AppCommand {
       parseOptions = false;
       continue;
     }
-    if (!parseOptions || !["--parent", "--repo", "--workspace", "--runner", "--idempotency-key"].includes(token)) {
+    if (!parseOptions || !["--parent", "--repo", "--workspace", "--runner", "--idempotency-key", "--operation-id"].includes(token)) {
       if (parseOptions && token.startsWith("--")) throw usageError(`Unsupported task create-child option: ${token}`);
       promptParts.push(token);
       continue;
@@ -533,6 +552,10 @@ function parseTaskCreateChild(args: string[]): AppCommand {
       try { runner = configService.runners.parse(value); } catch (error) {
         throw usageError(error instanceof Error ? error.message : "Unsupported runner.");
       }
+    } else if (token === "--operation-id") {
+      if (operationId) throw usageError("Task option --operation-id may only be provided once.");
+      if (!/^[a-zA-Z0-9_-]{1,128}$/.test(value)) throw usageError("Invalid operation id.");
+      operationId = value;
     } else {
       if (idempotencyKey) throw usageError("Task option --idempotency-key may only be provided once.");
       idempotencyKey = requireNonEmpty(value, "Idempotency key");
@@ -541,6 +564,7 @@ function parseTaskCreateChild(args: string[]): AppCommand {
   if (repoId && workspaceId) throw usageError("Child task creation accepts only one of --repo or --workspace.");
   return {
     kind: "createChildTask",
+    ...(operationId ? { operationId } : {}),
     ...(parentTaskId ? { parentTaskId } : {}),
     ...(repoId ? { repoId } : {}),
     ...(workspaceId ? { workspaceId } : {}),

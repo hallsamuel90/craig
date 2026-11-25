@@ -1,0 +1,32 @@
+{
+  "pre-rfc-package": {
+    "commit": "a2a1fbcd146898bc46c396ae957942d6c3041b9a",
+    "sha256": "eee45818c8a3d1a921eecffdd85d8a2c529978ef693dcc8e0772e6d057b5afc7",
+    "sourcePaths": [
+      "src",
+      "scripts/build-npm.mjs",
+      "package.json",
+      "pnpm-lock.yaml",
+      "pnpm-workspace.yaml",
+      "tsconfig.json",
+      "packages/cli/package.json",
+      "packages/cli/README.md",
+      "LICENSE"
+    ]
+  },
+  "phase2-runtime": {
+    "commit": "12d147eb76dede9e91012fdde2c2b0a083d530ee",
+    "sha256": "9ed43a8112536fd39ef94f51e6d59d31fcb98b5e7dba6041e26beec65e59dd2e",
+    "sourcePaths": [
+      "src",
+      "scripts/build-npm.mjs",
+      "package.json",
+      "pnpm-lock.yaml",
+      "pnpm-workspace.yaml",
+      "tsconfig.json",
+      "packages/cli/package.json",
+      "packages/cli/README.md",
+      "LICENSE"
+    ]
+  }
+}
