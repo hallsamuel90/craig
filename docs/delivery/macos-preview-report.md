@@ -1,5 +1,10 @@
 # macOS delivery implementation report — 2026-11-23
 
+> November 25 update: [policy-gated binary CD](binary-cd-integration.md)
+> supersedes the earlier manual-only publication boundary. Future exact-source
+> main-push releases attach automatically after one explicit repository policy
+> activation. This implementation does not activate that policy or publish assets.
+
 ## Review scope and dependencies
 
 - [#319 qualification record](https://github.com/hallsamuel90/craig/pull/319): open,

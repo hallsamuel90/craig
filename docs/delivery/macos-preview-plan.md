@@ -1,5 +1,10 @@
 # Bounded macOS delivery plan
 
+> November 25 update: [policy-gated binary CD](binary-cd-integration.md)
+> supersedes the earlier manual-only publication boundary. Future exact-source
+> main-push releases attach automatically after one explicit repository policy
+> activation. This implementation does not activate that policy or publish assets.
+
 Scope: macOS ARM64 standalone preview only, built from an exact clean stable
 `craig-cli@<version>` source commit. Reuse PR #321 for GitHub discovery and npm vs
 standalone update/restart contracts; #319 retains historical qualification evidence.

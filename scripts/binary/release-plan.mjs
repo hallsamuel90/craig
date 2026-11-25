@@ -48,11 +48,11 @@ if (process.argv[1] && import.meta.url === pathToFileURL(path.resolve(process.ar
   const plan = { enabled: false, policy, tag, commit: metadata.commit, dirty: metadata.dirty,
     signing: metadata.signing, notarized: metadata.notarized,
     assets: [{ name, sha256: checksum }, { name: "SHA256SUMS", sha256: digest(readFileSync(path.join(directory, "SHA256SUMS"))) }],
-    prerequisites: ["Human publication authorization", "Required gates passed", "Document installation evidence and untested hosts", "Verified remote tag commit and non-conflicting assets", policy === "unnotarized-preview" ? "Explicit acceptance of unnotarized preview and Gatekeeper limitations" : "Developer ID and notarization qualification"],
+    prerequisites: ["Human publication authorization (manual) or independently validated CI policy/run provenance", "Required gates passed", "Document installation evidence and untested hosts", "Verified remote tag commit and non-conflicting assets", policy === "unnotarized-preview" ? "Explicit acceptance of unnotarized preview and Gatekeeper limitations" : "Developer ID and notarization qualification"],
   };
   const draft = path.join(directory, "draft");
   mkdirSync(draft, { recursive: true });
   writeFileSync(path.join(draft, "release-assets.json"), JSON.stringify(plan, null, 2));
   writeFileSync(path.join(draft, "craig.rb"), renderFormula(readFileSync(path.join(root, "packaging/homebrew/craig.rb.in"), "utf8"), version, url, checksum));
-  console.log("Prepared offline release intent and Homebrew recipe in dist/binary/draft; publication remains disabled.");
+  console.log("Prepared offline release intent and Homebrew recipe in dist/binary/draft; this preparation command never publishes.");
 }

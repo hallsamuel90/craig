@@ -1,5 +1,10 @@
 # macOS ARM64 unnotarized preview delivery
 
+> November 25 update: [policy-gated binary CD](binary-cd-integration.md)
+> supersedes the earlier manual-only publication boundary. Future exact-source
+> main-push releases attach automatically after one explicit repository policy
+> activation. This implementation does not activate that policy or publish assets.
+
 This is an opt-in preview, with **ad-hoc signatures, no Developer ID publisher
 identity and no Apple notarization**. Paid signing is deferred. Gatekeeper may
 block a quarantined download. Do not describe this policy as Apple approval.
@@ -38,7 +43,8 @@ it does not bypass checksum, payload, license, ABI/linkage or cache checks.
 The current builder records `notarized: false`; the notarized policy still needs
 separately implemented receipt qualification and is not enabled by this work.
 
-Publication review must include exact tag/resolved commit/version, both asset
+One-time CI policy activation review and any manual publication review must
+cover exact tag/resolved commit/version, both asset
 names and hashes, actual archive audit, green required source/npm/binary gates,
 documented execution/installation evidence and its limits, and the generated
 `Formula/craig.rb` diff proposed for **hallsamuel90/homebrew-tap**. The tap name is a
@@ -46,9 +52,9 @@ proposal: read-only lookup did not resolve it, which is not proof of absence.
 The formula must refer to the immutable versioned GitHub URL and actual SHA-256.
 A fixture formula or Ruby syntax check is not a remote installation test.
 
-## Separately authorized attachment
+## Manual attachment (CI uses policy authorization)
 
-Only after human publication review, in the exact clean source checkout with the
+For the manual path, only after human publication review, in the exact clean source checkout with the
 reviewed archive/checksum/draft layout, run:
 
 ```sh
@@ -69,7 +75,8 @@ upload can leave a partial release: stop for human investigation, record exact
 remote state and do not delete, overwrite or automatically retry to repair it.
 Revalidate remote tag/state and hashes at each publication attempt. Missing `gh`
 credentials/permissions are an external dependency, not a reason to request secrets
-in chat. No automatic uploader runs in CI.
+in chat. The automatic CI path uses the separately activated repository policy and validates
+run/artifact provenance; it never generates this human approval string.
 
 ## Direct install after assets exist
 

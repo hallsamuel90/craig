@@ -28,6 +28,7 @@ on:
       - "packages/cli/package.json"
       - "pnpm-lock.yaml"
       - ".github/workflows/binary-build.yml"
+      - ".github/workflows/release.yml"
 
 permissions:
   contents: read
@@ -47,6 +48,7 @@ jobs:
         with:
           ref: ${{ inputs.release_tag || github.sha }}
           fetch-depth: 0
+          persist-credentials: false
       - name: Verify candidate source binding
         if: inputs.release_tag != ''
         env:

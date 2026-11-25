@@ -1,7 +1,8 @@
 # Standalone binary preview rollout
 
-> Current delivery policy and manual attachment procedure: see
-> [macOS preview delivery](delivery/macos-preview-install.md). The dated
+> Current delivery automation: see
+> [policy-gated binary CD](delivery/binary-cd-integration.md) and the
+> [macOS preview install guide](delivery/macos-preview-install.md). The dated
 > notarization/clean-Mac prerequisites below describe the earlier notarized
 > promotion path; the explicit unnotarized preview accepts those documented
 > limitations without claiming they passed. No publication was performed.
