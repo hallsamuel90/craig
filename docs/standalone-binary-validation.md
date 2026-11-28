@@ -11,6 +11,20 @@ The green results below are dated November 13 evidence, not the current release
 gate status. See the [rollout record](standalone-binary-rollout.md) for current
 failures and hosted qualification.
 
+Post-merge update: the final PR and merged-main hosted binary workflows passed.
+A downloaded-artifact audit matched local payload identity, and an actual local
+authenticated Codex probe passed cwd, follow-up input and resize. The normal
+Changesets release of 0.22.0 subsequently failed npm publication with E404; it is
+not a released binary. Exact evidence and remaining qualification are in the
+rollout record. The earlier local baseline failures remain recorded.
+The exact 0.22.0 development artifact then passed hosted binary CI, a separate
+downloaded-artifact audit and the same real Codex probe. This does not resolve the
+npm publishing failure or signing/notarization and clean-machine qualification.
+Recovery update: the user rotated the npm token, the CI release run succeeded, and
+npm now serves 0.22.0. Its GitHub Release exists without standalone binary assets.
+Signing enrollment is deferred pending budget; clean-Mac installation is the next
+qualification step. The initial E404 remains recorded in the rollout history.
+
 ## Delivered
 
 - Pinned, checksummed official Node distribution and isolated native rebuild;
