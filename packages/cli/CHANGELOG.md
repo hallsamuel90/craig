@@ -1,5 +1,22 @@
 # craig-cli
 
+## 0.23.0
+
+### Minor Changes
+
+- d80c8af: Automatically replace compatible control services on invocation from a newer stable release, preserving running agents, PTYs and terminal history. Add `craig daemon restart` with explicit empty legacy migration acknowledgement, bounded admission draining, compatible rollback and non-replaying client reconnection.
+- d80c8af: Keep new-workspace agents and terminal state in independent session hosts, with a replaceable control service and a resident legacy-client guard. Pin runtime dependencies outside the installation and admit task creation before provisioning, with inspectable recovery and reusable operation ids. Preserve legacy conversations until a safe empty transition.
+- d80c8af: Add read-only daemon status and shared capability negotiation across terminal, activity, navigation, and delegated launch clients. Preserve legacy sessions, refuse ambiguous runtime ownership, and provide a non-destructive empty-drain bridge for future migration.
+
+### Patch Changes
+
+- a55289f: Check published GitHub Releases for new Craig versions instead of npm's latest tag. Only stable Craig release tags trigger notifications; npm installations keep their npm update flow and standalone binaries keep manual update guidance.
+- a55289f: Prepare an explicitly unnotarized macOS ARM64 standalone preview with policy-gated CI release archives/checksums, reviewed manual attachment support and a versioned Homebrew recipe. Automatic release attachment requires the repository policy CRAIG_BINARY_RELEASE_POLICY=unnotarized-preview. Standalone updates remain manual; npm publishing and updates retain their existing contract.
+- d80c8af: Allow up to thirty seconds for a drained control service to release ownership during replacement and explicit workspace shutdown. Slow native watcher teardown no longer prematurely blocks a safe replacement or leaves an empty workspace guard running; live owners are never force-killed.
+- d80c8af: Preserve Ghostty backend selection and terminal key handling across session-host updates, and pin standalone executables for daemon roles without requiring a separate Node installation.
+- d80c8af: Keep pinned runtime artifacts when discovery records disappear, preserve running tasks when upgrade draining rejects foreground attachment, and reject unsupported prompt submission before durable writes.
+- d80c8af: Apply updated session-host revisions to new sessions while keeping existing agents and retained terminal views on their original hosts. Retire hosts only after an atomic check of processes, views, pending creates and holds, and clean verified unused runtime artifacts across workspaces without removing live or rollback dependencies.
+
 ## 0.22.1
 
 ### Patch Changes
