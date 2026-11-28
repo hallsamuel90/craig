@@ -1,4 +1,5 @@
-# Draft for a future user-maintained tap. Generated locally; not published.
+# Candidate for hallsamuel90/homebrew-tap/Formula/craig.rb. Not published.
+# Unnotarized preview: ad-hoc signatures do not establish publisher identity.
 class Craig < Formula
   desc "Local control plane for coding agents"
   homepage "https://craig-cli.com"
@@ -18,6 +19,15 @@ class Craig < Formula
   def install
     bin.install "craig"
     prefix.install "LICENSE", "THIRD_PARTY_NOTICES"
+  end
+
+  def caveats
+    <<~EOS
+      Check the release signing policy before installation. In an unnotarized
+      preview, ad-hoc signatures are not Developer ID signing or notarization.
+      See the Craig preview guide before accepting a Gatekeeper exception.
+      Updates: brew upgrade hallsamuel90/tap/craig, then restart Craig manually.
+    EOS
   end
 
   test do

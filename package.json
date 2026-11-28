@@ -36,6 +36,7 @@
     "binary:test": "node --test scripts/binary/*.test.mjs",
     "binary:audit": "node scripts/binary/audit.mjs",
     "binary:smoke": "node scripts/binary/smoke.mjs",
+    "binary:release:attach": "node scripts/binary/attach-release.mjs",
     "binary:release:prepare": "node scripts/binary/release-plan.mjs",
     "dev": "node scripts/prepare-ghostty.mjs && tsx src/cli.ts",
     "package:audit": "node scripts/package-audit.mjs",

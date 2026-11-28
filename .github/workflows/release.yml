@@ -11,13 +11,21 @@ concurrency:
   cancel-in-progress: false
 
 permissions:
-  contents: write
-  id-token: write
+  contents: read
 
 jobs:
   release:
     name: release
+    if: github.repository == 'hallsamuel90/craig' && github.ref == 'refs/heads/main'
+    # Existing npm/GitHub publisher retains its original permissions and token.
+    permissions:
+      contents: write
+      id-token: write
     runs-on: ubuntu-latest
+    outputs:
+      binary_eligible: ${{ steps.binary-target.outputs.binary_eligible }}
+      binary_tag: ${{ steps.binary-target.outputs.binary_tag }}
+      binary_commit: ${{ steps.binary-target.outputs.binary_commit }}
 
     steps:
       - name: Check out repository
@@ -116,6 +124,12 @@ jobs:
             --notes "$release_notes" \
             --latest
 
+      - name: Select exact-source binary release target
+        id: binary-target
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: node scripts/binary/release-source.mjs --select
+
       - name: Apply Changesets version
         run: |
           if find .changeset -maxdepth 1 -type f -name '*.md' -print -quit | grep -q .; then
@@ -164,3 +178,105 @@ jobs:
           fi
 
           gh pr merge "$version_pr_number" --auto --squash --delete-branch
+
+
+  binary-build:
+    name: binary-build
+    needs: release
+    if: >-
+      github.repository == 'hallsamuel90/craig' &&
+      github.event_name == 'push' && github.ref == 'refs/heads/main' &&
+      vars.CRAIG_BINARY_RELEASE_POLICY == 'unnotarized-preview' &&
+      needs.release.result == 'success' && needs.release.outputs.binary_eligible == 'true'
+    permissions:
+      contents: read
+    runs-on: macos-26
+    timeout-minutes: 30
+    env:
+      DEVELOPER_DIR: /Applications/Xcode_26.2.app/Contents/Developer
+      BINARY_RELEASE_TAG: ${{ needs.release.outputs.binary_tag }}
+    outputs:
+      artifact_id: ${{ steps.archive.outputs.artifact-id }}
+      plan_sha: ${{ steps.seal.outputs.plan_sha }}
+      attempt: ${{ steps.seal.outputs.attempt }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # Eligibility and release-source verification bind this immutable run SHA to the tag.
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24.12.0
+          cache: pnpm
+      - run: node scripts/binary/release-source.mjs --verify
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm test
+      - run: pnpm typecheck
+      - run: pnpm lint
+      - run: pnpm build
+      - run: pnpm build:npm
+      - run: pnpm package:audit
+      - run: pnpm package:smoke
+      - run: pnpm binary:test
+      - run: pnpm build:binary
+      - run: pnpm binary:audit
+      - run: pnpm binary:smoke
+      - run: pnpm verify:artifact --executable .craig/binary-build/craig --profile soak --report dist/binary/terminal-soak.json
+      - run: pnpm binary:release:prepare --policy unnotarized-preview
+      - id: seal
+        run: node scripts/binary/release-source.mjs --seal
+      - uses: actions/upload-artifact@v4
+        id: archive
+        with:
+          name: craig-macos-release-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            dist/binary/*.tar.gz
+            dist/binary/SHA256SUMS
+            dist/binary/draft/release-assets.json
+            dist/binary/draft/craig.rb
+          if-no-files-found: error
+          retention-days: 90
+
+  binary-publish:
+    name: binary-publish
+    needs: [release, binary-build]
+    if: >-
+      github.repository == 'hallsamuel90/craig' &&
+      github.event_name == 'push' && github.ref == 'refs/heads/main' &&
+      vars.CRAIG_BINARY_RELEASE_POLICY == 'unnotarized-preview' &&
+      needs.release.result == 'success' && needs.binary-build.result == 'success' &&
+      needs.release.outputs.binary_eligible == 'true'
+    permissions:
+      contents: write
+      actions: read
+    runs-on: macos-26
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # Eligibility and release-source verification bind this immutable run SHA to the tag.
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24.12.0
+      - uses: actions/download-artifact@v4
+        with:
+          artifact-ids: ${{ needs.binary-build.outputs.artifact_id }}
+          github-token: ${{ github.token }}
+          repository: ${{ github.repository }}
+          run-id: ${{ github.run_id }}
+          merge-multiple: true
+          path: dist/binary
+      - name: Policy-authorized CI attachment and remote verification
+        env:
+          GH_TOKEN: ${{ github.token }}
+          CRAIG_BINARY_RELEASE_POLICY: ${{ vars.CRAIG_BINARY_RELEASE_POLICY }}
+          BINARY_BUILD_ATTEMPT: ${{ needs.binary-build.outputs.attempt }}
+          BINARY_ARTIFACT_ID: ${{ needs.binary-build.outputs.artifact_id }}
+          BINARY_PLAN_SHA256: ${{ needs.binary-build.outputs.plan_sha }}
+        run: node scripts/binary/attach-release.mjs --ci dist/binary/draft/release-assets.json

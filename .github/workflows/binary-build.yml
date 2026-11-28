@@ -2,6 +2,18 @@ name: Standalone binary (development artifacts only)
 
 on:
   workflow_dispatch:
+    inputs:
+      release_tag:
+        description: 'Optional exact stable craig-cli@version candidate tag (no publication)'
+        type: string
+        default: ''
+      policy:
+        description: 'Explicit candidate policy; no signing or publication implied'
+        type: choice
+        options:
+          - notarized
+          - unnotarized-preview
+        default: notarized
   pull_request:
     paths:
       - "src/**"
@@ -16,6 +28,7 @@ on:
       - "packages/cli/package.json"
       - "pnpm-lock.yaml"
       - ".github/workflows/binary-build.yml"
+      - ".github/workflows/release.yml"
 
 permissions:
   contents: read
@@ -32,6 +45,23 @@ jobs:
       DEVELOPER_DIR: /Applications/Xcode_26.2.app/Contents/Developer
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.release_tag || github.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Verify candidate source binding
+        if: inputs.release_tag != ''
+        env:
+          RELEASE_TAG: ${{ inputs.release_tag }}
+        run: |
+          node --input-type=module -e '
+            import { execFileSync as run } from "node:child_process";
+            import { readFileSync } from "node:fs";
+            const tag = process.env.RELEASE_TAG;
+            const version = JSON.parse(readFileSync("packages/cli/package.json")).version;
+            if (!/^craig-cli@\d+\.\d+\.\d+$/.test(tag) || tag !== `craig-cli@${version}`) throw Error("Tag/version mismatch");
+            if (run("git", ["rev-parse", `${tag}^{commit}`], {encoding:"utf8"}) !== run("git", ["rev-parse", "HEAD"], {encoding:"utf8"})) throw Error("Tag/commit mismatch");
+          '
       - uses: pnpm/action-setup@v4
       - uses: actions/setup-node@v4
         with:
@@ -51,7 +81,10 @@ jobs:
       - run: pnpm binary:smoke
       - name: Ghostty preview against the relocated native executable
         run: pnpm verify:artifact --executable .craig/binary-build/craig --profile soak --report dist/binary/terminal-soak.json
-      - run: pnpm binary:release:prepare
+      - name: Prepare offline candidate (never uploads release assets)
+        env:
+          POLICY: ${{ inputs.policy || 'notarized' }}
+        run: pnpm binary:release:prepare --policy "$POLICY"
       - uses: actions/upload-artifact@v4
         with:
           name: craig-darwin-arm64-development

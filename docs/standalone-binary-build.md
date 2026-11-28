@@ -1,5 +1,12 @@
 # Standalone macOS ARM64 build
 
+> Current delivery automation: see
+> [policy-gated binary CD](delivery/binary-cd-integration.md) and the
+> [macOS preview install guide](delivery/macos-preview-install.md). The dated
+> notarization/clean-Mac prerequisites below describe the earlier notarized
+> promotion path; the explicit unnotarized preview accepts those documented
+> limitations without claiming they passed. No publication was performed.
+
 Implementation of the [checklist](standalone-binary-checklist.md), informed by the
 [spike](standalone-binary-spike.md). This change prepares a reviewable binary and
 offline distribution drafts. It does not publish a release or Homebrew tap.
