@@ -144,7 +144,7 @@ test("actual release workflow gates policy/main/success and confines binary writ
   assert.ok(!JSON.stringify(build).includes("secrets."));
   assert.ok(!JSON.stringify(candidateWorkflow).includes("secrets."));
   const checkout = stepWith(publish,"actions/checkout");
-  assert.equal(checkout.with.ref,"${{ needs.release.outputs.binary_commit }}");
+  assert.equal(checkout.with.ref,"${{ github.sha }}");
   assert.equal(checkout.with["persist-credentials"],false);
   const download = stepWith(publish,"actions/download-artifact");
   assert.equal(download.with["artifact-ids"],"${{ needs.binary-build.outputs.artifact_id }}");
