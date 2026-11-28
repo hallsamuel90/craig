@@ -1,6 +1,5 @@
-import { mkdir, mkdtemp, rm } from "node:fs/promises";
-import { tmpdir } from "node:os";
-import path from "node:path";
+import { EventEmitter } from "node:events";
+import type { WatchListener } from "node:fs";
 
 import { describe, expect, test, vi } from "vitest";
 
@@ -10,9 +9,8 @@ import { PullRequestEventMonitor } from "./pull-request-event-monitor.js";
 
 describe("PullRequestEventMonitor", () => {
   test("reconciles on activity transitions and its readiness deadline without periodic scans", async () => {
-    const root = await mkdtemp(path.join(tmpdir(), "craig-pr-event-monitor-"));
-    const paths = getCraigPaths(root);
-    await mkdir(paths.tasksDir, { recursive: true });
+    vi.useFakeTimers();
+    const paths = getCraigPaths("/unused/event-monitor-test");
     const onEvents = vi.fn();
     const reconcileEvents = vi.fn<() => Promise<CraigEvent[]>>()
       .mockResolvedValueOnce([])
@@ -24,11 +22,13 @@ describe("PullRequestEventMonitor", () => {
       onEvents,
       onError: vi.fn(),
       readyAfterMs: 20,
+      watchPath: () => Object.assign(new EventEmitter(), { close() {} }),
     });
 
     try {
       monitor.start();
-      await vi.waitFor(() => expect(reconcileEvents).toHaveBeenCalledOnce());
+      await vi.advanceTimersByTimeAsync(1);
+      expect(reconcileEvents).toHaveBeenCalledOnce();
       expect(onEvents).not.toHaveBeenCalled();
 
       monitor.notifyActivity({
@@ -39,13 +39,59 @@ describe("PullRequestEventMonitor", () => {
         exitCode: null,
         error: null,
       });
-      await vi.waitFor(() => expect(onEvents).toHaveBeenCalledWith([event("working")]));
-      await vi.waitFor(() => expect(onEvents).toHaveBeenCalledWith([event("ready")]));
-      await new Promise((resolve) => setTimeout(resolve, 50));
+      await vi.advanceTimersByTimeAsync(1);
+      expect(onEvents).toHaveBeenCalledWith([event("working")]);
+      await vi.advanceTimersByTimeAsync(21);
+      expect(onEvents).toHaveBeenCalledWith([event("ready")]);
+      await vi.advanceTimersByTimeAsync(60_000);
       expect(reconcileEvents).toHaveBeenCalledTimes(3);
     } finally {
       await monitor.stop();
-      await rm(root, { recursive: true, force: true });
+      vi.useRealTimers();
+    }
+  });
+
+  test("debounces task and atomic index notifications and closes subscriptions", async () => {
+    vi.useFakeTimers();
+    const paths = getCraigPaths("/unused/event-monitor-test");
+    const listeners = new Map<string, WatchListener<string>>();
+    const close = vi.fn();
+    const reconcileEvents = vi.fn(async () => []);
+    const onError = vi.fn();
+    const monitor = new PullRequestEventMonitor(paths, {
+      reconcileEvents, onEvents: vi.fn(), onError,
+      watchPath: (target, listener) => {
+        listeners.set(target, listener);
+        return Object.assign(new EventEmitter(), { close });
+      },
+    });
+    try {
+      monitor.start();
+      await vi.advanceTimersByTimeAsync(1);
+      expect(reconcileEvents).toHaveBeenCalledOnce();
+      listeners.get(paths.craigDir)!("rename", "unrelated.json");
+      await vi.advanceTimersByTimeAsync(100);
+      expect(reconcileEvents).toHaveBeenCalledOnce();
+      listeners.get(paths.tasksDir)!("rename", "task_1.json");
+      listeners.get(paths.tasksDir)!("change", "task_1.json");
+      await vi.advanceTimersByTimeAsync(49);
+      expect(reconcileEvents).toHaveBeenCalledOnce();
+      await vi.advanceTimersByTimeAsync(1);
+      expect(reconcileEvents).toHaveBeenCalledTimes(2);
+      for (const filename of ["index.json", ".index.json.atomic-write"]) {
+        listeners.get(paths.craigDir)!("rename", filename);
+        await vi.advanceTimersByTimeAsync(50);
+      }
+      expect(reconcileEvents).toHaveBeenCalledTimes(4);
+      await monitor.stop();
+      expect(close).toHaveBeenCalledTimes(2);
+      listeners.get(paths.tasksDir)!("change", "task_1.json");
+      await vi.advanceTimersByTimeAsync(60_000);
+      expect(reconcileEvents).toHaveBeenCalledTimes(4);
+      expect(onError).not.toHaveBeenCalled();
+    } finally {
+      await monitor.stop();
+      vi.useRealTimers();
     }
   });
 });

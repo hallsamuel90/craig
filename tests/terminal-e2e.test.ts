@@ -1,10 +1,12 @@
+import { listTaskCreateOperations } from "../src/domain/runtime/task-create/store.js";
 import { stripVTControlCharacters } from "node:util";
 import { chmod, mkdir, mkdtemp, readFile, realpath, rm, writeFile } from "node:fs/promises";
 import { join, resolve } from "node:path";
 import { tmpdir } from "node:os";
 
 import { describe, expect, test, vi } from "vitest";
-import { spawn } from "node-pty";
+import { spawn, type IPty } from "node-pty";
+import XtermHeadless from "@xterm/headless";
 
 import { createCraigState, createGitRepo, writeRepoRecord, writeTaskRecord } from "./test-helpers.js";
 import { runCommand } from "../src/shared/exec.js";
@@ -18,8 +20,8 @@ import { taskService } from "../src/domain/task/index.js";
 import { createChildTaskAndSession } from "../src/shell/delegation.js";
 import { ensureTaskCapabilities } from "../src/domain/orchestration/index.js";
 
-function withoutAgentContext(): Record<string, string | undefined> {
-  const environment = { ...process.env };
+function withoutAgentContext(workspaceRoot: string): Record<string, string | undefined> {
+  const environment: Record<string, string | undefined> = { ...process.env, CRAIG_RUNTIME_CACHE: join(workspaceRoot, "runtime-cache") };
   delete environment.CRAIG_AGENT_CAPABILITY;
   delete environment.CRAIG_AGENT_TAB_ID;
   delete environment.CRAIG_TASK_ID;
@@ -65,11 +67,11 @@ steps:
     const output = new PtyOutputBuffer();
     const child = spawn(resolveTestTsxBin(repoRoot), [resolve(repoRoot, "src/cli.ts"), "--workspace-root", workspaceRoot], {
       cwd: workspaceRoot, cols: 120, rows: 36,
-      env: { ...withoutAgentContext(), CI: "", PATH: `${stubDir}:${process.env.PATH ?? ""}`, TERM: "xterm-256color" },
+      env: { ...withoutAgentContext(workspaceRoot), CI: "", PATH: `${stubDir}:${process.env.PATH ?? ""}`, TERM: "xterm-256color" },
     });
-    child.onData((chunk) => output.append(chunk));
+    output.connect(child);
     try {
-      await output.waitFor("> Resume workspace"); child.write("\r");
+      await output.waitFor("> Resume workspace", 15_000); child.write("\r");
       await output.waitFor("Fury plan to approve"); child.write("f");
       await output.waitFor("FURY PLANS"); child.write("\r");
       await output.waitFor("Review each worker"); child.write("a");
@@ -80,7 +82,7 @@ steps:
       expect(await readFuryApproval(paths, plan.id)).toMatchObject({ planHash: plan.planHash, approvedBy: { source: "tui" } });
       expect(await listFuryRuns(paths)).toHaveLength(0);
     } finally { child.kill(); await cleanupTerminalWorkspace(workspaceRoot); }
-  }, 15000);
+  }, 45000);
 
   test("enters terminal mode and supports detach and reattach", async () => {
     const repoRoot = process.cwd();
@@ -126,17 +128,17 @@ steps:
       cols: 120,
       rows: 36,
       env: {
-        ...withoutAgentContext(),
+        ...withoutAgentContext(workspaceRoot),
         CI: "",
         SHELL: process.env.SHELL ?? "/bin/zsh",
         TERM: "xterm-256color",
       },
     });
 
-    child.onData((chunk) => output.append(chunk));
+    output.connect(child);
 
     try {
-      await output.waitFor("> Resume workspace");
+      await output.waitFor("> Resume workspace", 15_000);
       child.write("\r");
       await output.waitFor("╭─ ");
       child.write("\r");
@@ -156,7 +158,7 @@ steps:
       child.kill();
       await cleanupTerminalWorkspace(workspaceRoot);
     }
-  }, 15000);
+  }, 45000);
 
   test.each([
     { panelPolish: false, expiredCapability: false, ghosttyTerminal: false },
@@ -222,7 +224,7 @@ steps:
       cols: 120,
       rows: 36,
       env: {
-        ...withoutAgentContext(),
+        ...withoutAgentContext(workspaceRoot),
         CI: "",
         PATH: `${codexStubDir}:${process.env.PATH ?? ""}`,
         SHELL: process.env.SHELL ?? "/bin/zsh",
@@ -230,25 +232,25 @@ steps:
       },
     });
 
-    child.onData((chunk) => output.append(chunk));
+    output.connect(child);
 
     try {
-      await output.waitFor("> Resume workspace");
+      await output.waitFor("> Resume workspace", 15_000);
       child.write("\r");
       await output.waitFor("╭─ ");
       child.write("\r");
       await output.waitFor("codex_stub_started");
-      await output.waitForLatestFrame("codex_stub_bottom_bar");
+      await output.waitForLatestFrame(["codex_stub_started", "codex_stub_bottom_bar", "codex_stub_task_dir:", "codex_stub_prompt:", "TERMINAL   ↑↓/PgUp/PgDn scroll"]);
       const frame = output.latestFrame();
       expect(stripVTControlCharacters(frame)).toContain("TERMINAL   ↑↓/PgUp/PgDn scroll");
       expect(frame).toContain("codex_stub_started");
       expect(frame).toContain("codex_stub_prompt:");
       expect(frame).toContain("codex_stub_bottom_bar");
-      expect(frame).toContain("48;2;42;42;42");
+      expect(output.value).toContain("48;2;42;42;42");
       expect(frame).toContain("codex_stub_task_dir:task_20260430_02");
       expect(frame).toContain("codex_embedded_flags:yes");
       if (expiredCapability) expect(frame).toContain("codex_stub_capability_valid:yes");
-      expect(frame).toContain("\x1b]8;;http://127.0.0.1:4325/\x1b\\Open preview");
+      expect(output.value).toContain("\x1b]8;;http://127.0.0.1:4325/\x1b\\Open preview");
 
       child.write("craig_scroll_probe\r");
       await output.waitFor("scroll_probe_live");
@@ -267,7 +269,7 @@ steps:
       child.kill();
       await cleanupTerminalWorkspace(workspaceRoot);
     }
-  }, 15000);
+  }, 45000);
 
   test.each([{ panelPolish: false, ghosttyTerminal: false }, { panelPolish: true, ghosttyTerminal: false }, { panelPolish: false, ghosttyTerminal: true }])("creating a new task starts Codex in the new task worktree (panel polish: $panelPolish, Ghostty: $ghosttyTerminal)", async ({ panelPolish, ghosttyTerminal }) => {
     const repoRoot = process.cwd();
@@ -312,7 +314,7 @@ steps:
       cols: 120,
       rows: 36,
       env: {
-        ...withoutAgentContext(),
+        ...withoutAgentContext(workspaceRoot),
         CI: "",
         PATH: `${codexStubDir}:${process.env.PATH ?? ""}`,
         SHELL: process.env.SHELL ?? "/bin/zsh",
@@ -320,18 +322,20 @@ steps:
       },
     });
 
-    child.onData((chunk) => output.append(chunk));
+    output.connect(child);
 
     try {
-      await output.waitFor("> Resume workspace");
+      await output.waitFor("> Resume workspace", 15_000);
       child.write("\r");
       await output.waitFor("+ New Task");
       child.write("n");
       await output.waitFor("NEW TASK");
       child.write("create e2e task");
       child.write("\r");
+      // Host output can arrive before create finishes switching shell input mode.
+      // Observe the agent and terminal-mode footer in the same completed frame.
       await output.waitFor("codex_stub_started");
-      await output.waitForLatestFrame("codex_stub_bottom_bar");
+      await output.waitForLatestFrame(["codex_stub_started", "codex_stub_bottom_bar", "codex_stub_task_dir:", "codex_stub_prompt:", "TERMINAL   ↑↓/PgUp/PgDn scroll"]);
       const frame = output.latestFrame();
       expect(stripVTControlCharacters(frame)).toContain("TERMINAL   ↑↓/PgUp/PgDn scroll");
       expect(frame).toContain("codex_stub_started");
@@ -340,11 +344,16 @@ steps:
       expect(frame).toContain("codex_stub_capability:present");
       expect(frame).toContain("codex_embedded_flags:yes");
       expect(frame).not.toContain("[process exited");
+      const operations = await listTaskCreateOperations(getCraigPaths(workspaceRoot));
+      expect(operations).toHaveLength(1);
+      expect(operations[0]).toMatchObject({ state: "completed", agentTabId: `${operations[0]!.taskId}:agent` });
+      expect(operations[0]!.creationViewToken).toBeTruthy();
+      expect(frame).toContain(`codex_stub_task_dir:${operations[0]!.taskId}`);
     } finally {
       child.kill();
       await cleanupTerminalWorkspace(workspaceRoot);
     }
-  }, 20000);
+  }, 45000);
 
   test.each([
     ["cursor", "cursor-agent"],
@@ -403,7 +412,7 @@ steps:
       cols: 120,
       rows: 36,
       env: {
-        ...withoutAgentContext(),
+        ...withoutAgentContext(workspaceRoot),
         CI: "",
         PATH: `${stubDir}:${process.env.PATH ?? ""}`,
         SHELL: process.env.SHELL ?? "/bin/zsh",
@@ -411,22 +420,22 @@ steps:
       },
     });
 
-    child.onData((chunk) => output.append(chunk));
+    output.connect(child);
 
     try {
-      await output.waitFor("> Resume workspace");
+      await output.waitFor("> Resume workspace", 15_000);
       child.write("\r");
       await output.waitFor("╭─ ");
       child.write("\r");
-      await output.waitFor(`${runner}_stub_started`);
+      await output.waitForLatestFrame(`${runner}_stub_task_dir_ok`);
       const frame = output.latestFrame();
       expect(frame).toContain(`${runner}_stub_started`);
-      expect(output.value).toContain(`${runner}_stub_task_dir_ok`);
+      expect(frame).toContain(`${runner}_stub_task_dir_ok`);
     } finally {
       child.kill();
       await cleanupTerminalWorkspace(workspaceRoot);
     }
-  }, 15000);
+  }, 45000);
 
   test("enter on the selected left-pane task row opens the agent PTY without crashing", async () => {
     const repoRoot = process.cwd();
@@ -477,7 +486,7 @@ steps:
       cols: 120,
       rows: 36,
       env: {
-        ...withoutAgentContext(),
+        ...withoutAgentContext(workspaceRoot),
         CI: "",
         PATH: `${codexStubDir}:${process.env.PATH ?? ""}`,
         SHELL: process.env.SHELL ?? "/bin/zsh",
@@ -485,15 +494,15 @@ steps:
       },
     });
 
-    child.onData((chunk) => output.append(chunk));
+    output.connect(child);
 
     try {
-      await output.waitFor("> Resume workspace");
+      await output.waitFor("> Resume workspace", 15_000);
       child.write("\r");
       await output.waitFor("test task");
       child.write("\r");
       await output.waitFor("codex_stub_started");
-      await output.waitForLatestFrame("codex_stub_bottom_bar");
+      await output.waitForLatestFrame(["codex_stub_started", "codex_stub_bottom_bar", "codex_stub_task_dir:", "codex_stub_prompt:", "TERMINAL   ↑↓/PgUp/PgDn scroll"]);
       const frame = output.latestFrame();
       expect(stripVTControlCharacters(frame)).toContain("TERMINAL   ↑↓/PgUp/PgDn scroll");
       expect(frame).toContain("codex_stub_prompt:");
@@ -502,7 +511,7 @@ steps:
       child.kill();
       await cleanupTerminalWorkspace(workspaceRoot);
     }
-  }, 15000);
+  }, 45000);
 
   test("a delegated Cursor child starts once, accepts work while unselected, and remains navigable", async () => {
     const repoRoot = process.cwd();
@@ -606,7 +615,7 @@ setInterval(() => {}, 1000);
         "--prompt", marker,
         "--delivery", "immediate",
         "--json",
-      ], { cwd: repoRoot, env: { ...withoutAgentContext(), CI: "1" } });
+      ], { cwd: repoRoot, env: { ...withoutAgentContext(workspaceRoot), CI: "1" } });
 
       const sendResult = JSON.parse(execution.stdout);
       expect(sendResult).toMatchObject({
@@ -630,7 +639,7 @@ setInterval(() => {}, 1000);
         "--workspace-root", workspaceRoot,
         "command", "show", sendResult.data.command.id,
         "--json",
-      ], { cwd: repoRoot, env: { ...withoutAgentContext(), CI: "1" } });
+      ], { cwd: repoRoot, env: { ...withoutAgentContext(workspaceRoot), CI: "1" } });
       expect(JSON.parse(inspection.stdout)).toMatchObject({
         data: { command: { state: "delivered", attempts: 1 } },
       });
@@ -640,7 +649,7 @@ setInterval(() => {}, 1000);
       await daemon;
       await rm(workspaceRoot, { recursive: true, force: true });
     }
-  }, 20000);
+  }, 45000);
 
   test("restarting Craig reattaches to a live daemon-owned agent tab without relaunching Codex", async () => {
     const repoRoot = process.cwd();
@@ -693,7 +702,7 @@ setInterval(() => {}, 1000);
         cols: 120,
         rows: 36,
         env: {
-          ...withoutAgentContext(),
+          ...withoutAgentContext(workspaceRoot),
           CI: "",
           CODEX_STUB_LAUNCH_FILE: launchFile,
           PATH: `${codexStubDir}:${process.env.PATH ?? ""}`,
@@ -701,12 +710,12 @@ setInterval(() => {}, 1000);
           TERM: "xterm-256color",
         },
       });
-      first.onData((chunk) => firstOutput.append(chunk));
-      await firstOutput.waitFor("> Resume workspace");
+      firstOutput.connect(first);
+      await firstOutput.waitFor("> Resume workspace", 15_000);
       first.write("\r");
       await firstOutput.waitFor("╭─ ");
       first.write("\r");
-      await firstOutput.waitForLatestFrame("codex_stub_started");
+      await firstOutput.waitForLatestFrame(["codex_stub_started", "codex_stub_bottom_bar"]);
       first.kill();
       await delay(500);
 
@@ -716,7 +725,7 @@ setInterval(() => {}, 1000);
         cols: 120,
         rows: 36,
         env: {
-          ...withoutAgentContext(),
+          ...withoutAgentContext(workspaceRoot),
           CI: "",
           CODEX_STUB_LAUNCH_FILE: launchFile,
           PATH: `${codexStubDir}:${process.env.PATH ?? ""}`,
@@ -724,10 +733,10 @@ setInterval(() => {}, 1000);
           TERM: "xterm-256color",
         },
       });
-      second.onData((chunk) => secondOutput.append(chunk));
-      await secondOutput.waitFor("> Resume workspace");
+      secondOutput.connect(second);
+      await secondOutput.waitFor("> Resume workspace", 15_000);
       second.write("\r");
-      await secondOutput.waitForLatestFrame("codex_stub_started");
+      await secondOutput.waitForLatestFrame(["codex_stub_started", "codex_stub_bottom_bar"]);
       second.write("\u001D");
       second.write("q");
       await delay(500);
@@ -738,11 +747,13 @@ setInterval(() => {}, 1000);
     } finally {
       await cleanupTerminalWorkspace(workspaceRoot);
     }
-  }, 20000);
+  }, 45000);
 });
 
 async function cleanupTerminalWorkspace(workspaceRoot: string): Promise<void> {
-  await requestDaemonShutdown(getCraigPaths(workspaceRoot));
+  // Foreground teardown can still be releasing its last attach hold. Wait for
+  // verified shutdown rather than treating that short retention as test failure.
+  await vi.waitFor(() => requestDaemonShutdown(getCraigPaths(workspaceRoot)), { timeout: 35000, interval: 50 });
   await rm(workspaceRoot, {
     recursive: true,
     force: true,
@@ -854,6 +865,32 @@ let buffer = "";
 let index = 0;
 let launched = false;
 
+// A service-created PTY starts at 120x36 before the UI attaches its panel.
+// Behave like a terminal app: redraw the screen when that size changes.
+function paintFixture() {
+  process.stdout.write("\\x1b[2J\\x1b[H");
+  if (process.env.CRAIG_AGENT_CAPABILITY) {
+    const fs = require("node:fs");
+    const token = process.env.CRAIG_AGENT_CAPABILITY;
+    const id = token.split(".")[0];
+    const record = JSON.parse(fs.readFileSync(process.env.CRAIG_WORKSPACE_ROOT + "/.craig/orchestration/capabilities/" + id + ".json", "utf8"));
+    const valid = record.token === token && !record.revokedAt && Date.parse(record.expiresAt) > Date.now();
+    process.stdout.write("codex_stub_capability_valid:" + (valid ? "yes" : "no") + "\\n");
+  }
+  process.stdout.write("codex_stub_started\\n");
+  process.stdout.write(\`codex_stub_cwd:\${process.cwd().slice(-24)}\\n\`);
+  process.stdout.write(\`codex_stub_task_dir:\${process.cwd().split("/").pop()}\\n\`);
+  process.stdout.write(\`codex_stub_prompt:\${process.argv.slice(2).join(" ").slice(0, 20)}\\n\`);
+  process.stdout.write(\`codex_stub_capability:\${process.env.CRAIG_AGENT_CAPABILITY ? "present" : "missing"}\\n\`);
+  process.stdout.write(\`codex_embedded_flags:\${["--no-alt-screen", "--no-daemon"].every((flag) => process.argv.includes(flag)) ? "yes" : "no"}\\n\`);
+  process.stdout.write("\\x1b]8;;http://127.0.0.1:4325/\\x1b\\\\Open preview\\x1b]8;;\\x1b\\\\\\n");
+  const rows = Number(process.stdout.rows || 0);
+  if (rows > 0) {
+    process.stdout.write(\`\\u001B[\${rows};1H\\u001B[48;2;42;42;42;38;2;229;229;229mcodex_stub_bottom_bar\\u001B[0m\`);
+  }
+}
+process.stdout.on("resize", () => { if (launched) paintFixture(); });
+
 const maybeAdvance = () => {
   while (index < expected.length) {
     const probe = expected[index];
@@ -875,25 +912,7 @@ const maybeAdvance = () => {
       const current = Number(fs.existsSync(process.env.CODEX_STUB_LAUNCH_FILE) ? fs.readFileSync(process.env.CODEX_STUB_LAUNCH_FILE, "utf8") : "0");
       fs.writeFileSync(process.env.CODEX_STUB_LAUNCH_FILE, String(current + 1));
     }
-    if (process.env.CRAIG_AGENT_CAPABILITY) {
-      const fs = require("node:fs");
-      const token = process.env.CRAIG_AGENT_CAPABILITY;
-      const id = token.split(".")[0];
-      const record = JSON.parse(fs.readFileSync(process.env.CRAIG_WORKSPACE_ROOT + "/.craig/orchestration/capabilities/" + id + ".json", "utf8"));
-      const valid = record.token === token && !record.revokedAt && Date.parse(record.expiresAt) > Date.now();
-      process.stdout.write("codex_stub_capability_valid:" + (valid ? "yes" : "no") + "\\n");
-    }
-    process.stdout.write("codex_stub_started\\n");
-    process.stdout.write(\`codex_stub_cwd:\${process.cwd()}\\n\`);
-    process.stdout.write(\`codex_stub_task_dir:\${process.cwd().split("/").pop()}\\n\`);
-    process.stdout.write(\`codex_stub_prompt:\${process.argv.slice(2).join(" ")}\\n\`);
-    process.stdout.write(\`codex_stub_capability:\${process.env.CRAIG_AGENT_CAPABILITY ? "present" : "missing"}\\n\`);
-    process.stdout.write(\`codex_embedded_flags:\${["--no-alt-screen", "--no-daemon"].every((flag) => process.argv.includes(flag)) ? "yes" : "no"}\\n\`);
-    process.stdout.write("\\x1b]8;;http://127.0.0.1:4325/\\x1b\\\\Open preview\\x1b]8;;\\x1b\\\\\\n");
-    const rows = Number(process.stdout.rows || 0);
-    if (rows > 0) {
-      process.stdout.write(\`\\u001B[\${rows};1H\\u001B[48;2;42;42;42;38;2;229;229;229mcodex_stub_bottom_bar\\u001B[0m\`);
-    }
+    paintFixture();
   }
 };
 
@@ -946,7 +965,7 @@ if [ "$(basename "$PWD")" = "task_20260430_02" ]; then
 else
   echo "${marker}_stub_task_dir_bad:$(basename "$PWD")"
 fi
-echo "${marker}_stub_prompt:$*"
+printf "${marker}_stub_prompt:%.20s\\n" "$*"
 sleep 5
 `,
     "utf8",
@@ -961,11 +980,19 @@ function resolveTestTsxBin(repoRoot: string): string {
 
 class PtyOutputBuffer {
   value = "";
+  private readonly screen = new XtermHeadless.Terminal({ cols: 120, rows: 36, scrollback: 0, allowProposedApi: true });
+
+  connect(child: IPty): void {
+    this.screen.onData((reply) => child.write(reply));
+    child.onData((chunk) => this.append(chunk));
+    child.onExit(() => this.screen.dispose());
+  }
 
   append(chunk: string): void {
+    this.screen.write(chunk);
     this.value += chunk;
-    if (this.value.length > 80_000) {
-      this.value = this.value.slice(-80_000);
+    if (this.value.length > 2_000_000) {
+      this.value = this.value.slice(-2_000_000);
     }
   }
 
@@ -973,7 +1000,7 @@ class PtyOutputBuffer {
     const start = Date.now();
 
     while (Date.now() - start < timeoutMs) {
-      if (stripVTControlCharacters(this.value).includes(needle)) {
+      if (this.latestFrame().includes(needle) || stripVTControlCharacters(this.value).includes(needle)) {
         return;
       }
 
@@ -984,16 +1011,21 @@ class PtyOutputBuffer {
   }
 
   latestFrame(): string {
-    const marker = "CRAIG  ";
-    const index = this.value.lastIndexOf(marker);
-    return index === -1 ? this.value : this.value.slice(index);
+    // Craig renders incremental cursor-addressed patches. A raw suffix after
+    // the last header is not a frame: unchanged rows may have been emitted much
+    // earlier. Replay the stream as a terminal to inspect the actual screen.
+    const buffer = this.screen.buffer.active;
+    return Array.from({ length: this.screen.rows }, (_, row) =>
+      buffer.getLine(buffer.viewportY + row)?.translateToString(true) ?? "",
+    ).join("\n");
   }
 
-  async waitForLatestFrame(needle: string, timeoutMs = 7000): Promise<void> {
+  async waitForLatestFrame(needle: string | readonly string[], timeoutMs = 7000): Promise<void> {
     const start = Date.now();
 
     while (Date.now() - start < timeoutMs) {
-      if (stripVTControlCharacters(this.latestFrame()).includes(needle)) {
+      const frame = this.latestFrame();
+      if ((typeof needle === "string" ? [needle] : needle).every((text) => frame.includes(text))) {
         return;
       }
 

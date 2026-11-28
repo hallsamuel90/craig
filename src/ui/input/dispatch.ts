@@ -1,3 +1,5 @@
+import { randomUUID } from "node:crypto";
+import { RuntimeAcknowledgementUncertainError, RuntimeUpgradeRetryError } from "../../domain/runtime/errors.js";
 import { openFuryPlans, handleFuryPlansKey } from "../shell/fury-plans.js";
 import path from "node:path";
 
@@ -98,14 +100,17 @@ async function submitTaskPrompt(ctx: AppContext): Promise<void> {
     return;
   }
 
+  const operationId = ctx.ptyRuntime.supportsTaskCreateAdmission ? shell.taskCreateOperationId ?? randomUUID() : null;
   ctx.creatingTask = true;
   ctx.state = {
     mode: "main",
     shell: syncShell(ctx, {
       ...shell,
+      taskCreateOperationId: operationId,
       actionMessage: `Creating ${shell.selectedRunner} task in ${target.name}...`,
     }),
   };
+  if (ctx.state.mode === "main") { persistShellState(ctx, ctx.state.shell); await ctx.persistQueue; }
   ctx.render();
 
   let createdTask = null;
@@ -116,6 +121,7 @@ async function submitTaskPrompt(ctx: AppContext): Promise<void> {
       prompt,
       shell.selectedRunner,
       buildActionContext(ctx),
+      operationId ?? undefined,
     );
     createdTask = created.task;
     await reloadModel(ctx);
@@ -126,6 +132,7 @@ async function submitTaskPrompt(ctx: AppContext): Promise<void> {
       inputMode: "terminal",
       taskPromptTarget: null,
       taskPromptInput: null,
+      taskCreateOperationId: null,
       taskPromptError: null,
       actionMessage: null,
     });
@@ -142,19 +149,17 @@ async function submitTaskPrompt(ctx: AppContext): Promise<void> {
       createdTask = error.task;
     }
     const message = reportRecoverableError(ctx, "create task", error, "Failed to create task.");
-    if (createdTask && !(error instanceof InteractiveTaskStartupError)) {
+    // A completed creation owns a durable running session. Attaching (including
+    // view acknowledgement) is reconnectable UI work, never startup evidence.
+    if (createdTask && !ctx.ptyRuntime.supportsTaskCreateAdmission && !(error instanceof InteractiveTaskStartupError) && !(error instanceof RuntimeAcknowledgementUncertainError) && !(error instanceof RuntimeUpgradeRetryError)) {
       await mutateTask(ctx.paths, createdTask.id, (current) => ({
         ...current,
         status: "draft",
-        runnerSession: {
-          ...current.runnerSession,
-          lastKnownState: "failed",
-          exitedAt: new Date().toISOString(),
-        },
+        runnerSession: { ...current.runnerSession, lastKnownState: "failed", exitedAt: new Date().toISOString() },
         lastFailureReason: message,
       })).catch(() => undefined);
       await reloadModel(ctx).catch(() => undefined);
-    } else if (createdTask) {
+    } else if (createdTask && error instanceof InteractiveTaskStartupError) {
       await mutateTask(ctx.paths, createdTask.id, (current) => ({
         ...current,
         lastFailureReason: message,
@@ -172,7 +177,8 @@ async function submitTaskPrompt(ctx: AppContext): Promise<void> {
           selectedPtyTabId: createdTask?.selectedPtyTabId ?? ctx.state.shell.selectedPtyTabId,
           selectedLeftItemId: createdTask ? `task:${createdTask.id}` : ctx.state.shell.selectedLeftItemId,
           activeTab: createdTask?.selectedPtyTabId ?? ctx.state.shell.activeTab,
-          taskPromptInput: createdTask ? null : "",
+          taskPromptInput: createdTask ? null : error instanceof RuntimeAcknowledgementUncertainError ? prompt : "",
+          taskCreateOperationId: createdTask ? null : operationId,
           taskPromptError: message,
           actionMessage: null,
         }),
@@ -198,7 +204,7 @@ function handlePromptKey(ctx: AppContext, key: string): void {
   if (key === "ESCAPE") {
     ctx.state = {
       mode: "main",
-      shell: syncShell(ctx, { ...shell, taskPromptTarget: null, taskPromptInput: null, taskPromptError: null, actionMessage: null }),
+      shell: syncShell(ctx, { ...shell, taskPromptTarget: null, taskPromptInput: null, taskCreateOperationId: null, taskPromptError: null, actionMessage: null }),
     };
     ctx.render();
     return;

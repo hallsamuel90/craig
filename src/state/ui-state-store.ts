@@ -22,7 +22,7 @@ export async function writeUiState(input: { uiStateFile: string }, state: CraigU
   await atomicWriteJson(input.uiStateFile, {
     ...state,
     updatedAt: new Date().toISOString(),
-  });
+  }, { mode: 0o600 });
 }
 
 export function getDefaultUiState(): CraigUiRuntime {
@@ -69,6 +69,7 @@ function validateUiState(value: unknown, filePath: string): CraigUiRuntime {
       (value as Partial<CraigUiRuntime>).selectedPtyTabId === null ||
       typeof (value as Partial<CraigUiRuntime>).selectedPtyTabId === "string"
     ) ||
+    !optionalNullableString(value, "pendingTaskCreateOperationId") ||
     !optionalString(value, "inputMode") ||
     !optionalString(value, "focusedRegion") ||
     !optionalString(value, "activeTab") ||

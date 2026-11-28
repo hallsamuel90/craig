@@ -2,6 +2,8 @@ import type { PreviewFeatureId, RunnerType } from "../domain/config/index.js";
 
 export interface CraigUiRuntime {
   version: 1;
+  pendingTaskCreateOperationId?: string | null;
+  runtimeViewClient?: { clientId: string; proof: string; ownerPid: number };
   selectedRepoId: string | null;
   selectedWorkspaceId: string | null;
   selectedTaskId: string | null;

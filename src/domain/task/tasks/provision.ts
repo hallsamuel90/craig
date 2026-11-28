@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { mkdir, rm, writeFile } from "node:fs/promises";
+import { lstat, mkdir, rm, writeFile } from "node:fs/promises";
 import path from "node:path";
 
 import type { CraigPaths } from "../../../state/craig-paths.js";
@@ -10,7 +10,7 @@ import { configService } from "../../config/index.js";
 import type { ProjectTaskRepoTarget, TaskChecks, TaskCleanup, TaskPullRequest, TaskPtyTabRecord, TaskRecord } from "../types.js";
 import type { RepoRecord } from "../../../domain/workspace/index.js";
 import { readRepo, listWorkspaceRecords } from "../../../domain/workspace/index.js";
-import { createWorktree } from "../adapters/git.js";
+import { branchExists, createWorktree } from "../adapters/git.js";
 import { allocateProjectTaskId, allocateTaskIdForRepo } from "./id.js";
 
 export interface ProvisionedTask {
@@ -42,6 +42,9 @@ export const provisionTask = async (
   prompt: string,
   options: {
     runner?: RunnerType;
+    reservedTaskId?: string;
+    // eslint-disable-next-line no-unused-vars
+    onProvisioningStarted?: (_task: TaskRecord) => Promise<void>;
     config?: CraigConfig;
     workspaceId?: string;
     allowLinkedProjectRepo?: boolean;
@@ -51,13 +54,17 @@ export const provisionTask = async (
   const repo = await readRepo(paths, repoId);
   const [workspace, taskId] = await Promise.all([
     resolveWorkspaceForRepo(paths, repo.id, options.workspaceId, options.allowLinkedProjectRepo ?? false),
-    allocateTaskIdForRepo(paths, repo.rootPath),
+    options.reservedTaskId ? Promise.resolve(options.reservedTaskId) : allocateTaskIdForRepo(paths, repo.rootPath),
   ]);
   const branch = `craig/${taskId}`;
   const worktreePath = path.join(paths.worktreesDir, repo.id, taskId);
   const logPath = path.join(paths.logsDir, `${taskId}.log`);
   const artifactDir = path.join(paths.artifactsDir, taskId);
 
+  if (options.reservedTaskId) {
+    if (!/^task_[0-9]{8}_[0-9]+$/.test(taskId)) throw new Error("Invalid reserved task identity.");
+    if (await lstat(path.join(paths.tasksDir, `${taskId}.json`)).catch(() => null) || await lstat(worktreePath).catch(() => null) || await branchExists(repo.rootPath, branch)) throw new Error(`Reserved task ${taskId} conflicts with existing task/worktree/Git state; existing work was preserved.`);
+  }
   await Promise.all([
     mkdir(path.dirname(worktreePath), { recursive: true }),
     mkdir(artifactDir, { recursive: true }),
@@ -79,6 +86,7 @@ export const provisionTask = async (
 
   await writeTask(paths, draftTask);
   await appendTaskId(paths, taskId);
+  await options.onProvisioningStarted?.(draftTask);
   await createWorktree(repo.rootPath, branch, worktreePath, repo.defaultBranch);
 
   return {
@@ -93,7 +101,8 @@ export const provisionProjectTask = async (
   paths: CraigPaths,
   workspaceId: string,
   prompt: string,
-  options: { runner?: RunnerType; config?: CraigConfig; lineage?: TaskLineageInput } = {},
+  // eslint-disable-next-line no-unused-vars
+  options: { runner?: RunnerType; config?: CraigConfig; lineage?: TaskLineageInput; reservedTaskId?: string; onProvisioningStarted?: (_task: TaskRecord) => Promise<void> } = {},
 ): Promise<ProvisionedProjectTask> => {
   const workspace = (await listWorkspaceRecords(paths)).find((entry) => entry.id === workspaceId && entry.status === "active");
   if (!workspace) {
@@ -116,7 +125,7 @@ export const provisionProjectTask = async (
     throw new Error(`Project workspace ${workspaceId} has no discovered repos.`);
   }
 
-  const taskId = await allocateProjectTaskId(paths);
+  const taskId = options.reservedTaskId ?? await allocateProjectTaskId(paths);
   const timestamp = new Date().toISOString();
   const runner = options.runner ?? "codex";
   const branch = `craig/${taskId}`;
@@ -124,18 +133,21 @@ export const provisionProjectTask = async (
   const logPath = path.join(paths.logsDir, `${taskId}.log`);
   const artifactDir = path.join(paths.artifactsDir, taskId);
 
+  const repos = await Promise.all(repoIds.map((repoId) => readRepo(paths, repoId)));
+  if (options.reservedTaskId) {
+    if (!/^task_[0-9]{8}_[0-9]+$/.test(taskId)) throw new Error("Invalid reserved task identity.");
+    if (await lstat(path.join(paths.tasksDir, `${taskId}.json`)).catch(() => null) || await lstat(bundlePath).catch(() => null) || (await Promise.all(repos.map((repo) => branchExists(repo.rootPath, branch)))).some(Boolean)) throw new Error(`Reserved task ${taskId} conflicts with existing task/bundle/Git state; existing work was preserved.`);
+  }
   await mkdir(bundlePath, { recursive: true });
   await mkdir(artifactDir, { recursive: true });
   await writeFile(logPath, "", "utf8");
-
-  const repos = await Promise.all(repoIds.map((repoId) => readRepo(paths, repoId)));
   const repoDirectoryNames = allocateProjectRepoDirectoryNames(repos);
   const repoTargets = await Promise.all(
     repos.map((repo) => provisionProjectRepoTarget(paths, repo, taskId, branch, path.join(bundlePath, repoDirectoryNames.get(repo.id)!))),
   );
   const readyTarget = repoTargets.find((target) => target.status === "ready") ?? repoTargets[0]!;
   if (!repoTargets.some((target) => target.status === "ready")) {
-    await rm(bundlePath, { recursive: true, force: true });
+    if (!options.reservedTaskId) await rm(bundlePath, { recursive: true, force: true });
     throw new Error(
       `No project repo targets could be provisioned for ${workspaceId}: ${repoTargets.map((target) => `${target.repoId}: ${target.failureReason ?? "unknown error"}`).join("; ")}`,
     );

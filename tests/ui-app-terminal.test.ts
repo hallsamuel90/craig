@@ -1,4 +1,4 @@
-import { mkdtemp, mkdir, readFile, rm, symlink, writeFile } from "node:fs/promises";
+import { mkdtemp, mkdir, readFile, readdir, realpath, rm, symlink, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 
@@ -15,6 +15,13 @@ import { runCommand, runCommandAllowingFailure } from "../src/shared/exec.js";
 import { readTask, taskService, writeTask } from "../src/domain/task/index.js";
 import { appendTaskId } from "../src/domain/task/adapters/task-store.js";
 import { configService } from "../src/domain/config/index.js";
+import { createDaemonPtyRuntime } from "../src/ui/pty/daemon.js";
+import { ensureRuntimeRunning } from "../src/shell/runtime/start.js";
+import { shutdownSplitRuntime } from "../src/shell/runtime/bootstrap.js";
+import { readPrivateRecord, type RuntimeRecord } from "../src/shell/runtime/records.js";
+import { RuntimeTransport, type RuntimeFrame } from "../src/shell/runtime/wire.js";
+import { getClientRuntimeEndpoint } from "../src/shell/runtime/endpoint.js";
+import { stopFixtureRuntimes } from "./runtime-fixtures.js";
 import { CRAIG_RESTART_EXIT_CODE } from "../src/shell/craig-update.js";
 import * as installationChannel from "../src/shell/installation-channel.js";
 import { createCraigState, createGitRepo, createStubCommands, writeRepoRecord, writeTaskRecord } from "./test-helpers.js";
@@ -3042,6 +3049,86 @@ steps:
     await expect(app).resolves.toBe(0);
     expect(ptyRuntime.writeKey).not.toHaveBeenCalledWith("ENTER");
   });
+
+  test.each(["ensureSession", "acknowledgeView"])("completed service creation survives drain rejection at %s and reattaches the same process", async (stage) => {
+    const root = await mkdtemp(join(tmpdir(), "craig-ui-create-drain-")).then((value) => realpath(value)); tempRoots.push(root);
+    const paths = await setupWorkspace(root);
+    const cache = join(root, "cache"); const previousCache = process.env.CRAIG_RUNTIME_CACHE;
+    process.env.CRAIG_RUNTIME_CACHE = cache;
+    const stubDir = await createStubCommands(root); process.env.PATH = `${stubDir}:${originalPath}`;
+    await writeFile(join(stubDir, "codex-stub.sh"), `#!/bin/sh
+if [ "$1" = "--help" ]; then exit 0; fi
+exec '${process.execPath}' -e 'setInterval(() => {}, 1000)'
+`);
+    let client: Awaited<ReturnType<typeof createDaemonPtyRuntime>> | undefined;
+    let lifecycle: RuntimeTransport | undefined;
+    let app: Promise<number> | undefined;
+    const terminal = new FakeTerminal();
+    let createdId = ""; let beforeTask: Awaited<ReturnType<typeof readTask>> | undefined; let beforeSession: RuntimeFrame | undefined;
+    let interrupted = false;
+    try {
+      await ensureRuntimeRunning(paths);
+      const control = (await readPrivateRecord<RuntimeRecord>(join(paths.runtimeDir, "control.json")))!;
+      lifecycle = await RuntimeTransport.connect(getClientRuntimeEndpoint(paths).socketPath);
+      const auth = { credential: control.credential, workspaceId: control.workspaceId, instanceId: control.instanceId, transactionId: "ui-attach-race" };
+      client = await createDaemonPtyRuntime({ paths, workspaceRoot: root });
+      const inventory = async () => {
+        const hosts = await readdir(join(paths.runtimeDir, "hosts"));
+        const host = (await readPrivateRecord<RuntimeRecord>(join(paths.runtimeDir, "hosts", hosts[0]!)))!;
+        const connection = await RuntimeTransport.connect(host.endpoint);
+        try { return (await connection.request({ type: "hello", credential: host.credential, instanceId: host.instanceId, workspaceId: host.workspaceId })).sessions as RuntimeFrame[]; }
+        finally { connection.close(); }
+      };
+      // Pause the real foreground client exactly after durable service creation,
+      // either before attach or after its lease is saved but before view ACK.
+      // eslint-disable-next-line no-unused-vars
+      const internal = client as unknown as { send: (request: RuntimeFrame) => Promise<RuntimeFrame> };
+      const send = internal.send.bind(client);
+      vi.spyOn(internal, "send").mockImplementation(async (request) => {
+        if (request.type === "ensureSession" && request.taskId !== "task_20260430_02") createdId = String(request.taskId);
+        if (!interrupted && createdId && request.type === stage && String(request.tabId) === `${createdId}:agent`) {
+          interrupted = true;
+          beforeTask = await readTask(paths, createdId);
+          beforeSession = (await inventory()).find((session) => session.taskId === createdId);
+          expect(beforeTask.runnerSession.lastKnownState).toBe("running");
+          expect(beforeSession?.status).toBe("running");
+          await lifecycle!.request({ type: "prepareReplacement", ...auth }, 6500);
+        }
+        return send(request);
+      });
+      app = startTerminalApp({ terminal, ptyRuntime: client, uiStateFile: paths.uiStateFile, workspaceRoot: root });
+      await vi.waitFor(() => expect(terminal.hasKeyListener()).toBe(true));
+      terminal.emitKey("ENTER"); terminal.emitKey("["); terminal.emitKey("DOWN"); terminal.emitKey("ENTER");
+      // Later incremental header writes need not contain the earlier retry toast.
+      const beforeCreateFrames = terminal.frames.length;
+      for (const char of "drain attachment race") terminal.emitKey(char);
+      terminal.emitKey("ENTER");
+      await vi.waitFor(() => expect(terminal.frames.slice(beforeCreateFrames).some((frame) => stripAnsi(frame).includes("not admitted"))).toBe(true), { timeout: 15000 });
+      expect(interrupted).toBe(true);
+      expect(await readTask(paths, createdId)).toEqual(beforeTask);
+      expect((await inventory()).find((session) => session.taskId === createdId)).toEqual(beforeSession);
+      expect(beforeSession?.pid).toBeGreaterThan(1);
+      await lifecycle.request({ type: "abortReplacement", ...auth });
+      // Selection retains the completed task/tab identity. A normal attach is
+      // sufficient; there is no new create, runner resume, or startup failure.
+      const reattach = vi.spyOn(client, "ensureSession");
+      terminal.emitKey("ENTER");
+      await vi.waitFor(() => expect(reattach).toHaveBeenCalledWith(createdId, `${createdId}:agent`, expect.any(Object)));
+      await reattach.mock.results.at(-1)!.value;
+      expect((await inventory()).find((session) => session.taskId === createdId)).toEqual(beforeSession);
+      expect(await readTask(paths, createdId)).toEqual(beforeTask);
+      console.info("ui-create-drain-continuity", JSON.stringify({ stage, taskId: createdId, agentPid: beforeSession?.pid, sameSession: true, lifecycleUnchanged: true }));
+      terminal.emitKey("\u001D"); terminal.emitKey("q"); await expect(app).resolves.toBe(0); app = undefined;
+      await shutdownSplitRuntime(paths);
+    } finally {
+      lifecycle?.close(); client?.disposeAll();
+      if (app) { terminal.emitKey("\u001D"); terminal.emitKey("q"); await app; }
+      // Whole-workspace disposal is explicit and restricted to this fixture.
+      await shutdownSplitRuntime(paths).catch(() => undefined);
+      await stopFixtureRuntimes(paths, cache);
+      if (previousCache === undefined) delete process.env.CRAIG_RUNTIME_CACHE; else process.env.CRAIG_RUNTIME_CACHE = previousCache;
+    }
+  }, 45000);
 
   test("creating a task from the left pane new-task row boots into the new agent session", async () => {
     const root = await mkdtemp(join(tmpdir(), "craig-ui-app-"));

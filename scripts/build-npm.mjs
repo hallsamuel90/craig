@@ -4,16 +4,19 @@ import { chmod, mkdir, readFile, rm } from "node:fs/promises";
 import { dirname, resolve } from "node:path";
 
 import { build } from "esbuild";
+import { runtimeBuildDefinitions } from "./runtime-identity.mjs";
 import { prepareGhostty } from "./prepare-ghostty.mjs";
 
 const repoRoot = resolve(import.meta.dirname, "..");
-const outfile = resolve(repoRoot, "packages/cli/dist/cli.js");
+const outfile = resolve(process.env.CRAIG_BUILD_OUTFILE ?? resolve(repoRoot, "packages/cli/dist/cli.js"));
 const pkgJson = JSON.parse(await readFile(resolve(repoRoot, "packages/cli/package.json"), "utf8"));
 
 await prepareGhostty();
 
 await rm(dirname(outfile), { recursive: true, force: true });
 await mkdir(dirname(outfile), { recursive: true });
+
+const runtimeDefinitions = await runtimeBuildDefinitions(repoRoot);
 
 await build({
   entryPoints: [resolve(repoRoot, "src/cli.ts")],
@@ -28,6 +31,7 @@ await build({
   logLevel: "info",
   define: {
     __CRAIG_VERSION__: JSON.stringify(pkgJson.version),
+    ...runtimeDefinitions,
   },
   alias: {
     yaml: resolve(repoRoot, "node_modules/yaml/browser/index.js"),

@@ -198,6 +198,7 @@ export interface TaskInspection {
 }
 
 export interface CommandCreateTaskResult {
+  warnings?: string[];
   kind: "createTask";
   taskId: string;
   repoId: string;

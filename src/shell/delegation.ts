@@ -1,3 +1,10 @@
+import { configService } from "../domain/config/index.js";
+import { randomUUID, createHash } from "node:crypto";
+import path from "node:path";
+import { readPrivateRecord } from "./runtime/records.js";
+import { ensureRuntimeRunning } from "./runtime/start.js";
+import { submitRuntimeTaskCreate } from "./runtime/task-create-client.js";
+import { requireAvailableRuntimeCapabilities } from "./runtime/discovery.js";
 import { CraigError } from "../domain/error/index.js";
 import {
   cancelTaskTree,
@@ -20,7 +27,15 @@ export async function createChildTaskAndSession(
   paths: CraigPaths,
   input: CreateChildInput,
 ): Promise<CommandCreateChildResult> {
-  return createChildTask(paths, input, { createTask: createDaemonOwnedTask });
+  await ensureRuntimeRunning(paths);
+  if ((await configService.load(paths)).previews?.ghosttyTerminal) await requireAvailableRuntimeCapabilities(paths, ["ghosttyTerminal"]);
+  if (await readPrivateRecord(path.join(paths.runtimeDir, "control.json"))) {
+    const { operationId = input.idempotencyKey ? `child_${createHash("sha256").update(input.parentTaskId).update("\0").update(input.idempotencyKey).digest("hex")}` : randomUUID(), ...request } = input;
+    return await submitRuntimeTaskCreate(paths, operationId, { kind: "child", input: request }) as CommandCreateChildResult;
+  }
+  const notice = await requireAvailableRuntimeCapabilities(paths, ["delegatedLaunch", "orchestration"]);
+  const result = await createChildTask(paths, input, { createTask: createDaemonOwnedTask });
+  return notice ? { ...result, warnings: [`${notice} Creating this session delays legacy migration.`] } : result;
 }
 
 export async function createRootTaskAndSession(
@@ -29,10 +44,19 @@ export async function createRootTaskAndSession(
   prompt: string,
   options: TaskCreationOptions = {},
 ): Promise<CommandCreateTaskResult> {
-  return createRootTask(paths, repoIdOrWorkspaceId, prompt, {
+  await ensureRuntimeRunning(paths);
+  if ((await configService.load(paths)).previews?.ghosttyTerminal) await requireAvailableRuntimeCapabilities(paths, ["ghosttyTerminal"]);
+  if (await readPrivateRecord(path.join(paths.runtimeDir, "control.json"))) {
+    const { operationId = randomUUID(), runner, workspaceId, owningWorkspaceId, allowLinkedProjectRepo } = options;
+    return await submitRuntimeTaskCreate(paths, operationId, { kind: "root", targetId: repoIdOrWorkspaceId, prompt,
+      options: { ...(runner ? { runner } : {}), ...(workspaceId ? { workspaceId } : {}), ...(owningWorkspaceId ? { owningWorkspaceId } : {}), ...(allowLinkedProjectRepo !== undefined ? { allowLinkedProjectRepo } : {}) } }) as CommandCreateTaskResult;
+  }
+  const notice = await requireAvailableRuntimeCapabilities(paths, ["delegatedLaunch"]);
+  const result = await createRootTask(paths, repoIdOrWorkspaceId, prompt, {
     ...options,
     launchProvisioned: (task, environment) => launchDaemonTask(paths, task, environment, false),
   });
+  return notice ? { ...result, warnings: [`${notice} Creating this session delays legacy migration.`] } : result;
 }
 
 async function createDaemonOwnedTask(

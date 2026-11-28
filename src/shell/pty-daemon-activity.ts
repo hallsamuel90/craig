@@ -1,8 +1,10 @@
+import { requireWorkspaceRuntimeCapabilities } from "./runtime/discovery.js";
+import { getClientRuntimeEndpoint } from "./runtime/endpoint.js";
+import type { RuntimeHello } from "../domain/runtime/types.js";
 import { createConnection, type Socket } from "node:net";
 
 import type { PtyActivitySnapshot } from "../domain/agent/index.js";
 import type { CraigPaths } from "../state/craig-paths.js";
-import { getPtyDaemonEndpoint, PTY_DAEMON_PROTOCOL_VERSION } from "./pty-daemon-protocol.js";
 
 type ActivityRequestInput =
   | { type: "ping" }
@@ -10,7 +12,7 @@ type ActivityRequestInput =
   | { type: "getActivitySnapshots" };
 
 type ActivityResponse =
-  | { id: number; ok: true; protocolVersion?: number; activities?: PtyActivitySnapshot[] }
+  | { id: number; ok: true; protocolVersion?: number; capabilities?: RuntimeHello["capabilities"]; activities?: PtyActivitySnapshot[] }
   | { id: number; ok: false; error: string };
 
 type ActivityEvent =
@@ -38,7 +40,7 @@ export async function tryConnectPtyDaemonActivity(
 ): Promise<PtyDaemonActivityClient | null> {
   let client: PtyDaemonActivityClient | null = null;
   try {
-    const socket = await connectToDaemon(getPtyDaemonEndpoint(options.paths).socketPath);
+    const socket = await connectToDaemon(getClientRuntimeEndpoint(options.paths).socketPath);
     client = new PtyDaemonActivityClient(socket, options);
     await client.ready();
     return client;
@@ -56,6 +58,7 @@ export class PtyDaemonActivityClient {
   private revision = 0;
   private buffer = "";
   private closed = false;
+  private splitRuntime = false;
 
   constructor(
     private readonly socket: Socket,
@@ -70,9 +73,8 @@ export class PtyDaemonActivityClient {
 
   async ready(): Promise<void> {
     const ping = await this.send({ type: "ping" });
-    if (ping.protocolVersion !== PTY_DAEMON_PROTOCOL_VERSION) {
-      throw new Error("Craig PTY daemon protocol mismatch.");
-    }
+    await requireWorkspaceRuntimeCapabilities(this.options.paths, ping, ["activity"]);
+    this.splitRuntime = ping.capabilities?.includes("splitRuntime") ?? false;
     await this.send({ type: "setActivityEnabled", enabled: true });
     const baselineRevision = this.revision;
     const response = await this.send({ type: "getActivitySnapshots" });
@@ -169,6 +171,7 @@ export class PtyDaemonActivityClient {
     this.closed = true;
     const error = new Error("Craig PTY daemon connection closed.");
     this.rejectAll(error);
+    if (this.splitRuntime) { this.options.onDaemonClose?.(); return; }
     for (const snapshot of this.snapshots.values()) {
       if (snapshot.sessionState !== "running") continue;
       const failed = { ...snapshot, sessionState: "failed" as const, lastActivityAt: Date.now(), error: error.message };

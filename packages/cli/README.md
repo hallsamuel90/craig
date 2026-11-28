@@ -43,7 +43,7 @@ _It's like a game, except the PRs are real._
 - **Stay in flow.** Launch agents, move between tasks, inspect changes, and watch PR checks without leaving the keyboard.
 - **Work across repositories.** Treat one repo or a directory of repos as a workspace while preserving real repository boundaries.
 - **Let agents operate the workspace.** The same task model backs the TUI and CLI, so agents and scripts can inspect context and perform Craig actions directly.
-- **Leave and come back.** A local daemon keeps agent sessions and PR synchronization alive when the foreground TUI closes.
+- **Leave and come back.** New workspaces keep agents, PTYs, and terminal history in independent session hosts, so closing the TUI or losing the control service preserves the running conversation. Runtime code and dependencies are pinned outside the launching installation. Use `craig daemon status --json` to inspect compatibility without starting or replacing anything. Existing legacy sessions retain their original owner; migration waits for an empty runtime. A newer stable release automatically replaces compatible control code on the next runtime invocation. The running agent process and its PTY stay in place. `craig daemon restart` explicitly selects the invoked build for control; older releases never downgrade a newer service. New sessions use the current session-host revision; existing sessions keep their original host until they are deliberately closed or no longer retained.
 
 ## Install
 
@@ -57,7 +57,7 @@ The Pi coding agent is available as an opt-in feature preview under Options &gt;
 
 The Agent file opening preview lets an attached agent run `craig file open <path>` to display any readable text file directly in the active Craig TUI.
 
-The **Ghostty terminal (new sessions)** preview is available under **Options > Feature Previews**. It is off by default. Enabling it uses Ghostty for newly created terminal sessions; existing sessions keep their backend. Disabling it returns new sessions to xterm. If an older workspace daemon is still running, existing sessions remain attachable; creating Ghostty sessions requires restarting that daemon after closing its sessions.
+The **Ghostty terminal (new sessions)** preview is available under **Options > Feature Previews**. It is off by default. Enabling it uses Ghostty for newly created terminal sessions; existing sessions keep their backend. Disabling it returns new sessions to xterm. The split runtime selects Ghostty for new sessions on a compatible current host while preserving older sessions and their original backend. If a pre-split daemon lacks Ghostty support, existing sessions remain attachable, but new Ghostty tasks are rejected before provisioning. Disable the preview while those sessions remain active, or complete the explicit empty legacy migration after finishing them.
 
 The preview runs offline with an embedded terminal library. Emoji widths and very long hyperlinks can differ from xterm; this preview has not graduated to the default backend.
 
@@ -410,3 +410,10 @@ LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 THE SOFTWARE.
 ```
+Task creation is admitted durably before provisioning on the split runtime. Supply `--operation-id <id>` to `craig task new` or `craig task create-child` to retry an uncertain result with the same identity. An interrupted, ambiguous provisioning operation reports `recovery_required` and preserves existing work for inspection.
+
+Control replacement drains admitted work for up to five seconds, then reconnects existing clients to fresh terminal snapshots. Input is visibly paused during reconnection and uncertain prompt writes are never replayed. A drain timeout keeps the previous service running; failed startup restores the compatible pinned service when it can do so safely. An unresponsive living owner remains untouched. Equal-release development builds require explicit `craig daemon restart`. For a pre-RFC legacy runtime, finish all sessions and background work and close every old client before acknowledging the one-time transition with `craig daemon restart --migrate-legacy`; active or unverifiable owners block migration.
+
+Craig updates leave existing agent processes, PTY handles, conversation state, and terminal scrollback in place. Retained exited views also survive control replacement. Closing a task or tab intentionally ends its session; host-process loss, OS reboot, and machine shutdown end live-process continuity. Craig reports lost ownership and preserves ambiguous state for inspection.
+
+Runtime artifacts live in a private cache with their complete production dependencies. Cleanup checks references across known workspaces under the same lock used for publication and launch. Live processes, logical views, pending creates, handoff holds, rollback artifacts, and uncertain ownership keep the required artifacts. A durable cache ledger records each launched owner independently of workspace discovery. Missing host records or lost/recreated workspace registries retain their artifacts; caches predating this ledger remain conservative. Older hosts without atomic retirement support remain retained.

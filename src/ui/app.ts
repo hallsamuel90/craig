@@ -1,7 +1,9 @@
 import { createRequire } from "node:module";
 import type * as TerminalKitModule from "terminal-kit";
 
-import { readUiState } from "../state/ui-state-store.js";
+import { randomUUID } from "node:crypto";
+import { processAlive } from "../shell/runtime/discovery.js";
+import { readUiState, writeUiState, getDefaultUiState } from "../state/ui-state-store.js";
 import { configService } from "../domain/config/index.js";
 import { taskService } from "../domain/task/index.js";
 import { getCraigPaths } from "../state/craig-paths.js";
@@ -127,12 +129,14 @@ export async function startTerminalApp(options: TerminalAppOptions = {}): Promis
   const paths = getCraigPaths(workspaceRoot);
   let config = await configService.load(paths);
   let enabledRunnerIds = configService.runners.getEnabled(config);
-  const runtimeState = options.uiStateFile ? await readUiState({ uiStateFile: options.uiStateFile }) : null;
+  let runtimeState = options.uiStateFile ? await readUiState({ uiStateFile: options.uiStateFile }) : null;
   let model = await loadWorkspaceShellModel(workspaceRoot, undefined, enabledRunnerIds);
   const initialShell = restoreShellState(createInitialShellState(runtimeState, config), model);
   model = await loadWorkspaceShellModel(workspaceRoot, initialShell, enabledRunnerIds);
   const modelRef = { current: model };
   let handlePtyUpdate: NonNullable<PtyRuntimeOptions["onUpdate"]> = () => undefined;
+  // eslint-disable-next-line no-unused-vars
+  let handlePtyLifecycle: (message: string | null) => void = () => undefined;
   let handlePtyActivity: NonNullable<PtyRuntimeOptions["onActivity"]> = () => undefined;
   let handlePtyActivityRemoved: NonNullable<PtyRuntimeOptions["onActivityRemoved"]> = () => undefined;
   const ptyOptions: PtyRuntimeOptions = {
@@ -142,12 +146,22 @@ export async function startTerminalApp(options: TerminalAppOptions = {}): Promis
     onActivityRemoved: (tabId) => handlePtyActivityRemoved(tabId),
     resolveSessionSpec: (_taskId, tabId) => resolvePtySessionSpec(modelRef.current, tabId, workspaceRoot),
   };
+  if (!options.ptyRuntime && options.uiStateFile) {
+    const previous = runtimeState?.runtimeViewClient;
+    const viewClient = previous && (previous.ownerPid === process.pid || !processAlive(previous.ownerPid))
+      ? { ...previous, ownerPid: process.pid }
+      : { clientId: randomUUID(), proof: randomUUID(), ownerPid: process.pid };
+    runtimeState = { ...(runtimeState ?? getDefaultUiState()), runtimeViewClient: viewClient };
+    await writeUiState({ uiStateFile: options.uiStateFile }, runtimeState);
+  }
   const initialPtyRuntime: PtyRuntimePort =
     options.ptyRuntime ??
     (await createDaemonPtyRuntime({
       ...ptyOptions,
       paths,
       activityEnabled: true,
+      onLifecycle: (message) => handlePtyLifecycle(message),
+      ...(runtimeState?.runtimeViewClient ? { viewClient: runtimeState.runtimeViewClient } : {}),
     }));
 
   return new Promise<number>((resolve) => {
@@ -178,7 +192,7 @@ export async function startTerminalApp(options: TerminalAppOptions = {}): Promis
         variant: "boot",
         menuIndex: 0,
         optionsMessage: null,
-        shell: restoreShellState(initialShell, model),
+        shell: { ...restoreShellState(initialShell, model), ...("upgradePendingMessage" in initialPtyRuntime && initialPtyRuntime.upgradePendingMessage ? { actionMessage: String(initialPtyRuntime.upgradePendingMessage) } : {}) },
       },
       get model() {
         return modelRef.current;
@@ -228,6 +242,10 @@ export async function startTerminalApp(options: TerminalAppOptions = {}): Promis
     const isWorkspaceSplash = () => ctx.state.mode === "overlay"
       && (ctx.state.variant === "boot" || ctx.state.variant === "pause");
 
+    handlePtyLifecycle = (message) => {
+      if (ctx.state.mode === "main" || ctx.state.mode === "overlay") ctx.state = { ...ctx.state, shell: { ...ctx.state.shell, actionMessage: message } };
+      ctx.render();
+    };
     handlePtyUpdate = (invalidation) => {
       if (ctx.state.mode !== "main") {
         return;

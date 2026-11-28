@@ -1,3 +1,6 @@
+import { restartDaemon } from "../shell/runtime/replacement.js";
+import { withRuntimeMutation } from "../shell/runtime/mutation.js";
+import { daemonStatus } from "../shell/runtime/discovery.js";
 import path from "node:path";
 import { readFile } from "node:fs/promises";
 
@@ -39,6 +42,11 @@ export async function executeCommand(
   command: AppCommand,
   context: CommandContext,
 ): Promise<CommandResult> {
+  if (/^(list|show|inspect|watch|wait)/.test(command.kind) || ["createTask", "createChildTask", "daemonStatus", "daemonRestart", "watchEvents", "watchFury", "help"].includes(command.kind)) return executeAdmittedCommand(command, context);
+  return withRuntimeMutation(context.paths, () => executeAdmittedCommand(command, context));
+}
+
+async function executeAdmittedCommand(command: AppCommand, context: CommandContext): Promise<CommandResult> {
   switch (command.kind) {
     case "addWorkspace": {
       const result = await workspaceService.addWorkspace(context.paths, command.path);
@@ -93,7 +101,7 @@ export async function executeCommand(
         context.paths,
         command.repoId ?? command.workspaceId ?? "",
         command.prompt,
-        { ...(command.runner ? { runner: command.runner } : {}), ...(command.workspaceId ? { workspaceId: command.workspaceId } : {}) },
+        { ...(command.operationId ? { operationId: command.operationId } : {}), ...(command.runner ? { runner: command.runner } : {}), ...(command.workspaceId ? { workspaceId: command.workspaceId } : {}) },
       );
     case "createChildTask": {
       const config = await configService.load(context.paths);
@@ -107,6 +115,7 @@ export async function executeCommand(
       assertScopedAgent(context);
       return createChildTaskAndSession(context.paths, {
         parentTaskId: command.parentTaskId ?? requireResolvedTaskContext(context).task.id,
+        ...(command.operationId ? { operationId: command.operationId } : {}),
         ...(command.repoId ? { repoId: command.repoId } : {}),
         ...(command.workspaceId ? { workspaceId: command.workspaceId } : {}),
         prompt: command.prompt,
@@ -374,6 +383,10 @@ export async function executeCommand(
           : null,
       };
     }
+    case "daemonRestart":
+      return restartDaemon(context.paths, command.migrateLegacy);
+    case "daemonStatus":
+      return daemonStatus(context.paths);
     case "help":
       return { kind: "help", text: getHelpText() };
     case "exit":

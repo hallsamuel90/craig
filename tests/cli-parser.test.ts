@@ -332,3 +332,9 @@ describe("CLI argument parsing", () => {
     }
   });
 });
+
+test("daemon restart accepts only the explicit legacy migration acknowledgement", () => {
+  expect(parseArgv(["daemon", "restart", "--json"]).command).toEqual({ kind: "daemonRestart", migrateLegacy: false });
+  expect(parseArgv(["daemon", "restart", "--migrate-legacy", "--json"]).command).toEqual({ kind: "daemonRestart", migrateLegacy: true });
+  expect(() => parseArgv(["daemon", "restart", "--force"])).toThrow();
+});

@@ -53,6 +53,7 @@ export interface TerminalRuntime {
 
 export interface PtyRuntimePort {
   readonly managesPullRequestSync?: boolean;
+  readonly supportsTaskCreateAdmission?: boolean;
   ensureSession(...args: [string, string, PtySize]): ControlShellState["terminal"] | Promise<ControlShellState["terminal"]>;
   hydrateSessions?(...args: [string[]]): void | Promise<void>;
   pruneStale?(...args: [string[]]): void | Promise<void>;
@@ -62,6 +63,7 @@ export interface PtyRuntimePort {
   resize(...args: [PtySize]): void;
   detach(): void;
   disposeSession(...args: [string]): void;
+  disposeSessionConfirmed?(...args: [string]): Promise<void>;
   disposeAll(): void;
   getViewState(...args: [string | null]): ControlShellState["terminal"];
   getActivitySnapshots?(): PtyActivitySnapshot[];

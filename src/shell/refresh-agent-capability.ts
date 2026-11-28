@@ -1,11 +1,15 @@
+import type { RuntimeHello } from "../domain/runtime/types.js";
+import { withRuntimeMutation } from "./runtime/mutation.js";
+import { requireWorkspaceRuntimeCapabilities } from "./runtime/discovery.js";
+import { getClientRuntimeEndpoint } from "./runtime/endpoint.js";
 import { createConnection, type Socket } from "node:net";
 
 import type { PtyActivitySnapshot } from "../domain/agent/index.js";
 import { isAgentCapabilityRefreshDue, refreshAgentCapability, type AgentCapabilitySession } from "../domain/orchestration/index.js";
 import type { CraigPaths } from "../state/craig-paths.js";
-import { getPtyDaemonEndpoint, isCompatiblePtyDaemonProtocol } from "./pty-daemon-protocol.js";
+import { isCompatiblePtyDaemonProtocol } from "./pty-daemon-protocol.js";
 
-interface Response {
+interface Response extends RuntimeHello {
   id: number;
   ok: boolean;
   protocolVersion?: number;
@@ -17,12 +21,13 @@ interface Response {
 export async function refreshLiveAgentCapability(paths: CraigPaths, session: AgentCapabilitySession): Promise<void> {
   try {
     if (!await isAgentCapabilityRefreshDue(paths, session)) return;
-    const socket = createConnection(getPtyDaemonEndpoint(paths).socketPath);
+    const socket = createConnection(getClientRuntimeEndpoint(paths).socketPath);
     socket.on("error", () => undefined); // Keep late connection errors best effort, too.
     const timeout = setTimeout(() => socket.destroy(new Error("Capability refresh probe timed out.")), 1_000);
     try {
       const ping = await request(socket, 1, "ping");
       if (!isCompatiblePtyDaemonProtocol(ping.protocolVersion)) return;
+      await requireWorkspaceRuntimeCapabilities(paths, ping, ["activity"]);
       // Enabling observation rebuilds snapshots from the current PTY state;
       // cached activity can be stale when there were no activity subscribers.
       await request(socket, 2, "setActivityEnabled");
@@ -31,7 +36,8 @@ export async function refreshLiveAgentCapability(paths: CraigPaths, session: Age
       socket.destroy();
       if (response.activities?.some((snapshot) =>
         snapshot.taskId === session.taskId && snapshot.tabId === session.agentTabId && snapshot.sessionState === "running")) {
-        await refreshAgentCapability(paths, session);
+        if (ping.capabilities?.includes("controlReplacement")) await withRuntimeMutation(paths, () => refreshAgentCapability(paths, session));
+        else await refreshAgentCapability(paths, session);
       }
     } finally {
       clearTimeout(timeout);

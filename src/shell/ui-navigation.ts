@@ -1,21 +1,24 @@
+import { runtimeMutationContext } from "./runtime/mutation-context.js";
+import { requireWorkspaceRuntimeCapabilities } from "./runtime/discovery.js";
+import { getClientRuntimeEndpoint } from "./runtime/endpoint.js";
+import type { RuntimeHello } from "../domain/runtime/types.js";
 import { createConnection, type Socket } from "node:net";
 
 import type { CraigPaths } from "../state/craig-paths.js";
-import { getPtyDaemonEndpoint, PTY_DAEMON_PROTOCOL_VERSION } from "./pty-daemon-protocol.js";
 
 interface NavigationResponse {
   ok: boolean;
-  protocolVersion?: number;
+  protocolVersion?: number; capabilities?: RuntimeHello["capabilities"];
   deliveredCount?: number;
   error?: string;
 }
 
 export async function requestOpenFile(paths: CraigPaths, filePath: string): Promise<boolean> {
-  const socket = await connect(getPtyDaemonEndpoint(paths).socketPath).catch(() => null);
+  const socket = await connect(getClientRuntimeEndpoint(paths).socketPath).catch(() => null);
   if (!socket) return false;
   try {
     const ping = await request(socket, { type: "ping" });
-    if (ping.protocolVersion !== PTY_DAEMON_PROTOCOL_VERSION) return false;
+    await requireWorkspaceRuntimeCapabilities(paths, ping, ["navigation"]);
     const response = await request(socket, { type: "openFile", path: filePath });
     return (response.deliveredCount ?? 0) > 0;
   } catch {
@@ -50,7 +53,7 @@ function request(socket: Socket, input: { type: "ping" } | { type: "openFile"; p
       socket.off("data", onData);
     };
     socket.on("data", onData);
-    socket.write(`${JSON.stringify({ ...input, id })}\n`);
+    socket.write(`${JSON.stringify({ ...input, id, admissionToken: runtimeMutationContext.getStore() })}\n`);
   });
 }
 

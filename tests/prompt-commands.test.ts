@@ -1,3 +1,4 @@
+import { RuntimeAdmissionGate } from "../src/shell/runtime/admission-gate.js";
 import { mkdir, readdir, rm, utimes, writeFile } from "node:fs/promises";
 
 import { afterEach, describe, expect, test, vi, type Mock } from "vitest";
@@ -420,6 +421,41 @@ describe("orchestration supervisor", () => {
     } finally {
       await supervisor.stop();
     }
+  });
+
+  test.each(["before-paste", "between-paste-submit", "after-submit-before-ack"] as const)("async %s fault drains without replay or false initial-agent failure", async (fault) => {
+    const { paths, input, tabId } = await setupCommand();
+    const created = await promptCommandService.create(paths, { ...input, delivery: "immediate", idempotencyKey: `task-start:${input.taskId}` });
+    const before = (await taskService.getTask(paths, input.taskId)).runnerSession;
+    const runtime = createRuntime(tabId, Date.now());
+    const gate = new RuntimeAdmissionGate();
+    let release!: () => void;
+    const blocked = new Promise<void>((resolve) => { release = resolve; });
+    const writes: string[] = [];
+    let count = 0;
+    runtime.writeToSession.mockImplementation(async (_tab, data) => {
+      count++;
+      const failing = fault === "before-paste" ? count === 1 : count === 2;
+      if (fault === "after-submit-before-ack" || !failing) writes.push(data);
+      if (failing) { await blocked; throw new Error("Fixture lost transport acknowledgement"); }
+    });
+    const supervisor = new OrchestrationSupervisor(paths, runtime, { intervalMs: 10000, admit: (work) => gate.background(work) });
+    const replacement = new OrchestrationSupervisor(paths, runtime, { intervalMs: 10000 });
+    const running = supervisor.start();
+    try {
+      await vi.waitFor(() => expect(count).toBe(fault === "before-paste" ? 1 : 2));
+      const draining = gate.drain();
+      expect(gate.pendingCount).toBeGreaterThan(0);
+      await expect(gate.run(async () => undefined)).rejects.toThrow("not admitted");
+      await expect(replacement.start()).rejects.toMatchObject({ code: "COMMAND_STATE_CONFLICT" });
+      release(); await running; await draining;
+      expect((await promptCommandService.show(paths, created.command.id)).command).toMatchObject({ state: "failed", attempts: 1, lastError: { code: "PROMPT_DELIVERY_UNCERTAIN" } });
+      expect(writes).toHaveLength(fault === "before-paste" ? 0 : fault === "between-paste-submit" ? 1 : 2);
+      await supervisor.stop(); await replacement.start(); await replacement.wake();
+      expect(runtime.writeToSession).toHaveBeenCalledTimes(fault === "before-paste" ? 1 : 2);
+      expect((await taskService.getTask(paths, input.taskId)).runnerSession.lastKnownState).toBe(before.lastKnownState);
+      expect((await listEvents(paths)).events.filter((event) => event.type === "agent.state.changed" && (event.data as { state?: string }).state === "error")).toHaveLength(0);
+    } finally { release(); await running.catch(() => undefined); await supervisor.stop(); await replacement.stop(); }
   });
 
   test("allows only one workspace leader", async () => {

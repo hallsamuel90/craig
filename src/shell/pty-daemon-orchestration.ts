@@ -1,20 +1,23 @@
-import { mkdir, readFile, rm } from "node:fs/promises";
+import { runtimeMutationContext } from "./runtime/mutation-context.js";
+import { requireWorkspaceRuntimeCapabilities } from "./runtime/discovery.js";
+import { getClientRuntimeEndpoint } from "./runtime/endpoint.js";
 import { createConnection, type Socket } from "node:net";
-import path from "node:path";
 
 import type { CraigPaths } from "../state/craig-paths.js";
-import { getPtyDaemonEndpoint, isCompatiblePtyDaemonProtocol } from "./pty-daemon-protocol.js";
-import { spawnPtyDaemonProcess } from "./pty-daemon-process.js";
+import { ensureRuntimeRunning } from "./runtime/start.js";
+import { resolveRuntimeCompatibility } from "./runtime/compatibility.js";
+import type { RuntimeHello } from "../domain/runtime/types.js";
 import { hasLiveOrchestrationSupervisor } from "./orchestration-leader.js";
 
 export async function wakeOrchestrationSupervisor(paths: CraigPaths): Promise<boolean> {
-  const socket = await connect(getPtyDaemonEndpoint(paths).socketPath).catch(() => null);
+  const socket = await connect(getClientRuntimeEndpoint(paths).socketPath).catch(() => null);
   // Sandboxed workers may read workspace state but cannot connect to Unix
   // sockets. A fresh, live leader will poll their already-persisted commands.
   if (!socket) return hasLiveOrchestrationSupervisor(paths);
   try {
     const ping = await request(socket, { type: "ping" });
-    if (!isCompatiblePtyDaemonProtocol(ping.protocolVersion)) return false;
+    if (!resolveRuntimeCompatibility(ping, ["orchestration"]).compatible) return false;
+    await requireWorkspaceRuntimeCapabilities(paths, ping, ["orchestration"]);
     await request(socket, { type: "wakeOrchestration" });
     return true;
   } catch {
@@ -26,11 +29,12 @@ export async function wakeOrchestrationSupervisor(paths: CraigPaths): Promise<bo
 
 export async function disposeDaemonSessions(paths: CraigPaths, tabIds: string[]): Promise<boolean> {
   if (tabIds.length === 0) return true;
-  const socket = await connect(getPtyDaemonEndpoint(paths).socketPath).catch(() => null);
+  const socket = await connect(getClientRuntimeEndpoint(paths).socketPath).catch(() => null);
   if (!socket) return false;
   try {
     const ping = await request(socket, { type: "ping" });
-    if (!isCompatiblePtyDaemonProtocol(ping.protocolVersion)) return false;
+    if (!resolveRuntimeCompatibility(ping, ["orchestration"]).compatible) return false;
+    await requireWorkspaceRuntimeCapabilities(paths, ping, ["orchestration"]);
     for (const tabId of tabIds) await request(socket, { type: "disposeSession", tabId });
     return true;
   } catch {
@@ -50,13 +54,11 @@ export async function ensureDaemonAgentSession(
     env?: Record<string, string>;
   },
 ): Promise<void> {
-  await ensureDaemonRunning(paths);
-  const socket = await connect(getPtyDaemonEndpoint(paths).socketPath);
+  await ensureRuntimeRunning(paths);
+  const socket = await connect(getClientRuntimeEndpoint(paths).socketPath);
   try {
     const ping = await request(socket, { type: "ping" });
-    if (!isCompatiblePtyDaemonProtocol(ping.protocolVersion)) {
-      throw new Error("Craig PTY daemon protocol mismatch during delegated agent startup.");
-    }
+    await requireWorkspaceRuntimeCapabilities(paths, ping, ["delegatedLaunch"]);
     await request(socket, {
       type: "ensureSession",
       taskId: input.taskId,
@@ -69,45 +71,7 @@ export async function ensureDaemonAgentSession(
   }
 }
 
-async function ensureDaemonRunning(paths: CraigPaths): Promise<void> {
-  const endpoint = getPtyDaemonEndpoint(paths);
-  const existing = await ping(endpoint.socketPath).catch(() => null);
-  if (isCompatiblePtyDaemonProtocol(existing?.protocolVersion)) return;
-  if (existing) {
-    throw new Error("A live Craig PTY daemon is using an incompatible protocol. Exit the other Craig instance and restart explicitly.");
-  }
-
-  await mkdir(paths.runtimeDir, { recursive: true });
-  const pidText = await readFile(endpoint.pidPath, "utf8").catch(() => null);
-  const pid = Number(pidText?.trim());
-  if (Number.isInteger(pid) && pid > 0 && isProcessAlive(pid)) {
-    throw new Error("A Craig PTY daemon process is still running but is not accepting connections. Stop it explicitly before starting another daemon.");
-  }
-  await Promise.all([rm(endpoint.socketPath, { force: true }), rm(endpoint.pidPath, { force: true })]);
-  spawnPtyDaemonProcess(paths);
-
-  const startedAt = Date.now();
-  while (Date.now() - startedAt < 5_000) {
-    const response = await ping(endpoint.socketPath).catch(() => null);
-    if (isCompatiblePtyDaemonProtocol(response?.protocolVersion)) return;
-    await new Promise((resolve) => setTimeout(resolve, 50));
-  }
-  const log = await readFile(path.join(paths.runtimeDir, "pty-daemon.log"), "utf8").catch(() => "");
-  throw new Error(`Craig PTY daemon did not start.${log ? `\n${log.slice(-2000)}` : ""}`);
-}
-
-async function ping(socketPath: string): Promise<Response> {
-  const socket = await connect(socketPath);
-  try { return await request(socket, { type: "ping" }); }
-  finally { socket.end(); }
-}
-
-function isProcessAlive(pid: number): boolean {
-  try { process.kill(pid, 0); return true; }
-  catch { return false; }
-}
-
-interface Response {
+interface Response extends RuntimeHello {
   id: number;
   ok: boolean;
   protocolVersion?: number;
@@ -149,7 +113,7 @@ function request(socket: Socket, input:
       socket.off("data", onData);
     };
     socket.on("data", onData);
-    socket.write(`${JSON.stringify({ ...input, id })}\n`);
+    socket.write(`${JSON.stringify({ ...input, id, admissionToken: runtimeMutationContext.getStore() })}\n`);
   });
 }
 

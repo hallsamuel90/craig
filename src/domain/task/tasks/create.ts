@@ -1,4 +1,5 @@
 /* eslint-disable no-unused-vars */
+import { RuntimeAcknowledgementUncertainError } from "../../runtime/errors.js";
 import type { CommandCreateTaskResult } from "../types.js";
 import type { TaskRecord } from "../types.js";
 import type { CraigPaths } from "../../../state/craig-paths.js";
@@ -11,11 +12,15 @@ import { getTask } from "./inspect.js";
 
 export interface TaskCreationOptions {
   runner?: RunnerType;
+  reservedTaskId?: string;
+  operationId?: string;
   workspaceId?: string;
   owningWorkspaceId?: string;
   allowLinkedProjectRepo?: boolean;
   markStartedAfterLaunch?: boolean;
   lineage?: TaskLineageInput;
+  onProvisioningStarted?: (task: TaskRecord) => Promise<void>;
+  onLaunchRecorded?: (task: TaskRecord) => Promise<void>;
   onProvisioned?: (task: TaskRecord) => Promise<Record<string, string> | void>;
   launchProvisioned?: (task: TaskRecord, environment?: Record<string, string>) => Promise<void>;
 }
@@ -39,10 +44,11 @@ export const createTask = async (
     throw new Error("Task prompt cannot be empty.");
   }
   const provisioned = options.workspaceId
-    ? await provisionProjectTask(paths, options.workspaceId, trimmedPrompt, { runner, config, ...(options.lineage ? { lineage: options.lineage } : {}) })
+    ? await provisionProjectTask(paths, options.workspaceId, trimmedPrompt, { runner, config, ...(options.reservedTaskId ? { reservedTaskId: options.reservedTaskId } : {}), ...(options.onProvisioningStarted ? { onProvisioningStarted: options.onProvisioningStarted } : {}), ...(options.lineage ? { lineage: options.lineage } : {}) })
     : await provisionTask(paths, repoIdOrWorkspaceId, trimmedPrompt, {
         runner,
         config,
+        ...(options.reservedTaskId ? { reservedTaskId: options.reservedTaskId } : {}), ...(options.onProvisioningStarted ? { onProvisioningStarted: options.onProvisioningStarted } : {}),
         ...(options.owningWorkspaceId ? {
           workspaceId: options.owningWorkspaceId,
           allowLinkedProjectRepo: options.allowLinkedProjectRepo ?? false,
@@ -57,6 +63,7 @@ export const createTask = async (
     const launchedTask = options.markStartedAfterLaunch === false
       ? await getTask(paths, draftTask.id)
       : await markTaskStarted(paths, draftTask.id);
+    await options.onLaunchRecorded?.(launchedTask);
     const agentTab = launchedTask.ptyTabs.find((tab) => tab.kind === "agent")!;
 
     return {
@@ -71,6 +78,7 @@ export const createTask = async (
       runner: launchedTask.runner,
     };
   } catch (error) {
+    if (error instanceof RuntimeAcknowledgementUncertainError) throw error;
     await recordStartupFailure(paths, draftTask.id, error instanceof Error ? error.message : "Unknown Craig error");
     throw error;
   }
